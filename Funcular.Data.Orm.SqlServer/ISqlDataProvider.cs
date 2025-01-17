@@ -5,7 +5,7 @@ using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
 {
-    public interface ISqlRepository
+    public interface ISqlDataProvider
     {
         /// <summary>
         /// Gets or sets the log action (e.g., write to console).

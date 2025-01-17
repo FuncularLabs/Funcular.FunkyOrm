@@ -17,7 +17,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Database", "Database", "{3E341EFF-0A90-44FD-8629-A64E41A71454}"
 	ProjectSection(SolutionItems) = preProject
+		Database\integration_test_data.sql = Database\integration_test_data.sql
+		Database\integration_test_db.sql = Database\integration_test_db.sql
 		README.txt = README.txt
+		Database\README.txt = Database\README.txt
 	EndProjectSection
 EndProject
 Global

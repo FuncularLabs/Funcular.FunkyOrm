@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -13,13 +14,15 @@ using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
 {
-    /// <summary>Class SqlDataProvider.</summary>
-    public partial class SqlDataProvider : ISqlRepository
+    /// <summary>
+    /// Represents a SQL data provider for interacting with SQL Server databases. This class manages connections, transactions, and provides methods for data operations like querying, inserting, updating, and managing transactions.
+    /// </summary>
+    public partial class SqlDataProvider : ISqlDataProvider
     {
         #region Fields
 
         protected readonly string _connectionString;
-        private SqlTransaction? _transaction;
+        protected SqlTransaction? _transaction;
         internal static readonly ConcurrentDictionary<Type, string> _tableNames = new();
         internal static readonly ConcurrentDictionary<PropertyInfo, string> _columnNames = new();
         internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new();
@@ -29,40 +32,21 @@ namespace Funcular.Data.Orm.SqlServer
 
         #endregion
 
-
-
         #region Properties
 
         /// <summary>
-        /// Gets or sets the log action (e.g., write to console).
+        /// Gets or sets the action to use for logging SQL operations. This can be set to log to console, file, or any other logging mechanism.
         /// </summary>
-        /// <value>The log.</value>
-        Action<string> ISqlRepository.Log
-        {
-            get => Log;
-            set => Log = value;
-        }
+        public Action<string>? Log { get; set; }
 
         /// <summary>
-        /// Gets or sets the connection.
+        /// Gets or sets the SQL connection. When set to null, a new connection will be created using <see cref="_connectionString"/>.
         /// </summary>
-        /// <value>The connection.</value>
-        SqlConnection? ISqlRepository.Connection
-        {
-            get => Connection;
-            set => Connection = value;
-        }
-
-        /// <summary>
-        /// Gets or sets the connection.
-        /// </summary>
-        /// <value>The connection.</value>
         public SqlConnection? Connection { get; set; }
 
         /// <summary>
-        /// Gets or sets the transaction.
+        /// Gets or sets the current transaction. This is used for managing database transactions across multiple operations.
         /// </summary>
-        /// <value>The transaction.</value>
         public SqlTransaction? Transaction
         {
             get => _transaction;
@@ -70,24 +54,21 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Gets or sets the name of the transaction.
+        /// Gets or sets the name of the current transaction, if any. This can be used for identifying transactions in complex scenarios.
         /// </summary>
-        /// <value>The name of the transaction.</value>
         public string? TransactionName { get; private set; }
 
         #endregion
 
-
-
         #region Public members
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SqlDataProvider"/> class.
+        /// Initializes a new instance of the <see cref="SqlDataProvider"/> class with the specified connection string and optional existing connection or transaction.
         /// </summary>
-        /// <param name="connectionString">The connection string.</param>
-        /// <param name="connection">An existing connection. If null, a new connection will be created.</param>
-        /// <param name="transaction">An existing transaction to join. If null, no transaction is used by default.</param>
-        /// <exception cref="System.ArgumentNullException">connectionString</exception>
+        /// <param name="connectionString">The connection string for the SQL Server database.</param>
+        /// <param name="connection">An existing SQL connection to reuse. If null, a new connection will be created.</param>
+        /// <param name="transaction">An existing transaction to join. If null, no transaction will be active initially.</param>
+        /// <exception cref="System.ArgumentNullException">Thrown if <paramref name="connectionString"/> is null.</exception>
         public SqlDataProvider(string connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
@@ -95,15 +76,12 @@ namespace Funcular.Data.Orm.SqlServer
             Transaction = transaction;
         }
 
-        public Action<string>? Log { get; set; }
-
-
         /// <summary>
-        /// Gets the entity having the specified key, if it exists.
+        /// Retrieves an entity of type <typeparamref name="T"/> by its primary key. If no key is provided, it attempts to use the default key value or throw an exception if not found.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="key">The key.</param>
-        /// <returns>System.Nullable&lt;T&gt;.</returns>
+        /// <typeparam name="T">The type of the entity to retrieve, must have a parameterless constructor.</typeparam>
+        /// <param name="key">The primary key value for the entity. If null, assumes a default or auto-generated key.</param>
+        /// <returns>An instance of <typeparamref name="T"/> if found, otherwise null.</returns>
         public T? Get<T>(dynamic? key = null) where T : class, new()
         {
             T? result = null;
@@ -162,35 +140,12 @@ namespace Funcular.Data.Orm.SqlServer
             return result;
         }
 
-        /*/// <summary>
-        /// Queries the specified entity type using the specified expression as the WHERE clause.
-        /// Parameterizes the resulting query.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="expression">The expression.</param>
-        /// <returns>ICollection&lt;T&gt;.</returns>
-        ICollection<T> ISqlRepository.Query<T>(Expression<Func<T, bool>> expression)
-        {
-            return null;
-        }
-
         /// <summary>
-        /// Gets the entire list of entities of type T.
+        /// Queries for entities of type <typeparamref name="T"/> based on the supplied LINQ expression, converting it into a SQL WHERE clause.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <returns>ICollection&lt;T&gt;.</returns>
-        ICollection<T> ISqlRepository.GetList<T>()
-        {
-            return null;
-        }*/
-
-        /// <summary>
-        /// Queries the specified entity type using the specified expression as the WHERE clause.
-        /// Parameterizes the resulting query.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="expression">The expression.</param>
-        /// <returns>ICollection&lt;T&gt;.</returns>
+        /// <typeparam name="T">The type of entities to query, must have a parameterless constructor.</typeparam>
+        /// <param name="expression">A LINQ expression defining the query criteria.</param>
+        /// <returns>A collection of <typeparamref name="T"/> entities matching the query criteria.</returns>
         public ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             ICollection<T> result = new List<T>();
@@ -260,10 +215,10 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Gets the entire list of entities of type T.
+        /// Retrieves all entities of type <typeparamref name="T"/> from the database.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <returns>ICollection&lt;T&gt;.</returns>
+        /// <typeparam name="T">The type of entities to retrieve, must have a parameterless constructor.</typeparam>
+        /// <returns>A collection containing all instances of <typeparamref name="T"/> in the database.</returns>
         public ICollection<T> GetList<T>() where T : class, new()
         {
             ICollection<T> result = new List<T>();
@@ -326,12 +281,12 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Inserts the provided entity into the database.
+        /// Inserts a new entity into the database. 
         /// </summary>
-        /// <typeparam name="T">The type of entity to insert. Must have a parameterless constructor.</typeparam>
-        /// <param name="entity">The entity to insert.</param>
-        /// <returns>The number of rows affected by the insert operation.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when the primary key does not have its default value.</exception>
+        /// <typeparam name="T">The type of the entity to insert, must have a parameterless constructor.</typeparam>
+        /// <param name="entity">The entity instance to insert into the database.</param>
+        /// <returns>The number of rows affected by the insert operation, typically 1 if successful.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the primary key of the entity is not set to its default value.</exception>
         public int Insert<T>(T entity) where T : class, new()
         {
             var primaryKey = _primaryKeys.GetOrAdd(typeof(T), GetPrimaryKey<T>() ?? throw new InvalidOperationException($"No primary key could by found for type '{typeof(T).FullName}'"));
@@ -346,13 +301,13 @@ namespace Funcular.Data.Orm.SqlServer
 
             var tableName = GetTableName<T>();
             var columns = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties())
-                .Where(p => 
-                    !p.GetCustomAttributes<NotMappedAttribute>().Any() 
+                .Where(p =>
+                    !p.GetCustomAttributes<NotMappedAttribute>().Any()
                     && !p.GetCustomAttributes<KeyAttribute>().Any())
                 .Select(p => new { PropertyName = p.Name, ColumnName = _columnNames.GetOrAdd(p, GetColumnName) })
                 .ToList();
 
-            var idParameter = new SqlParameter($"@{primaryKey.Name}", ExpressionVisitor<T>.GetSqlDbType(primaryKeyValue)){ Direction = ParameterDirection.Output };
+            var idParameter = new SqlParameter($"@{primaryKey.Name}", ExpressionVisitor<T>.GetSqlDbType(primaryKeyValue)) { Direction = ParameterDirection.Output };
 
             var parameters = new List<SqlParameter> { idParameter };
 
@@ -388,10 +343,7 @@ VALUES ({string.Join(", ", parameterNames)})";
                         Log(command.CommandText);
 
                     var result = (int)command.ExecuteScalar();
-                    // TODO: Find out why the output parameter's value is not being set with this technique:
-                    // var commandParameter = command.Parameters[idParameter.ParameterName];
-                    // var id = commandParameter.Value;
-                    return result; //(int)id; //executeNonQuery;
+                    return result;
                 }
             }
             finally
@@ -404,12 +356,12 @@ VALUES ({string.Join(", ", parameterNames)})";
         }
 
         /// <summary>
-        /// Updates the provided entity in the database.
+        /// Updates an existing entity in the database by comparing its current state with the database state and only updating changed fields.
         /// </summary>
-        /// <typeparam name="T">The type of entity to update. Must have a parameterless constructor.</typeparam>
-        /// <param name="entity">The entity to update.</param>
-        /// <returns>The updated entity.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when the primary key value is not set.</exception>
+        /// <typeparam name="T">The type of the entity to update, must have a parameterless constructor.</typeparam>
+        /// <param name="entity">The entity instance with updated data to persist to the database.</param>
+        /// <returns>The updated entity from the database.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the entity's primary key is not set or if the entity does not exist in the database.</exception>
         public T Update<T>(T entity) where T : class, new()
         {
             var primaryKey = _primaryKeys.GetOrAdd(typeof(T), GetPrimaryKey<T>() ?? throw new InvalidOperationException("Type must have a primary key"));
@@ -512,9 +464,9 @@ VALUES ({string.Join(", ", parameterNames)})";
         }
 
         /// <summary>
-        /// Begins a new transaction (only if the <see cref="Transaction"/> property is null).
+        /// Begins a new transaction if none exists, using the optional transaction name. 
         /// </summary>
-        /// <param name="name">Optional name for the transaction.</param>
+        /// <param name="name">An optional name for the transaction, useful in nested or named transaction scenarios.</param>
         public void BeginTransaction(string? name = "")
         {
             TransactionName = name;
@@ -522,9 +474,9 @@ VALUES ({string.Join(", ", parameterNames)})";
         }
 
         /// <summary>
-        /// Rolls back the current transaction if one exists.
+        /// Rolls back the current transaction if it matches the given name or if no name is provided.
         /// </summary>
-        /// <param name="name">Optional name to match when rolling back.</param>
+        /// <param name="name">The name of the transaction to rollback, or empty to rollback any open transaction.</param>
         public void RollbackTransaction(string name = "")
         {
             if (Transaction != null && (string.IsNullOrEmpty(name)) || TransactionName == name)
@@ -533,13 +485,14 @@ VALUES ({string.Join(", ", parameterNames)})";
                 Transaction.Rollback(name);
                 Transaction.Dispose();
                 Transaction = null;
+                TransactionName = null;
             }
         }
 
         /// <summary>
-        /// Commits the current transaction if one exists.
+        /// Commits the current transaction if it matches the given name or if no name is provided.
         /// </summary>
-        /// <param name="name">Optional name to match when committing.</param>
+        /// <param name="name">The name of the transaction to commit, or empty to commit any open transaction.</param>
         public void CommitTransaction(string name = "")
         {
             if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
@@ -547,36 +500,54 @@ VALUES ({string.Join(", ", parameterNames)})";
                 Transaction.Commit();
                 Transaction.Dispose();
                 Transaction = null;
+                TransactionName = null;
             }
         }
 
         /// <summary>
-        /// Gets the where clause from expression.
+        /// Converts a LINQ expression into a SQL WHERE clause string for use in SQL queries.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="expression">The expression.</param>
-        /// <returns>System.String.</returns>
+        /// <typeparam name="T">The type of entity the expression applies to.</typeparam>
+        /// <param name="expression">The LINQ expression to convert into a SQL WHERE clause.</param>
+        /// <returns>A formatted string representing the WHERE clause.</returns>
         public string GetWhereClauseFromExpression<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             var elements = GetWhereClauseElements(expression);
-            return $"\r\nWHERE (\\t{elements.WhereClause})";
+            return $"\r\nWHERE (\r\n\t{elements.WhereClause})";
         }
 
         /// <summary>
-        /// Gets the where clause elements.
+        /// Extracts the WHERE clause elements from a LINQ expression for constructing SQL queries.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="expression">The expression.</param>
-        /// <returns>WhereClauseGenerator.WhereClauseElements&lt;T&gt;.</returns>
+        /// <typeparam name="T">The type of entity the expression applies to.</typeparam>
+        /// <param name="expression">The LINQ expression to parse.</param>
+        /// <returns>An object containing the original expression, SQL WHERE clause, and parameters.</returns>
         public WhereClauseElements<T> GetWhereClauseElements<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
-            var generator = new WhereClauseGenerator();
-            // TODO: Make sure caches are populated for T before this:
-            var x = generator.GenerateWhereClause<T>(expression);
-            return x;
+            return GenerateWhereClause<T>(expression);
         }
 
-        private SqlConnection? GetConnection()
+        /// <summary>
+        /// Generates SQL WHERE clause elements from a LINQ expression, including the clause text and parameters.
+        /// </summary>
+        /// <typeparam name="T">The type of entity the expression applies to.</typeparam>
+        /// <param name="expression">The LINQ expression to convert into SQL.</param>
+        /// <returns>An object encapsulating the SQL WHERE clause, parameters, and the original expression.</returns>
+        public WhereClauseElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression) where T : class, new()
+        {
+            var parameters = new List<SqlParameter>();
+            var whereClause = new StringBuilder();
+
+            var parameterCounter = 0;
+            var visitor = new ExpressionVisitor<T>(parameters, _columnNames, _unmappedPropertiesCache, ref parameterCounter);
+            visitor.Visit(expression);
+
+            whereClause.Append(visitor.WhereClauseBody);
+
+            return new WhereClauseElements<T>(expression, whereClause.ToString(), parameters);
+        }
+
+        protected SqlConnection? GetConnection()
         {
             if (Connection == null || Connection.State != ConnectionState.Open)
             {
@@ -587,28 +558,26 @@ VALUES ({string.Join(", ", parameterNames)})";
         }
 
         /// <summary>
-        /// Creates the select command for entities of type T, optionally with a WHERE
-        /// clause for the primary key.
+        /// Constructs a SQL SELECT command string for retrieving entities of type <typeparamref name="T"/>, optionally including a WHERE clause for the primary key.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="key">The key.</param>
-        /// <returns>System.String.</returns>
+        /// <typeparam name="T">The type of entity to select.</typeparam>
+        /// <param name="key">The primary key value to filter the selection. If null, selects all entities.</param>
+        /// <returns>A SQL SELECT command string.</returns>
         public string CreateSelectCommand<T>(dynamic? key = null) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var selectClause = GetSelectClause<T>();
             var whereClause = key != null ? GetWhereClause<T>(key) : string.Empty;
-        
 
             return $"SELECT {selectClause} FROM {tableName}{whereClause}";
         }
 
         /// <summary>
-        /// Creates a select query with a WHERE clause based on <paramref name="whereExpression"/>.
+        /// Creates a SQL query with a WHERE clause based on the provided LINQ expression.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="whereExpression">The where expression.</param>
-        /// <returns>WhereClauseGenerator.WhereClauseElements&lt;T&gt;.</returns>
+        /// <typeparam name="T">The type of entity for which to create the query.</typeparam>
+        /// <param name="whereExpression">The LINQ expression to use for filtering.</param>
+        /// <returns>An object containing the SELECT clause, WHERE clause, and parameters for the query.</returns>
         public WhereClauseElements<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
         {
             var selectClause = CreateSelectCommand<T>();
@@ -618,7 +587,7 @@ VALUES ({string.Join(", ", parameterNames)})";
         }
 
         /// <summary>
-        /// Clears the mappings.
+        /// Clears all cached mappings used for performance optimization in this class.
         /// </summary>
         public static void ClearMappings()
         {
@@ -633,21 +602,25 @@ VALUES ({string.Join(", ", parameterNames)})";
         #endregion
 
         #region IDisposable
+
+        /// <summary>
+        /// Releases the resources used by the <see cref="SqlDataProvider"/> instance, disposing of the connection and transaction if they exist.
+        /// </summary>
         public void Dispose()
         {
             Connection?.Dispose();
             Transaction?.Dispose();
         }
+
         #endregion
 
-
-        #region  Protected helper methods
+        #region Protected helper methods
 
         /// <summary>
-        /// Gets the default value for the given type.
+        /// Retrieves the default value for a given type, useful for checking if a property has its default value.
         /// </summary>
-        /// <param name="t">The type to get the default value for.</param>
-        /// <returns>An object representing the default value for the type.</returns>
+        /// <param name="t">The type whose default value is needed.</param>
+        /// <returns>The default value of the type, or null for reference types.</returns>
         protected object GetDefault(Type t)
         {
             if (t.IsValueType)
@@ -657,6 +630,11 @@ VALUES ({string.Join(", ", parameterNames)})";
             return null;
         }
 
+        /// <summary>
+        /// Constructs the SELECT clause for entities of type <typeparamref name="T"/> by listing all mapped properties.
+        /// </summary>
+        /// <typeparam name="T">The type of entities for which to build the SELECT clause.</typeparam>
+        /// <returns>A string representing the SELECT clause for type <typeparamref name="T"/>.</returns>
         protected string GetSelectClause<T>()
         {
             return string.Join(", ", typeof(T).GetProperties()
@@ -664,12 +642,24 @@ VALUES ({string.Join(", ", parameterNames)})";
                 .Select(p => _columnNames.GetOrAdd(p, GetColumnName)));
         }
 
+        /// <summary>
+        /// Determines the table name for type <typeparamref name="T"/>, using the <see cref="TableAttribute"/> if present or the type name in lowercase.
+        /// </summary>
+        /// <typeparam name="T">The type for which to get the table name.</typeparam>
+        /// <returns>The name of the table associated with type <typeparamref name="T"/>.</returns>
         protected string GetTableName<T>()
         {
             return _tableNames.GetOrAdd(typeof(T), t =>
                 t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower());
         }
 
+        /// <summary>
+        /// Generates a WHERE clause for selecting an entity by its primary key.
+        /// </summary>
+        /// <typeparam name="T">The type of entity for which to generate the WHERE clause.</typeparam>
+        /// <param name="key">The value of the primary key.</param>
+        /// <returns>A string representing the WHERE clause for the entity's primary key.</returns>
+        /// <exception cref="KeyNotFoundException">Thrown if no primary key is found for the type.</exception>
         protected string GetWhereClause<T>(dynamic key)
         {
             var primaryKey = _primaryKeys.GetOrAdd(typeof(T), t => GetPrimaryKey<T>());
@@ -680,6 +670,12 @@ VALUES ({string.Join(", ", parameterNames)})";
             return $" WHERE {columnName} = {key}";
         }
 
+        /// <summary>
+        /// Maps property names to their column ordinals in the SQL data reader for type <paramref name="type"/>.
+        /// </summary>
+        /// <param name="type">The type of entity whose properties are being mapped to column ordinals.</param>
+        /// <param name="reader">The SQL data reader from which to get column ordinals.</param>
+        /// <returns>A dictionary with column names as keys and their ordinals as values.</returns>
         protected Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
         {
             var ordinals = new Dictionary<string, int>();
@@ -704,12 +700,25 @@ VALUES ({string.Join(", ", parameterNames)})";
             return ordinals;
         }
 
+        /// <summary>
+        /// Retrieves the column name for a given property. If the property has a <see cref="ColumnAttribute"/>, 
+        /// its Name property is used; otherwise, the property name is converted to lowercase.
+        /// </summary>
+        /// <param name="property">The <see cref="PropertyInfo"/> of the property to get the column name for.</param>
+        /// <returns>The SQL column name as a string.</returns>
         protected string GetColumnName(PropertyInfo property)
         {
             return property.GetCustomAttribute<ColumnAttribute>()?.Name ??
                    property.Name.ToLower();
         }
 
+        /// <summary>
+        /// Identifies and returns the primary key property for the given entity type <typeparamref name="T"/>.
+        /// This method checks for a <see cref="KeyAttribute"/>, an identity column via <see cref="DatabaseGeneratedAttribute"/>,
+        /// or looks for common primary key naming conventions like "Id" or "TypeNameId".
+        /// </summary>
+        /// <typeparam name="T">The type of entity to inspect for its primary key.</typeparam>
+        /// <returns>The <see cref="PropertyInfo"/> of the primary key, or null if no primary key is found.</returns>
         internal PropertyInfo? GetPrimaryKey<T>()
         {
             var type = typeof(T);
@@ -722,6 +731,12 @@ VALUES ({string.Join(", ", parameterNames)})";
             return prop;
         }
 
+        /// <summary>
+        /// Retrieves an array of properties from type <typeparamref name="T"/> that are marked with <see cref="NotMappedAttribute"/>,
+        /// indicating they should not be included in database operations.
+        /// </summary>
+        /// <typeparam name="T">The type whose properties are to be checked for mapping status.</typeparam>
+        /// <returns>An array of <see cref="PropertyInfo"/> objects representing properties not mapped to database columns.</returns>
         internal static PropertyInfo[] GetUnmappedProperties<T>() where T : class, new()
         {
             var ret = typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null);

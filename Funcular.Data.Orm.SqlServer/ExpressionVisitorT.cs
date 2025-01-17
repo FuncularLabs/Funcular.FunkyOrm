@@ -10,14 +10,45 @@ using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
 {
+    /// <summary>
+    /// An expression visitor that translates LINQ expressions into SQL WHERE clauses. This class handles 
+    /// the conversion of expressions to SQL syntax, including parameter generation for query safety.
+    /// </summary>
+    /// <typeparam name="T">The type of entity for which expressions are being translated.</typeparam>
     internal class ExpressionVisitor<T> : ExpressionVisitor where T : class, new()
     {
-        private readonly List<SqlParameter> _parameters;
-        private readonly ConcurrentDictionary<PropertyInfo, string> _columnNames;
-        private readonly ConcurrentDictionary<Type, PropertyInfo[]> _unmappedProperties;
-        private readonly StringBuilder _whereClauseBody = new();
-        private int _parameterCounter;
+        /// <summary>
+        /// Stores SQL parameters generated from the expressions for use in SQL commands.
+        /// </summary>
+        protected readonly List<SqlParameter> _parameters;
 
+        /// <summary>
+        /// A cache for mapping property names to their corresponding database column names.
+        /// </summary>
+        protected readonly ConcurrentDictionary<PropertyInfo, string> _columnNames;
+
+        /// <summary>
+        /// A cache for properties that should not be mapped to database columns.
+        /// </summary>
+        protected readonly ConcurrentDictionary<Type, PropertyInfo[]> _unmappedProperties;
+
+        /// <summary>
+        /// StringBuilder used to construct the SQL WHERE clause string.
+        /// </summary>
+        protected readonly StringBuilder _whereClauseBody = new();
+
+        /// <summary>
+        /// Counter for generating unique parameter names in SQL queries.
+        /// </summary>
+        protected int _parameterCounter;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ExpressionVisitor{T}"/> class with the necessary dependencies.
+        /// </summary>
+        /// <param name="parameters">List to hold generated SQL parameters.</param>
+        /// <param name="columnNames">Dictionary mapping properties to column names.</param>
+        /// <param name="unmappedProperties">Cache of properties not to be included in SQL queries.</param>
+        /// <param name="parameterCounter">Reference to a counter for parameter naming.</param>
         public ExpressionVisitor(List<SqlParameter> parameters,
             ConcurrentDictionary<PropertyInfo, string> columnNames,
             ConcurrentDictionary<Type, PropertyInfo[]> unmappedProperties,
@@ -29,8 +60,16 @@ namespace Funcular.Data.Orm.SqlServer
             _parameterCounter = parameterCounter;
         }
 
+        /// <summary>
+        /// Gets the constructed WHERE clause as a string for use in SQL queries.
+        /// </summary>
         public string WhereClauseBody => _whereClauseBody.ToString();
 
+        /// <summary>
+        /// Visits a binary expression node, translating it into corresponding SQL syntax.
+        /// </summary>
+        /// <param name="node">The binary expression to visit.</param>
+        /// <returns>The original expression node after processing.</returns>
         protected override Expression VisitBinary(BinaryExpression node)
         {
             _whereClauseBody.Append('(');
@@ -71,6 +110,11 @@ namespace Funcular.Data.Orm.SqlServer
             return node;
         }
 
+        /// <summary>
+        /// Processes member expressions, appending the corresponding column name to the SQL clause if it's a property of the entity.
+        /// </summary>
+        /// <param name="node">The member expression to visit.</param>
+        /// <returns>The original member expression after processing.</returns>
         protected override Expression VisitMember(MemberExpression node)
         {
             if (node.Expression != null && node.Expression.NodeType == ExpressionType.Parameter)
@@ -89,6 +133,11 @@ namespace Funcular.Data.Orm.SqlServer
             return node;
         }
 
+        /// <summary>
+        /// Handles constant expressions by creating SQL parameters, dealing with value types from closures if necessary.
+        /// </summary>
+        /// <param name="node">The constant expression node to visit.</param>
+        /// <returns>The original constant expression after processing.</returns>
         protected override Expression VisitConstant(ConstantExpression node)
         {
             var paramName = $"@p__linq__{++_parameterCounter}";
@@ -101,14 +150,11 @@ namespace Funcular.Data.Orm.SqlServer
                 var closureFields = node.Value.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 foreach (var field in closureFields)
                 {
-                    if (field.FieldType.IsPrimitive 
-                        || field.FieldType.IsAssignableFrom(typeof(string)) 
+                    if (field.FieldType.IsPrimitive
+                        || field.FieldType.IsAssignableFrom(typeof(string))
                         || field.FieldType.IsAssignableFrom(typeof(DateTime))
                         || field.FieldType.IsAssignableFrom(typeof(Guid))
-                        || field.FieldType.IsAssignableFrom(typeof(Guid))
-                        || (field.FieldType.Namespace != null && field.FieldType.Namespace.StartsWith("System", StringComparison.OrdinalIgnoreCase))
-
-                       )
+                        || (field.FieldType.Namespace != null && field.FieldType.Namespace.StartsWith("System", StringComparison.OrdinalIgnoreCase)))
                     {
                         actualValue = field.GetValue(node.Value);
                         break; // Assuming there's only one value of interest in the closure
@@ -133,6 +179,12 @@ namespace Funcular.Data.Orm.SqlServer
             return node;
         }
 
+        /// <summary>
+        /// Converts a .NET type to its corresponding <see cref="SqlDbType"/>. This method is used to match 
+        /// C# types with SQL Server data types for parameter creation.
+        /// </summary>
+        /// <param name="value">The value whose type needs to be mapped to a SQL type.</param>
+        /// <returns>The appropriate <see cref="SqlDbType"/> for the given value.</returns>
         internal static SqlDbType GetSqlDbType(object? value)
         {
             if (value == null)
