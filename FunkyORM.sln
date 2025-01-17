@@ -3,7 +3,22 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.9.34902.65
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer", "Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj", "{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Funcular.Data.Orm.SqlServer", "Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj", "{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1B578596-7F17-46CB-AA38-248077A888AE}"
+	ProjectSection(SolutionItems) = preProject
+		.gitattributes = .gitattributes
+		.gitignore = .gitignore
+		LICENSE.txt = LICENSE.txt
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer.Tests", "Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj", "{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Database", "Database", "{3E341EFF-0A90-44FD-8629-A64E41A71454}"
+	ProjectSection(SolutionItems) = preProject
+		README.txt = README.txt
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,9 +30,16 @@ Global
 		{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3E341EFF-0A90-44FD-8629-A64E41A71454} = {1B578596-7F17-46CB-AA38-248077A888AE}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {02328F4E-73AB-4D4A-ABE3-E1886B542F2B}
