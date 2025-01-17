@@ -1,6 +1,8 @@
 # FunkyORM
 
-FunkyORM is a micro-ORM designed to fill the gaps between heavy solutions like EntityFramework and other micro-ORMs like Dapper, without needing to use a clunky alternate querying syntax like passing name/value pairs.
+FunkyORM is a micro-ORM designed to fill the gaps between heavy solutions like EntityFramework and other micro-ORMs like Dapper, without needing to use any specialized querying syntax (like passing field name & value pairs with literal operators).
+
+FunkyORM can be as configuration-free as desired. Most of its behaviors can be achieved using bare entities with few or no annotations, no contexts, and no database or entity models. Simple annotations are supported where needs diverge from the most common use cases. Just write or generate entities for your tables and start querying!
 
 Design philosophy:
 - Be fast: Competitive benchmarks when compared to similar alternatives
