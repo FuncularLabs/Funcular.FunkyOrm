@@ -25,7 +25,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected SqlTransaction? _transaction;
         internal static readonly ConcurrentDictionary<Type, string> _tableNames = new();
         internal static readonly ConcurrentDictionary<PropertyInfo, string> _columnNames = new();
-        internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new();
+        internal static readonly ConcurrentDictionary<Type, PropertyInfo?> _primaryKeys = new();
         internal static readonly ConcurrentDictionary<Type, PropertyInfo[]> _propertiesCache = new();
         internal static readonly ConcurrentDictionary<Type, PropertyInfo[]> _unmappedPropertiesCache = new();
         internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new();
@@ -69,7 +69,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="connection">An existing SQL connection to reuse. If null, a new connection will be created.</param>
         /// <param name="transaction">An existing transaction to join. If null, no transaction will be active initially.</param>
         /// <exception cref="System.ArgumentNullException">Thrown if <paramref name="connectionString"/> is null.</exception>
-        public SqlDataProvider(string connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
+        public SqlDataProvider(string? connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             Connection = connection ?? new SqlConnection(_connectionString);
@@ -103,14 +103,16 @@ namespace Funcular.Data.Orm.SqlServer
 
                     using (var reader = command.ExecuteReader())
                     {
-                        if (reader.Read())
+                        var rdr = reader;
+                        if (rdr.Read())
                         {
                             result = new T();
-                            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
-                            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, reader));
+                            PropertyInfo?[] properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
+                            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, rdr));
 
                             foreach (var property in properties)
                             {
+                                Debug.Assert(property != null, nameof(property) + " != null");
                                 if (_unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>()).Any(p => p.Name == property.Name))
                                     continue;
 
@@ -118,7 +120,7 @@ namespace Funcular.Data.Orm.SqlServer
 
                                 if (columnOrdinals.TryGetValue(columnName, out int ordinal))
                                 {
-                                    object value = reader[ordinal];
+                                    object value = rdr[ordinal];
                                     if (value != DBNull.Value)
                                     {
                                         var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
@@ -174,19 +176,25 @@ namespace Funcular.Data.Orm.SqlServer
 
                     using (var reader = command.ExecuteReader())
                     {
-                        while (reader.Read())
+                        var rdr = reader;
+                        while (rdr != null && rdr.Read())
                         {
                             var item = new T();
-                            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
-                            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, reader));
+                            PropertyInfo?[] properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
+                            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t =>
+                            {
+                                Debug.Assert(rdr != null, nameof(rdr) + " != null");
+                                return GetColumnOrdinals(t, rdr);
+                            });
 
                             foreach (var property in properties)
                             {
-                                if (_unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>()).Any(p => p.Name == property.Name))
+                                if (_unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>()).Any(p => p.Name == property?.Name))
                                 {
                                     continue;
                                 }
 
+                                Debug.Assert(property != null, nameof(property) + " != null");
                                 string columnName = _columnNames.GetOrAdd(property, GetColumnName);
 
                                 if (columnOrdinals.TryGetValue(columnName, out int ordinal))
@@ -240,14 +248,16 @@ namespace Funcular.Data.Orm.SqlServer
 
                     using (var reader = command.ExecuteReader())
                     {
-                        while (reader.Read())
+                        var rdr = reader;
+                        while (rdr.Read())
                         {
                             var item = new T();
-                            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
-                            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, reader));
+                            PropertyInfo?[] properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
+                            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, rdr));
 
                             foreach (var property in properties)
                             {
+                                Debug.Assert(property != null, nameof(property) + " != null");
                                 if (_unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>()).Any(p => p.Name == property.Name))
                                 {
                                     continue;
@@ -257,7 +267,7 @@ namespace Funcular.Data.Orm.SqlServer
 
                                 if (columnOrdinals.TryGetValue(columnName, out int ordinal))
                                 {
-                                    object value = reader[ordinal];
+                                    object value = rdr[ordinal];
                                     if (value != DBNull.Value)
                                     {
                                         var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
@@ -291,6 +301,7 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var primaryKey = _primaryKeys.GetOrAdd(typeof(T), GetPrimaryKey<T>() ?? throw new InvalidOperationException($"No primary key could by found for type '{typeof(T).FullName}'"));
 
+            Debug.Assert(primaryKey != null, nameof(primaryKey) + " != null");
             var defaultValue = GetDefault(primaryKey.PropertyType);
             var primaryKeyValue = primaryKey.GetValue(entity);
 
@@ -365,6 +376,7 @@ VALUES ({string.Join(", ", parameterNames)})";
         public T Update<T>(T entity) where T : class, new()
         {
             var primaryKey = _primaryKeys.GetOrAdd(typeof(T), GetPrimaryKey<T>() ?? throw new InvalidOperationException("Type must have a primary key"));
+            Debug.Assert(primaryKey != null, nameof(primaryKey) + " != null");
             var propertyType = primaryKey.PropertyType;
             object? defaultValue = propertyType.IsValueType ? Activator.CreateInstance(propertyType) : null;
             if (primaryKey.GetValue(entity) == null || primaryKey.GetValue(entity) == defaultValue)
@@ -373,7 +385,7 @@ VALUES ({string.Join(", ", parameterNames)})";
             }
 
             var tableName = GetTableName<T>();
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
+            PropertyInfo?[] properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
             var unmappedProperties = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>());
             var parameters = new List<SqlParameter>();
             var setClause = new StringBuilder();
@@ -393,6 +405,7 @@ VALUES ({string.Join(", ", parameterNames)})";
 
             foreach (var property in properties)
             {
+                Debug.Assert(property != null, nameof(property) + " != null");
                 if (unmappedProperties.Any(p => p.Name == property.Name) || property == primaryKey)
                 {
                     continue;
@@ -547,16 +560,6 @@ VALUES ({string.Join(", ", parameterNames)})";
             return new WhereClauseElements<T>(expression, whereClause.ToString(), parameters);
         }
 
-        protected SqlConnection? GetConnection()
-        {
-            if (Connection == null || Connection.State != ConnectionState.Open)
-            {
-                Connection = new SqlConnection(_connectionString);
-                Connection.Open();
-            }
-            return Connection;
-        }
-
         /// <summary>
         /// Constructs a SQL SELECT command string for retrieving entities of type <typeparamref name="T"/>, optionally including a WHERE clause for the primary key.
         /// </summary>
@@ -616,12 +619,22 @@ VALUES ({string.Join(", ", parameterNames)})";
 
         #region Protected helper methods
 
+        protected SqlConnection? GetConnection()
+        {
+            if (Connection == null || Connection.State != ConnectionState.Open)
+            {
+                Connection = new SqlConnection(_connectionString);
+                Connection.Open();
+            }
+            return Connection;
+        }
+
         /// <summary>
         /// Retrieves the default value for a given type, useful for checking if a property has its default value.
         /// </summary>
         /// <param name="t">The type whose default value is needed.</param>
         /// <returns>The default value of the type, or null for reference types.</returns>
-        protected object GetDefault(Type t)
+        protected object? GetDefault(Type t)
         {
             if (t.IsValueType)
             {
@@ -706,9 +719,9 @@ VALUES ({string.Join(", ", parameterNames)})";
         /// </summary>
         /// <param name="property">The <see cref="PropertyInfo"/> of the property to get the column name for.</param>
         /// <returns>The SQL column name as a string.</returns>
-        protected string GetColumnName(PropertyInfo property)
+        protected string GetColumnName(PropertyInfo? property)
         {
-            return property.GetCustomAttribute<ColumnAttribute>()?.Name ??
+            return (property ?? throw new ArgumentNullException(nameof(property))).GetCustomAttribute<ColumnAttribute>()?.Name ??
                    property.Name.ToLower();
         }
 
