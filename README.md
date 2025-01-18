@@ -17,3 +17,7 @@ Design philosophy:
 
 Our goal is to make it easy for developers to get up and running quickly doing what they do 80% of the time, while making it hard for them to shoot themselves in the foot; we avoid automating complex behaviors that should really be thought through more thoroughly, like joins, inclusions, recursions, etc. 
 
+# Quickstart
+
+
+
