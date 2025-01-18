@@ -24,7 +24,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected readonly string _connectionString;
         protected SqlTransaction? _transaction;
         internal static readonly ConcurrentDictionary<Type, string> _tableNames = new();
-        internal static readonly ConcurrentDictionary<PropertyInfo, string> _columnNames = new();
+        internal static readonly ConcurrentDictionary<string, string> _columnNames = new();
         internal static readonly ConcurrentDictionary<Type, PropertyInfo?> _primaryKeys = new();
         internal static readonly ConcurrentDictionary<Type, PropertyInfo[]> _propertiesCache = new();
         internal static readonly ConcurrentDictionary<Type, PropertyInfo[]> _unmappedPropertiesCache = new();
@@ -116,7 +116,7 @@ namespace Funcular.Data.Orm.SqlServer
                                 if (_unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>()).Any(p => p.Name == property.Name))
                                     continue;
 
-                                string columnName = _columnNames.GetOrAdd(property, GetColumnName);
+                                string columnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property));
 
                                 if (columnOrdinals.TryGetValue(columnName, out int ordinal))
                                 {
@@ -195,7 +195,7 @@ namespace Funcular.Data.Orm.SqlServer
                                 }
 
                                 Debug.Assert(property != null, nameof(property) + " != null");
-                                string columnName = _columnNames.GetOrAdd(property, GetColumnName);
+                                string columnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property));
 
                                 if (columnOrdinals.TryGetValue(columnName, out int ordinal))
                                 {
@@ -263,7 +263,7 @@ namespace Funcular.Data.Orm.SqlServer
                                     continue;
                                 }
 
-                                string columnName = _columnNames.GetOrAdd(property, GetColumnName);
+                                string columnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property));
 
                                 if (columnOrdinals.TryGetValue(columnName, out int ordinal))
                                 {
@@ -312,10 +312,10 @@ namespace Funcular.Data.Orm.SqlServer
 
             var tableName = GetTableName<T>();
             var columns = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties())
-                .Where(p =>
-                    !p.GetCustomAttributes<NotMappedAttribute>().Any()
-                    && !p.GetCustomAttributes<KeyAttribute>().Any())
-                .Select(p => new { PropertyName = p.Name, ColumnName = _columnNames.GetOrAdd(p, GetColumnName) })
+                .Where(property =>
+                    !property.GetCustomAttributes<NotMappedAttribute>().Any()
+                    && !property.GetCustomAttributes<KeyAttribute>().Any())
+                .Select(property => new { PropertyName = property.Name, ColumnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property)) })
                 .ToList();
 
             var idParameter = new SqlParameter($"@{primaryKey.Name}", ExpressionVisitor<T>.GetSqlDbType(primaryKeyValue)) { Direction = ParameterDirection.Output };
@@ -324,11 +324,111 @@ namespace Funcular.Data.Orm.SqlServer
 
             var parameterNames = columns.Select(x => $"@{x.PropertyName}").ToList();
 
+            /*foreach (var tuple in columns)
+            {
+                var property = _propertiesCache[typeof(T)].FirstOrDefault(x => x.Name == tuple.PropertyName);
+                Debug.Assert(property != null, nameof(property) + " != null");
+                var value = property.GetValue(entity);
+                if (property.PropertyType == typeof(DateTime) || property.PropertyType == typeof(DateTime?))
+                    if (value is null)
+                    {
+                        value = DBNull.Value;
+                        Debugger.Break();
+                    }
+
+                parameters.Add(new SqlParameter($"@{tuple.PropertyName}", value ?? DBNull.Value));
+            }*/
+
             foreach (var tuple in columns)
             {
                 var property = _propertiesCache[typeof(T)].FirstOrDefault(x => x.Name == tuple.PropertyName);
-                var value = property?.GetValue(entity);
-                parameters.Add(new SqlParameter($"@{tuple.PropertyName}", value ?? DBNull.Value));
+                Debug.Assert(property != null, nameof(property) + " != null");
+                var value = property.GetValue(entity);
+
+                SqlDbType dbType = SqlDbType.NVarChar; // Default, will be overridden based on property type
+                bool isNullable = true; // Default to nullable
+
+                // Determine the correct SqlDbType and handle nullable value types
+                Type propertyType = property.PropertyType;
+                Type underlyingType = Nullable.GetUnderlyingType(propertyType);
+                if (underlyingType != null)
+                {
+                    propertyType = underlyingType;
+                    isNullable = true;
+                    value ??= DBNull.Value;
+                }
+                else
+                {
+                    // Handle non-nullable types here
+                    isNullable = propertyType.IsClass; // Only reference types are nullable by default
+                }
+
+                propertyType ??= underlyingType;
+                if(propertyType is null)
+                    Debugger.Break();
+                isNullable = true;
+                value ??= DBNull.Value;
+
+                // Mapping property types to SqlDbType
+                switch (Type.GetTypeCode(propertyType))
+                {
+                    case TypeCode.Boolean:
+                        dbType = SqlDbType.Bit;
+                        break;
+                    case TypeCode.Byte:
+                    case TypeCode.SByte:
+                    case TypeCode.Int16:
+                    case TypeCode.UInt16:
+                        dbType = SqlDbType.SmallInt;
+                        break;
+                    case TypeCode.Int32:
+                    case TypeCode.UInt32:
+                        dbType = SqlDbType.Int;
+                        break;
+                    case TypeCode.Int64:
+                    case TypeCode.UInt64:
+                        dbType = SqlDbType.BigInt;
+                        break;
+                    case TypeCode.Single:
+                        dbType = SqlDbType.Real;
+                        break;
+                    case TypeCode.Double:
+                        dbType = SqlDbType.Float;
+                        break;
+                    case TypeCode.Decimal:
+                        dbType = SqlDbType.Decimal;
+                        break;
+                    case TypeCode.DateTime:
+                        dbType = SqlDbType.DateTime2; // Use DateTime2 for better precision
+                        break;
+                    case TypeCode.String:
+                        dbType = SqlDbType.NVarChar;
+                        break;
+                    default:
+                        if (propertyType == typeof(Guid))
+                            dbType = SqlDbType.UniqueIdentifier;
+                        else if (propertyType == typeof(byte[]))
+                            dbType = SqlDbType.VarBinary;
+                        else if (propertyType == typeof(TimeSpan))
+                            dbType = SqlDbType.Time;
+                        else
+                            throw new NotSupportedException($"The type {propertyType.Name} is not supported in this ORM.");
+                        break;
+                }
+
+                // Ensure value is of the correct type if not null
+                if (value != DBNull.Value)
+                {
+                    value = Convert.ChangeType(value, propertyType);
+                }
+
+                var parameter = new SqlParameter($"@{tuple.PropertyName}", value ?? DBNull.Value)
+                {
+                    SqlDbType = dbType,
+                    IsNullable = isNullable
+                };
+
+                parameters.Add(parameter);
             }
 
             SqlConnection? connection = null;
@@ -399,7 +499,7 @@ VALUES ({string.Join(", ", parameterNames)})";
                 throw new InvalidOperationException("Entity does not exist in the database.");
             }
 
-            var columnNameForPrimaryKey = _columnNames.GetOrAdd(primaryKey, GetColumnName);
+            var columnNameForPrimaryKey = _columnNames.GetOrAdd(primaryKey.ToDictionaryKey(), GetColumnName(primaryKey));
             var whereClause = $"{columnNameForPrimaryKey} = @{columnNameForPrimaryKey}";
             parameters.Add(new SqlParameter($"@{columnNameForPrimaryKey}", id));
 
@@ -411,7 +511,7 @@ VALUES ({string.Join(", ", parameterNames)})";
                     continue;
                 }
 
-                var columnName = _columnNames.GetOrAdd(property, GetColumnName);
+                var columnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property));
                 var existingValue = property.GetValue(existingEntity);
                 var newValue = property.GetValue(entity);
 
@@ -651,8 +751,8 @@ VALUES ({string.Join(", ", parameterNames)})";
         protected string GetSelectClause<T>()
         {
             return string.Join(", ", typeof(T).GetProperties()
-                .Where(p => !p.GetCustomAttributes<NotMappedAttribute>().Any())
-                .Select(p => _columnNames.GetOrAdd(p, GetColumnName)));
+                .Where(property => !property.GetCustomAttributes<NotMappedAttribute>().Any())
+                .Select(property => _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property))));
         }
 
         /// <summary>
@@ -679,7 +779,7 @@ VALUES ({string.Join(", ", parameterNames)})";
             if (primaryKey == null)
                 throw new KeyNotFoundException("No primary key found for the type.");
 
-            var columnName = _columnNames.GetOrAdd(primaryKey, GetColumnName);
+            var columnName = _columnNames.GetOrAdd(primaryKey.ToDictionaryKey(), GetColumnName(primaryKey));
             return $" WHERE {columnName} = {key}";
         }
 
@@ -694,7 +794,7 @@ VALUES ({string.Join(", ", parameterNames)})";
             var ordinals = new Dictionary<string, int>();
             foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties()))
             {
-                string columnName = _columnNames.GetOrAdd(property, GetColumnName);
+                string columnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property));
 
                 try
                 {
@@ -721,8 +821,13 @@ VALUES ({string.Join(", ", parameterNames)})";
         /// <returns>The SQL column name as a string.</returns>
         protected string GetColumnName(PropertyInfo? property)
         {
-            return (property ?? throw new ArgumentNullException(nameof(property))).GetCustomAttribute<ColumnAttribute>()?.Name ??
-                   property.Name.ToLower();
+            var info = property;
+            if (info is null)
+            {
+                throw new ArgumentNullException(nameof(property));
+            }
+
+            return info.GetCustomAttribute<ColumnAttribute>()?.Name ?? info.Name.ToLower();
         }
 
         /// <summary>

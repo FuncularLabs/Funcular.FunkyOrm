@@ -25,7 +25,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// A cache for mapping property names to their corresponding database column names.
         /// </summary>
-        protected readonly ConcurrentDictionary<PropertyInfo, string> _columnNames;
+        protected readonly ConcurrentDictionary<string, string> _columnNames;
 
         /// <summary>
         /// A cache for properties that should not be mapped to database columns.
@@ -50,7 +50,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="unmappedProperties">Cache of properties not to be included in SQL queries.</param>
         /// <param name="parameterCounter">Reference to a counter for parameter naming.</param>
         public ExpressionVisitor(List<SqlParameter> parameters,
-            ConcurrentDictionary<PropertyInfo, string> columnNames,
+            ConcurrentDictionary<string, string> columnNames,
             ConcurrentDictionary<Type, PropertyInfo[]> unmappedProperties,
             ref int parameterCounter)
         {
@@ -117,12 +117,15 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The original member expression after processing.</returns>
         protected override Expression VisitMember(MemberExpression node)
         {
-            if (node.Expression != null && node.Expression.NodeType == ExpressionType.Parameter)
+            if (node.Expression is { NodeType: ExpressionType.Parameter })
             {
                 var member = node.Member as PropertyInfo;
-                if (member != null && SqlDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), SqlDataProvider.GetUnmappedProperties<T>()).Contains(member) != true)
+                if (member != null &&
+                    SqlDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T),
+                            SqlDataProvider.GetUnmappedProperties<T>())
+                        .Contains(member) != true)
                 {
-                    var columnName = _columnNames[member];
+                    var columnName = _columnNames[member.ToDictionaryKey()];
                     _whereClauseBody.Append(columnName);
                 }
             }
