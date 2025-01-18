@@ -13,13 +13,12 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		README.md = README.md
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer.Tests", "Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj", "{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Funcular.Data.Orm.SqlServer.Tests", "Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj", "{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Database", "Database", "{3E341EFF-0A90-44FD-8629-A64E41A71454}"
 	ProjectSection(SolutionItems) = preProject
 		Database\integration_test_data.sql = Database\integration_test_data.sql
 		Database\integration_test_db.sql = Database\integration_test_db.sql
-		README.txt = README.txt
 		Database\README.txt = Database\README.txt
 	EndProjectSection
 EndProject
