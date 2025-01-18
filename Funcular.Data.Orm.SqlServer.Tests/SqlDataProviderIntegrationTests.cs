@@ -19,8 +19,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 _connectionString ??= "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
             TestConnection();
             
-            _provider = new SqlDataProvider(_connectionString);
-            _provider.Log = Console.WriteLine; // Optionally log SQL commands
+            _provider = new SqlDataProvider(_connectionString)
+            {
+                Log = Console.WriteLine // Optionally log SQL commands
+            };
         }
 
         public void TestConnection()
