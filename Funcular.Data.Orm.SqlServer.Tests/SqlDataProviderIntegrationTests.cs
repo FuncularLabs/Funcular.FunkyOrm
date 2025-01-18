@@ -64,9 +64,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_WithExpression_ReturnsFilteredAddresses()
         {
-            //var addresses = _provider?.Query<Address>(a => a.City == "New York");
             var addresses = _provider?.Query<Address>(a => a.StateCode == "IL");
-            //Assert.IsTrue(addresses?.Any(), "No addresses found in New York.");
             Assert.IsTrue(addresses?.Any(), "No addresses found in IL.");
         }
 
