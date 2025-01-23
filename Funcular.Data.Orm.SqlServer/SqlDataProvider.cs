@@ -692,29 +692,6 @@ VALUES ({string.Join(", ", parameterNames)})";
         }
 
         /// <summary>
-        /// Converts a LINQ expression into a SQL WHERE clause string for use in SQL queries.
-        /// </summary>
-        /// <typeparam name="T">The type of entity the expression applies to.</typeparam>
-        /// <param name="expression">The LINQ expression to convert into a SQL WHERE clause.</param>
-        /// <returns>A formatted string representing the WHERE clause.</returns>
-        public string GetWhereClauseFromExpression<T>(Expression<Func<T, bool>> expression) where T : class, new()
-        {
-            var elements = GetWhereClauseElements(expression);
-            return $"\r\nWHERE (\r\n\t{elements.WhereClause})";
-        }
-
-        /// <summary>
-        /// Extracts the WHERE clause elements from a LINQ expression for constructing SQL queries.
-        /// </summary>
-        /// <typeparam name="T">The type of entity the expression applies to.</typeparam>
-        /// <param name="expression">The LINQ expression to parse.</param>
-        /// <returns>An object containing the original expression, SQL WHERE clause, and parameters.</returns>
-        public WhereClauseElements<T> GetWhereClauseElements<T>(Expression<Func<T, bool>> expression) where T : class, new()
-        {
-            return GenerateWhereClause<T>(expression);
-        }
-
-        /// <summary>
         /// Generates SQL WHERE clause elements from a LINQ expression, including the clause text and parameters.
         /// </summary>
         /// <typeparam name="T">The type of entity the expression applies to.</typeparam>
@@ -758,7 +735,7 @@ VALUES ({string.Join(", ", parameterNames)})";
         public WhereClauseElements<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
         {
             var selectClause = CreateSelectCommand<T>();
-            var elements = GetWhereClauseElements(whereExpression!);
+            var elements = GenerateWhereClause(whereExpression!);
             elements.SelectClause = selectClause;
             return elements;
         }

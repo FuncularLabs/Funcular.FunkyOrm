@@ -21,7 +21,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             
             _provider ??= new SqlDataProvider(_connectionString)
             {
-                Log = s => Debug.WriteLine(s) // Optionally log SQL commands
+                // Optionally log SQL commands:
+                Log = s => Debug.WriteLine(s) 
             };
         }
 
@@ -54,6 +55,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Warm_Up()
+        {
+            var count = _provider?.Query<Person>(x => x.FirstName != null).Count;
+            Assert.IsTrue(count > 0);
+        }
+
+        [TestMethod]
         public void Get_WithExistingId_ReturnsPerson()
         {
             var person = _provider?.Get<Person>(1);
@@ -64,8 +72,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_WithExpression_ReturnsFilteredAddresses()
         {
-            var addresses = _provider?.Query<Address>(a => a.StateCode == "IL");
-            Assert.IsTrue(addresses?.Any(), "No addresses found in IL.");
+            const string stateCode = "IL";
+            var addresses = _provider?.Query<Address>(a => a.StateCode == stateCode);
+            Assert.IsTrue(addresses?.Count > 0 == true && addresses?.All(x => x.StateCode == stateCode) == true, "No addresses found in IL.");
         }
 
         [TestMethod]

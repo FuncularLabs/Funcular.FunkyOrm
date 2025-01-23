@@ -78,10 +78,32 @@ namespace Funcular.Data.Orm.SqlServer
             switch (node.NodeType)
             {
                 case ExpressionType.Equal:
-                    _whereClauseBody.Append(" = ");
+                    if (node.Right is ConstantExpression { Value: null })
+                    {
+                        _whereClauseBody.Append(" IS NULL");
+                    }
+                    else if (node.Left is ConstantExpression { Value: null })
+                    {
+                        _whereClauseBody.Append(" IS NULL");
+                    }
+                    else
+                    {
+                        _whereClauseBody.Append(" = ");
+                    }
                     break;
                 case ExpressionType.NotEqual:
-                    _whereClauseBody.Append(" <> ");
+                    if (node.Right is ConstantExpression { Value: null })
+                    {
+                        _whereClauseBody.Append(" IS NOT NULL");
+                    }
+                    else if (node.Left is ConstantExpression { Value: null })
+                    {
+                        _whereClauseBody.Append(" IS NOT NULL");
+                    }
+                    else
+                    {
+                        _whereClauseBody.Append(" <> ");
+                    }
                     break;
                 case ExpressionType.GreaterThan:
                     _whereClauseBody.Append(" > ");
@@ -121,9 +143,9 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 var member = node.Member as PropertyInfo;
                 if (member != null &&
-                    SqlDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T),
+                    !SqlDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T),
                             SqlDataProvider.GetUnmappedProperties<T>())
-                        .Contains(member) != true)
+                        .Contains(member))
                 {
                     var columnName = _columnNames[member.ToDictionaryKey()];
                     _whereClauseBody.Append(columnName);
@@ -143,10 +165,17 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The original constant expression after processing.</returns>
         protected override Expression VisitConstant(ConstantExpression node)
         {
-            var paramName = $"@p__linq__{++_parameterCounter}";
+            // Skip adding parameters for null comparisons since they're handled in VisitBinary
+            if (node.Value == null)
+            {
+                // Do nothing, as we've already handled this in VisitBinary for IS NULL/IS NOT NULL
+                return node;
+            }
+
+            var paramName = $"@p__linq__{_parameterCounter++}";
             _whereClauseBody.Append(paramName);
 
-            object? actualValue = node.Value;
+            object? constantValue = node.Value;
             if (node.Value != null && node.Value.GetType().Name.StartsWith("<>c__DisplayClass"))
             {
                 // Reflect over the closure to find the actual value
@@ -159,23 +188,23 @@ namespace Funcular.Data.Orm.SqlServer
                         || field.FieldType.IsAssignableFrom(typeof(Guid))
                         || (field.FieldType.Namespace != null && field.FieldType.Namespace.StartsWith("System", StringComparison.OrdinalIgnoreCase)))
                     {
-                        actualValue = field.GetValue(node.Value);
+                        constantValue = field.GetValue(node.Value);
                         break; // Assuming there's only one value of interest in the closure
                     }
                 }
             }
 
             // If we couldn't find a field, we might need to recompile the expression or use a different strategy
-            if (actualValue == node.Value) // If no change in value, try compiling the expression
+            if (constantValue == node.Value) // If no change in value, try compiling the expression
             {
                 var lambda = Expression.Lambda<Func<object>>(Expression.Convert(node, typeof(object)));
-                actualValue = lambda.Compile()();
+                constantValue = lambda.Compile()();
             }
 
             // Now use actualValue to determine SqlDbType and set SqlParameter.Value
-            var sqlParameter = new SqlParameter(paramName, GetSqlDbType(actualValue))
+            var sqlParameter = new SqlParameter(paramName, GetSqlDbType(constantValue))
             {
-                Value = actualValue
+                Value = constantValue ?? DBNull.Value
             };
 
             _parameters.Add(sqlParameter);
