@@ -16,8 +16,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
         private Int32 _id;
         private Int32 _personId;
         private Int32 _addressId;
-        private DateTime _dateUtcCreated;
-        private DateTime _dateUtcModified;
+        private DateTime _dateUtcCreated = DateTime.UtcNow;
+        private DateTime _dateUtcModified = DateTime.UtcNow;
         #endregion
 
         #region Properties

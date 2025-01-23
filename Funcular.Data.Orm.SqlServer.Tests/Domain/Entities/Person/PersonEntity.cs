@@ -19,16 +19,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 		private String? _lastName;
 		private DateTime? _birthdate;
 		private String? _gender;
-		private DateTime _dateUtcCreated;
-		private DateTime _dateUtcModified;
-		#endregion
+		private DateTime _dateUtcCreated = DateTime.UtcNow;
+        private DateTime _dateUtcModified = DateTime.UtcNow;
+        #endregion
 
-		#region Properties
-		/// <summary>
-		/// Id - Int32
-		/// Required
-		/// </summary>
-		[Key]
+        #region Properties
+        /// <summary>
+        /// Id - Int32
+        /// Required
+        /// </summary>
+        [Key]
 		[DatabaseGenerated(DatabaseGeneratedOption.Identity)]
 		[Column("id")]
 		public virtual Int32 Id

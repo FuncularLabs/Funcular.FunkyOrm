@@ -89,8 +89,8 @@ namespace Funcular.Data.Orm.SqlServer
             bool createdConnection = false;
             try
             {
-                connection = GetConnection();
                 createdConnection = Connection == null;
+                connection = GetConnection();
 
                 using (var command = new SqlCommand(CreateSelectCommand<T>(key), connection))
                 {
@@ -134,7 +134,7 @@ namespace Funcular.Data.Orm.SqlServer
             }
             finally
             {
-                if (createdConnection && connection != null)
+                if (Transaction == null && createdConnection && connection != null)
                 {
                     connection.Dispose();
                 }
@@ -155,8 +155,8 @@ namespace Funcular.Data.Orm.SqlServer
             bool createdConnection = false;
             try
             {
-                connection = GetConnection();
                 createdConnection = Connection == null;
+                connection = GetConnection();
 
                 using (var command = new SqlCommand())
                 {
@@ -214,7 +214,7 @@ namespace Funcular.Data.Orm.SqlServer
             }
             finally
             {
-                if (createdConnection && connection != null)
+                if (Transaction == null && createdConnection && connection != null)
                 {
                     connection.Dispose();
                 }
@@ -234,9 +234,9 @@ namespace Funcular.Data.Orm.SqlServer
             bool createdConnection = false;
             try
             {
-                connection = GetConnection();
                 createdConnection = Connection == null;
-
+                connection = GetConnection();
+                
                 using (var command = new SqlCommand(CreateSelectCommand<T>(), connection))
                 {
                     if (Transaction != null)
@@ -282,7 +282,7 @@ namespace Funcular.Data.Orm.SqlServer
             }
             finally
             {
-                if (createdConnection && connection != null)
+                if (Transaction == null && createdConnection && connection != null)
                 {
                     connection.Dispose();
                 }
@@ -349,8 +349,8 @@ namespace Funcular.Data.Orm.SqlServer
                 bool isNullable = true; // Default to nullable
 
                 // Determine the correct SqlDbType and handle nullable value types
-                Type propertyType = property.PropertyType;
-                Type underlyingType = Nullable.GetUnderlyingType(propertyType);
+                Type? propertyType = property.PropertyType;
+                Type? underlyingType = Nullable.GetUnderlyingType(propertyType);
                 if (underlyingType != null)
                 {
                     propertyType = underlyingType;
@@ -412,14 +412,14 @@ namespace Funcular.Data.Orm.SqlServer
                         else if (propertyType == typeof(TimeSpan))
                             dbType = SqlDbType.Time;
                         else
-                            throw new NotSupportedException($"The type {propertyType.Name} is not supported in this ORM.");
+                            throw new NotSupportedException($"The type {propertyType?.Name} is not supported in this ORM.");
                         break;
                 }
 
                 // Ensure value is of the correct type if not null
                 if (value != DBNull.Value)
                 {
-                    value = Convert.ChangeType(value, propertyType);
+                    value = Convert.ChangeType(value, propertyType ?? throw new InvalidOperationException());
                 }
 
                 var parameter = new SqlParameter($"@{tuple.PropertyName}", value ?? DBNull.Value)
@@ -435,8 +435,8 @@ namespace Funcular.Data.Orm.SqlServer
             bool createdConnection = false;
             try
             {
+                createdConnection = connection == null;
                 connection = GetConnection();
-                createdConnection = Connection == null;
 
                 using (var command = new SqlCommand())
                 {
@@ -454,12 +454,14 @@ VALUES ({string.Join(", ", parameterNames)})";
                         Log(command.CommandText);
 
                     var result = (int)command.ExecuteScalar();
+                    if (result != 0)
+                        GetPrimaryKey<T>()?.SetValue(entity, (object)result);
                     return result;
                 }
             }
             finally
             {
-                if (createdConnection && connection != null)
+                if (Transaction == null && createdConnection && connection != null)
                 {
                     connection.Dispose();
                 }
@@ -534,8 +536,8 @@ VALUES ({string.Join(", ", parameterNames)})";
                 bool createdConnection = false;
                 try
                 {
-                    connection = GetConnection();
                     createdConnection = Connection == null;
+                    connection = GetConnection();
 
                     using (var command = new SqlCommand())
                     {
@@ -559,7 +561,7 @@ VALUES ({string.Join(", ", parameterNames)})";
                 }
                 finally
                 {
-                    if (createdConnection && connection != null)
+                    if (Transaction == null && createdConnection && connection != null)
                     {
                         connection.Dispose();
                     }
@@ -576,7 +578,7 @@ VALUES ({string.Join(", ", parameterNames)})";
             return entity;
         }
 
-        /// <summary>
+        /*/// <summary>
         /// Begins a new transaction if none exists, using the optional transaction name. 
         /// </summary>
         /// <param name="name">An optional name for the transaction, useful in nested or named transaction scenarios.</param>
@@ -614,6 +616,78 @@ VALUES ({string.Join(", ", parameterNames)})";
                 Transaction.Dispose();
                 Transaction = null;
                 TransactionName = null;
+            }
+        }*/
+
+        /// <summary>
+        /// Begins a new transaction if none exists, using the optional transaction name.
+        /// </summary>
+        /// <param name="name">An optional name for the transaction, useful in nested or named transaction scenarios.</param>
+        public void BeginTransaction(string? name = "")
+        {
+            EnsureConnectionOpen();
+
+            if (Transaction == null)
+            {
+                Transaction = Connection?.BeginTransaction(IsolationLevel.ReadCommitted);
+                TransactionName = name;
+            }
+            else
+            {
+                throw new InvalidOperationException("A transaction is already in progress.");
+            }
+        }
+
+        /// <summary>
+        /// Rolls back the current transaction if it matches the given name or if no name is provided.
+        /// </summary>
+        /// <param name="name">The name of the transaction to rollback, or empty to roll back any open transaction.</param>
+        public void RollbackTransaction(string name = "")
+        {
+            if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
+            {
+                Transaction.Rollback();
+                Transaction.Dispose();
+                Transaction = null;
+                TransactionName = null;
+                CloseConnectionIfNoTransaction();
+            }
+        }
+
+        /// <summary>
+        /// Commits the current transaction if it matches the given name or if no name is provided.
+        /// </summary>
+        /// <param name="name">The name of the transaction to commit, or empty to commit any open transaction.</param>
+        public void CommitTransaction(string name = "")
+        {
+            if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
+            {
+                Transaction.Commit();
+                Transaction.Dispose();
+                Transaction = null;
+                TransactionName = null;
+                CloseConnectionIfNoTransaction();
+            }
+        }
+
+        // Helper methods to manage connection state:
+
+        private void EnsureConnectionOpen()
+        {
+            if (Connection == null || Connection.State != ConnectionState.Open)
+            {
+                Connection = new SqlConnection(_connectionString);
+                Connection.Open();
+            }
+        }
+
+        private void CloseConnectionIfNoTransaction()
+        {
+            if (Transaction == null && Connection != null && Connection.State == ConnectionState.Open)
+            {
+                Connection.Close();
+                Connection.Dispose();
+                Connection = null;
             }
         }
 
@@ -721,11 +795,7 @@ VALUES ({string.Join(", ", parameterNames)})";
 
         protected SqlConnection? GetConnection()
         {
-            if (Connection == null || Connection.State != ConnectionState.Open)
-            {
-                Connection = new SqlConnection(_connectionString);
-                Connection.Open();
-            }
+            EnsureConnectionOpen();
             return Connection;
         }
 

@@ -20,16 +20,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
 		private string? _city;
 		private string? _stateCode;
 		private string? _postalCode;
-		private DateTime _dateUtcCreated;
-		private DateTime _dateUtcModified;
-		#endregion
+        private DateTime _dateUtcCreated = DateTime.UtcNow;
+		private DateTime _dateUtcModified = DateTime.UtcNow;
+        #endregion
 
-		#region Properties
-		/// <summary>
-		/// Id - Int32
-		/// Required
-		/// </summary>
-		[Key] // optional because the property name matches the column name
+        #region Properties
+        /// <summary>
+        /// Id - Int32
+        /// Required
+        /// </summary>
+        [Key] // optional because the property name matches the column name
 		[DatabaseGenerated(DatabaseGeneratedOption.Identity)]
 		[Column("id")] // optional because the property name matches the column name
 
