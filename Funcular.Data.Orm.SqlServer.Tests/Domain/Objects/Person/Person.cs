@@ -27,6 +27,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person
 			}
 		}
 
-		#endregion
+        /// <summary>
+        /// Gets or sets the unique identifier.
+        /// </summary>
+        /// <value>The unique identifier.</value>
+        public Guid? UniqueId { get; set; }
+
+        #endregion
 	}
 }

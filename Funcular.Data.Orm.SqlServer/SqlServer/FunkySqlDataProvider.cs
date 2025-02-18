@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -17,7 +16,7 @@ namespace Funcular.Data.Orm.SqlServer
     /// <summary>
     /// Represents a SQL data provider for interacting with SQL Server databases. This class manages connections, transactions, and provides methods for data operations like querying, inserting, updating, and managing transactions.
     /// </summary>
-    public partial class SqlDataProvider : ISqlDataProvider
+    public partial class FunkySqlDataProvider : ISqlDataProvider
     {
         #region Fields
 
@@ -56,20 +55,20 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Gets or sets the name of the current transaction, if any. This can be used for identifying transactions in complex scenarios.
         /// </summary>
-        public string? TransactionName { get; private set; }
+        public string? TransactionName { get; protected set; }
 
         #endregion
 
         #region Public members
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SqlDataProvider"/> class with the specified connection string and optional existing connection or transaction.
+        /// Initializes a new instance of the <see cref="FunkySqlDataProvider"/> class with the specified connection string and optional existing connection or transaction.
         /// </summary>
         /// <param name="connectionString">The connection string for the SQL Server database.</param>
         /// <param name="connection">An existing SQL connection to reuse. If null, a new connection will be created.</param>
         /// <param name="transaction">An existing transaction to join. If null, no transaction will be active initially.</param>
         /// <exception cref="System.ArgumentNullException">Thrown if <paramref name="connectionString"/> is null.</exception>
-        public SqlDataProvider(string? connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
+        public FunkySqlDataProvider(string? connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             Connection = connection ?? new SqlConnection(_connectionString);
@@ -160,19 +159,26 @@ namespace Funcular.Data.Orm.SqlServer
 
                 using (var command = new SqlCommand())
                 {
-                    command.Connection = connection;
+                    var elements = CreateSelectQuery(whereExpression: expression);
+                    command.CommandText = $"{elements.SelectClause}\r\nWHERE (\r\n\t{elements.WhereClause}\r\n)";
                     if (Transaction != null)
                         command.Transaction = Transaction;
 
-                    var elements = CreateSelectQuery(whereExpression: expression);
-                    command.CommandText = $"{elements.SelectClause}\r\nWHERE (\r\n\t{elements.WhereClause}\r\n)";
+                    if (Log != null)
+                    {
+                        Log(command.CommandText);
+                    }
+
                     foreach (var sqlParameter in elements.SqlParameters)
                     {
                         command.Parameters.Add(sqlParameter);
+                        if (Log != null)
+                        {
+                            Log($"{sqlParameter.ParameterName}: {sqlParameter.Value}");
+                        }
                     }
 
-                    if (Log != null)
-                        Log(command.CommandText);
+                    command.Connection = connection;
 
                     using (var reader = command.ExecuteReader())
                     {
@@ -323,21 +329,6 @@ namespace Funcular.Data.Orm.SqlServer
             var parameters = new List<SqlParameter> { idParameter };
 
             var parameterNames = columns.Select(x => $"@{x.PropertyName}").ToList();
-
-            /*foreach (var tuple in columns)
-            {
-                var property = _propertiesCache[typeof(T)].FirstOrDefault(x => x.Name == tuple.PropertyName);
-                Debug.Assert(property != null, nameof(property) + " != null");
-                var value = property.GetValue(entity);
-                if (property.PropertyType == typeof(DateTime) || property.PropertyType == typeof(DateTime?))
-                    if (value is null)
-                    {
-                        value = DBNull.Value;
-                        Debugger.Break();
-                    }
-
-                parameters.Add(new SqlParameter($"@{tuple.PropertyName}", value ?? DBNull.Value));
-            }*/
 
             foreach (var tuple in columns)
             {
@@ -577,48 +568,7 @@ VALUES ({string.Join(", ", parameterNames)})";
             // Return the updated entity assuming the update was successful or no update was needed
             return entity;
         }
-
-        /*/// <summary>
-        /// Begins a new transaction if none exists, using the optional transaction name. 
-        /// </summary>
-        /// <param name="name">An optional name for the transaction, useful in nested or named transaction scenarios.</param>
-        public void BeginTransaction(string? name = "")
-        {
-            TransactionName = name;
-            Transaction ??= GetConnection()?.BeginTransaction(IsolationLevel.ReadCommitted, TransactionName);
-        }
-
-        /// <summary>
-        /// Rolls back the current transaction if it matches the given name or if no name is provided.
-        /// </summary>
-        /// <param name="name">The name of the transaction to rollback, or empty to rollback any open transaction.</param>
-        public void RollbackTransaction(string name = "")
-        {
-            if (Transaction != null && (string.IsNullOrEmpty(name)) || TransactionName == name)
-            {
-                Debug.Assert(Transaction != null, nameof(Transaction) + " != null");
-                Transaction.Rollback(name);
-                Transaction.Dispose();
-                Transaction = null;
-                TransactionName = null;
-            }
-        }
-
-        /// <summary>
-        /// Commits the current transaction if it matches the given name or if no name is provided.
-        /// </summary>
-        /// <param name="name">The name of the transaction to commit, or empty to commit any open transaction.</param>
-        public void CommitTransaction(string name = "")
-        {
-            if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
-            {
-                Transaction.Commit();
-                Transaction.Dispose();
-                Transaction = null;
-                TransactionName = null;
-            }
-        }*/
-
+        
         /// <summary>
         /// Begins a new transaction if none exists, using the optional transaction name.
         /// </summary>
@@ -670,9 +620,12 @@ VALUES ({string.Join(", ", parameterNames)})";
             }
         }
 
-        // Helper methods to manage connection state:
 
-        private void EnsureConnectionOpen()
+
+        /// <summary>
+        /// Ensures the connection is open.
+        /// </summary>
+        protected void EnsureConnectionOpen()
         {
             if (Connection == null || Connection.State != ConnectionState.Open)
             {
@@ -681,7 +634,10 @@ VALUES ({string.Join(", ", parameterNames)})";
             }
         }
 
-        private void CloseConnectionIfNoTransaction()
+        /// <summary>
+        /// Closes the connection if it is open and there is no transaction.
+        /// </summary>
+        protected void CloseConnectionIfNoTransaction()
         {
             if (Transaction == null && Connection != null && Connection.State == ConnectionState.Open)
             {
@@ -758,7 +714,7 @@ VALUES ({string.Join(", ", parameterNames)})";
         #region IDisposable
 
         /// <summary>
-        /// Releases the resources used by the <see cref="SqlDataProvider"/> instance, disposing of the connection and transaction if they exist.
+        /// Releases the resources used by the <see cref="FunkySqlDataProvider"/> instance, disposing of the connection and transaction if they exist.
         /// </summary>
         public void Dispose()
         {
@@ -839,21 +795,22 @@ VALUES ({string.Join(", ", parameterNames)})";
         protected Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
         {
             var ordinals = new Dictionary<string, int>();
+            var schemas = reader.GetColumnSchema().Select(x => x.ColumnName).ToHashSet(new IgnoreUnderscoreAndCaseStringComparer());
             foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties()))
             {
                 string columnName = _columnNames.GetOrAdd($"{property.ToDictionaryKey()}", GetColumnName(property));
 
                 try
                 {
-                    if (reader.GetOrdinal(columnName) >= 0)
+                    if (schemas.Contains(columnName) && reader.GetOrdinal(columnName) >= 0)
                     {
                         ordinals[columnName] = reader.GetOrdinal(columnName);
                     }
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e);
-                    Debug.WriteLine(e);
+                    if (Log != null)
+                        Log(e.ToString());
                     continue;
                 }
             }

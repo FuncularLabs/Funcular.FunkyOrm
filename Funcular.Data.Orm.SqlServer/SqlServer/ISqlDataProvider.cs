@@ -8,7 +8,7 @@ namespace Funcular.Data.Orm.SqlServer
     public interface ISqlDataProvider
     {
         /// <summary>
-        /// Gets or sets the log action (e.g., write to console).
+        /// Gets or sets the log action (e.g., write to console, write to debug).
         /// </summary>
         /// <value>The log.</value>
         Action<string>? Log { get; set; }
@@ -22,6 +22,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <value>The transaction.</value>
         SqlTransaction? Transaction { get; set; }
+
+        /// <summary>
+        /// Gets or sets the name of the current transaction, if any. This can be used for identifying transactions in complex scenarios.
+        /// </summary>
+        string? TransactionName { get; }
 
         /// <summary>
         /// Gets the entity having the specified key, if it exists.

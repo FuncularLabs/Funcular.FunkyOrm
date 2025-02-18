@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj" />
+    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj" />
   </ItemGroup>
 
   <ItemGroup>

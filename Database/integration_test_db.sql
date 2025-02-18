@@ -13,6 +13,7 @@ CREATE TABLE person (
     last_name NVARCHAR(100) NOT NULL,
     birthdate DATE NULL,
     gender NVARCHAR(10) NULL,
+    uniqueid UNIQUEIDENTIFIER NULL,
     dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE()
 );
