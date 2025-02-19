@@ -348,16 +348,16 @@ namespace Funcular.Data.Orm.SqlServer
 
         private T? ExecuteReaderSingle<T>(SqlCommand command) where T : class, new()
         {
-            Log?.Invoke(command.CommandText);
-            LogParameters(command.Parameters.AsEnumerable());
+            
+            InvokeLogAction(command);
             using var reader = command.ExecuteReader();
             return reader.Read() ? MapEntity<T>(reader) : null;
         }
 
         private ICollection<T> ExecuteReaderList<T>(SqlCommand command) where T : class, new()
         {
-            Log?.Invoke(command.CommandText);
-            LogParameters(command.Parameters.AsEnumerable());
+            
+            InvokeLogAction(command);
             var results = new List<T>();
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -378,7 +378,6 @@ namespace Funcular.Data.Orm.SqlServer
             if (parameters?.Any() == true)
             {
                 command.Parameters.AddRange(parameters.ToArray());
-                LogParameters(parameters);
             }
             return command;
         }
@@ -442,8 +441,8 @@ namespace Funcular.Data.Orm.SqlServer
 
         private int ExecuteInsert<T>(SqlCommand command, T entity, PropertyInfo primaryKey) where T : class, new()
         {
-            Log?.Invoke(command.CommandText);
-            LogParameters(command.Parameters.AsEnumerable());
+            
+            InvokeLogAction(command);
             var result = (int)command.ExecuteScalar();
             if (result != 0)
                 primaryKey.SetValue(entity, result);
@@ -482,8 +481,8 @@ namespace Funcular.Data.Orm.SqlServer
 
         private void ExecuteUpdate(SqlCommand command)
         {
-            Log?.Invoke(command.CommandText);
-            LogParameters(command.Parameters.AsEnumerable());
+            
+            InvokeLogAction(command);
             var rowsAffected = command.ExecuteNonQuery();
             if (rowsAffected == 0)
                 throw new InvalidOperationException("Update failed: No rows affected.");
@@ -517,9 +516,10 @@ namespace Funcular.Data.Orm.SqlServer
             };
         }
 
-        private void LogParameters(IEnumerable<SqlParameter> parameters)
+        private void InvokeLogAction(SqlCommand command)
         {
-            foreach (var param in parameters)
+            Log?.Invoke(command.CommandText);
+            foreach (var param in command.Parameters.AsEnumerable())
                 Log?.Invoke($"{param.ParameterName}: {param.Value}");
         }
 

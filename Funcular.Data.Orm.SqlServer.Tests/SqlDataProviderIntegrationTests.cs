@@ -228,7 +228,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Query_Person_LastNameEndsWith_NoMatch_ReturnsEmptyList()
         {
             // Act
-            var value = "Guid.NewGuid().ToString()";
+            var value = Guid.NewGuid().ToString();
             var result = _provider?.Query<Person>(x => x.LastName!.EndsWith(value)).ToList() ?? [];
 
             // Assert
@@ -238,7 +238,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_Person_LastNameContains_NoMatch_ReturnsEmptyList()
         {
-            var value = "Guid.NewGuid().ToString()";
+            var value = Guid.NewGuid().ToString();
             // Act
             var result = _provider?.Query<Person>(x => x.LastName!.Contains(value)).ToList() ?? [];
 
@@ -337,6 +337,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_Person_WithBirthdateInRange_ReturnsCorrectPersons()
         {
+            // Create a unique trace value to assign to the Gender; we will use that later to ensure we ignore others' test data:
             var uniqueString = Guid.NewGuid().ToString().Substring(28);
 
             // Arrange
@@ -353,6 +354,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Act
             var persons = _provider?.Query<Person>(p => p.Birthdate >= fromDate && p.Birthdate <= toDate).ToList();
+            // After the SQL query executes, ensure we are only paying attention to the rows we just inserted:
             var result = persons?.Where(x => x.Gender == uniqueString).ToList();
 
             // Assert
@@ -364,7 +366,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_Person_WithOrElse_Birthdates_ReturnsCorrectPersons()
         {
-            var uniqueString = Guid.NewGuid().ToString().Substring(28);
+            // Create a unique trace value to assign to the Gender; we will use that later to ensure we ignore others' test data:
+            var uniqueString = Guid.NewGuid().ToString().Substring(startIndex: 28);
 
             var fromDate = DateTime.Today.AddYears(-100);
             var toDate = DateTime.Today.AddYears(100);
@@ -380,6 +383,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             
             // Act
             var persons = _provider?.Query<Person>(p => p.Birthdate <= fromDate || p.Birthdate >= toDate).ToList();
+            // After the SQL query executes, ensure we are only paying attention to the rows we just inserted:
             var result = persons?.Where(x => x.Gender == uniqueString).ToList();
 
             // Assert
@@ -391,6 +395,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Query_Person_WithNullBirthdate_HandlesNullCorrectly()
         {
             // Arrange
+            // Create a unique trace value to assign to the Gender; we will use that later to ensure we ignore others' test data:
             var uniqueString = Guid.NewGuid().ToString().Substring(28);
             var personsToInsert = new List<Person>
             {
@@ -400,8 +405,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             personsToInsert.ForEach(p => _provider?.Insert(p));
 
             // Act
-            var nullBirthdate = _provider?.Query<Person>(p => p.Birthdate == null).ToList().Where(x => x.Gender == uniqueString).ToList();
-            var hasBirthdate = _provider?.Query<Person>(p => p.Birthdate != null).ToList().Where(x => x.Gender == uniqueString).ToList();
+            var nullBirthdate = _provider?.Query<Person>(p => p.Birthdate == null).ToList()
+                // After the SQL query executes, ensure we are only paying attention to the rows we just inserted:
+                .Where(x => x.Gender == uniqueString).ToList();
+            
+            var hasBirthdate = _provider?.Query<Person>(p => p.Birthdate != null).ToList()
+            // After the SQL query executes, ensure we are only paying attention to the rows we just inserted:
+                .Where(x => x.Gender == uniqueString).ToList();
 
             // Assert
             Assert.IsTrue(nullBirthdate?.Count > 0 && nullBirthdate[0].LastName == "NullDate");
