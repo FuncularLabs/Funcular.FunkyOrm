@@ -17,7 +17,7 @@ namespace Funcular.Data.Orm.SqlServer
     /// Translates LINQ expressions into SQL WHERE clauses for entity type T.
     /// </summary>
     /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-    internal class ExpressionVisitor<T> : ExpressionVisitor where T : class, new()
+    internal class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new()
     {
         #region Fields
 
@@ -52,7 +52,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="columnNames">Cache of property to column name mappings.</param>
         /// <param name="unmappedProperties">Cache of unmapped properties.</param>
         /// <param name="parameterCounter">Reference counter for parameter naming.</param>
-        public ExpressionVisitor(List<SqlParameter> parameters,
+        public EntityExpressionVisitor(List<SqlParameter> parameters,
             ConcurrentDictionary<string, string> columnNames,
             ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> unmappedProperties,
             ref int parameterCounter)

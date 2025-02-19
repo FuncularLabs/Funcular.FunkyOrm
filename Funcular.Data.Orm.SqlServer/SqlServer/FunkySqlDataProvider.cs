@@ -336,7 +336,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>WHERE clause elements.</returns>
         protected WhereClauseElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
-            var visitor = new ExpressionVisitor<T>(new List<SqlParameter>(), _columnNames,
+            var visitor = new EntityExpressionVisitor<T>(new List<SqlParameter>(), _columnNames,
                 _unmappedPropertiesCache, ref _parameterCounter);
             visitor.Visit(expression);
             return new WhereClauseElements<T>(expression, visitor.WhereClauseBody, visitor.Parameters);
@@ -508,7 +508,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         private SqlParameter CreateParameter<T>(string name, object? value, Type propertyType) where T : class, new()
         {
-            var sqlType = ExpressionVisitor<T>.GetSqlDbType(value);
+            var sqlType = EntityExpressionVisitor<T>.GetSqlDbType(value);
             return new SqlParameter(name, value ?? DBNull.Value)
             {
                 SqlDbType = sqlType,
