@@ -337,14 +337,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_Person_WithBirthdateInRange_ReturnsCorrectPersons()
         {
-            var substring = Guid.NewGuid().ToString().Substring(28);
+            var uniqueString = Guid.NewGuid().ToString().Substring(28);
 
             // Arrange
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-30), Gender = substring },
-                new Person { LastName = "Johnson", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-25), Gender = substring },
-                new Person { LastName = "Doe", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-40), Gender = substring }
+                new Person { LastName = "Smith", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-30), Gender = uniqueString },
+                new Person { LastName = "Johnson", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-25), Gender = uniqueString },
+                new Person { LastName = "Doe", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-40), Gender = uniqueString }
             };
             personsToInsert.ForEach(p => _provider?.Insert(p));
 
@@ -353,7 +353,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Act
             var persons = _provider?.Query<Person>(p => p.Birthdate >= fromDate && p.Birthdate <= toDate).ToList();
-            var result = persons?.Where(x => x.Gender == substring).ToList();
+            var result = persons?.Where(x => x.Gender == uniqueString).ToList();
 
             // Assert
             Assert.IsTrue(result?.Count == 2);
@@ -364,7 +364,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_Person_WithOrElse_Birthdates_ReturnsCorrectPersons()
         {
-            var substring = Guid.NewGuid().ToString().Substring(28);
+            var uniqueString = Guid.NewGuid().ToString().Substring(28);
 
             var fromDate = DateTime.Today.AddYears(-100);
             var toDate = DateTime.Today.AddYears(100);
@@ -372,15 +372,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-101), Gender = substring },
-                new Person { LastName = "Johnson", FirstName = "Test", Birthdate = DateTime.Today.AddYears(101), Gender = substring },
+                new Person { LastName = "Smith", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-101), Gender = uniqueString },
+                new Person { LastName = "Johnson", FirstName = "Test", Birthdate = DateTime.Today.AddYears(101), Gender = uniqueString },
             };
             personsToInsert.ForEach(p => _provider?.Insert(p));
 
             
             // Act
             var persons = _provider?.Query<Person>(p => p.Birthdate <= fromDate || p.Birthdate >= toDate).ToList();
-            var result = persons?.Where(x => x.Gender == substring).ToList();
+            var result = persons?.Where(x => x.Gender == uniqueString).ToList();
 
             // Assert
             Assert.IsTrue(result?.Count == 2);
@@ -391,17 +391,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Query_Person_WithNullBirthdate_HandlesNullCorrectly()
         {
             // Arrange
-            var substring = Guid.NewGuid().ToString().Substring(28);
+            var uniqueString = Guid.NewGuid().ToString().Substring(28);
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "NullDate", FirstName = "Test", Birthdate = null, Gender = substring},
-                new Person { LastName = "HasDate", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-30), Gender = substring }
+                new Person { LastName = "NullDate", FirstName = "Test", Birthdate = null, Gender = uniqueString},
+                new Person { LastName = "HasDate", FirstName = "Test", Birthdate = DateTime.Today.AddYears(-30), Gender = uniqueString }
             };
             personsToInsert.ForEach(p => _provider?.Insert(p));
 
             // Act
-            var nullBirthdate = _provider?.Query<Person>(p => p.Birthdate == null).ToList().Where(x => x.Gender == substring).ToList();
-            var hasBirthdate = _provider?.Query<Person>(p => p.Birthdate != null).ToList().Where(x => x.Gender == substring).ToList();
+            var nullBirthdate = _provider?.Query<Person>(p => p.Birthdate == null).ToList().Where(x => x.Gender == uniqueString).ToList();
+            var hasBirthdate = _provider?.Query<Person>(p => p.Birthdate != null).ToList().Where(x => x.Gender == uniqueString).ToList();
 
             // Assert
             Assert.IsTrue(nullBirthdate?.Count > 0 && nullBirthdate[0].LastName == "NullDate");
