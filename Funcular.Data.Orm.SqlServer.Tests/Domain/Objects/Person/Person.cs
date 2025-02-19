@@ -9,7 +9,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person
 	{
 		#region Relationship Properties
 		// readonly to eliminate the possibility of null reference exceptions
-        private readonly IList<PersonAddress> _addresses = new List<PersonAddress>();
+        private readonly IList<PersonAddress> _personAddressJoins = new List<PersonAddress>();
 
 		/// <summary>
 		/// Gets or sets the collection of addresses.
@@ -18,20 +18,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person
 		[NotMapped]
 		public IList<PersonAddress> Addresses
 		{
-			get => _addresses;
+			get => _personAddressJoins;
 			set
 			{
-				_addresses.Clear();
-				ExtensionMethods.AddRange(_addresses, value);
+				_personAddressJoins.Clear();
+				foreach (var personAddress in value)
+                {
+                    _personAddressJoins.Add(personAddress);
+                }
 				OnPropertyChanged();
 			}
 		}
-
-        /// <summary>
-        /// Gets or sets the unique identifier.
-        /// </summary>
-        /// <value>The unique identifier.</value>
-        public Guid? UniqueId { get; set; }
 
         #endregion
 	}

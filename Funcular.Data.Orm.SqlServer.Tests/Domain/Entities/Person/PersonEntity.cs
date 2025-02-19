@@ -114,7 +114,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 			get => _dateUtcModified;
 			set => SetProperty(ref _dateUtcModified, value);
 		}
-		#endregion
+
+        /// <summary>
+        /// Gets or sets the unique identifier.
+        /// </summary>
+        /// <value>The unique identifier.</value>
+        public Guid? UniqueId { get; set; }
+
+        #endregion
 
 	}
 }
