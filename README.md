@@ -36,7 +36,7 @@ The easiest way to get started with FunkyORM is to execute the provided scripts 
 - **Clone the repository** to your local machine.
 - **Connect to a SQL Server** you control.
 - **Create the SQL database:** Execute the included integration_test_db script to create the database.
-- **Generate mock data:** Execute theprovided  integration_test_data script to populate the database with mock data.
+- **Generate mock data:** Execute the provided  integration_test_data script to populate the database with mock data.
   - If you created the database as funky_db on the default SQL instance on localhost and can connect via SSPI/integrated security, you're good to go and you should be able to run the integration tests.
   - If the database is in any other location (different server, SQL instance, database name, etc.), you can edit the connection string in the unit tests, or create and set an environment variable, `FUNKY_CONNECTION`, to point to the server/database you created. The unit tests should recognize this, and it will help prevent you from accidentally checking in SQL credentials.
 -  **Set your connection string:** You can edit this in the unit test initialization, or set an environment variable, FUNKY_CONNECTION, which your environment should pick up automatically (may require a restart of VS to refresh environment variables).
@@ -45,8 +45,36 @@ The easiest way to get started with FunkyORM is to execute the provided scripts 
 
 **IMPORTANT**: FunkyORM uses Microsoft.Data.SqlServer, which superseded System.Data.SqlServer as of .NET Core 3.0. _This introduced a breaking change_ with connection strings; if your server does not have a CI-trusted certificate installed, you must include either `TrustServerCertificate = true` or `Encrypt = false` in the connection string, or the connection will fail. See https://stackoverflow.com/questions/17615260/the-certificate-chain-was-issued-by-an-authority-that-is-not-trusted-when-conn for more info on this.
 
+## What Funky Does and Doesn't Do
+FunkyORM is designed to be a near-drop-in replacement for Entity Framework that is as dependency-free as possible. 
+
+#### It Does:
+- GET command (by id / PK)
+- SELECT queries
+  - Lambdas, with operators `IS NULL , IS NOT NULL , = , <> , > , >= , < , <= , LIKE , AND , OR , IN `
+  - C# .StartsWith, EndsWith and Contains invocations on strings
+- UPDATE commands
+  - By id / PK
+  - By WHERE clause
+- INSERT commands
+- Observes several System.ComponentModel.DataAnnotations.Schema annotations
+  - Table
+  - Column
+  - Key
+  - NotMapped
+  - DatabaseGenerated
+#### It Does Not Do (at this time):
+- DELETE commands
+- Bulk inserts
+- Joins / relationships / foreign-key inference / descendants
+- Execute query criteria that don't translate to SQL (see the supported operators above)
+- Query on umapped columns
+- Query on calculated expressions (e.g., order.UnitPrice * order.Quantity > 100)
+
+Funky is made for developers who don't want a bunch of ceremony, and who prefer to do their own relational queries, i.e., get a collection of Customers, project their ids to an array, then do something like this to get childrean `var orders = Orders.Where(x => customerIds.Contains(x.CustomerId))`, instead of letting EntityFramework set you up for an ‘N+1 selects’ problem or crazy inefficient joins.
+
+We made FunkyORM to use ourselves, and we enjoy using it. We hope you do too!
+
 ## Next steps:
-- Review the contents of the integration tests; the initialization is this simple:
-![image.png](/.attachments/image-02e8ff74-221b-41e3-8e97-cfe6c7de2f49.png)
-- Write a simple lambda-based query just like you would with Entity Framework:
-![image.png](/.attachments/image-d8ebc3c0-3d93-4ede-9a1c-e680d7d2b7e6.png)
+- Review the contents of the integration tests
+- Write a simple lambda-based query just like you would with Entity Framework
