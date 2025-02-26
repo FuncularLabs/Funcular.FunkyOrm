@@ -71,7 +71,7 @@ FunkyORM is designed to be a near-drop-in replacement for Entity Framework that 
 - Query on umapped columns
 - Query on calculated expressions (e.g., order.UnitPrice * order.Quantity > 100)
 
-Funky is made for developers who don't want a bunch of ceremony, and who prefer to do their own relational queries, i.e., get a collection of Customers, project their ids to an array, then do something like this to get childrean `var orders = Orders.Where(x => customerIds.Contains(x.CustomerId))`, instead of letting EntityFramework set you up for an ‘N+1 selects’ problem or crazy inefficient joins.
+Funky is made for developers who don't want a bunch of ceremony, and who prefer to do their own relational queries, i.e., get a collection of Customers, project their ids to an array, then do something like this to get children: `var customerOrders = Orders.Where(x => customerIds.Contains(x.CustomerId))`, instead of letting EntityFramework set you up for an ‘N+1 selects’ problem or crazy inefficient joins.
 
 We made FunkyORM to use ourselves, and we enjoy using it. We hope you do too!
 
