@@ -11,7 +11,7 @@ If you're tired of the overhead of Entity Framework or the limitations of Dapper
 Are you ready to see how easy and powerful database operations can be? Clone the repository, set up the test environment, and experience the efficiency of FunkyORM firsthand.
 
 ## The General Idea
-![FunkyORM-Simplicity-Diagram-Reduced](https://github.com/user-attachments/assets/3e1b0202-05cc-47d8-ac53-63759052ab5c)
+![FunkyORM-Simplicity-Diagram-Reduced](https://github.com/FuncularLabs/Funcular.FunkyOrm/blob/master/Funcular.Data.Orm.SqlServer/Images/FunkyORM-Easy-Ease-Simplicity-Diagram.png)
     
 ---
 # Details
