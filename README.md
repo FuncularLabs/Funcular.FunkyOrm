@@ -9,6 +9,9 @@ If you're tired of the overhead of Entity Framework or the limitations of Dapper
 - **Zero to Query in Seconds**: Minimal configuration means you can start querying your MSSQL databases with just your entity classes. Forget about contexts or extensive model setups!
     
 Are you ready to see how easy and powerful database operations can be? Clone the repository, set up the test environment, and experience the efficiency of FunkyORM firsthand.
+
+## The General Idea
+![FunkyORM-Simplicity-Diagram-Reduced](https://github.com/user-attachments/assets/3e1b0202-05cc-47d8-ac53-63759052ab5c)
     
 ---
 # Details
@@ -16,7 +19,7 @@ FunkyORM is designed to be a low-impedance, no-frills interface to MSSQL. It is 
 
 FunkyORM requires little configuration. Most of its behaviors can be achieved using bare entities with few or no annotations. No contexts and no entity models are needed. Annotations are supported where needs diverge from the most common use cases; just write or generate entities for your tables and start querying.
 
-### Key attributes:
+## Key attributes:
 *   **Fast**: Competitive benchmarks when compared to similar alternatives
 *   **Small footprint**: completely agnostic to DbContexts, models, joins, and relationships
 *   **Easy to use**: Support lambda queries out of the box
