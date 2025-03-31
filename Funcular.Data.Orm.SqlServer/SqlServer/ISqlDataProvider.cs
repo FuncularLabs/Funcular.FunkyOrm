@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using Microsoft.Data.SqlClient;
 
@@ -37,6 +38,14 @@ namespace Funcular.Data.Orm.SqlServer
         T? Get<T>(dynamic? key = null) where T : class, new();
 
         /// <summary>
+        /// Queries the specified entity type.
+        /// Parameterizes the resulting query.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns>IQueryable&lt;T&gt;.</returns>
+        IQueryable<T> Query<T>() where T : class, new();
+
+        /// <summary>
         /// Queries the specified entity type using the specified expression as the WHERE clause.
         /// Parameterizes the resulting query.
         /// </summary>
@@ -53,7 +62,7 @@ namespace Funcular.Data.Orm.SqlServer
         ICollection<T> GetList<T>() where T : class, new();
 
         /// <summary>
-        /// Inserts the provided entity into the database.
+        /// Inserts the provided entity into the database. TODO: update to return dynamic PK of inserted
         /// </summary>
         /// <typeparam name="T">The type of entity to insert. Must have a parameterless constructor.</typeparam>
         /// <param name="entity">The entity to insert.</param>

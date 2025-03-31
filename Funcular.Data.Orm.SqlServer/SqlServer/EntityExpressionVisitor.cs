@@ -77,12 +77,45 @@ namespace Funcular.Data.Orm.SqlServer
             _whereClauseBody.Append("(");
             Visit(node.Left);
 
-            AppendBinaryOperator(node);
-            if (!HandleNullComparison(node))
+            // Check if this is a null comparison to decide whether to append the operator
+            bool isNullComparison = (node.NodeType == ExpressionType.Equal || node.NodeType == ExpressionType.NotEqual) &&
+                                    (node.Right is ConstantExpression { Value: null } || node.Left is ConstantExpression { Value: null });
+
+            if (!isNullComparison)
+            {
+                AppendBinaryOperator(node);
+            }
+
+            if (!HandleNullComparison(node, isNullComparison))
+            {
                 Visit(node.Right);
+            }
 
             _whereClauseBody.Append(")");
             return node;
+        }
+
+        /// <summary>
+        /// Handles null comparisons (e.g., IS NULL, IS NOT NULL).
+        /// </summary>
+        /// <param name="node">The node.</param>
+        /// <param name="isNullComparison">The is null comparison.</param>
+        /// <returns>bool.</returns>
+        protected bool HandleNullComparison(BinaryExpression node, bool isNullComparison)
+        {
+            if (isNullComparison)
+            {
+                if (node.NodeType == ExpressionType.Equal)
+                {
+                    _whereClauseBody.Append(" IS NULL ");
+                }
+                else // NotEqual
+                {
+                    _whereClauseBody.Append(" IS NOT NULL ");
+                }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -139,6 +172,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The processed expression.</returns>
         protected override Expression VisitMethodCall(MethodCallExpression node)
         {
+            Console.WriteLine($"[DEBUG] Visiting: {node.NodeType}, Expression: {node}");
             if (TryHandleStringMethod(node) || TryHandleContainsMethod(node))
                 return node;
 

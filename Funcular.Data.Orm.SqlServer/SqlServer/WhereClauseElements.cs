@@ -13,6 +13,8 @@ namespace Funcular.Data.Orm.SqlServer
     /// <typeparam name="T">The type of entity for which the WHERE clause is being constructed.</typeparam>
     public class WhereClauseElements<T>
     {
+        protected readonly List<SqlParameter> _sqlParameters = new List<SqlParameter>();
+
         /// <summary>
         /// Gets or sets the original LINQ expression used to construct the SQL where clause.
         /// </summary>
@@ -26,7 +28,15 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Gets or sets the list of SQL parameters corresponding to the placeholders in the WhereClause.
         /// </summary>
-        public List<SqlParameter> SqlParameters { get; set; }
+        public List<SqlParameter> SqlParameters
+        {
+            get => _sqlParameters;
+            set
+            {
+                _sqlParameters.Clear();
+                _sqlParameters.AddRange(value);
+            }
+        }
 
         /// <summary>
         /// Gets or sets an optional SELECT clause string that might be used in conjunction with this where clause.
