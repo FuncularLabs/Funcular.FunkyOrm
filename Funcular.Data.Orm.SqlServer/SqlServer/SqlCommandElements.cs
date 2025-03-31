@@ -11,7 +11,7 @@ namespace Funcular.Data.Orm.SqlServer
     /// the associated SQL parameters, and optionally, a SELECT clause.
     /// </summary>
     /// <typeparam name="T">The type of entity for which the WHERE clause is being constructed.</typeparam>
-    public class WhereClauseElements<T>
+    public class SqlCommandElements<T>
     {
         protected readonly List<SqlParameter> _sqlParameters = new List<SqlParameter>();
 
@@ -45,7 +45,7 @@ namespace Funcular.Data.Orm.SqlServer
         public string? SelectClause { get; set; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="WhereClauseElements{T}"/> class.
+        /// Initializes a new instance of the <see cref="SqlCommandElements{T}"/> class.
         /// </summary>
         /// <param name="expression">The original LINQ expression defining the condition for the WHERE clause.</param>
         /// <param name="whereClause">The translated SQL WHERE clause string.</param>
@@ -54,7 +54,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// This constructor sets up the basic elements needed for constructing a SQL query from a LINQ expression.
         /// It does not include the SELECT clause as it might not always be required or might be set later.
         /// </remarks>
-        public WhereClauseElements(Expression<Func<T, bool>> expression, string whereClause, List<SqlParameter> parameters)
+        public SqlCommandElements(Expression<Func<T, bool>> expression, string whereClause, List<SqlParameter> parameters)
         {
             // Store the original LINQ expression for potential later use or for error reporting
             OriginalExpression = expression;

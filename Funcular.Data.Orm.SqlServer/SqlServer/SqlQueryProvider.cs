@@ -97,7 +97,7 @@ namespace Funcular.Data.Orm.SqlServer
             string? aggregateClause = null;
             bool isAggregate = false;
             MethodCallExpression? outerMethodCall = null;
-            WhereClauseElements<T>? elements = null;
+            SqlCommandElements<T>? elements = null;
 
             // Process the expression tree
             if (expression is MethodCallExpression methodCall)
@@ -440,9 +440,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="existingParameters">The existing list of parameters, typically from a WHERE clause.</param>
         /// <param name="newParameters">The new list of parameters to add, typically from an aggregate predicate.</param>
         /// <param name="whereClause">The WHERE clause string to update with new parameter names. Passed by reference.</param>
-        /// <param name="elements">The <see cref="WhereClauseElements{T}"/> containing the predicate WHERE clause to update. Passed by reference.</param>
+        /// <param name="elements">The <see cref="SqlCommandElements{T}"/> containing the predicate WHERE clause to update. Passed by reference.</param>
         /// <returns>A new list of <see cref="SqlParameter"/> objects with unique names.</returns>
-        private List<SqlParameter> CombineParameters(List<SqlParameter>? existingParameters, List<SqlParameter>? newParameters, ref string? whereClause, ref WhereClauseElements<T>? elements)
+        private List<SqlParameter> CombineParameters(List<SqlParameter>? existingParameters, List<SqlParameter>? newParameters, ref string? whereClause, ref SqlCommandElements<T>? elements)
         {
             var combined = new List<SqlParameter>();
             var usedParameterNames = new HashSet<string>();

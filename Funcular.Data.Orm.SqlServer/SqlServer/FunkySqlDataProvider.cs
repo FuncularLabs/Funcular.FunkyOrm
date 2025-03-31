@@ -332,7 +332,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="whereExpression">LINQ filter expression.</param>
         /// <returns>Query elements including SELECT and WHERE clauses.</returns>
-        protected internal WhereClauseElements<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
+        protected internal SqlCommandElements<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
         {
             var selectClause = CreateSelectCommand<T>();
             var elements = GenerateWhereClause(whereExpression);
@@ -346,12 +346,12 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="expression">LINQ filter expression.</param>
         /// <returns>WHERE clause elements.</returns>
-        protected internal WhereClauseElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression) where T : class, new()
+        protected internal SqlCommandElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             var visitor = new EntityExpressionVisitor<T>(new List<SqlParameter>(), _columnNames,
                 _unmappedPropertiesCache, ref _parameterCounter);
             visitor.Visit(expression);
-            return new WhereClauseElements<T>(expression, visitor.WhereClauseBody, visitor.Parameters);
+            return new SqlCommandElements<T>(expression, visitor.WhereClauseBody, visitor.Parameters);
         }
 
         #endregion
