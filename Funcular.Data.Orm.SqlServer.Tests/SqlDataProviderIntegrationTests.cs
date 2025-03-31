@@ -16,29 +16,22 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         private string? _connectionString;
         public required FunkySqlDataProvider _provider;
 
-        private static readonly string[] TablesToClear = { "person_address", "address", "person" };
-
         [TestInitialize]
         public void Setup()
         {
-            _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION");
-            if (string.IsNullOrEmpty(_connectionString))
-                _connectionString = "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
+            _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
+                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
             TestConnection();
 
             _provider = new FunkySqlDataProvider(_connectionString)
             {
                 Log = s => { Debug.WriteLine(s); }
             };
-
-            // Clear tables before each test to ensure isolation
-            // ClearTables();
         }
 
         [TestCleanup]
         public void Cleanup()
         {
-            // ClearTables();
             _provider?.Dispose();
         }
 
@@ -53,41 +46,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             catch (SqlException ex)
             {
                 throw new ArgumentNullException("connectionString",
-                    "Neither localhost.funky_db server/database exists, nor Environment variable FUNKY_CONNECTION; please ensure the funky_db database is created and configure the connection string to point to it.\r\n\r\n" +
-                    ex.ToString());
+                    "Connection failed. Ensure funky_db exists and configure FUNKY_CONNECTION environment variable if not using localhost.\r\n\r\n" + ex);
             }
         }
 
-        private void ClearTables()
-        {
-            using var connection = new SqlConnection(_connectionString);
-            connection.Open();
-            foreach (var table in TablesToClear)
-            {
-                using var command = new SqlCommand($"DELETE FROM {table}", connection);
-                command.ExecuteNonQuery();
-            }
-        }
-
-        /// <summary>
-        /// Inserts the test person and returns the id of the inserted row.
-        /// </summary>
-        /// <param name="firstName">The first name.</param>
-        /// <param name="middleInitial">The middle initial.</param>
-        /// <param name="lastName">The last name.</param>
-        /// <param name="birthdate">The birthdate.</param>
-        /// <param name="gender">The gender.</param>
-        /// <param name="uniqueId">The unique identifier.</param>
-        /// <param name="dateUtcCreated">The date UTC created.</param>
-        /// <param name="dateUtcModified">The date UTC modified.</param>
-        /// <returns>int.</returns>
         private int InsertTestPerson(string firstName, string middleInitial, string lastName, DateTime? birthdate, string gender, Guid uniqueId, DateTime? dateUtcCreated = null, DateTime? dateUtcModified = null)
         {
-            // Truncate gender to 10 characters to fit the nvarchar(10) column
-            if (gender != null && gender.Length > 10)
-            {
-                gender = gender.Substring(0, 10);
-            }
+            if (gender?.Length > 10) gender = gender.Substring(0, 10);
 
             var person = new Person
             {
@@ -105,7 +70,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             return person.Id;
         }
 
-        private int InsertTestAddress(string line1, string? line2, string city, string stateCode, string postalCode)
+        private int InsertTestAddress(string line1, string line2, string city, string stateCode, string postalCode)
         {
             var address = new Address
             {
@@ -121,39 +86,25 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
         private void InsertTestPersonAddress(int personId, int addressId)
         {
-            var link = new PersonAddress
-            {
-                PersonId = personId,
-                AddressId = addressId
-            };
+            var link = new PersonAddress { PersonId = personId, AddressId = addressId };
             _provider.Insert(link);
         }
 
         [TestMethod]
         public void Warm_Up()
         {
-            // Arrange
             var guid = Guid.NewGuid().ToString();
             InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-
-            // Act
             var count = _provider.Query<Person>().Count(x => x.FirstName != null);
-
-            // Assert
             Assert.IsTrue(count > 0);
         }
 
         [TestMethod]
         public void Get_WithExistingId_ReturnsPerson()
         {
-            // Arrange
             var guid = Guid.NewGuid().ToString();
             var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-
-            // Act
             var person = _provider.Get<Person>(personId);
-
-            // Assert
             Assert.IsNotNull(person);
             Assert.AreEqual(personId, person.Id);
         }
@@ -161,84 +112,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void GetList_ReturnsAllPersonAddressLinks()
         {
-            // Arrange
             var guid = Guid.NewGuid().ToString();
             var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
             var addressId = InsertTestAddress("123 Main St", null, "Springfield", "IL", "62704");
             InsertTestPersonAddress(personId, addressId);
-
-            // Act
             var links = _provider.GetList<PersonAddress>().ToList();
-
-            // Assert
-            Assert.IsTrue(links.Count > 0, "No person-address links found.");
             Assert.IsTrue(links.Any(l => l.PersonId == personId && l.AddressId == addressId));
         }
 
         [TestMethod]
         public void Insert_NewPerson_IncreasesCount()
         {
-            // Arrange
-            var initialCount = _provider.Query<Person>().Count(); // todo: Count not being intercepted correctly
-            var newPerson = new Person
-            {
-                FirstName = Guid.NewGuid().ToString(),
-                LastName = Guid.NewGuid().ToString(),
-                Birthdate = DateTime.Today.Subtract(TimeSpan.FromDays(Random.Shared.Next(10, 30))),
-                DateUtcCreated = DateTime.UtcNow,
-                DateUtcModified = DateTime.UtcNow,
-                UniqueId = Guid.NewGuid()
-            };
-
-            // Act
-            _provider.Insert(newPerson);
-
-            // Assert
-            var updatedCount = _provider.Query<Person>().Count();
-            Assert.AreEqual(initialCount + 1, updatedCount, "Person was not inserted.");
-        }
-
-        [TestMethod]
-        public void Update_PersonUpdates()
-        {
-            // Arrange
             var guid = Guid.NewGuid().ToString();
-            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-            var person = _provider.Get<Person>(personId);
-            var originalName = person!.FirstName;
-            person.FirstName = $"UpdatedName{DateTime.Now.Ticks}";
-
-            // Act
-            _provider.Update(person);
-
-            // Assert
-            var updatedPerson = _provider.Get<Person>(personId);
-            Assert.IsNotNull(updatedPerson);
-            Assert.AreNotEqual(originalName, updatedPerson.FirstName, "Update did not change the first name.");
-        }
-
-        [TestMethod]
-        public void Query_WithExpression_ReturnsFilteredAddresses()
-        {
-            // Arrange
-            var guid = Guid.NewGuid().ToString();
-            const string stateCode = "IL";
-            var addressId = InsertTestAddress("123 Main St", guid, "Springfield", stateCode, "62704");
-
-            // Act
-            var addresses = _provider.Query<Address>().Where(a =>
-                a.Line2 == guid &&
-                a.StateCode == stateCode).ToList();
-
-            // Assert
-            Assert.IsTrue(addresses.Count > 0 && addresses.All(x => x.StateCode == stateCode), "No addresses found in IL.");
-        }
-
-        [TestMethod]
-        public void Query_WhenExpressionMatches_ReturnsEntities()
-        {
-            // Arrange
-            var guid = Guid.NewGuid().ToString();
+            var initialCount = _provider.Query<Person>().Count();
             var newPerson = new Person
             {
                 FirstName = guid,
@@ -248,24 +134,134 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 DateUtcModified = DateTime.UtcNow,
                 UniqueId = Guid.NewGuid()
             };
-
             _provider.Insert(newPerson);
+            var updatedCount = _provider.Query<Person>().Count();
+            Assert.AreEqual(initialCount + 1, updatedCount);
+        }
 
-            // Act
-            var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName == guid)
-                .ToList();
+        [TestMethod]
+        public void Update_PersonUpdates()
+        {
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var person = _provider.Get<Person>(personId)!;
+            var originalName = person.FirstName;
+            person.FirstName = $"Updated{guid}";
+            _provider.Update(person);
+            var updatedPerson = _provider.Get<Person>(personId);
+            Assert.IsNotNull(updatedPerson);
+            Assert.AreNotEqual(originalName, updatedPerson.FirstName);
+        }
 
-            // Assert
+        [TestMethod]
+        public void Query_WithExpression_ReturnsFilteredAddresses()
+        {
+            const string stateCode = "IL";
+            var addressId = InsertTestAddress($"123 Main St {Guid.NewGuid()}", null, "Springfield", stateCode, "62704");
+            var addresses = _provider.Query<Address>().Where(a => a.StateCode == stateCode).ToList();
+            Assert.IsTrue(addresses.Any(x => x.Id == addressId && x.StateCode == stateCode));
+        }
+
+        [TestMethod]
+        public void Query_WhenExpressionMatches_ReturnsEntities()
+        {
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var result = _provider.Query<Person>().Where(x => x.FirstName == guid && x.LastName == guid).ToList();
             Assert.AreEqual(1, result.Count);
-            Assert.AreEqual(newPerson.FirstName, result[0].FirstName);
-            Assert.AreEqual(newPerson.LastName, result[0].LastName);
+            Assert.AreEqual(guid, result[0].FirstName);
+        }
 
-            var result2 = _provider.Query<Person>()
-                .FirstOrDefault(x => x.FirstName == guid && x.LastName == guid);
-            Assert.IsNotNull(result2);
-            Assert.AreEqual(guid, result2.FirstName);
-            Assert.AreEqual(guid, result2.LastName);
+        [TestMethod]
+        public void Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity()
+        {
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var result = _provider.Query<Person>().FirstOrDefault(x => x.FirstName == guid);
+            Assert.IsNotNull(result);
+            Assert.AreEqual(guid, result.FirstName);
+        }
+
+        [TestMethod]
+        public void Query_OrderBy_ReturnsOrderedResults()
+        {
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "A", "Zimmerman", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            InsertTestPerson(guid, "B", "Adams", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var result = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid)
+                .OrderBy(x => x.LastName)
+                .ToList();
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual("Adams", result[0].LastName);
+            Assert.AreEqual("Zimmerman", result[1].LastName);
+        }
+
+        [TestMethod]
+        public void Query_OrderByDescending_ReturnsOrderedResults()
+        {
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "A", "Zimmerman", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            InsertTestPerson(guid, "B", "Adams", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var result = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid)
+                .OrderByDescending(x => x.LastName)
+                .ToList();
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual("Zimmerman", result[0].LastName);
+            Assert.AreEqual("Adams", result[1].LastName);
+        }
+
+        [TestMethod]
+        public void Query_ThenBy_ReturnsOrderedResults()
+        {
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var result = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid)
+                .OrderBy(x => x.LastName)
+                .ThenBy(x => x.MiddleInitial)
+                .ToList();
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual("A", result[0].MiddleInitial);
+            Assert.AreEqual("B", result[1].MiddleInitial);
+        }
+
+        [TestMethod]
+        public void Query_ThenByDescending_ReturnsOrderedResults()
+        {
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var result = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid)
+                .OrderBy(x => x.LastName)
+                .ThenByDescending(x => x.MiddleInitial)
+                .ToList();
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual("B", result[0].MiddleInitial);
+            Assert.AreEqual("A", result[1].MiddleInitial);
+        }
+
+        [TestMethod]
+        public void Query_OrderByWithSkipTake_ReturnsCorrectSubset()
+        {
+            var guid = Guid.NewGuid().ToString();
+            var names = new[] { "Adams", "Baker", "Carter", "Davis" };
+            foreach (var name in names)
+            {
+                InsertTestPerson(guid, "A", name, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            }
+            var result = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid)
+                .OrderBy(x => x.LastName)
+                .Skip(1)
+                .Take(2)
+                .ToList();
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual("Baker", result[0].LastName);
+            Assert.AreEqual("Carter", result[1].LastName);
         }
 
         [TestMethod]
@@ -295,23 +291,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
-        public void Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity()
-        {
-            // Arrange
-            var guid = Guid.NewGuid().ToString();
-            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-
-            // Act
-            var result = _provider.Query<Person>()
-                .FirstOrDefault(x => x.FirstName == guid && x.LastName == guid);
-
-            // Assert
-            Assert.IsNotNull(result);
-            Assert.AreEqual(guid, result.FirstName);
-            Assert.AreEqual(guid, result.LastName);
-        }
-
-        [TestMethod]
         public void Query_FirstWithPredicate_ReturnsFirstMatchingEntity()
         {
             // Arrange
@@ -331,10 +310,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_FirstWithPredicate_ThrowsIfNoMatch()
         {
+            var newGuid = Guid.NewGuid().ToString();
             // Act & Assert
             Assert.ThrowsException<InvalidOperationException>(() =>
                 _provider.Query<Person>()
-                    .First(x => x.FirstName == "NonExistent")
+                    .First(x => x.FirstName == newGuid)
             );
         }
 
@@ -630,18 +610,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         {
             // Arrange
             var guid = Guid.NewGuid().ToString();
-            var person1 = InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            var person2 = InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-
-            var avg = (person1 + person2) / 2.0; // Use integer division to match SQL AVG's return type for ints
+            InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
-            var avgId = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid)
-                .Average(x => x.Id);
-
-            // Assert
-            Assert.AreEqual(avg, avgId);
+            Assert.ThrowsException<NotSupportedException>(() =>
+                    _provider.Query<Person>()
+                        .Where(x => x.FirstName == guid)
+                        .Average(x => x.Birthdate!.Value.Year),
+                "Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
         }
 
         [TestMethod]
@@ -666,16 +643,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         {
             // Arrange
             var guid = Guid.NewGuid().ToString();
-            var person1 = InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            var person2 = InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
-            var minId = _provider.Query<Person>()
+            var minBirthdate = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
-                .Min(x => x.Id);
+                .Min(x => x.Birthdate);
 
             // Assert
-            Assert.AreEqual(person1, minId); // person1 should have the lower Id (1)
+            Assert.AreEqual(new DateTime(1990, 1, 1), minBirthdate);
         }
 
         [TestMethod]

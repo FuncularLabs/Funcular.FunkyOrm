@@ -1,394 +1,384 @@
-﻿using System;
-using System.Collections;
+﻿using Microsoft.Data.SqlClient;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
-using Microsoft.Data.SqlClient;
 
-namespace Funcular.Data.Orm.SqlServer
+using System;
+using System.Linq;
+using Funcular.Data.Orm;
+
+/// <summary>
+/// Visits an expression tree to generate SQL WHERE clauses from LINQ expressions.
+/// </summary>
+public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new()
 {
+    private readonly StringBuilder _whereClause = new();
+    private readonly List<SqlParameter> _parameters;
+    private readonly ConcurrentDictionary<string, string> _columnNames;
+    private readonly ImmutableArray<PropertyInfo> _unmappedProperties;
+    private int _parameterCounter;
+    private bool _isNegated;
+
     /// <summary>
-    /// Translates LINQ expressions into SQL WHERE clauses for entity type T.
+    /// Gets the generated WHERE clause body.
     /// </summary>
-    /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-    internal class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new()
+    public string WhereClauseBody => _whereClause.ToString();
+
+    /// <summary>
+    /// Gets the list of SQL parameters generated during the visit.
+    /// </summary>
+    public List<SqlParameter> Parameters => _parameters;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="EntityExpressionVisitor{T}"/> class.
+    /// </summary>
+    /// <param name="parameters">The list to store SQL parameters.</param>
+    /// <param name="columnNames">Cached column name mappings.</param>
+    /// <param name="unmappedProperties">Cached unmapped properties.</param>
+    /// <param name="parameterCounter">Reference to the parameter counter for unique parameter names.</param>
+    public EntityExpressionVisitor(List<SqlParameter> parameters, ConcurrentDictionary<string, string> columnNames,
+        ImmutableArray<PropertyInfo> unmappedProperties, ref int parameterCounter)
     {
-        #region Fields
+        _parameters = parameters;
+        _columnNames = columnNames;
+        _unmappedProperties = unmappedProperties;
+        _parameterCounter = parameterCounter;
+    }
 
-        private readonly List<SqlParameter> _parameters;
-        private readonly ConcurrentDictionary<string, string> _columnNames;
-        private readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedProperties;
-        private readonly StringBuilder _whereClauseBody = new();
-        private int _parameterCounter;
-
-        #endregion
-
-        #region Properties
-
-        /// <summary>
-        /// Gets the SQL parameters generated during expression translation.
-        /// </summary>
-        public List<SqlParameter> Parameters => _parameters;
-
-        /// <summary>
-        /// Gets the constructed SQL WHERE clause.
-        /// </summary>
-        public string WhereClauseBody => _whereClauseBody.ToString();
-
-        #endregion
-
-        #region Constructors
-
-        /// <summary>
-        /// Initializes a new expression visitor instance.
-        /// </summary>
-        /// <param name="parameters">List for storing SQL parameters.</param>
-        /// <param name="columnNames">Cache of property to column name mappings.</param>
-        /// <param name="unmappedProperties">Cache of unmapped properties.</param>
-        /// <param name="parameterCounter">Reference counter for parameter naming.</param>
-        public EntityExpressionVisitor(List<SqlParameter> parameters,
-            ConcurrentDictionary<string, string> columnNames,
-            ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> unmappedProperties,
-            ref int parameterCounter)
+    /// <summary>
+    /// Visits the expression tree, starting with the lambda body if present.
+    /// </summary>
+    public override Expression Visit(Expression? node)
+    {
+        if (node == null) return node!;
+        if (node is LambdaExpression lambda)
         {
-            _parameters = parameters ?? throw new ArgumentNullException(nameof(parameters));
-            _columnNames = columnNames ?? throw new ArgumentNullException(nameof(columnNames));
-            _unmappedProperties = unmappedProperties ?? throw new ArgumentNullException(nameof(unmappedProperties));
-            _parameterCounter = parameterCounter;
+            return Visit(lambda.Body);
         }
+        return base.Visit(node);
+    }
 
-        #endregion
-
-        #region Expression Visiting Methods
-
-        /// <summary>
-        /// Translates binary expressions into SQL operators.
-        /// </summary>
-        /// <param name="node">Binary expression to process.</param>
-        /// <returns>The processed expression.</returns>
-        protected override Expression VisitBinary(BinaryExpression node)
+    /// <summary>
+    /// Visits a unary expression, handling negation and type conversions.
+    /// </summary>
+    protected override Expression VisitUnary(UnaryExpression node)
+    {
+        if (node.NodeType == ExpressionType.Not)
         {
-            _whereClauseBody.Append("(");
+            _whereClause.Append("NOT ");
+            _isNegated = true;
+            Visit(node.Operand);
+            _isNegated = false;
+        }
+        else if (node.NodeType == ExpressionType.Convert)
+        {
+            Visit(node.Operand);
+        }
+        else
+        {
+            throw new NotSupportedException($"Unary operator {node.NodeType} is not supported.");
+        }
+        return node;
+    }
+
+    /// <summary>
+    /// Visits a binary expression to construct SQL conditions.
+    /// </summary>
+    protected override Expression VisitBinary(BinaryExpression node)
+    {
+        bool needsParentheses = node.NodeType == ExpressionType.AndAlso || node.NodeType == ExpressionType.OrElse;
+
+        // Check for null comparisons (e.g., x.FirstName == null or x.FirstName != null)
+        bool isNullComparison = (node.Left is ConstantExpression leftConst && leftConst.Value == null) ||
+                                (node.Right is ConstantExpression rightConst && rightConst.Value == null);
+        bool isEquality = node.NodeType == ExpressionType.Equal;
+        bool isInequality = node.NodeType == ExpressionType.NotEqual;
+
+        if (needsParentheses)
+            _whereClause.Append("(");
+
+        if (isNullComparison && (isEquality || isInequality))
+        {
+            // For null comparisons, use IS NULL or IS NOT NULL
+            Expression nonNullSide = node.Left is ConstantExpression ? node.Right : node.Left;
+            Visit(nonNullSide);
+            _whereClause.Append(isEquality ? " IS NULL" : " IS NOT NULL");
+        }
+        else
+        {
             Visit(node.Left);
-
-            // Check if this is a null comparison to decide whether to append the operator
-            bool isNullComparison = (node.NodeType == ExpressionType.Equal || node.NodeType == ExpressionType.NotEqual) &&
-                                    (node.Right is ConstantExpression { Value: null } || node.Left is ConstantExpression { Value: null });
-
-            if (!isNullComparison)
-            {
-                AppendBinaryOperator(node);
-            }
-
-            if (!HandleNullComparison(node, isNullComparison))
-            {
-                Visit(node.Right);
-            }
-
-            _whereClauseBody.Append(")");
-            return node;
+            _whereClause.Append(GetOperator(node.NodeType));
+            Visit(node.Right);
         }
 
-        /// <summary>
-        /// Handles null comparisons (e.g., IS NULL, IS NOT NULL).
-        /// </summary>
-        /// <param name="node">The node.</param>
-        /// <param name="isNullComparison">The is null comparison.</param>
-        /// <returns>bool.</returns>
-        protected bool HandleNullComparison(BinaryExpression node, bool isNullComparison)
-        {
-            if (isNullComparison)
-            {
-                if (node.NodeType == ExpressionType.Equal)
-                {
-                    _whereClauseBody.Append(" IS NULL ");
-                }
-                else // NotEqual
-                {
-                    _whereClauseBody.Append(" IS NOT NULL ");
-                }
-                return true;
-            }
-            return false;
-        }
+        if (needsParentheses)
+            _whereClause.Append(")");
 
-        /// <summary>
-        /// Processes member expressions into column names or values.
-        /// </summary>
-        /// <param name="node">Member expression to process.</param>
-        /// <returns>The processed expression.</returns>
-        protected override Expression VisitMember(MemberExpression node)
+        return node;
+    }
+
+    /// <summary>
+    /// Visits a member expression to map properties to column names.
+    /// </summary>
+    protected override Expression VisitMember(MemberExpression node)
+    {
+        if (node.Expression is ParameterExpression)
         {
-            if (node.Expression is ParameterExpression)
+            var property = node.Member as PropertyInfo;
+            if (property != null && !_unmappedProperties.Any(p => p.Name == property.Name))
             {
-                HandleEntityProperty(node);
+                var columnName = _columnNames.GetOrAdd(property.ToDictionaryKey(), p => GetColumnName(property));
+                _whereClause.Append(columnName);
             }
-            else if (node.Expression is ConstantExpression constant && node.Member is FieldInfo field)
+        }
+        else if (node.Expression is MemberExpression memberExpression)
+        {
+            if (memberExpression.Expression is ParameterExpression && memberExpression.Member.Name == "Value")
             {
-                HandleClosureField(constant, field);
+                var property = memberExpression.Member as PropertyInfo;
+                if (property != null && !_unmappedProperties.Any(p => p.Name == property.Name))
+                {
+                    var columnName = _columnNames.GetOrAdd(property.ToDictionaryKey(), p => GetColumnName(property));
+                    var propertyName = node.Member.Name;
+                    if (propertyName == "Year")
+                    {
+                        _whereClause.Append($"YEAR({columnName})");
+                    }
+                    else if (propertyName == "Month")
+                    {
+                        _whereClause.Append($"MONTH({columnName})");
+                    }
+                    else if (propertyName == "Day")
+                    {
+                        _whereClause.Append($"DAY({columnName})");
+                    }
+                    else
+                    {
+                        throw new NotSupportedException($"Unsupported property {propertyName} in nested expression.");
+                    }
+                }
             }
             else
             {
                 Visit(node.Expression);
             }
+        }
+        else if (node.Expression is ConstantExpression constantExpression)
+        {
+            var value = (node.Member as FieldInfo)?.GetValue(constantExpression.Value);
+            var parameterName = $"@p__linq__{_parameterCounter++}";
+            _parameters.Add(new SqlParameter(parameterName, value ?? DBNull.Value));
+            _whereClause.Append(parameterName);
+        }
+        else if (node.Expression != null)
+        {
+            Visit(node.Expression);
+        }
+        return node;
+    }
+
+    /// <summary>
+    /// Visits a constant expression to create SQL parameters.
+    /// </summary>
+    protected override Expression VisitConstant(ConstantExpression node)
+    {
+        if (node.Value == null)
+        {
+            _whereClause.Append("NULL");
+        }
+        else
+        {
+            var parameterName = $"@p__linq__{_parameterCounter++}";
+            _parameters.Add(new SqlParameter(parameterName, node.Value));
+            _whereClause.Append(parameterName);
+        }
+        return node;
+    }
+
+    /// <summary>
+    /// Visits a new expression, typically for anonymous types in Contains clauses.
+    /// </summary>
+    protected override Expression VisitNew(NewExpression node)
+    {
+        var arguments = node.Arguments;
+        if (arguments.Count == 0)
+        {
+            _whereClause.Append("1=1");
             return node;
         }
 
-        /// <summary>
-        /// Converts constant expressions into SQL parameters.
-        /// </summary>
-        /// <param name="node">Constant expression to process.</param>
-        /// <returns>The processed expression.</returns>
-        protected override Expression VisitConstant(ConstantExpression node)
+        _whereClause.Append("(");
+        for (int i = 0; i < arguments.Count; i++)
         {
-            if (node.Value == null)
+            Visit(arguments[i]);
+            if (i < arguments.Count - 1)
             {
-                _whereClauseBody.Append("NULL");
-                return node;
-            }
-
-            if (node.Value is IQueryable)
-                return node;
-
-            if (IsSupportedSqlType(node.Type))
-            {
-                AppendParameter(node.Value);
-                return node;
-            }
-
-            throw new NotSupportedException($"Unsupported constant type: {node.Value?.GetType().Name}");
-        }
-
-        /// <summary>
-        /// Handles method call expressions like Contains or string operations.
-        /// </summary>
-        /// <param name="node">Method call expression to process.</param>
-        /// <returns>The processed expression.</returns>
-        protected override Expression VisitMethodCall(MethodCallExpression node)
-        {
-            Console.WriteLine($"[DEBUG] Visiting: {node.NodeType}, Expression: {node}");
-            if (TryHandleStringMethod(node) || TryHandleContainsMethod(node))
-                return node;
-
-            return base.VisitMethodCall(node);
-        }
-
-        #endregion
-
-        #region Private Helper Methods
-
-        private void AppendBinaryOperator(BinaryExpression node)
-        {
-            switch (node.NodeType)
-            {
-                case ExpressionType.Equal: _whereClauseBody.Append(" = "); break;
-                case ExpressionType.NotEqual: _whereClauseBody.Append(" <> "); break;
-                case ExpressionType.GreaterThan: _whereClauseBody.Append(" > "); break;
-                case ExpressionType.GreaterThanOrEqual: _whereClauseBody.Append(" >= "); break;
-                case ExpressionType.LessThan: _whereClauseBody.Append(" < "); break;
-                case ExpressionType.LessThanOrEqual: _whereClauseBody.Append(" <= "); break;
-                case ExpressionType.AndAlso: _whereClauseBody.Append(" AND "); break;
-                case ExpressionType.OrElse: _whereClauseBody.Append(" OR "); break;
-                default: throw new NotSupportedException($"Binary operator {node.NodeType} not supported.");
+                _whereClause.Append(", ");
             }
         }
+        _whereClause.Append(")");
+        return node;
+    }
 
-        private bool HandleNullComparison(BinaryExpression node)
+    /// <summary>
+    /// Visits a method call expression to handle string operations and collections.
+    /// </summary>
+    protected override Expression VisitMethodCall(MethodCallExpression node)
+    {
+        if (node.Method.Name == "Contains" && node.Object?.Type == typeof(string))
         {
-            if ((node.NodeType == ExpressionType.Equal || node.NodeType == ExpressionType.NotEqual) &&
-                (node.Right is ConstantExpression { Value: null } || node.Left is ConstantExpression { Value: null }))
-            {
-                _whereClauseBody.Replace(node.NodeType == ExpressionType.Equal ? " = " : " <> ",
-                    node.NodeType == ExpressionType.Equal ? " IS NULL " : " IS NOT NULL ");
-                return true;
-            }
-            return false;
-        }
-
-        private void HandleEntityProperty(MemberExpression node)
-        {
-            if (node.Member is PropertyInfo property &&
-                !_unmappedProperties.GetOrAdd(typeof(T), FunkySqlDataProvider.GetUnmappedProperties<T>(typeof(T)))
-                    .Contains(property))
-            {
-                _whereClauseBody.Append(_columnNames.GetOrAdd(property.ToDictionaryKey(),
-                    property.GetCustomAttribute<ColumnAttribute>()?.Name ?? property.Name.ToLower()));
-            }
-        }
-
-        private void HandleClosureField(ConstantExpression constant, FieldInfo field)
-        {
-            var value = field.GetValue(constant.Value);
-            AppendParameter(value);
-        }
-
-        private bool TryHandleStringMethod(MethodCallExpression node)
-        {
-            if (node.Method.DeclaringType != typeof(string) || node.Object == null || node.Arguments.Count != 1)
-                return false;
-
+            _whereClause.Append("(");
             Visit(node.Object);
-            _whereClauseBody.Append(" LIKE ");
-            var pattern = GetPattern(node.Method.Name, node.Arguments[0]);
-            AppendLikeParameter(pattern);
-            return true;
+            _whereClause.Append(" LIKE '%' + ");
+            Visit(node.Arguments[0]);
+            _whereClause.Append(" + '%')");
         }
-
-        private bool TryHandleContainsMethod(MethodCallExpression node)
+        else if (node.Method.Name == "StartsWith" && node.Object?.Type == typeof(string))
         {
-            if (node.Method.Name != "Contains") return false;
-
-            if (node.Object == null && node.Arguments.Count > 1)
-            {
-                HandleContainsExtension(node);
-                return true;
-            }
-
-            if (node.Object != null && IsEnumerableType(node.Object.Type))
-            {
-                HandleContainsOnCollection(node);
-                return true;
-            }
-
-            return false;
+            _whereClause.Append("(");
+            Visit(node.Object);
+            _whereClause.Append(" LIKE ");
+            Visit(node.Arguments[0]);
+            _whereClause.Append(" + '%')");
         }
-
-        private void HandleContainsExtension(MethodCallExpression node)
+        else if (node.Method.Name == "EndsWith" && node.Object?.Type == typeof(string))
         {
-            _whereClauseBody.Append("(");
-            Visit(node.Arguments[1]); // Item to check
-            _whereClauseBody.Append(" IN (");
-            ProcessCollection(node.Arguments[0]);
-            _whereClauseBody.Append("))");
+            _whereClause.Append("(");
+            Visit(node.Object);
+            _whereClause.Append(" LIKE '%' + ");
+            Visit(node.Arguments[0]);
+            _whereClause.Append(")");
         }
-
-        private void HandleContainsOnCollection(MethodCallExpression node)
+        else if (node.Method.Name == "ToLower" && node.Object?.Type == typeof(string))
         {
-            _whereClauseBody.Append("(");
-            Visit(node.Arguments[0]); // Item to check
-            _whereClauseBody.Append(" IN (");
-            ProcessCollection(node.Object!);
-            _whereClauseBody.Append("))");
+            _whereClause.Append("LOWER(");
+            Visit(node.Object);
+            _whereClause.Append(")");
         }
-
-        private void ProcessCollection(Expression collectionExpr)
+        else if (node.Method.Name == "ToUpper" && node.Object?.Type == typeof(string))
         {
-            if (collectionExpr is ConstantExpression constant)
+            _whereClause.Append("UPPER(");
+            Visit(node.Object);
+            _whereClause.Append(")");
+        }
+        else if (node.Method.Name == "ToString")
+        {
+            if (node.Object?.Type == typeof(Guid))
             {
-                HandleConstantCollection(constant.Value ?? Array.Empty<object>());
-            }
-            else if (collectionExpr is MemberExpression member)
-            {
-                var value = Expression.Lambda<Func<object>>(Expression.Convert(member, typeof(object))).Compile()();
-                HandleConstantCollection(value as IEnumerable ?? throw new NotSupportedException("Invalid collection type."));
+                _whereClause.Append("CAST(");
+                Visit(node.Object);
+                _whereClause.Append(" AS NVARCHAR(36))");
             }
             else
             {
-                throw new NotSupportedException("Unsupported collection expression type.");
+                throw new NotSupportedException($"ToString on type {node.Object?.Type} is not supported.");
             }
         }
-
-        private void HandleConstantCollection(object collection)
+        else if (node.Method.Name == "Contains")
         {
-            var items = ((IEnumerable)collection).Cast<object>().ToList();
-            if (!items.Any())
+            // Handle both collection.Contains(item) and instance collection Contains
+            Expression collectionExpression;
+            Expression itemExpression;
+
+            if (node.Arguments.Count == 2)
             {
-                _whereClauseBody.Append("NULL");
-                return;
+                // Static Contains (e.g., lastNames.Contains(p.LastName))
+                collectionExpression = node.Arguments[0];
+                itemExpression = node.Arguments[1];
+            }
+            else if (node.Arguments.Count == 1 && node.Object != null)
+            {
+                // Instance Contains (e.g., p.LastName.Contains("on"))
+                collectionExpression = node.Object;
+                itemExpression = node.Arguments[0];
+            }
+            else
+            {
+                throw new NotSupportedException($"Unsupported Contains method call with {node.Arguments.Count} arguments.");
             }
 
-            for (int i = 0; i < items.Count; i++)
+            // Evaluate the collection
+            IEnumerable<object> collection = null;
+            if (collectionExpression is ConstantExpression constExpr)
             {
-                if (i > 0) _whereClauseBody.Append(", ");
-                AppendParameter(items[i]);
+                collection = constExpr.Value as IEnumerable<object>;
             }
-        }
-
-        private string GetPattern(string method, Expression argument)
-        {
-            var value = argument switch
+            else if (collectionExpression is MemberExpression memberExpr && memberExpr.Expression is ConstantExpression constMemberExpr)
             {
-                ConstantExpression c => c.Value?.ToString() ?? string.Empty,
-                MemberExpression m => Expression.Lambda<Func<string>>(m).Compile()(),
-                _ => throw new NotSupportedException("Unsupported argument type for string method.")
-            };
-
-            return method switch
+                var value = (memberExpr.Member as FieldInfo)?.GetValue(constMemberExpr.Value);
+                collection = value as IEnumerable<object>;
+            }
+            else
             {
-                "StartsWith" => $"{value}%",
-                "EndsWith" => $"%{value}",
-                "Contains" => $"%{value}%",
-                _ => string.Empty
-            };
-        }
+                throw new NotSupportedException("Collection in Contains must be a constant or field value.");
+            }
 
-        private void AppendParameter(object? value)
-        {
-            var paramName = $"@p__linq__{_parameterCounter++}";
-            _whereClauseBody.Append(paramName);
-            _parameters.Add(new SqlParameter(paramName, value ?? DBNull.Value)
+            if (collection == null || !collection.Any())
             {
-                SqlDbType = GetSqlDbType(value)
-            });
-        }
-
-        private void AppendLikeParameter(string pattern)
-        {
-            var paramName = $"@p__linq__{_parameterCounter++}";
-            _whereClauseBody.Append(paramName);
-            _parameters.Add(new SqlParameter(paramName, pattern) { SqlDbType = SqlDbType.NVarChar });
-        }
-
-        private bool IsEnumerableType(Type type) =>
-            type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>) ||
-            type.GetInterfaces().Contains(typeof(IEnumerable));
-
-        private bool IsSupportedSqlType(Type type) =>
-            type.IsPrimitive || type == typeof(string) || type == typeof(DateTime) ||
-            type == typeof(Guid) || type == typeof(byte[]);
-
-        #endregion
-
-        #region Static Helpers
-
-        /// <summary>
-        /// Maps .NET types to SQL Server data types.
-        /// </summary>
-        /// <param name="value">Value to map.</param>
-        /// <returns>Corresponding SqlDbType.</returns>
-        internal static SqlDbType GetSqlDbType(object? value)
-        {
-            if (value == null) return SqlDbType.NVarChar;
-
-            var type = value.GetType();
-            return Type.GetTypeCode(type) switch
+                _whereClause.Append(_isNegated ? "1=1" : "1=0");
+            }
+            else
             {
-                TypeCode.Boolean => SqlDbType.Bit,
-                TypeCode.Byte => SqlDbType.TinyInt,
-                TypeCode.Int16 => SqlDbType.SmallInt,
-                TypeCode.Int32 => SqlDbType.Int,
-                TypeCode.Int64 => SqlDbType.BigInt,
-                TypeCode.Single => SqlDbType.Real,
-                TypeCode.Double => SqlDbType.Float,
-                TypeCode.Decimal => SqlDbType.Decimal,
-                TypeCode.DateTime => SqlDbType.DateTime,
-                TypeCode.String => SqlDbType.NVarChar,
-                _ => type switch
+                _whereClause.Append("(");
+                Visit(itemExpression);
+                _whereClause.Append(_isNegated ? " NOT IN (" : " IN (");
+                var values = collection.ToList();
+                for (int i = 0; i < values.Count; i++)
                 {
-                    _ when type == typeof(Guid) => SqlDbType.UniqueIdentifier,
-                    _ when type == typeof(byte[]) => SqlDbType.VarBinary,
-                    _ when type == typeof(TimeSpan) => SqlDbType.Time,
-                    _ => SqlDbType.Variant
+                    var parameterName = $"@p__linq__{_parameterCounter++}";
+                    _parameters.Add(new SqlParameter(parameterName, values[i] ?? DBNull.Value));
+                    _whereClause.Append(parameterName);
+                    if (i < values.Count - 1)
+                        _whereClause.Append(", ");
                 }
-            };
+                _whereClause.Append("))");
+            }
         }
+        else
+        {
+            throw new NotSupportedException($"Method {node.Method.Name} is not supported in LINQ expressions.");
+        }
+        return node;
+    }
 
-        #endregion
+    private string GetOperator(ExpressionType nodeType) => nodeType switch
+    {
+        ExpressionType.Equal => " = ",
+        ExpressionType.NotEqual => " != ",
+        ExpressionType.GreaterThan => " > ",
+        ExpressionType.GreaterThanOrEqual => " >= ",
+        ExpressionType.LessThan => " < ",
+        ExpressionType.LessThanOrEqual => " <= ",
+        ExpressionType.AndAlso => " AND ",
+        ExpressionType.OrElse => " OR ",
+        _ => throw new NotSupportedException($"Operator {nodeType} is not supported.")
+    };
+
+    /// <summary>
+    /// Determines the SQL data type for a given value.
+    /// </summary>
+    public static SqlDbType GetSqlDbType(object? value) => value switch
+    {
+        null => SqlDbType.NVarChar,
+        string => SqlDbType.NVarChar,
+        int => SqlDbType.Int,
+        long => SqlDbType.BigInt,
+        bool => SqlDbType.Bit,
+        DateTime => SqlDbType.DateTime2,
+        Guid => SqlDbType.UniqueIdentifier,
+        decimal => SqlDbType.Decimal,
+        double => SqlDbType.Float,
+        float => SqlDbType.Real,
+        _ => throw new NotSupportedException($"Type {value.GetType()} is not supported for SQL parameters.")
+    };
+
+    private string GetColumnName(PropertyInfo property)
+    {
+        return property.GetCustomAttribute<ColumnAttribute>()?.Name ?? property.Name.ToLower();
     }
 }

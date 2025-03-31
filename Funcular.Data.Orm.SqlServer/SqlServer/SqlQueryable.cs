@@ -1,11 +1,12 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
 namespace Funcular.Data.Orm.SqlServer
 {
-    public class SqlQueryable<T> : IQueryable<T>
+    public class SqlQueryable<T> : IOrderedQueryable<T>
     {
         private readonly IQueryProvider _provider;
         private readonly Expression _expression;
@@ -33,7 +34,7 @@ namespace Funcular.Data.Orm.SqlServer
             return _provider.Execute<IEnumerable<T>>(_expression).GetEnumerator();
         }
 
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        IEnumerator IEnumerable.GetEnumerator()
         {
             return GetEnumerator();
         }

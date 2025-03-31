@@ -16,66 +16,37 @@ namespace Funcular.Data.Orm.SqlServer
 {
     using UpdateCommand = (string CommandText, List<SqlParameter> Parameters);
 
-    /// <summary>
-    /// Provides SQL Server data access functionality implementing basic CRUD operations and transaction management.
-    /// This class ensures thread-safe caching and robust database interactions while adhering to SOLID principles.
-    /// </summary>
     public partial class FunkySqlDataProvider : ISqlDataProvider, IDisposable
     {
         #region Fields
 
         private readonly string _connectionString;
         private SqlTransaction? _transaction;
-        private int _parameterCounter;
-        private static readonly ConcurrentDictionary<Type, string> _tableNames = new();
-        private static readonly ConcurrentDictionary<string, string> _columnNames = new();
-        private static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new();
-        private static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _propertiesCache = new();
-        private static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedPropertiesCache = new();
-        private static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new();
+        internal int _parameterCounter;
+        internal static readonly ConcurrentDictionary<Type, string> _tableNames = new();
+        internal static readonly ConcurrentDictionary<string, string> _columnNames = new();
+        internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new();
+        internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _propertiesCache = new();
+        internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedPropertiesCache = new();
+        internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new();
 
         #endregion
 
         #region Properties
 
-        /// <summary>
-        /// Gets or sets the logging action for SQL operations.
-        /// </summary>
-        /// <example>Log = Console.WriteLine;</example>
         public Action<string>? Log { get; set; }
-
-        /// <summary>
-        /// Gets or sets the SQL connection. Creates a new connection if set to null.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown if connection cannot be established.</exception>
         public SqlConnection? Connection { get; set; }
-
-        /// <summary>
-        /// Gets or sets the current transaction for database operations.
-        /// </summary>
         public SqlTransaction? Transaction
         {
             get => _transaction;
             set => _transaction = value;
         }
-
-        /// <summary>
-        /// Gets or sets the transaction name for identification.
-        /// </summary>
-        /// <example>"BulkUpdateTransaction"</example>
         public string? TransactionName { get; protected set; }
 
         #endregion
 
         #region Constructors
 
-        /// <summary>
-        /// Initializes a new instance with specified connections parameters.
-        /// </summary>
-        /// <param name="connectionString">SQL Server connection string.</param>
-        /// <param name="connection">Optional existing connection.</param>
-        /// <param name="transaction">Optional existing transaction.</param>
-        /// <exception cref="ArgumentNullException">Thrown when connectionString is null.</exception>
         public FunkySqlDataProvider(string connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
@@ -87,13 +58,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Public Methods - CRUD Operations
 
-        /// <summary>
-        /// Retrieves an entity by its primary key.
-        /// </summary>
-        /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-        /// <param name="key">Primary key value, null for default key.</param>
-        /// <returns>The entity if found; otherwise, null.</returns>
-        /// <exception cref="SqlException">Thrown on database access errors.</exception>
         public T? Get<T>(dynamic? key = null) where T : class, new()
         {
             using var connectionScope = new ConnectionScope(this);
@@ -103,29 +67,21 @@ namespace Funcular.Data.Orm.SqlServer
             return ExecuteReaderSingle<T>(command);
         }
 
-        /// <summary>
-        /// Queries entities based on a LINQ expression.
-        /// </summary>
-        /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-        /// <param name="expression">LINQ expression for filtering.</param>
-        /// <returns>Collection of matching entities.</returns>
-        /// <exception cref="SqlException">Thrown on database errors.</exception>
         public ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             using var connectionScope = new ConnectionScope(this);
             var elements = CreateSelectQuery(expression);
 
-            using var command = BuildCommand(elements.SelectClause + "\r\nWHERE " + elements.WhereClause,
-                connectionScope.Connection, elements.SqlParameters);
+            var commandText = elements.SelectClause;
+            if (!string.IsNullOrEmpty(elements.WhereClause))
+                commandText += "\r\nWHERE " + elements.WhereClause;
+            if (!string.IsNullOrEmpty(elements.OrderByClause))
+                commandText += "\r\n" + elements.OrderByClause;
+
+            using var command = BuildCommand(commandText, connectionScope.Connection, elements.SqlParameters);
             return ExecuteReaderList<T>(command);
         }
 
-        /// <summary>
-        /// Retrieves all entities of a type.
-        /// </summary>
-        /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-        /// <returns>Collection of all entities.</returns>
-        /// <exception cref="SqlException">Thrown on database errors.</exception>
         public ICollection<T> GetList<T>() where T : class, new()
         {
             using var connectionScope = new ConnectionScope(this);
@@ -133,13 +89,6 @@ namespace Funcular.Data.Orm.SqlServer
             return ExecuteReaderList<T>(command);
         }
 
-        /// <summary>
-        /// Inserts a new entity into the database and returns the id of the inserted row.
-        /// </summary>
-        /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-        /// <param name="entity">Entity to insert.</param>
-        /// <returns>Id of the inserted row.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if primary key is set.</exception>
         public int Insert<T>(T entity) where T : class, new()
         {
             var primaryKey = GetPrimaryKeyCached<T>();
@@ -148,33 +97,24 @@ namespace Funcular.Data.Orm.SqlServer
             using var connectionScope = new ConnectionScope(this);
             var insertCommand = BuildInsertCommand(entity, primaryKey);
 
-            using var command = BuildCommand(insertCommand.CommandText, connectionScope.Connection,
-                insertCommand.Parameters);
+            using var command = BuildCommand(insertCommand.CommandText, connectionScope.Connection, insertCommand.Parameters);
             return ExecuteInsert(command, entity, primaryKey);
         }
 
-        /// <summary>
-        /// Updates an existing entity in the database.
-        /// </summary>
-        /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-        /// <param name="entity">Entity with updated data.</param>
-        /// <returns>Updated entity.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if entity doesn't exist or key is unset.</exception>
         public T Update<T>(T entity) where T : class, new()
         {
             var primaryKey = GetPrimaryKeyCached<T>();
             ValidateUpdatePrimaryKey(entity, primaryKey);
 
             using var connectionScope = new ConnectionScope(this);
-            var existingEntity = Get<T>(primaryKey.GetValue(entity) as dynamic);
+            var existingEntity = Get<T>((dynamic)primaryKey.GetValue(entity));
             if (existingEntity == null)
                 throw new InvalidOperationException("Entity does not exist in database.");
 
             UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
             if (updateCommand.Parameters.Any())
             {
-                using var command = BuildCommand(updateCommand.CommandText, connectionScope.Connection,
-                    updateCommand.Parameters);
+                using var command = BuildCommand(updateCommand.CommandText, connectionScope.Connection, updateCommand.Parameters);
                 ExecuteUpdate(command);
             }
             else
@@ -185,12 +125,6 @@ namespace Funcular.Data.Orm.SqlServer
             return entity;
         }
 
-        /// <summary>
-        /// Returns an IQueryable that can later be queried  based on a LINQ expression.
-        /// </summary>
-        /// <typeparam name="T">Entity type with parameterless constructor.</typeparam>
-        /// <returns>Collection of matching entities.</returns>
-        /// <exception cref="SqlException">Thrown on database errors.</exception>
         public IQueryable<T> Query<T>() where T : class, new()
         {
             string selectCommand = CreateSelectCommand<T>();
@@ -201,11 +135,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Public Methods - Transaction Management
 
-        /// <summary>
-        /// Begins a new transaction with optional name.
-        /// </summary>
-        /// <param name="name">Transaction identifier.</param>
-        /// <exception cref="InvalidOperationException">Thrown if transaction already exists.</exception>
         public void BeginTransaction(string? name = null)
         {
             EnsureConnectionOpen();
@@ -216,10 +145,6 @@ namespace Funcular.Data.Orm.SqlServer
             TransactionName = name ?? string.Empty;
         }
 
-        /// <summary>
-        /// Commits the current transaction if matching name or no name provided.
-        /// </summary>
-        /// <param name="name">Transaction name to match.</param>
         public void CommitTransaction(string? name = null)
         {
             if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
@@ -229,10 +154,6 @@ namespace Funcular.Data.Orm.SqlServer
             }
         }
 
-        /// <summary>
-        /// Rolls back the current transaction if matching name or no name provided.
-        /// </summary>
-        /// <param name="name">Transaction name to match.</param>
         public void RollbackTransaction(string? name = null)
         {
             if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
@@ -246,9 +167,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Public Methods - Utility
 
-        /// <summary>
-        /// Clears all cached mappings.
-        /// </summary>
         public static void ClearMappings()
         {
             _tableNames.Clear();
@@ -259,9 +177,6 @@ namespace Funcular.Data.Orm.SqlServer
             _columnOrdinalsCache.Clear();
         }
 
-        /// <summary>
-        /// Disposes of managed resources.
-        /// </summary>
         public void Dispose()
         {
             Connection?.Dispose();
@@ -273,19 +188,12 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Methods - Connection Management
 
-        /// <summary>
-        /// Ensures the connection is open and returns it.
-        /// </summary>
-        /// <returns>Open SQL connection.</returns>
         protected SqlConnection GetConnection()
         {
             EnsureConnectionOpen();
             return Connection!;
         }
 
-        /// <summary>
-        /// Opens connection if not already open.
-        /// </summary>
         protected void EnsureConnectionOpen()
         {
             if (Connection == null || Connection.State != ConnectionState.Open)
@@ -295,9 +203,6 @@ namespace Funcular.Data.Orm.SqlServer
             }
         }
 
-        /// <summary>
-        /// Closes connection if no active transaction.
-        /// </summary>
         protected internal void CloseConnectionIfNoTransaction()
         {
             if (Transaction == null && Connection?.State == ConnectionState.Open)
@@ -312,12 +217,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Methods - Query Building
 
-        /// <summary>
-        /// Creates a SELECT command for entity retrieval.
-        /// </summary>
-        /// <typeparam name="T">Entity type.</typeparam>
-        /// <param name="key">Optional primary key filter.</param>
-        /// <returns>SQL SELECT command string.</returns>
         protected internal string CreateSelectCommand<T>(dynamic? key = null) where T : class, new()
         {
             var tableName = GetTableName<T>();
@@ -326,41 +225,26 @@ namespace Funcular.Data.Orm.SqlServer
             return $"SELECT {selectClause} FROM {tableName}{whereClause}";
         }
 
-        /// <summary>
-        /// Creates a query with WHERE clause from LINQ expression.
-        /// </summary>
-        /// <typeparam name="T">Entity type.</typeparam>
-        /// <param name="whereExpression">LINQ filter expression.</param>
-        /// <returns>Query elements including SELECT and WHERE clauses.</returns>
         protected internal SqlCommandElements<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
         {
             var selectClause = CreateSelectCommand<T>();
             var elements = GenerateWhereClause(whereExpression);
-            elements.SelectClause = selectClause;
-            return elements;
+            return new SqlCommandElements<T>(whereExpression, selectClause, elements.WhereClause, string.Empty, elements.SqlParameters);
         }
 
-        /// <summary>
-        /// Generates WHERE clause from LINQ expression.
-        /// </summary>
-        /// <typeparam name="T">Entity type.</typeparam>
-        /// <param name="expression">LINQ filter expression.</param>
-        /// <returns>WHERE clause elements.</returns>
         protected internal SqlCommandElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
-            var visitor = new EntityExpressionVisitor<T>(new List<SqlParameter>(), _columnNames,
-                _unmappedPropertiesCache, ref _parameterCounter);
+            var visitor = new EntityExpressionVisitor<T>(new List<SqlParameter>(), _columnNames, _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>), ref _parameterCounter);
             visitor.Visit(expression);
-            return new SqlCommandElements<T>(expression, visitor.WhereClauseBody, visitor.Parameters);
+            return new SqlCommandElements<T>(expression, string.Empty, visitor.WhereClauseBody, string.Empty, visitor.Parameters);
         }
 
         #endregion
 
         #region Private Methods - Execution Helpers
 
-        protected internal  T? ExecuteReaderSingle<T>(SqlCommand command) where T : class, new()
+        protected internal T? ExecuteReaderSingle<T>(SqlCommand command) where T : class, new()
         {
-            
             InvokeLogAction(command);
             using var reader = command.ExecuteReader();
             return reader.Read() ? MapEntity<T>(reader) : null;
@@ -368,7 +252,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected internal ICollection<T> ExecuteReaderList<T>(SqlCommand command) where T : class, new()
         {
-            
             InvokeLogAction(command);
             var results = new List<T>();
             using var reader = command.ExecuteReader();
@@ -379,18 +262,16 @@ namespace Funcular.Data.Orm.SqlServer
             return results;
         }
 
-        protected internal SqlCommand BuildCommand(string commandText, SqlConnection connection,
-            IEnumerable<SqlParameter>? parameters = null)
+        protected internal SqlCommand BuildCommand(string commandText, SqlConnection connection, IEnumerable<SqlParameter>? parameters = null)
         {
             var command = new SqlCommand(commandText, connection)
             {
                 CommandType = CommandType.Text,
                 Transaction = Transaction
             };
-            var sqlParameters = parameters as SqlParameter[] ?? parameters?.ToArray();
-            if (sqlParameters?.Any() == true)
+            if (parameters?.Any() == true)
             {
-                command.Parameters.AddRange(sqlParameters.ToArray());
+                command.Parameters.AddRange(parameters.ToArray());
             }
             return command;
         }
@@ -424,8 +305,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Private Methods - Insert/Update Helpers
 
-        protected internal UpdateCommand BuildInsertCommand<T>(T entity, PropertyInfo primaryKey)
-            where T : class, new()
+        protected internal (string CommandText, List<SqlParameter> Parameters) BuildInsertCommand<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToImmutableArray())
@@ -454,7 +334,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected internal int ExecuteInsert<T>(SqlCommand command, T entity, PropertyInfo primaryKey) where T : class, new()
         {
-            
             InvokeLogAction(command);
             var result = (int)command.ExecuteScalar();
             if (result != 0)
@@ -462,8 +341,7 @@ namespace Funcular.Data.Orm.SqlServer
             return result;
         }
 
-        protected internal UpdateCommand BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey)
-            where T : class, new()
+        protected internal (string CommandText, List<SqlParameter> Parameters) BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var parameters = new List<SqlParameter>();
@@ -485,7 +363,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             if (setClause.Length == 0) return (string.Empty, parameters);
 
-            setClause.Length -= 2; // Remove trailing ", "
+            setClause.Length -= 2;
             var pkColumn = GetColumnNameCached(primaryKey);
             parameters.Add(CreateParameter<object>($"@{pkColumn}", primaryKey.GetValue(entity), primaryKey.PropertyType));
 
@@ -494,7 +372,6 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected internal void ExecuteUpdate(SqlCommand command)
         {
-            
             InvokeLogAction(command);
             var rowsAffected = command.ExecuteNonQuery();
             if (rowsAffected == 0)
@@ -503,7 +380,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #endregion
 
-        #region protected internal Methods - Validation and Helpers
+        #region Protected Internal Methods - Validation and Helpers
 
         protected internal void ValidateInsertPrimaryKey<T>(T entity, PropertyInfo primaryKey)
         {
@@ -584,7 +461,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #endregion
 
-        #region Original Protected Helpers (unchanged signatures)
+        #region Original Protected Helpers
 
         protected internal object? GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
         protected internal string GetSelectClause<T>() => string.Join(", ", typeof(T).GetProperties()
@@ -627,5 +504,20 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         #endregion
+    }
+
+    internal class IgnoreUnderscoreAndCaseStringComparer : IEqualityComparer<string>
+    {
+        public bool Equals(string? x, string? y)
+        {
+            if (x == null && y == null) return true;
+            if (x == null || y == null) return false;
+            return x.Replace("_", "").Equals(y.Replace("_", ""), StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode(string obj)
+        {
+            return obj.Replace("_", "").ToLower().GetHashCode();
+        }
     }
 }
