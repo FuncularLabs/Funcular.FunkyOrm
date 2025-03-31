@@ -599,9 +599,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             var guid = Guid.NewGuid().ToString();
             var insert1 = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine(insert1);
+            Console.WriteLine($"Inserted person 1 with ID: {insert1}");
             var insert2 = InsertTestPerson(guid, "B", guid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine(insert2);
+            Console.WriteLine($"Inserted person 2 with ID: {insert2}");
 
             // Act
             var result = _provider.Query<Person>()
@@ -609,7 +609,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .All(x => x.FirstName == guid);
 
             // Assert
-            Assert.IsTrue(result);
+            Assert.IsTrue(result, "All records should match the predicate x.FirstName == guid.");
         }
 
         [TestMethod]
@@ -888,17 +888,22 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual(uniqueGuid, result[0].UniqueId);
         }
 
+        /// <summary>
+        /// Tests that querying with a list of GUIDs returns the correct persons.
+        /// </summary>
+        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
         [TestMethod]
         public void Query_Person_GuidInList_ReturnsCorrectPersons()
         {
             // Arrange
             var guid = Guid.NewGuid().ToString();
-            var guids = new List<Guid?> { Guid.NewGuid(), Guid.NewGuid() };
+            var guids = new List<Guid?> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "GuidOne", FirstName = guid, UniqueId = guids[0], Gender = "Guid" },
-                new Person { LastName = "GuidTwo", FirstName = guid, UniqueId = guids[1], Gender = "Guid" },
-                new Person { LastName = "NoMatch", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new Person { LastName = "GuidOne", FirstName = guid, UniqueId = guids[0], Gender = "Guid1" },
+                new Person { LastName = "GuidTwo", FirstName = guid, UniqueId = guids[1], Gender = "Guid2" },
+                new Person { LastName = "GuidThree", FirstName = guid, UniqueId = guids[2], Gender = "Guid3" },
+                new Person { LastName = "NoMatch", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -908,7 +913,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .ToList();
 
             // Assert
-            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual(3, result.Count);
             Assert.IsTrue(result.All(p => guids.Contains(p.UniqueId)));
         }
 

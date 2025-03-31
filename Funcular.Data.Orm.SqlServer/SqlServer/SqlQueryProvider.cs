@@ -146,29 +146,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                     else if (outerMethodCall?.Method.Name is "Min" or "Max")
                     {
-                        var lambda = (LambdaExpression)((UnaryExpression)outerMethodCall.Arguments[1]).Operand;
-                        Type selectorType = lambda.Body.Type; // Use the actual return type
-
-                        if (selectorType == typeof(DateTime))
-                        {
-                            return (TResult)(object)Convert.ToDateTime(result);
-                        }
-                        else if (selectorType == typeof(int))
-                        {
-                            return (TResult)(object)Convert.ToInt32(result);
-                        }
-                        else if (selectorType == typeof(double))
-                        {
-                            return (TResult)(object)Convert.ToDouble(result);
-                        }
-                        else if (selectorType == typeof(decimal))
-                        {
-                            return (TResult)(object)Convert.ToDecimal(result);
-                        }
-                        else
-                        {
-                            throw new NotSupportedException($"Unsupported selector type {selectorType} for {outerMethodCall.Method.Name}.");
-                        }
+                        return (TResult)(object)ConvertToSelectorType(result, outerMethodCall);
                     }
                 }
 
@@ -215,6 +193,7 @@ namespace Funcular.Data.Orm.SqlServer
                 connectionScope.Dispose();
             }
         }
+
         /// <summary>
         /// Handles aggregation methods (Any, All, Count, Average, Min, Max) by generating the appropriate SQL query.
         /// </summary>
@@ -335,20 +314,40 @@ namespace Funcular.Data.Orm.SqlServer
             throw new NotSupportedException("Only simple member access selectors are supported for aggregates.");
         }
 
+        /// <summary>
+        /// Handles the result of Min and Max aggregate methods by converting the scalar result to the appropriate type.
+        /// </summary>
+        /// <param name="result">The scalar result from the SQL query.</param>
+        /// <param name="methodCall">The method call expression for the aggregate operation.</param>
+        /// <returns>The converted result of the aggregate operation.</returns>
+        /// <exception cref="NotSupportedException">Thrown when the selector type is not supported.</exception>
         private object ConvertToSelectorType(object result, MethodCallExpression methodCall)
         {
             var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
-            Type selectorType = GetSelectorType(lambda.Body);
+            Type selectorType = lambda.Body.Type;
+            // Handle nullable types by unwrapping the underlying type
+            Type underlyingType = Nullable.GetUnderlyingType(selectorType) ?? selectorType;
 
-            if (selectorType == typeof(DateTime))
+            if (underlyingType == typeof(DateTime))
+            {
                 return Convert.ToDateTime(result);
-            if (selectorType == typeof(int))
+            }
+            else if (underlyingType == typeof(int))
+            {
                 return Convert.ToInt32(result);
-            if (selectorType == typeof(double))
+            }
+            else if (underlyingType == typeof(double))
+            {
                 return Convert.ToDouble(result);
-            if (selectorType.CheckTypeIs(typeof(decimal)))
+            }
+            else if (underlyingType == typeof(decimal))
+            {
                 return Convert.ToDecimal(result);
-            throw new NotSupportedException($"Unsupported selector type {selectorType} for {methodCall.Method.Name}.");
+            }
+            else
+            {
+                throw new NotSupportedException($"Unsupported selector type {selectorType} for {methodCall.Method.Name}.");
+            }
         }
 
         private SqlParameter CloneSqlParameter(SqlParameter original)
