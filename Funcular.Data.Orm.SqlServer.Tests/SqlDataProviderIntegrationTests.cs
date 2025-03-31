@@ -221,11 +221,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Query_WithExpression_ReturnsFilteredAddresses()
         {
             // Arrange
+            var guid = Guid.NewGuid().ToString();
             const string stateCode = "IL";
-            var addressId = InsertTestAddress("123 Main St", null, "Springfield", stateCode, "62704");
+            var addressId = InsertTestAddress("123 Main St", guid, "Springfield", stateCode, "62704");
 
             // Act
-            var addresses = _provider.Query<Address>().Where(a => a.StateCode == stateCode).ToList();
+            var addresses = _provider.Query<Address>().Where(a =>
+                a.Line2 == guid &&
+                a.StateCode == stateCode).ToList();
 
             // Assert
             Assert.IsTrue(addresses.Count > 0 && addresses.All(x => x.StateCode == stateCode), "No addresses found in IL.");
