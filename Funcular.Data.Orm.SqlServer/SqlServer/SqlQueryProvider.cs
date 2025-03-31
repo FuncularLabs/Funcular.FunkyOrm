@@ -35,6 +35,14 @@ namespace Funcular.Data.Orm.SqlServer
             return Execute<IEnumerable<T>>(expression);
         }
 
+        /// <summary>
+        /// Executes the given LINQ expression and returns the result.
+        /// </summary>
+        /// <typeparam name="TResult">The type of the result.</typeparam>
+        /// <param name="expression">The LINQ expression to execute.</param>
+        /// <returns>The result of the executed expression.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the sequence contains no elements for certain operations.</exception>
+        /// <exception cref="NotSupportedException">Thrown when an unsupported operation or selector is encountered.</exception>
         public TResult Execute<TResult>(Expression expression)
         {
             // Extract query components
@@ -99,95 +107,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                     else if (currentCall.Method.Name is "Any" or "All" or "Count" or "Average" or "Min" or "Max")
                     {
-                        if (currentCall.Method.Name is "Any" or "All" or "Count" && currentCall.Arguments.Count == 2)
-                        {
-                            var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
-                            var predicateExpression = (Expression<Func<T, bool>>)lambda;
-                            var elements = _dataProvider.GenerateWhereClause(predicateExpression);
-
-                            if (currentCall.Method.Name == "Any")
-                            {
-                                aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {_dataProvider.GetTableName<T>()} WHERE {elements.WhereClause}";
-                                if (!string.IsNullOrEmpty(whereClause))
-                                {
-                                    aggregateClause += $" AND {whereClause}";
-                                }
-                                aggregateClause += ") THEN 1 ELSE 0 END";
-                            }
-                            else if (currentCall.Method.Name == "All")
-                            {
-                                aggregateClause = $@"
-                                    SELECT CASE 
-                                        WHEN NOT EXISTS (
-                                            SELECT 1 
-                                            FROM {_dataProvider.GetTableName<T>()} 
-                                            WHERE NOT ({elements.WhereClause})
-                                            {(string.IsNullOrEmpty(whereClause) ? "" : $" AND {whereClause}")}
-                                        ) THEN 1 
-                                        ELSE 0 
-                                    END";
-
-                                parameters ??= new List<SqlParameter>();
-                                if (elements.SqlParameters?.Any() == true)
-                                {
-                                    // Clone parameters to avoid duplicates
-                                    var clonedParameters = elements.SqlParameters.Select(p => CloneSqlParameter(p, parameters.Count)).ToList();
-                                    parameters.AddRange(clonedParameters);
-                                }
-                            }
-                            else if (currentCall.Method.Name == "Count")
-                            {
-                                aggregateClause = $"SELECT COUNT(*) FROM {_dataProvider.GetTableName<T>()}";
-                                if (!string.IsNullOrEmpty(whereClause))
-                                {
-                                    aggregateClause += "\r\nWHERE " + whereClause;
-                                }
-                                if (!string.IsNullOrEmpty(elements.WhereClause))
-                                {
-                                    aggregateClause += string.IsNullOrEmpty(whereClause) ? "\r\nWHERE " : " AND ";
-                                    aggregateClause += elements.WhereClause;
-                                }
-                            }
-
-                            parameters ??= new List<SqlParameter>();
-                            if (elements.SqlParameters?.Any() == true)
-                            {
-                                parameters.AddRange(elements.SqlParameters.Select(p => CloneSqlParameter(p, parameters.Count)));
-                            }
-                            isAggregate = true;
-                        }
-                        else if (currentCall.Method.Name == "Count" && currentCall.Arguments.Count == 1)
-                        {
-                            aggregateClause = $"SELECT COUNT(*) FROM {_dataProvider.GetTableName<T>()}";
-                            if (!string.IsNullOrEmpty(whereClause))
-                            {
-                                aggregateClause += "\r\nWHERE " + whereClause;
-                            }
-                            isAggregate = true;
-                        }
-                        else if (currentCall.Method.Name is "Average" or "Min" or "Max" && currentCall.Arguments.Count == 2)
-                        {
-                            var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
-                            string columnExpression;
-
-                            // Check if the selector is a simple column (MemberExpression) or an expression
-                            if (lambda.Body is MemberExpression memberExpression)
-                            {
-                                columnExpression = _dataProvider.GetColumnName(memberExpression.Member as PropertyInfo);
-                            }
-                            else
-                            {
-                                throw new NotSupportedException($"Aggregate function {currentCall.Method.Name} does not support expression evaluation; aggregates are only supported on column selectors.");
-                            }
-
-                            var aggregateFunction = currentCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : currentCall.Method.Name.ToUpper();
-                            aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {_dataProvider.GetTableName<T>()}";
-                            if (!string.IsNullOrEmpty(whereClause))
-                            {
-                                aggregateClause += "\r\nWHERE " + whereClause;
-                            }
-                            isAggregate = true;
-                        }
+                        HandleAggregateMethod(currentCall, ref whereClause, ref parameters, out aggregateClause, out isAggregate);
                     }
                     currentExpression = currentCall.Arguments[0];
                 }
@@ -293,6 +213,112 @@ namespace Funcular.Data.Orm.SqlServer
             finally
             {
                 connectionScope.Dispose();
+            }
+        }
+        /// <summary>
+        /// Handles aggregation methods (Any, All, Count, Average, Min, Max) by generating the appropriate SQL query.
+        /// </summary>
+        /// <param name="currentCall">The current method call expression being processed.</param>
+        /// <param name="whereClause">The existing WHERE clause, if any.</param>
+        /// <param name="parameters">The list of SQL parameters for the query.</param>
+        /// <param name="aggregateClause">The generated SQL aggregate clause.</param>
+        /// <param name="isAggregate">Flag indicating if the query is an aggregate query.</param>
+        /// <exception cref="NotSupportedException">Thrown when the method or selector is not supported.</exception>
+        private void HandleAggregateMethod(MethodCallExpression currentCall, ref string? whereClause, ref List<SqlParameter>? parameters, out string? aggregateClause, out bool isAggregate)
+        {
+            aggregateClause = null;
+            isAggregate = false;
+
+            if (currentCall.Method.Name is "Any" or "All" or "Count" && currentCall.Arguments.Count == 2)
+            {
+                var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                var elements = _dataProvider.GenerateWhereClause(predicateExpression);
+
+                if (currentCall.Method.Name == "Any")
+                {
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {_dataProvider.GetTableName<T>()} WHERE {elements.WhereClause}";
+                    if (!string.IsNullOrEmpty(whereClause))
+                    {
+                        aggregateClause += $" AND {whereClause}";
+                    }
+                    aggregateClause += ") THEN 1 ELSE 0 END";
+                }
+                else if (currentCall.Method.Name == "All")
+                {
+                    aggregateClause = $@"
+                SELECT CASE 
+                    WHEN NOT EXISTS (
+                        SELECT 1 
+                        FROM {_dataProvider.GetTableName<T>()} 
+                        WHERE NOT ({elements.WhereClause})
+                        {(string.IsNullOrEmpty(whereClause) ? "" : $" AND {whereClause}")}
+                    ) THEN 1 
+                    ELSE 0 
+                END";
+
+                    parameters ??= new List<SqlParameter>();
+                    if (elements.SqlParameters?.Any() == true)
+                    {
+                        // Clone parameters to avoid duplicates
+                        var paramList = parameters;
+                        var clonedParameters = elements.SqlParameters.Select(p => CloneSqlParameter(p, paramList.Count)).ToList();
+                        parameters.AddRange(clonedParameters);
+                    }
+                }
+                else if (currentCall.Method.Name == "Count")
+                {
+                    aggregateClause = $"SELECT COUNT(*) FROM {_dataProvider.GetTableName<T>()}";
+                    if (!string.IsNullOrEmpty(whereClause))
+                    {
+                        aggregateClause += "\r\nWHERE " + whereClause;
+                    }
+                    if (!string.IsNullOrEmpty(elements.WhereClause))
+                    {
+                        aggregateClause += string.IsNullOrEmpty(whereClause) ? "\r\nWHERE " : " AND ";
+                        aggregateClause += elements.WhereClause;
+                    }
+                }
+
+                parameters ??= new List<SqlParameter>();
+                if (elements.SqlParameters?.Any() == true)
+                {
+                    var paramList = parameters;
+                    parameters.AddRange(elements.SqlParameters.Select(p => CloneSqlParameter(p, paramList.Count)));
+                }
+                isAggregate = true;
+            }
+            else if (currentCall.Method.Name == "Count" && currentCall.Arguments.Count == 1)
+            {
+                aggregateClause = $"SELECT COUNT(*) FROM {_dataProvider.GetTableName<T>()}";
+                if (!string.IsNullOrEmpty(whereClause))
+                {
+                    aggregateClause += "\r\nWHERE " + whereClause;
+                }
+                isAggregate = true;
+            }
+            else if (currentCall.Method.Name is "Average" or "Min" or "Max" && currentCall.Arguments.Count == 2)
+            {
+                var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                string columnExpression;
+
+                // Check if the selector is a simple column (MemberExpression) without nested expressions or nullable unwrapping
+                if (lambda.Body is MemberExpression memberExpression && memberExpression.Expression is ParameterExpression)
+                {
+                    columnExpression = _dataProvider.GetColumnName(memberExpression.Member as PropertyInfo);
+                }
+                else
+                {
+                    throw new NotSupportedException($"Aggregate function {currentCall.Method.Name} does not support expression evaluation; aggregates are only supported on column selectors.");
+                }
+
+                var aggregateFunction = currentCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : currentCall.Method.Name.ToUpper();
+                aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {_dataProvider.GetTableName<T>()}";
+                if (!string.IsNullOrEmpty(whereClause))
+                {
+                    aggregateClause += "\r\nWHERE " + whereClause;
+                }
+                isAggregate = true;
             }
         }
 

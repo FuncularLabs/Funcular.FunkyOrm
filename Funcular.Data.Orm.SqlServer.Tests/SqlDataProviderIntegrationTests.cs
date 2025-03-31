@@ -212,33 +212,51 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("Adams", result[1].LastName);
         }
 
+        /// <summary>
+        /// Tests that the ThenBy method returns correctly ordered results after an OrderBy.
+        /// </summary>
+        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
         [TestMethod]
         public void Query_ThenBy_ReturnsOrderedResults()
         {
+            // Arrange
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+
+            // Act
             var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
                 .ThenBy(x => x.MiddleInitial)
                 .ToList();
+
+            // Assert
             Assert.AreEqual(2, result.Count);
             Assert.AreEqual("A", result[0].MiddleInitial);
             Assert.AreEqual("B", result[1].MiddleInitial);
         }
 
+        /// <summary>
+        /// Tests that the ThenByDescending method returns correctly ordered results after an OrderBy.
+        /// </summary>
+        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
         [TestMethod]
         public void Query_ThenByDescending_ReturnsOrderedResults()
         {
+            // Arrange
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+
+            // Act
             var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
                 .ThenByDescending(x => x.MiddleInitial)
                 .ToList();
+
+            // Assert
             Assert.AreEqual(2, result.Count);
             Assert.AreEqual("B", result[0].MiddleInitial);
             Assert.AreEqual("A", result[1].MiddleInitial);
@@ -571,6 +589,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsTrue(result);
         }
 
+        /// <summary>
+        /// Tests that the All method returns true when all records match the predicate.
+        /// </summary>
+        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
         [TestMethod]
         public void Query_AllWithPredicate_ReturnsTrueIfAllMatch()
         {
