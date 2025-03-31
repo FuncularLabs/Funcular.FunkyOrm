@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 
 using System;
+using System.Diagnostics;
 using System.Linq;
 using Funcular.Data.Orm;
 
@@ -228,6 +229,12 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     /// <summary>
     /// Visits a method call expression to handle string operations and collections.
     /// </summary>
+    /// <summary>
+    /// Visits a method call expression to handle string operations and collections.
+    /// </summary>
+    /// <param name="node">The method call expression to visit.</param>
+    /// <returns>The visited expression.</returns>
+    /// <exception cref="NotSupportedException">Thrown when the method or expression is not supported.</exception>
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
         if (node.Method.Name == "Contains" && node.Object?.Type == typeof(string))
@@ -337,6 +344,8 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
                         _whereClause.Append(", ");
                 }
                 _whereClause.Append("))");
+                // Debug: Log the generated IN clause
+                Debug.WriteLine($"Generated IN clause: {_whereClause}");
             }
         }
         else

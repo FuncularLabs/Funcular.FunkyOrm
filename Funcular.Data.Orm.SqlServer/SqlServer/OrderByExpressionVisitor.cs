@@ -13,6 +13,7 @@ using Funcular.Data.Orm;
 /// <summary>
 /// Visits an expression tree to generate SQL ORDER BY clauses from LINQ ordering methods.
 /// </summary>
+/// <typeparam name="T">The type of entity being queried.</typeparam>
 public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, new()
 {
     private readonly List<SqlParameter> _parameters;
@@ -24,9 +25,17 @@ public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, ne
     /// <summary>
     /// Gets the generated ORDER BY clause.
     /// </summary>
-    public string OrderByClause => _orderByClauses.Any()
-        ? "ORDER BY " + string.Join(", ", _orderByClauses.Select(c => $"{c.ColumnName} {(c.IsDescending ? "DESC" : "ASC")}"))
-        : string.Empty;
+    public string OrderByClause
+    {
+        get
+        {
+            var clause = _orderByClauses.Any()
+                ? "ORDER BY " + string.Join(", ", _orderByClauses.Select(c => $"{c.ColumnName} {(c.IsDescending ? "DESC" : "ASC")}"))
+                : string.Empty;
+            Console.WriteLine($"Generated ORDER BY clause: {clause}");
+            return clause;
+        }
+    }
 
     /// <summary>
     /// Gets the list of SQL parameters generated during the visit.
@@ -53,6 +62,9 @@ public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, ne
     /// <summary>
     /// Visits a method call expression to process OrderBy/ThenBy methods.
     /// </summary>
+    /// <param name="node">The method call expression to visit.</param>
+    /// <returns>The visited expression.</returns>
+    /// <exception cref="NotSupportedException">Thrown when the expression is not supported.</exception>
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
         if (node.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
@@ -69,6 +81,12 @@ public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, ne
         return node;
     }
 
+    /// <summary>
+    /// Visits an ordering expression to extract the column name and direction.
+    /// </summary>
+    /// <param name="expression">The expression to visit.</param>
+    /// <param name="isDescending">Indicates if the ordering is descending.</param>
+    /// <exception cref="NotSupportedException">Thrown when the expression is not supported.</exception>
     private void VisitOrderingExpression(Expression expression, bool isDescending)
     {
         if (expression is MemberExpression memberExpression)
@@ -86,6 +104,11 @@ public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, ne
         }
     }
 
+    /// <summary>
+    /// Gets the column name for a given property.
+    /// </summary>
+    /// <param name="property">The property to get the column name for.</param>
+    /// <returns>The column name.</returns>
     private string GetColumnName(PropertyInfo property)
     {
         return property.GetCustomAttribute<ColumnAttribute>()?.Name ?? property.Name.ToLower();

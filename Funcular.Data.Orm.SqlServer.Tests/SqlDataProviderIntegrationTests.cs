@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects;
+using Funcular.Data.Orm.SqlServer.Tests.Domain;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
-using Microsoft.VisualStudio.TestPlatform.Utilities;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests
@@ -250,16 +250,24 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
-            var result = _provider.Query<Person>()
+            var query = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
-                .ThenByDescending(x => x.MiddleInitial)
-                .ToList();
+                .ThenByDescending(x => x.MiddleInitial);
+            var result = query.ToList();
+
+            // Debug: Log the query and results
+            var sql = query.Expression.ToString();
+            Console.WriteLine($"Generated query: {sql}");
+            foreach (var record in result)
+            {
+                Console.WriteLine($"Record: MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
+            }
 
             // Assert
-            Assert.AreEqual(2, result.Count);
-            Assert.AreEqual("B", result[0].MiddleInitial);
-            Assert.AreEqual("A", result[1].MiddleInitial);
+            Assert.AreEqual(2, result.Count, "Expected 2 persons in the result.");
+            Assert.AreEqual("B", result[0].MiddleInitial, "First record should have MiddleInitial 'B' due to descending order.");
+            Assert.AreEqual("A", result[1].MiddleInitial, "Second record should have MiddleInitial 'A' due to descending order.");
         }
 
         [TestMethod]
@@ -599,14 +607,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             var guid = Guid.NewGuid().ToString();
             var insert1 = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine($"Inserted person 1 with ID: {insert1}");
+            Console.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {guid}");
             var insert2 = InsertTestPerson(guid, "B", guid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine($"Inserted person 2 with ID: {insert2}");
+            Console.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {guid}");
 
             // Act
-            var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid)
-                .All(x => x.FirstName == guid);
+            var query = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid);
+
+            // Debug: Verify the number of records after the Where clause
+            var filteredRecords = query.ToList();
+            Console.WriteLine($"Records after Where clause: {filteredRecords.Count}");
+            foreach (var record in filteredRecords)
+            {
+                Console.WriteLine($"Record: FirstName={record.FirstName}, LastName={record.LastName}");
+            }
+
+            var result = query.All(x => x.FirstName == guid);
+
+            // Debug: Log the generated query
+            var sql = query.Expression.ToString();
+            Console.WriteLine($"Generated query: {sql}");
 
             // Assert
             Assert.IsTrue(result, "All records should match the predicate x.FirstName == guid.");
@@ -660,21 +681,36 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual(person2, maxId); // person2 should have the higher Id (2)
         }
 
+        /// <summary>
+        /// Tests that the Min method with a selector returns the minimum value.
+        /// </summary>
+        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
         [TestMethod]
         public void Query_MinWithSelector_ReturnsMinimum()
         {
             // Arrange
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            var birthdate1 = new DateTime(1990, 1, 1);
+            var birthdate2 = new DateTime(2000, 1, 1);
+            InsertTestPerson(guid, "A", guid, birthdate1, "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "B", guid, birthdate2, "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
-            var minBirthdate = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid)
-                .Min(x => x.Birthdate);
+            var query = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid);
+            var minBirthdate = query.Min(x => x.Birthdate);
+
+            // Debug: Log the query and results
+            var allRecords = query.ToList();
+            Console.WriteLine($"Records found: {allRecords.Count}");
+            foreach (var record in allRecords)
+            {
+                Console.WriteLine($"Record: FirstName={record.FirstName}, Birthdate={record.Birthdate}, LastName={record.LastName}");
+            }
+            Console.WriteLine($"Min Birthdate: {minBirthdate}");
 
             // Assert
-            Assert.AreEqual(new DateTime(1990, 1, 1), minBirthdate);
+            Assert.AreEqual(birthdate1, minBirthdate, "Expected minimum Birthdate to be 1990-01-01.");
         }
 
         [TestMethod]
@@ -893,7 +929,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         /// </summary>
         /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
         [TestMethod]
-        public void Query_Person_GuidInList_ReturnsCorrectPersons()
+        public void Query_GuidList_ReturnsCorrectPersons()
         {
             // Arrange
             var guid = Guid.NewGuid().ToString();
@@ -907,14 +943,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
+            // Debug: Verify the inserted data
+            var insertedRecords = _provider.Query<Person>().Where(p => p.FirstName == guid).ToList();
+            Console.WriteLine($"Inserted records: {insertedRecords.Count}");
+            foreach (var record in insertedRecords)
+            {
+                Console.WriteLine($"Record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
+            }
+
+            Debug.WriteLine($"GUIDs to match: {string.Join(", ", guids)}");
+
             // Act
-            var result = _provider.Query<Person>()
-                .Where(p => p.FirstName == guid && guids.Contains(p.UniqueId))
-                .ToList();
+            var queryable = _provider.Query<Person>()
+                .Where(p => p.FirstName == guid && guids.Contains(p.UniqueId));
+
+            // Debug: Log the generated SQL and parameters
+            var sql = queryable.Expression.ToString();
+            Debug.WriteLine($"Generated query: {sql}");
 
             // Assert
-            Assert.AreEqual(3, result.Count);
-            Assert.IsTrue(result.All(p => guids.Contains(p.UniqueId)));
+            Assert.AreEqual(3, queryable.ToList().Count);
+            Assert.IsTrue(queryable.All(p => guids.Contains(p.UniqueId)));
         }
 
         #endregion
