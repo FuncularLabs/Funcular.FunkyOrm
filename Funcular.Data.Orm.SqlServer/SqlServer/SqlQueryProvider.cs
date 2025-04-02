@@ -7,42 +7,65 @@ using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
 {
+    /// <summary>
+    /// A LINQ query provider that translates LINQ queries into SQL queries for execution against a SQL Server database.
+    /// </summary>
+    /// <typeparam name="T">The type of the entity being queried.</typeparam>
     public class SqlQueryProvider<T> : IQueryProvider where T : class, new()
     {
         private readonly FunkySqlDataProvider _dataProvider;
         private readonly string? _selectClause;
-        private int _parameterCounter;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SqlQueryProvider{T}"/> class.
+        /// </summary>
+        /// <param name="dataProvider">The data provider used to execute SQL commands.</param>
+        /// <param name="selectClause">An optional custom SELECT clause to use in queries. If null, a default SELECT clause is generated.</param>
         public SqlQueryProvider(FunkySqlDataProvider dataProvider, string? selectClause = null)
         {
             _dataProvider = dataProvider;
             _selectClause = selectClause;
-            _parameterCounter = 0;
         }
 
+        /// <summary>
+        /// Creates a new <see cref="IQueryable"/> that can be used to query the specified expression.
+        /// </summary>
+        /// <param name="expression">The expression to query.</param>
+        /// <returns>An <see cref="IQueryable"/> that represents the query.</returns>
         public IQueryable CreateQuery(Expression expression)
         {
             return new SqlQueryable<T>(this, expression);
         }
 
+        /// <summary>
+        /// Creates a new <see cref="IQueryable{TElement}"/> that can be used to query the specified expression.
+        /// </summary>
+        /// <typeparam name="TElement">The type of the elements in the query result.</typeparam>
+        /// <param name="expression">The expression to query.</param>
+        /// <returns>An <see cref="IQueryable{TElement}"/> that represents the query.</returns>
         public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
         {
             return new SqlQueryable<TElement>(this, expression);
         }
 
+        /// <summary>
+        /// Executes the specified expression and returns the result as an object.
+        /// </summary>
+        /// <param name="expression">The expression to execute.</param>
+        /// <returns>The result of the query execution.</returns>
         public object Execute(Expression expression)
         {
             return Execute<IEnumerable<T>>(expression);
         }
 
         /// <summary>
-        /// Executes the given LINQ expression and returns the result.
+        /// Executes the specified expression and returns the result as the specified type.
         /// </summary>
         /// <typeparam name="TResult">The type of the result.</typeparam>
-        /// <param name="expression">The LINQ expression to execute.</param>
-        /// <returns>The result of the executed expression.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when the sequence contains no elements for certain operations.</exception>
-        /// <exception cref="NotSupportedException">Thrown when an unsupported operation or selector is encountered.</exception>
+        /// <param name="expression">The expression to execute.</param>
+        /// <returns>The result of the query execution.</returns>
+        /// <exception cref="NotSupportedException">Thrown when the expression type is not supported.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when an operation cannot be performed, such as when All is called without a predicate.</exception>
         public TResult Execute<TResult>(Expression expression)
         {
             // Extract query components
@@ -60,7 +83,7 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 outerMethodCall = methodCall;
 
-                // Traverse the expression tree to collect components
+                // Traverse the expression tree to collect components (Where, Skip, Take, etc.)
                 Expression currentExpression = expression;
                 while (currentExpression is MethodCallExpression currentCall)
                 {
@@ -72,23 +95,15 @@ namespace Funcular.Data.Orm.SqlServer
                         whereClause = elements.WhereClause;
                         parameters = elements.SqlParameters;
                     }
-                    else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" ||
-                             currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
-                    {
-                        var visitor = new OrderByExpressionVisitor<T>(parameters ??= new List<SqlParameter>(),
-                            FunkySqlDataProvider._columnNames, FunkySqlDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), FunkySqlDataProvider.GetUnmappedProperties<T>),
-                            ref _dataProvider._parameterCounter);
-                        visitor.Visit(currentCall);
-                        orderByClause = visitor.OrderByClause;
-                        parameters = visitor.Parameters;
-                    }
                     else if (currentCall.Method.Name == "Skip")
                     {
-                        skip = (int)((ConstantExpression)currentCall.Arguments[1]).Value;
+                        var skipValue = (int)((ConstantExpression)currentCall.Arguments[1]).Value;
+                        skip = skipValue;
                     }
                     else if (currentCall.Method.Name == "Take")
                     {
-                        take = (int)((ConstantExpression)currentCall.Arguments[1]).Value;
+                        var takeValue = (int)((ConstantExpression)currentCall.Arguments[1]).Value;
+                        take = takeValue;
                     }
                     else if (currentCall.Method.Name is "FirstOrDefault" or "First" or "LastOrDefault" or "Last" && currentCall.Arguments.Count == 2)
                     {
@@ -98,18 +113,154 @@ namespace Funcular.Data.Orm.SqlServer
                         whereClause = elements.WhereClause;
                         parameters = elements.SqlParameters;
 
-                        if (currentCall.Method.Name is "LastOrDefault" or "Last" && string.IsNullOrEmpty(orderByClause))
+                        if (currentCall.Method.Name is "LastOrDefault" or "Last")
                         {
-                            var primaryKey = _dataProvider.GetPrimaryKeyCached<T>();
-                            var primaryKeyColumn = _dataProvider.GetColumnName(primaryKey);
-                            orderByClause = $"ORDER BY {primaryKeyColumn} DESC";
+                            orderByClause = "ORDER BY id DESC";
                         }
                     }
-                    else if (currentCall.Method.Name is "Any" or "All" or "Count" or "Average" or "Min" or "Max")
-                    {
-                        HandleAggregateMethod(currentCall, ref whereClause, ref parameters, out aggregateClause, out isAggregate);
-                    }
                     currentExpression = currentCall.Arguments[0];
+                }
+
+                // Handle aggregation methods (Any, All, Count, Average, Min, Max)
+                if (methodCall.Method.Name is "Any" or "All" or "Count" or "Average" or "Min" or "Max")
+                {
+                    // Handle Any, All, Count with predicates
+                    if (methodCall.Method.Name is "Any" or "All" or "Count" && methodCall.Arguments.Count == 2)
+                    {
+                        var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
+                        var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                        var elements = _dataProvider.GenerateWhereClause(predicateExpression);
+
+                        // Combine parameters and ensure unique names
+                        parameters = parameters ?? new List<SqlParameter>();
+                        if (elements.SqlParameters != null)
+                        {
+                            // Check for duplicate parameter names and rename if necessary
+                            foreach (var param in elements.SqlParameters)
+                            {
+                                var existingParam = parameters.FirstOrDefault(p => p.ParameterName == param.ParameterName);
+                                if (existingParam != null)
+                                {
+                                    // Generate a new unique parameter name
+                                    int suffix = 1;
+                                    string newParamName;
+                                    do
+                                    {
+                                        newParamName = param.ParameterName + "_" + suffix++;
+                                    } while (parameters.Any(p => p.ParameterName == newParamName));
+
+                                    // Replace the parameter name in the whereClause
+                                    elements.WhereClause = elements.WhereClause.Replace(param.ParameterName, newParamName);
+                                    param.ParameterName = newParamName;
+                                }
+                                parameters.Add(param);
+                            }
+                        }
+
+                        // Build the inner query (the filtered set from Where)
+                        string innerQuery = $"SELECT * FROM {_dataProvider.GetTableName<T>()}";
+                        if (!string.IsNullOrEmpty(whereClause))
+                        {
+                            innerQuery += "\r\nWHERE " + whereClause;
+                        }
+
+                        if (methodCall.Method.Name == "Any")
+                        {
+                            aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM ({innerQuery}) AS innerQuery WHERE {elements.WhereClause}) THEN 1 ELSE 0 END";
+                        }
+                        else if (methodCall.Method.Name == "All")
+                        {
+                            aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM ({innerQuery}) AS innerQuery WHERE NOT ({elements.WhereClause})) THEN 0 ELSE 1 END";
+                        }
+                        else if (methodCall.Method.Name == "Count")
+                        {
+                            aggregateClause = $"SELECT COUNT(*) FROM ({innerQuery}) AS innerQuery WHERE {elements.WhereClause}";
+                        }
+
+                        isAggregate = true;
+                    }
+                    // Handle Any, All, Count without predicates
+                    else if (methodCall.Method.Name is "Any" or "All" or "Count" && methodCall.Arguments.Count == 1)
+                    {
+                        if (methodCall.Method.Name == "All")
+                        {
+                            throw new InvalidOperationException("All method requires a predicate.");
+                        }
+
+                        string innerQuery = $"SELECT * FROM {_dataProvider.GetTableName<T>()}";
+                        if (!string.IsNullOrEmpty(whereClause))
+                        {
+                            innerQuery += "\r\nWHERE " + whereClause;
+                        }
+
+                        if (methodCall.Method.Name == "Any")
+                        {
+                            aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM ({innerQuery}) AS innerQuery) THEN 1 ELSE 0 END";
+                        }
+                        else if (methodCall.Method.Name == "Count")
+                        {
+                            aggregateClause = $"SELECT COUNT(*) FROM ({innerQuery}) AS innerQuery";
+                        }
+
+                        isAggregate = true;
+                    }
+                    // Handle Average, Min, Max with selectors
+                    else if (methodCall.Method.Name is "Average" or "Min" or "Max" && methodCall.Arguments.Count == 2)
+                    {
+                        var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
+                        var selectorExpression = (Expression<Func<T, object>>)lambda;
+
+                        // Handle complex selectors (e.g., x => x.Birthdate.Value.Year)
+                        string columnExpression;
+                        if (selectorExpression.Body is MemberExpression memberExpression)
+                        {
+                            columnExpression = _dataProvider.GetColumnName(memberExpression.Member as PropertyInfo);
+                        }
+                        else if (selectorExpression.Body is UnaryExpression unaryExpression && unaryExpression.Operand is MemberExpression unaryMember)
+                        {
+                            columnExpression = _dataProvider.GetColumnName(unaryMember.Member as PropertyInfo);
+                        }
+                        else if (selectorExpression.Body is MemberExpression { Expression: UnaryExpression { Operand: MemberExpression nestedMember } } && nestedMember.Member.Name == "Value")
+                        {
+                            if (nestedMember.Expression is MemberExpression baseMemberExpression)
+                            {
+                                var baseColumn = _dataProvider.GetColumnName(baseMemberExpression.Member as PropertyInfo);
+                                var propertyName = (selectorExpression.Body as MemberExpression).Member.Name;
+                                if (propertyName == "Year")
+                                {
+                                    columnExpression = $"YEAR({baseColumn})";
+                                }
+                                else if (propertyName == "Month")
+                                {
+                                    columnExpression = $"MONTH({baseColumn})";
+                                }
+                                else if (propertyName == "Day")
+                                {
+                                    columnExpression = $"DAY({baseColumn})";
+                                }
+                                else
+                                {
+                                    throw new NotSupportedException($"Unsupported property {propertyName} in selector for {methodCall.Method.Name}.");
+                                }
+                            }
+                            else
+                            {
+                                throw new NotSupportedException("Expected a MemberExpression for the base property in selector.");
+                            }
+                        }
+                        else
+                        {
+                            throw new NotSupportedException("Only simple member access selectors or DateTime properties (Year, Month, Day) are supported for Average, Min, and Max.");
+                        }
+
+                        var aggregateFunction = methodCall.Method.Name.ToUpper();
+                        aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {_dataProvider.GetTableName<T>()}";
+                        if (!string.IsNullOrEmpty(whereClause))
+                        {
+                            aggregateClause += "\r\nWHERE " + whereClause;
+                        }
+                        isAggregate = true;
+                    }
                 }
             }
 
@@ -122,8 +273,6 @@ namespace Funcular.Data.Orm.SqlServer
                 if (isAggregate)
                 {
                     using var sqlCommand = _dataProvider.BuildCommand(aggregateClause, connectionScope.Connection, parameters);
-                    // Log the SQL command
-                    _dataProvider.Log?.Invoke(sqlCommand.CommandText);
                     var result = sqlCommand.ExecuteScalar();
                     if (result == DBNull.Value)
                     {
@@ -131,8 +280,12 @@ namespace Funcular.Data.Orm.SqlServer
                         {
                             throw new InvalidOperationException($"Sequence contains no elements for {outerMethodCall.Method.Name}.");
                         }
-                        result = 0;
+                        result = 0; // For Count, Any, All, return 0 if no rows
                     }
+
+                    // Debug: Log the type of result
+                    Console.WriteLine($"Aggregate result type: {result?.GetType()?.FullName ?? "null"}");
+                    Console.WriteLine($"Aggregate result value: {result}");
 
                     if (outerMethodCall?.Method.Name is "Any" or "All")
                     {
@@ -144,25 +297,53 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                     else if (outerMethodCall?.Method.Name == "Average")
                     {
+                        // Average always returns double in LINQ
                         return (TResult)(object)Convert.ToDouble(result);
                     }
                     else if (outerMethodCall?.Method.Name is "Min" or "Max")
                     {
-                        return (TResult)(object)ConvertToSelectorType(result, outerMethodCall);
+                        // Determine the selector type dynamically
+                        var lambda = (LambdaExpression)((UnaryExpression)outerMethodCall.Arguments[1]).Operand;
+                        Type selectorType = GetSelectorType(lambda.Body);
+
+                        if (selectorType == typeof(DateTime))
+                        {
+                            return (TResult)(object)Convert.ToDateTime(result);
+                        }
+                        else if (selectorType == typeof(int))
+                        {
+                            return (TResult)(object)Convert.ToInt32(result);
+                        }
+                        else if (selectorType == typeof(double))
+                        {
+                            return (TResult)(object)Convert.ToDouble(result);
+                        }
+                        else if (selectorType == typeof(decimal))
+                        {
+                            return (TResult)(object)Convert.ToDecimal(result);
+                        }
+                        else
+                        {
+                            throw new NotSupportedException($"Unsupported selector type {selectorType} for {outerMethodCall.Method.Name}.");
+                        }
                     }
                 }
 
-                string? commandText = _selectClause ?? _dataProvider.CreateSelectCommand<T>();
+                string commandText = _selectClause ?? _dataProvider.CreateSelectCommand<T>();
                 if (!string.IsNullOrEmpty(whereClause))
                 {
                     commandText += "\r\nWHERE " + whereClause;
                 }
+
                 if (!string.IsNullOrEmpty(orderByClause) || skip.HasValue || take.HasValue)
                 {
-                    var primaryKey = _dataProvider.GetPrimaryKeyCached<T>();
-                    var primaryKeyColumn = _dataProvider.GetColumnName(primaryKey);
-                    commandText += "\r\n" + (orderByClause ?? $"ORDER BY {primaryKeyColumn}");
+                    if (string.IsNullOrEmpty(orderByClause))
+                    {
+                        orderByClause = "ORDER BY id";
+                    }
+                    commandText += "\r\n" + orderByClause;
                 }
+
                 if (skip.HasValue || take.HasValue)
                 {
                     commandText += $"\r\nOFFSET {skip ?? 0} ROWS";
@@ -173,8 +354,6 @@ namespace Funcular.Data.Orm.SqlServer
                 }
 
                 using var command = _dataProvider.BuildCommand(commandText, connectionScope.Connection, parameters);
-                // Log the SQL command
-                _dataProvider.Log?.Invoke(command.CommandText);
                 if (isCollection)
                 {
                     return (TResult)(object)_dataProvider.ExecuteReaderList<T>(command);
@@ -182,6 +361,7 @@ namespace Funcular.Data.Orm.SqlServer
                 else
                 {
                     var result = _dataProvider.ExecuteReaderSingle<T>(command);
+
                     if (result == null && expression is MethodCallExpression call)
                     {
                         if (call.Method.Name is "First" or "Last")
@@ -189,6 +369,7 @@ namespace Funcular.Data.Orm.SqlServer
                             throw new InvalidOperationException($"Sequence contains no matching element for {call.Method.Name}.");
                         }
                     }
+
                     return (TResult)(object)result!;
                 }
             }
@@ -199,212 +380,29 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Handles aggregation methods (Any, All, Count, Average, Min, Max) by generating the appropriate SQL query.
+        /// Determines the type of the selector expression used in aggregate methods like Average, Min, and Max.
         /// </summary>
-        /// <param name="currentCall">The current method call expression being processed.</param>
-        /// <param name="whereClause">The existing WHERE clause, if any.</param>
-        /// <param name="parameters">The list of SQL parameters for the query.</param>
-        /// <param name="aggregateClause">The generated SQL aggregate clause.</param>
-        /// <param name="isAggregate">Flag indicating if the query is an aggregate query.</param>
-        /// <exception cref="NotSupportedException">Thrown when the method or selector is not supported.</exception>
-        private void HandleAggregateMethod(MethodCallExpression currentCall, ref string? whereClause, ref List<SqlParameter>? parameters, out string? aggregateClause, out bool isAggregate)
+        /// <param name="selector">The selector expression.</param>
+        /// <returns>The type of the selector expression.</returns>
+        /// <exception cref="NotSupportedException">Thrown when the selector expression type is not supported.</exception>
+        private Type GetSelectorType(Expression selector)
         {
-            aggregateClause = null;
-            isAggregate = false;
-
-            if (currentCall.Method.Name is "Any" or "All" or "Count" && currentCall.Arguments.Count == 2)
+            if (selector is MemberExpression memberExpression)
             {
-                var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
-                var predicateExpression = (Expression<Func<T, bool>>)lambda;
-                var elements = _dataProvider.GenerateWhereClause(predicateExpression);
-
-                if (currentCall.Method.Name == "Any")
-                {
-                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {_dataProvider.GetTableName<T>()} WHERE {elements.WhereClause}";
-                    if (!string.IsNullOrEmpty(whereClause))
-                    {
-                        aggregateClause += $" AND {whereClause}";
-                    }
-                    aggregateClause += ") THEN 1 ELSE 0 END";
-                }
-                else if (currentCall.Method.Name == "All")
-                {
-                    // Simplified logic for All: Check if there are records matching the whereClause, and if so, ensure none fail the predicate
-                    var baseWhereClause = !string.IsNullOrEmpty(whereClause) ? whereClause : "1=1";
-                    aggregateClause = $@"
-                SELECT CASE 
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM {_dataProvider.GetTableName<T>()} 
-                        WHERE {baseWhereClause}
-                    ) THEN 
-                        CASE 
-                            WHEN EXISTS (
-                                SELECT 1 
-                                FROM {_dataProvider.GetTableName<T>()} 
-                                WHERE {baseWhereClause} 
-                                AND NOT ({elements.WhereClause})
-                            ) THEN 0 
-                            ELSE 1 
-                        END
-                    ELSE 1 
-                END";
-                }
-                else if (currentCall.Method.Name == "Count")
-                {
-                    aggregateClause = $"SELECT COUNT(*) FROM {_dataProvider.GetTableName<T>()}";
-                    if (!string.IsNullOrEmpty(whereClause))
-                    {
-                        aggregateClause += "\r\nWHERE " + whereClause;
-                    }
-                    if (!string.IsNullOrEmpty(elements.WhereClause))
-                    {
-                        aggregateClause += string.IsNullOrEmpty(whereClause) ? "\r\nWHERE " : " AND ";
-                        aggregateClause += elements.WhereClause;
-                    }
-                }
-
-                parameters ??= new List<SqlParameter>();
-                if (elements.SqlParameters?.Any() == true)
-                {
-                    var existingParameterCount = parameters.Count;
-
-                    // Clone parameters to avoid duplicates
-                    var clonedParameters = elements.SqlParameters.Select(p => CloneSqlParameter(p, existingParameterCount)).ToList();
-                    parameters.AddRange(clonedParameters);
-                }
-                isAggregate = true;
+                return memberExpression.Type;
             }
-            else if (currentCall.Method.Name == "Count" && currentCall.Arguments.Count == 1)
+            else if (selector is UnaryExpression unaryExpression)
             {
-                aggregateClause = $"SELECT COUNT(*) FROM {_dataProvider.GetTableName<T>()}";
-                if (!string.IsNullOrEmpty(whereClause))
-                {
-                    aggregateClause += "\r\nWHERE " + whereClause;
-                }
-                isAggregate = true;
+                return unaryExpression.Type;
             }
-            else if (currentCall.Method.Name is "Average" or "Min" or "Max" && currentCall.Arguments.Count == 2)
+            else if (selector is MethodCallExpression methodCallExpression)
             {
-                var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
-                string columnExpression;
-
-                // Check if the selector is a simple column (MemberExpression) without nested expressions or nullable unwrapping
-                if (lambda.Body is MemberExpression memberExpression && memberExpression.Expression is ParameterExpression)
-                {
-                    columnExpression = _dataProvider.GetColumnName(memberExpression.Member as PropertyInfo);
-                }
-                else
-                {
-                    throw new NotSupportedException($"Aggregate function {currentCall.Method.Name} does not support expression evaluation; aggregates are only supported on column selectors.");
-                }
-
-                var aggregateFunction = currentCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : currentCall.Method.Name.ToUpper();
-                aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {_dataProvider.GetTableName<T>()}";
-                if (!string.IsNullOrEmpty(whereClause))
-                {
-                    aggregateClause += "\r\nWHERE " + whereClause;
-                }
-                isAggregate = true;
-            }
-        }
-        private string GetColumnExpression(Expression<Func<T, object>> selectorExpression)
-        {
-            if (selectorExpression.Body is MemberExpression memberExpression)
-            {
-                return _dataProvider.GetColumnName(memberExpression.Member as PropertyInfo);
-            }
-            else if (selectorExpression.Body is UnaryExpression unaryExpression && unaryExpression.Operand is MemberExpression unaryMember)
-            {
-                return _dataProvider.GetColumnName(unaryMember.Member as PropertyInfo);
-            }
-            throw new NotSupportedException("Only simple member access selectors are supported for aggregates.");
-        }
-
-        /// <summary>
-        /// Handles the result of Min and Max aggregate methods by converting the scalar result to the appropriate type.
-        /// </summary>
-        /// <param name="result">The scalar result from the SQL query.</param>
-        /// <param name="methodCall">The method call expression for the aggregate operation.</param>
-        /// <returns>The converted result of the aggregate operation.</returns>
-        /// <exception cref="NotSupportedException">Thrown when the selector type is not supported.</exception>
-        private object ConvertToSelectorType(object result, MethodCallExpression methodCall)
-        {
-            var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
-            Type selectorType = lambda.Body.Type;
-            // Handle nullable types by unwrapping the underlying type
-            Type underlyingType = Nullable.GetUnderlyingType(selectorType) ?? selectorType;
-
-            if (underlyingType == typeof(DateTime))
-            {
-                return Convert.ToDateTime(result);
-            }
-            else if (underlyingType == typeof(int))
-            {
-                return Convert.ToInt32(result);
-            }
-            else if (underlyingType == typeof(double))
-            {
-                return Convert.ToDouble(result);
-            }
-            else if (underlyingType == typeof(decimal))
-            {
-                return Convert.ToDecimal(result);
+                return methodCallExpression.Method.ReturnType;
             }
             else
             {
-                throw new NotSupportedException($"Unsupported selector type {selectorType} for {methodCall.Method.Name}.");
+                throw new NotSupportedException("Unsupported selector expression type.");
             }
-        }
-
-        private SqlParameter CloneSqlParameter(SqlParameter original)
-        {
-            return new SqlParameter
-            {
-                ParameterName = original.ParameterName,
-                Value = original.Value,
-                SqlDbType = original.SqlDbType,
-                Direction = original.Direction,
-                IsNullable = original.IsNullable,
-                Precision = original.Precision,
-                Scale = original.Scale,
-                Size = original.Size
-            };
-        }
-
-        private SqlParameter CloneSqlParameter(SqlParameter original, int existingParameterCount)
-        {
-            var newParameter = new SqlParameter
-            {
-                ParameterName = $"@p__linq__{existingParameterCount + _parameterCounter++}",
-                Value = original.Value,
-                SqlDbType = original.SqlDbType,
-                Direction = original.Direction,
-                IsNullable = original.IsNullable,
-                Precision = original.Precision,
-                Scale = original.Scale,
-                Size = original.Size
-            };
-            return newParameter;
-        }
-
-        private Type GetSelectorType(Expression selector)
-        {
-            return selector switch
-            {
-                MemberExpression memberExpression => memberExpression.Type,
-                UnaryExpression unaryExpression => unaryExpression.Type,
-                MethodCallExpression methodCallExpression => methodCallExpression.Method.ReturnType,
-                _ => throw new NotSupportedException("Unsupported selector expression type.")
-            };
-        }
-    }
-
-    internal static class Extensions
-    {
-        public static bool CheckTypeIs(this Type typeToCheck, Type type)
-        {
-            return typeToCheck == type;
         }
     }
 }

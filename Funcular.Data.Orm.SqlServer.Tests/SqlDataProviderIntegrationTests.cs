@@ -47,7 +47,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             try
             {
                 connection.Open();
-                Console.WriteLine("Connection successful.");
+                Debug.WriteLine("Connection successful.");
             }
             catch (SqlException ex)
             {
@@ -266,10 +266,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             // Debug: Check the database state before insertion
             var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
-            Console.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
+            Debug.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
             foreach (var record in initialRecords)
             {
-                Console.WriteLine($"Initial record: FirstName={record.FirstName}, MiddleInitial={record.MiddleInitial}");
+                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, MiddleInitial={record.MiddleInitial}");
             }
 
             InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
@@ -277,10 +277,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Debug: Verify the inserted data
             var insertedRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
-            Console.WriteLine($"Inserted records: {insertedRecords.Count}");
+            Debug.WriteLine($"Inserted records: {insertedRecords.Count}");
             foreach (var record in insertedRecords)
             {
-                Console.WriteLine($"Inserted record: FirstName={record.FirstName}, MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
+                Debug.WriteLine($"Inserted record: FirstName={record.FirstName}, MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
             }
 
             // Act
@@ -292,10 +292,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Debug: Log the query and results
             var sql = query.Expression.ToString();
-            Console.WriteLine($"Generated query: {sql}");
+            Debug.WriteLine($"Generated query: {sql}");
             foreach (var record in result)
             {
-                Console.WriteLine($"Result record: MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
+                Debug.WriteLine($"Result record: MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
             }
 
             // Assert
@@ -637,7 +637,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             var guid = Guid.NewGuid().ToString();
             var idOrCount = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine(idOrCount);
+            Debug.WriteLine(idOrCount);
 
 
             // Act
@@ -659,17 +659,55 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastNameGuid = Guid.NewGuid().ToString();
             // Debug: Check the database state before insertion
             var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == firstNameGuid).ToList();
-            Console.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
+            Debug.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
             foreach (var record in initialRecords)
             {
-                Console.WriteLine($"Initial record: FirstName={record.FirstName}, LastName={record.LastName}");
+                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, LastName={record.LastName}");
             }
 
             // Insert two records with the same FirstName but different LastNames
             var insert1 = InsertTestPerson(firstNameGuid, "A", lastNameGuid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
+            Debug.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
             var insert2 = InsertTestPerson(firstNameGuid, "B", lastNameGuid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
+            Debug.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
+
+            // Act
+            var query = _provider.Query<Person>()
+                .Where(x => x.FirstName == firstNameGuid)
+                .All(x => x.LastName == lastNameGuid);
+
+            // Debug: Log the generated query
+            
+            Debug.WriteLine($"Generated query: {query.ToString()}");
+
+            // Assert
+            Assert.IsTrue(query, $"All records with FirstName={firstNameGuid} have LastName={lastNameGuid}.");
+        }
+
+
+        /// <summary>
+        /// Tests that the 'All' method returns true when all records matching the FirstName filter have a LastName matching the predicate.
+        /// </summary>
+        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
+        //[TestMethod]
+        public void Query_AllWithoutPredicate_ThrowsInvalidOperationException()
+        {
+            // Arrange
+            var firstNameGuid = Guid.NewGuid().ToString();
+            var lastNameGuid = Guid.NewGuid().ToString();
+            // Debug: Check the database state before insertion
+            var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == firstNameGuid).ToList();
+            Debug.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
+            foreach (var record in initialRecords)
+            {
+                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, LastName={record.LastName}");
+            }
+
+            // Insert two records with the same FirstName but different LastNames
+            var insert1 = InsertTestPerson(firstNameGuid, "A", lastNameGuid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            Debug.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
+            var insert2 = InsertTestPerson(firstNameGuid, "B", lastNameGuid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            Debug.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
 
             // Act
             var query = _provider.Query<Person>()
@@ -677,17 +715,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Debug: Verify the number of records after the Where clause
             var filteredRecords = query.ToList();
-            Console.WriteLine($"Records after Where clause: {filteredRecords.Count}");
+            Debug.WriteLine($"Records after Where clause: {filteredRecords.Count}");
             foreach (var record in filteredRecords)
             {
-                Console.WriteLine($"Filtered record: FirstName={record.FirstName}, LastName={record.LastName}");
+                Debug.WriteLine($"Filtered record: FirstName={record.FirstName}, LastName={record.LastName}");
             }
 
             var result = query.All(x => x.LastName == lastNameGuid);
 
             // Debug: Log the generated query
             var sql = query.Expression.ToString();
-            Console.WriteLine($"Generated query: {sql}");
+            Debug.WriteLine($"Generated query: {sql}");
 
             // Assert
             Assert.IsTrue(result, $"All records with FirstName={firstNameGuid} should have LastName={lastNameGuid}.");
@@ -705,35 +743,28 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastNameGuid = Guid.NewGuid().ToString();
             // Debug: Check the database state before insertion
             var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == firstNameGuid).ToList();
-            Console.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
+            Debug.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
             foreach (var record in initialRecords)
             {
-                Console.WriteLine($"Initial record: FirstName={record.FirstName}, LastName={record.LastName}");
+                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, LastName={record.LastName}");
             }
 
             // Insert two records with the same FirstName but different LastNames
             var insert1 = InsertTestPerson(firstNameGuid, "A", lastNameGuid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
+            Debug.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
             var insert2 = InsertTestPerson(firstNameGuid, "B", "DifferentLastName", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Console.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {firstNameGuid}, LastName: DifferentLastName");
+            Debug.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {firstNameGuid}, LastName: DifferentLastName");
 
             // Act
             var query = _provider.Query<Person>()
-                .Where(x => x.FirstName == firstNameGuid);
+                .Where(x => x.FirstName == firstNameGuid)
+                .All(x => x.LastName == lastNameGuid);
 
-            // Debug: Verify the number of records after the Where clause
-            var filteredRecords = query.ToList();
-            Console.WriteLine($"Records after Where clause: {filteredRecords.Count}");
-            foreach (var record in filteredRecords)
-            {
-                Console.WriteLine($"Filtered record: FirstName={record.FirstName}, LastName={record.LastName}");
-            }
-
-            var result = query.All(x => x.LastName == lastNameGuid);
+            var result = query;
 
             // Debug: Log the generated query
-            var sql = query.Expression.ToString();
-            Console.WriteLine($"Generated query: {sql}");
+            var sql = query.ToString();
+            Debug.WriteLine($"Generated query: {sql}");
 
             // Assert
             Assert.IsFalse(result, $"Not all records with FirstName={firstNameGuid} have LastName={lastNameGuid}.");
@@ -802,10 +833,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             // Debug: Check the database state before insertion
             var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
-            Console.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
+            Debug.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
             foreach (var record in initialRecords)
             {
-                Console.WriteLine($"Initial record: FirstName={record.FirstName}, Birthdate={record.Birthdate}");
+                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, Birthdate={record.Birthdate}");
             }
 
             var birthdate1 = new DateTime(1990, 1, 1);
@@ -815,10 +846,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Debug: Verify the inserted data
             var insertedRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
-            Console.WriteLine($"Inserted records: {insertedRecords.Count}");
+            Debug.WriteLine($"Inserted records: {insertedRecords.Count}");
             foreach (var record in insertedRecords)
             {
-                Console.WriteLine($"Inserted record: FirstName={record.FirstName}, Birthdate={record.Birthdate}");
+                Debug.WriteLine($"Inserted record: FirstName={record.FirstName}, Birthdate={record.Birthdate}");
             }
 
             // Act
@@ -828,12 +859,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Debug: Log the query and results
             var allRecords = query.ToList();
-            Console.WriteLine($"Records found: {allRecords.Count}");
+            Debug.WriteLine($"Records found: {allRecords.Count}");
             foreach (var record in allRecords)
             {
-                Console.WriteLine($"Filtered record: FirstName={record.FirstName}, Birthdate={record.Birthdate}, LastName={record.LastName}");
+                Debug.WriteLine($"Filtered record: FirstName={record.FirstName}, Birthdate={record.Birthdate}, LastName={record.LastName}");
             }
-            Console.WriteLine($"Min Birthdate: {minBirthdate}");
+            Debug.WriteLine($"Min Birthdate: {minBirthdate}");
 
             // Assert
             Assert.AreEqual(birthdate1, minBirthdate, "Expected minimum Birthdate to be 1990-01-01.");
@@ -1068,10 +1099,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             // Debug: Check the database state before insertion
             var initialRecords = _provider.Query<Person>().Where(p => p.FirstName == guid).ToList();
-            Console.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
+            Debug.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
             foreach (var record in initialRecords)
             {
-                Console.WriteLine($"Initial record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
+                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
             }
 
             var guids = new List<Guid?> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
@@ -1086,10 +1117,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Debug: Verify the inserted data
             var insertedRecords = _provider.Query<Person>().Where(p => p.FirstName == guid).ToList();
-            Console.WriteLine($"Inserted records: {insertedRecords.Count}");
+            Debug.WriteLine($"Inserted records: {insertedRecords.Count}");
             foreach (var record in insertedRecords)
             {
-                Console.WriteLine($"Inserted record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
+                Debug.WriteLine($"Inserted record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
             }
 
             Debug.WriteLine($"GUIDs to match: {string.Join(", ", guids)}");
