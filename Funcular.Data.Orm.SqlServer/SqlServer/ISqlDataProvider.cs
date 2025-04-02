@@ -68,7 +68,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="entity">The entity to insert.</param>
         /// <returns>The number of rows affected by the insert operation.</returns>
         /// <exception cref="InvalidOperationException">Thrown when the primary key does not have its default value.</exception>
-        int Insert<T>(T entity) where T : class, new();
+        long Insert<T>(T entity) where T : class, new();
 
         /// <summary>
         /// Updates the provided entity in the database.

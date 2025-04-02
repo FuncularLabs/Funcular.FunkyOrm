@@ -122,6 +122,8 @@ namespace Funcular.Data.Orm.SqlServer
                 if (isAggregate)
                 {
                     using var sqlCommand = _dataProvider.BuildCommand(aggregateClause, connectionScope.Connection, parameters);
+                    // Log the SQL command
+                    _dataProvider.Log?.Invoke(sqlCommand.CommandText);
                     var result = sqlCommand.ExecuteScalar();
                     if (result == DBNull.Value)
                     {
@@ -150,7 +152,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                 }
 
-                string commandText = _selectClause ?? _dataProvider.CreateSelectCommand<T>();
+                string? commandText = _selectClause ?? _dataProvider.CreateSelectCommand<T>();
                 if (!string.IsNullOrEmpty(whereClause))
                 {
                     commandText += "\r\nWHERE " + whereClause;
@@ -171,6 +173,8 @@ namespace Funcular.Data.Orm.SqlServer
                 }
 
                 using var command = _dataProvider.BuildCommand(commandText, connectionScope.Connection, parameters);
+                // Log the SQL command
+                _dataProvider.Log?.Invoke(command.CommandText);
                 if (isCollection)
                 {
                     return (TResult)(object)_dataProvider.ExecuteReaderList<T>(command);
@@ -225,25 +229,26 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 else if (currentCall.Method.Name == "All")
                 {
+                    // Simplified logic for All: Check if there are records matching the whereClause, and if so, ensure none fail the predicate
+                    var baseWhereClause = !string.IsNullOrEmpty(whereClause) ? whereClause : "1=1";
                     aggregateClause = $@"
                 SELECT CASE 
-                    WHEN NOT EXISTS (
+                    WHEN EXISTS (
                         SELECT 1 
                         FROM {_dataProvider.GetTableName<T>()} 
-                        WHERE NOT ({elements.WhereClause})
-                        {(string.IsNullOrEmpty(whereClause) ? "" : $" AND {whereClause}")}
-                    ) THEN 1 
-                    ELSE 0 
+                        WHERE {baseWhereClause}
+                    ) THEN 
+                        CASE 
+                            WHEN EXISTS (
+                                SELECT 1 
+                                FROM {_dataProvider.GetTableName<T>()} 
+                                WHERE {baseWhereClause} 
+                                AND NOT ({elements.WhereClause})
+                            ) THEN 0 
+                            ELSE 1 
+                        END
+                    ELSE 1 
                 END";
-
-                    parameters ??= new List<SqlParameter>();
-                    if (elements.SqlParameters?.Any() == true)
-                    {
-                        // Clone parameters to avoid duplicates
-                        var paramList = parameters;
-                        var clonedParameters = elements.SqlParameters.Select(p => CloneSqlParameter(p, paramList.Count)).ToList();
-                        parameters.AddRange(clonedParameters);
-                    }
                 }
                 else if (currentCall.Method.Name == "Count")
                 {
@@ -262,8 +267,11 @@ namespace Funcular.Data.Orm.SqlServer
                 parameters ??= new List<SqlParameter>();
                 if (elements.SqlParameters?.Any() == true)
                 {
-                    var paramList = parameters;
-                    parameters.AddRange(elements.SqlParameters.Select(p => CloneSqlParameter(p, paramList.Count)));
+                    var existingParameterCount = parameters.Count;
+
+                    // Clone parameters to avoid duplicates
+                    var clonedParameters = elements.SqlParameters.Select(p => CloneSqlParameter(p, existingParameterCount)).ToList();
+                    parameters.AddRange(clonedParameters);
                 }
                 isAggregate = true;
             }
@@ -300,7 +308,6 @@ namespace Funcular.Data.Orm.SqlServer
                 isAggregate = true;
             }
         }
-
         private string GetColumnExpression(Expression<Func<T, object>> selectorExpression)
         {
             if (selectorExpression.Body is MemberExpression memberExpression)

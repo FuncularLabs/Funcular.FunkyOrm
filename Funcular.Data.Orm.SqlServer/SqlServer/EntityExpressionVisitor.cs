@@ -229,9 +229,6 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     /// <summary>
     /// Visits a method call expression to handle string operations and collections.
     /// </summary>
-    /// <summary>
-    /// Visits a method call expression to handle string operations and collections.
-    /// </summary>
     /// <param name="node">The method call expression to visit.</param>
     /// <returns>The visited expression.</returns>
     /// <exception cref="NotSupportedException">Thrown when the method or expression is not supported.</exception>
@@ -338,14 +335,16 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
                 for (int i = 0; i < values.Count; i++)
                 {
                     var parameterName = $"@p__linq__{_parameterCounter++}";
-                    _parameters.Add(new SqlParameter(parameterName, values[i] ?? DBNull.Value));
+                    // Handle nullable types by converting to DBNull if null
+                    var value = values[i] ?? DBNull.Value;
+                    _parameters.Add(new SqlParameter(parameterName, value));
                     _whereClause.Append(parameterName);
                     if (i < values.Count - 1)
                         _whereClause.Append(", ");
                 }
                 _whereClause.Append("))");
                 // Debug: Log the generated IN clause
-                Debug.WriteLine($"Generated IN clause: {_whereClause}");
+                Console.WriteLine($"Generated IN clause: {_whereClause}");
             }
         }
         else
@@ -354,7 +353,6 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
         }
         return node;
     }
-
     private string GetOperator(ExpressionType nodeType) => nodeType switch
     {
         ExpressionType.Equal => " = ",

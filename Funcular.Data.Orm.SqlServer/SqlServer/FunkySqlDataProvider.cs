@@ -89,16 +89,19 @@ namespace Funcular.Data.Orm.SqlServer
             return ExecuteReaderList<T>(command);
         }
 
-        public int Insert<T>(T entity) where T : class, new()
+        public long Insert<T>(T entity) where T : class, new()
         {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+
             var primaryKey = GetPrimaryKeyCached<T>();
             ValidateInsertPrimaryKey(entity, primaryKey);
-
+            
             using var connectionScope = new ConnectionScope(this);
             var insertCommand = BuildInsertCommand(entity, primaryKey);
-
             using var command = BuildCommand(insertCommand.CommandText, connectionScope.Connection, insertCommand.Parameters);
-            return ExecuteInsert(command, entity, primaryKey);
+            var insertedId = ExecuteInsert(command, entity, primaryKey);
+            return insertedId;
         }
 
         public T Update<T>(T entity) where T : class, new()
@@ -127,7 +130,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         public IQueryable<T> Query<T>() where T : class, new()
         {
-            string selectCommand = CreateSelectCommand<T>();
+            string? selectCommand = CreateSelectCommand<T>();
             return CreateQueryable<T>(selectCommand);
         }
 
@@ -217,7 +220,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Methods - Query Building
 
-        protected internal string CreateSelectCommand<T>(dynamic? key = null) where T : class, new()
+        protected internal string? CreateSelectCommand<T>(dynamic? key = null) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var selectClause = GetSelectClause<T>();
@@ -262,7 +265,7 @@ namespace Funcular.Data.Orm.SqlServer
             return results;
         }
 
-        protected internal SqlCommand BuildCommand(string commandText, SqlConnection connection, IEnumerable<SqlParameter>? parameters = null)
+        protected internal SqlCommand BuildCommand(string? commandText, SqlConnection connection, IEnumerable<SqlParameter>? parameters = null)
         {
             var command = new SqlCommand(commandText, connection)
             {
@@ -305,7 +308,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Private Methods - Insert/Update Helpers
 
-        protected internal (string CommandText, List<SqlParameter> Parameters) BuildInsertCommand<T>(T entity, PropertyInfo primaryKey) where T : class, new()
+        protected internal (string? CommandText, List<SqlParameter> Parameters) BuildInsertCommand<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToImmutableArray())
