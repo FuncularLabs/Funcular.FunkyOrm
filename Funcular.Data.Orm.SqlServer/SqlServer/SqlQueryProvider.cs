@@ -205,61 +205,48 @@ namespace Funcular.Data.Orm.SqlServer
                         isAggregate = true;
                     }
                     // Handle Average, Min, Max with selectors
-                    else if (methodCall.Method.Name is "Average" or "Min" or "Max" && methodCall.Arguments.Count == 2)
+                    else if (outerMethodCall.Method.Name is "Average" or "Min" or "Max")
                     {
-                        var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
-                        var selectorExpression = (Expression<Func<T, object>>)lambda;
-
-                        // Handle complex selectors (e.g., x => x.Birthdate.Value.Year)
+                        var lambda = (LambdaExpression)((UnaryExpression)outerMethodCall.Arguments[1]).Operand;
                         string columnExpression;
-                        if (selectorExpression.Body is MemberExpression memberExpression)
+
+                        // Extract the MemberExpression, whether directly or via UnaryExpression
+                        MemberExpression memberExpression = null;
+                        if (lambda.Body is MemberExpression directMember)
                         {
-                            columnExpression = _dataProvider.GetColumnName(memberExpression.Member as PropertyInfo);
+                            memberExpression = directMember;
                         }
-                        else if (selectorExpression.Body is UnaryExpression unaryExpression && unaryExpression.Operand is MemberExpression unaryMember)
+                        else if (lambda.Body is UnaryExpression unaryExpression && unaryExpression.Operand is MemberExpression unaryMember)
                         {
-                            columnExpression = _dataProvider.GetColumnName(unaryMember.Member as PropertyInfo);
-                        }
-                        else if (selectorExpression.Body is MemberExpression { Expression: UnaryExpression { Operand: MemberExpression nestedMember } } && nestedMember.Member.Name == "Value")
-                        {
-                            if (nestedMember.Expression is MemberExpression baseMemberExpression)
-                            {
-                                var baseColumn = _dataProvider.GetColumnName(baseMemberExpression.Member as PropertyInfo);
-                                var propertyName = (selectorExpression.Body as MemberExpression).Member.Name;
-                                if (propertyName == "Year")
-                                {
-                                    columnExpression = $"YEAR({baseColumn})";
-                                }
-                                else if (propertyName == "Month")
-                                {
-                                    columnExpression = $"MONTH({baseColumn})";
-                                }
-                                else if (propertyName == "Day")
-                                {
-                                    columnExpression = $"DAY({baseColumn})";
-                                }
-                                else
-                                {
-                                    throw new NotSupportedException($"Unsupported property {propertyName} in selector for {methodCall.Method.Name}.");
-                                }
-                            }
-                            else
-                            {
-                                throw new NotSupportedException("Expected a MemberExpression for the base property in selector.");
-                            }
+                            memberExpression = unaryMember;
                         }
                         else
                         {
-                            throw new NotSupportedException("Only simple member access selectors or DateTime properties (Year, Month, Day) are supported for Average, Min, and Max.");
+                            throw new NotSupportedException("Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
                         }
 
-                        var aggregateFunction = methodCall.Method.Name.ToUpper();
+                        // Validate that the member access is direct (i.e., on the parameter)
+                        if (memberExpression.Expression is not ParameterExpression)
+                        {
+                            throw new NotSupportedException("Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
+                        }
+
+                        var property = memberExpression.Member as PropertyInfo;
+                        if (property != null && FunkySqlDataProvider._unmappedPropertiesCache.All(p => p.Key.Name != property.Name))
+                        {
+                            columnExpression = FunkySqlDataProvider._columnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetColumnName(property));
+                        }
+                        else
+                        {
+                            throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
+                        }
+
+                        var aggregateFunction = outerMethodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : outerMethodCall.Method.Name.ToUpper();
                         aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {_dataProvider.GetTableName<T>()}";
                         if (!string.IsNullOrEmpty(whereClause))
                         {
                             aggregateClause += "\r\nWHERE " + whereClause;
                         }
-                        isAggregate = true;
                     }
                 }
             }
