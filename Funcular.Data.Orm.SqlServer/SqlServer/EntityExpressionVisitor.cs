@@ -12,13 +12,14 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using Funcular.Data.Orm;
+using System.Collections;
 
 /// <summary>
 /// Visits an expression tree to generate SQL WHERE clauses from LINQ expressions.
 /// </summary>
 public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new()
 {
-    private readonly StringBuilder _whereClause = new();
+    private readonly StringBuilder _commandTextBuilder = new();
     private readonly List<SqlParameter> _parameters;
     private readonly ConcurrentDictionary<string, string> _columnNames;
     private readonly ImmutableArray<PropertyInfo> _unmappedProperties;
@@ -28,7 +29,7 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     /// <summary>
     /// Gets the generated WHERE clause body.
     /// </summary>
-    public string WhereClauseBody => _whereClause.ToString();
+    public string WhereClauseBody => _commandTextBuilder.ToString();
 
     /// <summary>
     /// Gets the list of SQL parameters generated during the visit.
@@ -71,7 +72,7 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     {
         if (node.NodeType == ExpressionType.Not)
         {
-            _whereClause.Append("NOT ");
+            _commandTextBuilder.Append("NOT ");
             _isNegated = true;
             Visit(node.Operand);
             _isNegated = false;
@@ -101,24 +102,24 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
         bool isInequality = node.NodeType == ExpressionType.NotEqual;
 
         if (needsParentheses)
-            _whereClause.Append("(");
+            _commandTextBuilder.Append("(");
 
         if (isNullComparison && (isEquality || isInequality))
         {
             // For null comparisons, use IS NULL or IS NOT NULL
             Expression nonNullSide = node.Left is ConstantExpression ? node.Right : node.Left;
             Visit(nonNullSide);
-            _whereClause.Append(isEquality ? " IS NULL" : " IS NOT NULL");
+            _commandTextBuilder.Append(isEquality ? " IS NULL" : " IS NOT NULL");
         }
         else
         {
             Visit(node.Left);
-            _whereClause.Append(GetOperator(node.NodeType));
+            _commandTextBuilder.Append(GetOperator(node.NodeType));
             Visit(node.Right);
         }
 
         if (needsParentheses)
-            _whereClause.Append(")");
+            _commandTextBuilder.Append(")");
 
         return node;
     }
@@ -134,7 +135,7 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
             if (property != null && !_unmappedProperties.Any(p => p.Name == property.Name))
             {
                 var columnName = _columnNames.GetOrAdd(property.ToDictionaryKey(), p => GetColumnName(property));
-                _whereClause.Append(columnName);
+                _commandTextBuilder.Append(columnName);
             }
         }
         else if (node.Expression is MemberExpression memberExpression)
@@ -148,15 +149,15 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
                     var propertyName = node.Member.Name;
                     if (propertyName == "Year")
                     {
-                        _whereClause.Append($"YEAR({columnName})");
+                        _commandTextBuilder.Append($"YEAR({columnName})");
                     }
                     else if (propertyName == "Month")
                     {
-                        _whereClause.Append($"MONTH({columnName})");
+                        _commandTextBuilder.Append($"MONTH({columnName})");
                     }
                     else if (propertyName == "Day")
                     {
-                        _whereClause.Append($"DAY({columnName})");
+                        _commandTextBuilder.Append($"DAY({columnName})");
                     }
                     else
                     {
@@ -174,7 +175,7 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
             var value = (node.Member as FieldInfo)?.GetValue(constantExpression.Value);
             var parameterName = $"@p__linq__{_parameterCounter++}";
             _parameters.Add(new SqlParameter(parameterName, value ?? DBNull.Value));
-            _whereClause.Append(parameterName);
+            _commandTextBuilder.Append(parameterName);
         }
         else if (node.Expression != null)
         {
@@ -190,13 +191,13 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     {
         if (node.Value == null)
         {
-            _whereClause.Append("NULL");
+            _commandTextBuilder.Append("NULL");
         }
         else
         {
             var parameterName = $"@p__linq__{_parameterCounter++}";
             _parameters.Add(new SqlParameter(parameterName, node.Value));
-            _whereClause.Append(parameterName);
+            _commandTextBuilder.Append(parameterName);
         }
         return node;
     }
@@ -209,20 +210,20 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
         var arguments = node.Arguments;
         if (arguments.Count == 0)
         {
-            _whereClause.Append("1=1");
+            _commandTextBuilder.Append("1=1");
             return node;
         }
 
-        _whereClause.Append("(");
+        _commandTextBuilder.Append("(");
         for (int i = 0; i < arguments.Count; i++)
         {
             Visit(arguments[i]);
             if (i < arguments.Count - 1)
             {
-                _whereClause.Append(", ");
+                _commandTextBuilder.Append(", ");
             }
         }
-        _whereClause.Append(")");
+        _commandTextBuilder.Append(")");
         return node;
     }
 
@@ -232,127 +233,8 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     /// <param name="node">The method call expression to visit.</param>
     /// <returns>The visited expression.</returns>
     /// <exception cref="NotSupportedException">Thrown when the method or expression is not supported.</exception>
-    protected override Expression VisitMethodCall(MethodCallExpression node)
-    {
-        if (node.Method.Name == "Contains" && node.Object?.Type == typeof(string))
-        {
-            _whereClause.Append("(");
-            Visit(node.Object);
-            _whereClause.Append(" LIKE '%' + ");
-            Visit(node.Arguments[0]);
-            _whereClause.Append(" + '%')");
-        }
-        else if (node.Method.Name == "StartsWith" && node.Object?.Type == typeof(string))
-        {
-            _whereClause.Append("(");
-            Visit(node.Object);
-            _whereClause.Append(" LIKE ");
-            Visit(node.Arguments[0]);
-            _whereClause.Append(" + '%')");
-        }
-        else if (node.Method.Name == "EndsWith" && node.Object?.Type == typeof(string))
-        {
-            _whereClause.Append("(");
-            Visit(node.Object);
-            _whereClause.Append(" LIKE '%' + ");
-            Visit(node.Arguments[0]);
-            _whereClause.Append(")");
-        }
-        else if (node.Method.Name == "ToLower" && node.Object?.Type == typeof(string))
-        {
-            _whereClause.Append("LOWER(");
-            Visit(node.Object);
-            _whereClause.Append(")");
-        }
-        else if (node.Method.Name == "ToUpper" && node.Object?.Type == typeof(string))
-        {
-            _whereClause.Append("UPPER(");
-            Visit(node.Object);
-            _whereClause.Append(")");
-        }
-        else if (node.Method.Name == "ToString")
-        {
-            if (node.Object?.Type == typeof(Guid))
-            {
-                _whereClause.Append("CAST(");
-                Visit(node.Object);
-                _whereClause.Append(" AS NVARCHAR(36))");
-            }
-            else
-            {
-                throw new NotSupportedException($"ToString on type {node.Object?.Type} is not supported.");
-            }
-        }
-        else if (node.Method.Name == "Contains")
-        {
-            // Handle both collection.Contains(item) and instance collection Contains
-            Expression collectionExpression;
-            Expression itemExpression;
+    
 
-            if (node.Arguments.Count == 2)
-            {
-                // Static Contains (e.g., lastNames.Contains(p.LastName))
-                collectionExpression = node.Arguments[0];
-                itemExpression = node.Arguments[1];
-            }
-            else if (node.Arguments.Count == 1 && node.Object != null)
-            {
-                // Instance Contains (e.g., p.LastName.Contains("on"))
-                collectionExpression = node.Object;
-                itemExpression = node.Arguments[0];
-            }
-            else
-            {
-                throw new NotSupportedException($"Unsupported Contains method call with {node.Arguments.Count} arguments.");
-            }
-
-            // Evaluate the collection
-            IEnumerable<object> collection = null;
-            if (collectionExpression is ConstantExpression constExpr)
-            {
-                collection = constExpr.Value as IEnumerable<object>;
-            }
-            else if (collectionExpression is MemberExpression memberExpr && memberExpr.Expression is ConstantExpression constMemberExpr)
-            {
-                var value = (memberExpr.Member as FieldInfo)?.GetValue(constMemberExpr.Value);
-                collection = value as IEnumerable<object>;
-            }
-            else
-            {
-                throw new NotSupportedException("Collection in Contains must be a constant or field value.");
-            }
-
-            if (collection == null || !collection.Any())
-            {
-                _whereClause.Append(_isNegated ? "1=1" : "1=0");
-            }
-            else
-            {
-                _whereClause.Append("(");
-                Visit(itemExpression);
-                _whereClause.Append(_isNegated ? " NOT IN (" : " IN (");
-                var values = collection.ToList();
-                for (int i = 0; i < values.Count; i++)
-                {
-                    var parameterName = $"@p__linq__{_parameterCounter++}";
-                    // Handle nullable types by converting to DBNull if null
-                    var value = values[i] ?? DBNull.Value;
-                    _parameters.Add(new SqlParameter(parameterName, value));
-                    _whereClause.Append(parameterName);
-                    if (i < values.Count - 1)
-                        _whereClause.Append(", ");
-                }
-                _whereClause.Append("))");
-                // Debug: Log the generated IN clause
-                Console.WriteLine($"Generated IN clause: {_whereClause}");
-            }
-        }
-        else
-        {
-            throw new NotSupportedException($"Method {node.Method.Name} is not supported in LINQ expressions.");
-        }
-        return node;
-    }
     private string GetOperator(ExpressionType nodeType) => nodeType switch
     {
         ExpressionType.Equal => " = ",
