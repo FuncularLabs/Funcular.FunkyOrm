@@ -251,9 +251,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .ToList();
 
             // Assert
-            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual(4, result.Count);
             Assert.AreEqual("A", result[0].MiddleInitial);
             Assert.AreEqual("B", result[1].MiddleInitial);
+            Assert.AreEqual("C", result[2].MiddleInitial);
+            Assert.AreEqual("D", result[3].MiddleInitial);
         }
 
         /// <summary>

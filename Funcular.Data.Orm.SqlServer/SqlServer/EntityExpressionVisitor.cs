@@ -23,6 +23,7 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     private readonly List<SqlParameter> _parameters;
     private readonly ConcurrentDictionary<string, string> _columnNames;
     private readonly ImmutableArray<PropertyInfo> _unmappedProperties;
+    private readonly List<(string ColumnName, bool IsDescending)> _orderByClauses = new List<(string, bool)>(); 
     private int _parameterCounter;
     private bool _isNegated;
 
@@ -233,8 +234,124 @@ public class EntityExpressionVisitor<T> : ExpressionVisitor where T : class, new
     /// <param name="node">The method call expression to visit.</param>
     /// <returns>The visited expression.</returns>
     /// <exception cref="NotSupportedException">Thrown when the method or expression is not supported.</exception>
-    
+    protected override Expression VisitMethodCall(MethodCallExpression node)
+    {
+        if (node.Method.Name == "ToString")
+        {
+            Visit(node.Object);
+            return node;
+        }
 
+        if (node.Method.Name == "OrderBy" || node.Method.Name == "OrderByDescending" ||
+            node.Method.Name == "ThenBy" || node.Method.Name == "ThenByDescending")
+        {
+            // Visit the source expression (e.g., the query before OrderBy)
+            Visit(node.Arguments[0]);
+
+            // The second argument is the lambda expression (e.g., p => p.LastName)
+            var lambda = (LambdaExpression)node.Arguments[1];
+            var memberExpression = lambda.Body as MemberExpression;
+            if (memberExpression != null)
+            {
+                var propertyInfo = memberExpression.Member as PropertyInfo;
+                if (propertyInfo == null)
+                {
+                    throw new InvalidOperationException($"Member {memberExpression.Member.Name} is not a property.");
+                }
+                var columnName = GetColumnName(propertyInfo);
+                var isDescending = node.Method.Name == "OrderByDescending" || node.Method.Name == "ThenByDescending";
+                _orderByClauses.Add((columnName, isDescending));
+            }
+
+            return node;
+        }
+
+        if (node.Method.Name == "Contains")
+        {
+            var collectionExpression = node.Object ?? node.Arguments.FirstOrDefault(a => a.Type.GetInterfaces().Contains(typeof(IEnumerable)));
+            if (collectionExpression != null)
+            {
+                IEnumerable collection = null;
+                if (collectionExpression.NodeType == ExpressionType.Constant)
+                {
+                    collection = ((ConstantExpression)collectionExpression).Value as IEnumerable;
+                }
+                else
+                {
+                    collection = Expression.Lambda(collectionExpression).Compile().DynamicInvoke() as IEnumerable;
+                }
+
+                if (collection != null)
+                {
+                    var values = collection.Cast<object>().Where(v => v != null).ToList();
+                    if (!values.Any())
+                    {
+                        _commandTextBuilder.Append("1=0");
+                        return node;
+                    }
+                    var memberExpression = (node.Object != null ? node.Arguments[0] : node.Arguments[1]) as MemberExpression;
+                    if (memberExpression != null)
+                    {
+                        var propertyInfo = memberExpression.Member as PropertyInfo;
+                        if (propertyInfo == null)
+                        {
+                            throw new InvalidOperationException($"Member {memberExpression.Member.Name} is not a property.");
+                        }
+                        var memberName = GetColumnName(propertyInfo);
+                        _commandTextBuilder.Append($"{memberName} IN (");
+                        var first = true;
+                        foreach (var value in values)
+                        {
+                            if (!first) _commandTextBuilder.Append(",");
+                            first = false;
+                            var paramName = $"@p{_parameters.Count}";
+                            _parameters.Add(new SqlParameter(paramName, value));
+                            _commandTextBuilder.Append(paramName);
+                        }
+                        _commandTextBuilder.Append(")");
+                        return node;
+                    }
+                }
+            }
+        }
+
+        if (node.Method.Name == "StartsWith" || node.Method.Name == "EndsWith" || node.Method.Name == "Contains")
+        {
+            var memberExpression = node.Object as MemberExpression;
+            if (memberExpression != null)
+            {
+                var memberName = GetColumnName(memberExpression.Member as PropertyInfo);
+                var constantExpression = node.Arguments[0] as ConstantExpression;
+                if (constantExpression != null)
+                {
+                    var value = constantExpression.Value?.ToString();
+                    if (value != null)
+                    {
+                        var paramName = $"@p{_parameters.Count}";
+                        if (node.Method.Name == "StartsWith")
+                        {
+                            _commandTextBuilder.Append($"{memberName} LIKE {paramName} + '%'");
+                            _parameters.Add(new SqlParameter(paramName, value));
+                        }
+                        else if (node.Method.Name == "EndsWith")
+                        {
+                            _commandTextBuilder.Append($"{memberName} LIKE '%' + {paramName}");
+                            _parameters.Add(new SqlParameter(paramName, value));
+                        }
+                        else if (node.Method.Name == "Contains")
+                        {
+                            _commandTextBuilder.Append($"{memberName} LIKE '%' + {paramName} + '%'");
+                            _parameters.Add(new SqlParameter(paramName, value));
+                        }
+                        return node;
+                    }
+                }
+            }
+        }
+
+        _commandTextBuilder.Append("1=0");
+        return node;
+    }
     private string GetOperator(ExpressionType nodeType) => nodeType switch
     {
         ExpressionType.Equal => " = ",
