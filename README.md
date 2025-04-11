@@ -31,8 +31,44 @@ FunkyORM requires little configuration. Most of its behaviors can be achieved us
 *   **Easily customized**: Supports `System.ComponentModel.DataAnnotations` attributes like `[Table]`, `[Column]`, `[Key]`, `[NotMapped]`
 Our goal is to make it easy for developers to get up and running quickly doing what they do 80% of the time, while making it hard for them to shoot themselves in the foot; we avoid automating complex behaviors that should really be thought through more thoroughly, like joins, inclusions, recursions, etc.
 
-# Quickstart
+# Features
+FunkyORM is designed to be a near-drop-in replacement for Entity Framework that is as dependency-free as possible. 
 
+## What It Does:
+- GET command (by id / PK)
+- SELECT queries
+  - Lambdas, with operators `IS NULL , IS NOT NULL , = , <> , > , >= , < , <= , LIKE , AND , OR , IN `
+  - C# `.StartsWith,` `EndsWith` and `Contains` invocations on strings
+  - C# `.Contains` invocations on arrays (converts these to `IN` clauses with a SqlParameter for each member of the `IN` set)
+  - C# `OrderBy, ThenBy, OrderByDescending, ThenByDescending, Skip, Take`
+  - C# `Any` (with an optional predicate), `All` (predicate is required)
+  - C# Aggregates like `Count, Average, Min, Max` on single column expressions
+- UPDATE commands
+  - By id / PK
+  - By WHERE clause
+- INSERT commands
+- Observes several System.ComponentModel.DataAnnotations.Schema annotations
+  - Table
+  - Column
+  - Key
+  - NotMapped
+  - DatabaseGenerated
+## What It Does Not Do
+- DELETE commands (see note below)
+- Bulk inserts
+- Joins / relationships / foreign-keys / descendants
+- * Aggregates like COUNT, AVG, MAX, MIN
+- Execute query criteria that don't translate to SQL (see the supported operators above)
+- Query on columns without corresponding entity properties
+- Query on derived expressions or calculated properties (e.g., order.UnitPrice * order.Quantity > 100)
+
+Funky is made for developers who don't want a bunch of ceremony, and who prefer to do their own relational queries, i.e., get a collection of Customers, project their ids to an array, then get children: `var customerOrders = Orders.Where(x => customerIds.Contains(x.CustomerId))`, instead of letting EntityFramework set you up for an ‘N+1 selects’ problem or inefficient joins.
+
+We made FunkyORM to use ourselves, and we enjoy using it. We hope you do too!
+
+Note: As a user, you won’t be able to delete data through FunkyORM right now. This limitation is intentional to protect your data while we refine the tool. If you need to perform deletions, you’ll need to use an alternative approach outside the ORM, like direct database queries. We encourage you to share your feedback on how this impacts your workflow—it’ll help us prioritize adding DELETE support in future releases.
+
+# Quickstart
 The easiest way to get started with FunkyORM is to execute the provided scripts to create and populate the integration test database ([funky_db]). Everything needed to do this is provided in the solution. The test project already contains entities and business objects to demonstrate the basic features of Funky. 
 
 ### Walkthrough - trying the unit tests is the fastest way to get started:
@@ -47,40 +83,6 @@ The easiest way to get started with FunkyORM is to execute the provided scripts 
 -  **Run the unit tests** ...and boom! There you go. 💥
 
 **IMPORTANT**: FunkyORM uses Microsoft.Data.SqlServer, which superseded System.Data.SqlServer as of .NET Core 3.0. _This introduced a breaking change_ with connection strings; if your server does not have a CI-trusted certificate installed, you must include either `TrustServerCertificate = true` or `Encrypt = false` in the connection string, or the connection will fail. See https://stackoverflow.com/questions/17615260/the-certificate-chain-was-issued-by-an-authority-that-is-not-trusted-when-conn for more info on this.
-
-## What Funky Does and Doesn't Do
-FunkyORM is designed to be a near-drop-in replacement for Entity Framework that is as dependency-free as possible. 
-
-#### What It Does:
-- GET command (by id / PK)
-- SELECT queries
-  - Lambdas, with operators `IS NULL , IS NOT NULL , = , <> , > , >= , < , <= , LIKE , AND , OR , IN `
-  - C# `.StartsWith,` `EndsWith` and `Contains` invocations on strings
-  - C# `.Contains` invocations on arrays (converts these to `IN` clauses with a SqlParameter for each member of the `IN` set)
-  - C# `OrderBy, ThenBy, OrderByDescending, ThenByDescending, Skip, Take`
-  - C# `Any` (with an optional predicate), `All` (predicate is required)
-- UPDATE commands
-  - By id / PK
-  - By WHERE clause
-- INSERT commands
-- Observes several System.ComponentModel.DataAnnotations.Schema annotations
-  - Table
-  - Column
-  - Key
-  - NotMapped
-  - DatabaseGenerated
-#### What It Does Not Do (* near-term planned enhancement):
-- DELETE commands (not planned)
-- Bulk inserts
-- Joins / relationships / foreign-keys / descendants
-- * Aggregates like COUNT, AVG, MAX, MIN
-- Execute query criteria that don't translate to SQL (see the supported operators above)
-- Query on columns without corresponding entity properties
-- Query on derived expressions or calculated properties (e.g., order.UnitPrice * order.Quantity > 100)
-
-Funky is made for developers who don't want a bunch of ceremony, and who prefer to do their own relational queries, i.e., get a collection of Customers, project their ids to an array, then get children: `var customerOrders = Orders.Where(x => customerIds.Contains(x.CustomerId))`, instead of letting EntityFramework set you up for an ‘N+1 selects’ problem or inefficient joins.
-
-We made FunkyORM to use ourselves, and we enjoy using it. We hope you do too!
 
 ## Next steps:
 - Review the contents of the integration tests
