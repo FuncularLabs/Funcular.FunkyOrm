@@ -51,11 +51,14 @@ The easiest way to get started with FunkyORM is to execute the provided scripts 
 ## What Funky Does and Doesn't Do
 FunkyORM is designed to be a near-drop-in replacement for Entity Framework that is as dependency-free as possible. 
 
-#### It Does:
+#### What It Does:
 - GET command (by id / PK)
 - SELECT queries
   - Lambdas, with operators `IS NULL , IS NOT NULL , = , <> , > , >= , < , <= , LIKE , AND , OR , IN `
-  - C# .StartsWith, EndsWith and Contains invocations on strings
+  - C# `.StartsWith,` `EndsWith` and `Contains` invocations on strings
+  - C# `.Contains` invocations on arrays (converts these to `IN` clauses with a SqlParameter for each member of the `IN` set)
+  - C# `OrderBy, ThenBy, OrderByDescending, ThenByDescending, Skip, Take`
+  - C# `Any` (with an optional predicate), `All` (predicate is required)
 - UPDATE commands
   - By id / PK
   - By WHERE clause
@@ -66,10 +69,10 @@ FunkyORM is designed to be a near-drop-in replacement for Entity Framework that 
   - Key
   - NotMapped
   - DatabaseGenerated
-#### It Does Not Do (* near-term planned enhancement):
-- DELETE commands
+#### What It Does Not Do (* near-term planned enhancement):
+- DELETE commands (not planned)
 - Bulk inserts
-- Joins / relationships / foreign-key inference / descendants
+- Joins / relationships / foreign-keys / descendants
 - * Aggregates like COUNT, AVG, MAX, MIN
 - Execute query criteria that don't translate to SQL (see the supported operators above)
 - Query on columns without corresponding entity properties
