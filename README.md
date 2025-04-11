@@ -57,7 +57,6 @@ FunkyORM is designed to be a near-drop-in replacement for Entity Framework that 
 - DELETE commands (see note below)
 - Bulk inserts
 - Joins / relationships / foreign-keys / descendants
-- * Aggregates like COUNT, AVG, MAX, MIN
 - Execute query criteria that don't translate to SQL (see the supported operators above)
 - Query on columns without corresponding entity properties
 - Query on derived expressions or calculated properties (e.g., order.UnitPrice * order.Quantity > 100)
