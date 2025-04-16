@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects;
 using Funcular.Data.Orm.SqlServer.Tests.Domain;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
@@ -16,6 +17,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     {
         private string? _connectionString;
         public required FunkySqlDataProvider _provider;
+        private StringBuilder _sb = new StringBuilder();
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {
@@ -31,7 +33,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             _provider = new FunkySqlDataProvider(_connectionString)
             {
-                Log = s => { Debug.WriteLine(s); }
+                Log = s =>
+                {
+                    _sb.Clear();
+                    Debug.WriteLine(s);
+                    _sb.AppendLine(s);
+                }
             };
         }
 
@@ -238,10 +245,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "D", "Smith", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "C", "Smith", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "C", "Adams", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
             var result = _provider.Query<Person>()
@@ -252,10 +259,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Assert
             Assert.AreEqual(4, result.Count);
-            Assert.AreEqual("A", result[0].MiddleInitial);
-            Assert.AreEqual("B", result[1].MiddleInitial);
-            Assert.AreEqual("C", result[2].MiddleInitial);
-            Assert.AreEqual("D", result[3].MiddleInitial);
+            Assert.AreEqual("C", result[0].MiddleInitial);
+            Assert.AreEqual("D", result[1].MiddleInitial);
+            Assert.AreEqual("A", result[2].MiddleInitial);
+            Assert.AreEqual("B", result[3].MiddleInitial);
+            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -265,47 +273,29 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Query_ThenByDescending_ReturnsOrderedResults()
         {
-            OutputTestMethodName();
             // Arrange
+            OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            // Debug: Check the database state before insertion
-            var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
-            Debug.WriteLine($"Records with FirstName={guid} before insertion: {initialRecords.Count}");
-            foreach (var record in initialRecords)
-            {
-                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, MiddleInitial={record.MiddleInitial}");
-            }
-
-            InsertTestPerson(guid, "B", "Smith", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "A", "Smith", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-
-            // Debug: Verify the inserted data
-            var insertedRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
-            Debug.WriteLine($"Inserted records: {insertedRecords.Count}");
-            foreach (var record in insertedRecords)
-            {
-                Debug.WriteLine($"Inserted record: FirstName={record.FirstName}, MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
-            }
+            InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "C", "Adams", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
-            var query = _provider.Query<Person>()
+            var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
-                .ThenByDescending(x => x.MiddleInitial);
-            var result = query.ToList();
-
-            // Debug: Log the query and results
-            var sql = query.Expression.ToString();
-            Debug.WriteLine($"Generated query: {sql}");
-            foreach (var record in result)
-            {
-                Debug.WriteLine($"Result record: MiddleInitial={record.MiddleInitial}, LastName={record.LastName}");
-            }
+                .ThenBy(x => x.MiddleInitial)
+                .ToList();
 
             // Assert
-            Assert.AreEqual(2, result.Count, "Expected 2 persons in the result.");
-            Assert.AreEqual("B", result[0].MiddleInitial, "First record should have MiddleInitial 'B' due to descending order.");
-            Assert.AreEqual("A", result[1].MiddleInitial, "Second record should have MiddleInitial 'A' due to descending order.");
+            Assert.AreEqual(4, result.Count);
+            Assert.AreEqual("D", result[0].MiddleInitial);
+            Assert.AreEqual("C", result[1].MiddleInitial);
+            Assert.AreEqual("B", result[2].MiddleInitial);
+            Assert.AreEqual("A", result[3].MiddleInitial);
+            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().Contains("DESC", StringComparison.OrdinalIgnoreCase));
         }
 
         [TestMethod]
@@ -617,17 +607,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         {
             OutputTestMethodName();
             // Arrange
-            var guid = Guid.NewGuid().ToString();
+            var firstGuid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Male" }
+                new Person { LastName = "Smith", FirstName = firstGuid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
-            var value = Guid.NewGuid().ToString();
+            var secondGuid = Guid.NewGuid().ToString();
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName!.Contains(value))
+                .Where(x => x.FirstName == firstGuid && x.LastName!.Contains(secondGuid))
                 .ToList();
 
             // Assert
@@ -808,13 +798,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
-        public void Query_MaxWithSelector_ReturnsMaximum()
+        public void Query_MaxIdWithSelector_ReturnsMaximum()
         {
             OutputTestMethodName();
             // Arrange
             var guid = Guid.NewGuid().ToString();
-            var person1 = InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            var person2 = InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            var person1Id = InsertTestPerson(guid, "A", guid, new DateTime(1990, 1, 1), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            var person2Id = InsertTestPerson(guid, "B", guid, new DateTime(2000, 1, 1), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Act
             var maxId = _provider.Query<Person>()
@@ -822,7 +812,32 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .Max(x => x.Id);
 
             // Assert
-            Assert.AreEqual(person2, maxId); // person2 should have the higher Id (2)
+            Assert.AreEqual(person2Id, maxId); // person2 should have the higher Id (2)
+            Assert.IsTrue(person2Id > person1Id);
+        }
+
+        [TestMethod]
+        public void Query_MaxDateWithSelector_ReturnsMaximum()
+        {
+            OutputTestMethodName();
+
+            // Arrange
+
+            var previousMaxBirthdate = _provider.Query<Person>()
+                .Max(p => p.Birthdate);
+            
+            var newMaxBirthdate = new DateTime(previousMaxBirthdate.Value.Year + 1, 1, 1);
+
+            var guid = Guid.NewGuid().ToString();
+            InsertTestPerson(guid, "B", guid, newMaxBirthdate, "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+
+            // Act
+            var testMaxBirthdate = _provider.Query<Person>()
+                .Where(x => x.FirstName == guid)
+                .Max(x => x.Birthdate);
+
+            // Assert
+            Assert.AreEqual(newMaxBirthdate, testMaxBirthdate); // person2 should have the higher Id (2)
         }
 
         /// <summary>
@@ -847,6 +862,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var birthdate2 = new DateTime(2000, 1, 1);
             InsertTestPerson(guid, "A", guid, birthdate1, "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", guid, birthdate2, "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "C", guid, birthdate2, "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "D", guid, birthdate2, "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
             // Debug: Verify the inserted data
             var insertedRecords = _provider.Query<Person>().Where(x => x.FirstName == guid).ToList();
@@ -859,7 +876,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Act
             var query = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid);
-            var minBirthdate = query.Min(x => x.Birthdate);
+            var minBirthdate = 
+                query.Min(x => x.Birthdate);
 
             // Debug: Log the query and results
             var allRecords = query.ToList();

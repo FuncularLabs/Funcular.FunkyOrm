@@ -1,14 +1,14 @@
-﻿using Microsoft.Data.SqlClient;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using Microsoft.Data.SqlClient;
 
-using System;
-using System.Linq;
-using Funcular.Data.Orm;
+namespace Funcular.Data.Orm.Visitors;
 
 /// <summary>
 /// Visits an expression tree to generate SQL ORDER BY clauses from LINQ ordering methods.
@@ -20,7 +20,6 @@ public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, ne
     private readonly ConcurrentDictionary<string, string> _columnNames;
     private readonly ImmutableArray<PropertyInfo> _unmappedProperties;
     private readonly List<(string ColumnName, bool IsDescending)> _orderByClauses;
-    private int _parameterCounter;
 
     /// <summary>
     /// Gets the generated ORDER BY clause.
@@ -56,7 +55,6 @@ public class OrderByExpressionVisitor<T> : ExpressionVisitor where T : class, ne
         _columnNames = columnNames;
         _unmappedProperties = unmappedProperties;
         _orderByClauses = new List<(string, bool)>();
-        _parameterCounter = parameterCounter;
     }
 
     /// <summary>

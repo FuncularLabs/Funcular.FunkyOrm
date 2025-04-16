@@ -53,7 +53,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <param name="expression">The expression to execute.</param>
         /// <returns>The result of the query execution.</returns>
-        public object Execute(Expression expression)
+        public object? Execute(Expression expression)
         {
             return Execute<IEnumerable<T>>(expression);
         }
@@ -66,7 +66,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The result of the query execution.</returns>
         /// <exception cref="NotSupportedException">Thrown when the expression type is not supported.</exception>
         /// <exception cref="InvalidOperationException">Thrown when an operation cannot be performed, such as when All is called without a predicate.</exception>
-        public TResult Execute<TResult>(Expression expression)
+        public TResult? Execute<TResult>(Expression expression)
         {
             // Extract query components
             string? whereClause = null;
@@ -124,6 +124,8 @@ namespace Funcular.Data.Orm.SqlServer
                 // Handle aggregation methods (Any, All, Count, Average, Min, Max)
                 if (methodCall.Method.Name is "Any" or "All" or "Count" or "Average" or "Min" or "Max")
                 {
+                    isAggregate = true;
+
                     // Handle Any, All, Count with predicates
                     if (methodCall.Method.Name is "Any" or "All" or "Count" && methodCall.Arguments.Count == 2)
                     {
@@ -176,8 +178,6 @@ namespace Funcular.Data.Orm.SqlServer
                         {
                             aggregateClause = $"SELECT COUNT(*) FROM ({innerQuery}) AS innerQuery WHERE {elements.WhereClause}";
                         }
-
-                        isAggregate = true;
                     }
                     // Handle Any, All, Count without predicates
                     else if (methodCall.Method.Name is "Any" or "All" or "Count" && methodCall.Arguments.Count == 1)
@@ -297,6 +297,10 @@ namespace Funcular.Data.Orm.SqlServer
                         {
                             return (TResult)(object)Convert.ToDateTime(result);
                         }
+                        if (selectorType == typeof(DateTime?))
+                        {
+                            return result is DBNull ? (TResult?)(object?)null : (TResult)(object)Convert.ToDateTime(result);
+                        }
                         else if (selectorType == typeof(int))
                         {
                             return (TResult)(object)Convert.ToInt32(result);
@@ -316,7 +320,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                 }
 
-                string commandText = _selectClause ?? _dataProvider.CreateSelectCommand<T>();
+                string commandText = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommand<T>();
                 if (!string.IsNullOrEmpty(whereClause))
                 {
                     commandText += "\r\nWHERE " + whereClause;

@@ -1,18 +1,17 @@
-﻿using Microsoft.Data.SqlClient;
+﻿using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using Microsoft.Data.SqlClient;
 
-using System;
-using System.Diagnostics;
-using System.Linq;
-using Funcular.Data.Orm;
-using System.Collections;
+namespace Funcular.Data.Orm.Visitors;
 
 /// <summary>
 /// Visits an expression tree to generate SQL WHERE clauses from LINQ expressions.

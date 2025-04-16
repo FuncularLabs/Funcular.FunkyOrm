@@ -10,6 +10,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using Funcular.Data.Orm.Visitors;
 using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
@@ -61,7 +62,7 @@ namespace Funcular.Data.Orm.SqlServer
         public T? Get<T>(dynamic? key = null) where T : class, new()
         {
             using var connectionScope = new ConnectionScope(this);
-            var commandText = CreateSelectCommand<T>(key);
+            var commandText = CreateGetOneOrSelectCommand<T>(key);
 
             using var command = BuildCommand(commandText, connectionScope.Connection);
             return ExecuteReaderSingle<T>(command);
@@ -85,7 +86,7 @@ namespace Funcular.Data.Orm.SqlServer
         public ICollection<T> GetList<T>() where T : class, new()
         {
             using var connectionScope = new ConnectionScope(this);
-            using var command = BuildCommand(CreateSelectCommand<T>(), connectionScope.Connection);
+            using var command = BuildCommand(CreateGetOneOrSelectCommand<T>(), connectionScope.Connection);
             return ExecuteReaderList<T>(command);
         }
 
@@ -130,7 +131,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         public IQueryable<T> Query<T>() where T : class, new()
         {
-            string? selectCommand = CreateSelectCommand<T>();
+            string? selectCommand = CreateGetOneOrSelectCommand<T>();
             return CreateQueryable<T>(selectCommand);
         }
 
@@ -220,26 +221,61 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Methods - Query Building
 
-        protected internal string? CreateSelectCommand<T>(dynamic? key = null) where T : class, new()
+        protected internal string? CreateGetOneOrSelectCommand<T>(dynamic? key = null) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var selectClause = GetSelectClause<T>();
+            string columnNames = GetColumnNames<T>();
             var whereClause = key != null ? GetWhereClause<T>(key) : string.Empty;
-            return $"SELECT {selectClause} FROM {tableName}{whereClause}";
+            return $"SELECT {columnNames} FROM {tableName}{whereClause}";
         }
 
         protected internal SqlCommandElements<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
         {
-            var selectClause = CreateSelectCommand<T>();
+            var selectClause = CreateGetOneOrSelectCommand<T>();
             var elements = GenerateWhereClause(whereExpression);
-            return new SqlCommandElements<T>(whereExpression, selectClause, elements.WhereClause, string.Empty, elements.SqlParameters);
+            elements.SelectClause = selectClause;
+            elements.OriginalExpression = whereExpression;
+            elements.WhereClause = elements.WhereClause;
+            elements.OrderByClause = GenerateOrderByClause(whereExpression).OrderByClause;
+            return elements;
+            // return new SqlCommandElements<T>(whereExpression, selectClause, elements.WhereClause, string.Empty, elements.SqlParameters);
         }
 
-        protected internal SqlCommandElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression) where T : class, new()
+        protected internal SqlCommandElements<T> GenerateWhereClause<T>(Expression<Func<T, bool>> expression, SqlCommandElements<T>? commandElements = null) where T : class, new()
         {
             var visitor = new EntityExpressionVisitor<T>(new List<SqlParameter>(), _columnNames, _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>), ref _parameterCounter);
             visitor.Visit(expression);
-            return new SqlCommandElements<T>(expression, string.Empty, visitor.WhereClauseBody, string.Empty, visitor.Parameters);
+            if (commandElements is not null)
+            {
+                commandElements.WhereClause = visitor.WhereClauseBody;
+                commandElements.OriginalExpression ??= expression;
+            }
+            else
+            {
+                commandElements = new SqlCommandElements<T>(expression, string.Empty, visitor.WhereClauseBody, string.Empty, visitor.Parameters);
+            }
+
+            return
+                commandElements; //new SqlCommandElements<T>(expression, string.Empty, visitor.WhereClauseBody, string.Empty, visitor.Parameters);
+        }
+
+        protected internal SqlCommandElements<T> GenerateOrderByClause<T>(Expression<Func<T, bool>> expression, SqlCommandElements<T>? commandElements = null) where T : class, new()
+        {
+            var visitor = new OrderByExpressionVisitor<T>(new List<SqlParameter>(), _columnNames, _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>), ref _parameterCounter);
+            visitor.Visit(expression);
+            if (commandElements == null)
+            {
+                commandElements = new SqlCommandElements<T>(expression, string.Empty, string.Empty, visitor.OrderByClause, visitor.Parameters);
+            }
+            else
+            {
+
+                commandElements.OrderByClause = visitor.OrderByClause;
+                commandElements.OriginalExpression ??= expression;
+            }
+
+            return
+                commandElements; //new SqlCommandElements<T>(expression, string.Empty, visitor.OrderByClause, string.Empty, visitor.Parameters);
         }
 
         #endregion
@@ -467,7 +503,7 @@ namespace Funcular.Data.Orm.SqlServer
         #region Original Protected Helpers
 
         protected internal object? GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
-        protected internal string GetSelectClause<T>() => string.Join(", ", typeof(T).GetProperties()
+        protected internal string GetColumnNames<T>() => string.Join(", ", typeof(T).GetProperties()
             .Where(p => !p.GetCustomAttributes<NotMappedAttribute>().Any())
             .Select(p => GetColumnNameCached(p)));
         protected internal string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
