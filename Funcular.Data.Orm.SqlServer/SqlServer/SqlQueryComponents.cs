@@ -11,7 +11,7 @@ namespace Funcular.Data.Orm.SqlServer
     /// and the associated SQL parameters.
     /// </summary>
     /// <typeparam name="T">The type of entity for which the command is being constructed.</typeparam>
-    public class SqlCommandElements<T>
+    public class SqlQueryComponents<T>
     {
         /// <summary>
         /// Gets or sets the original LINQ expression used to construct the SQL command.
@@ -39,14 +39,14 @@ namespace Funcular.Data.Orm.SqlServer
         public List<SqlParameter> SqlParameters { get; set; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SqlCommandElements{T}"/> class.
+        /// Initializes a new instance of the <see cref="SqlQueryComponents{T}"/> class.
         /// </summary>
         /// <param name="expression">The original LINQ expression defining the condition for the WHERE clause.</param>
         /// <param name="selectClause">The SQL SELECT clause string.</param>
         /// <param name="whereClause">The translated SQL WHERE clause string.</param>
         /// <param name="orderByClause">The translated SQL ORDER BY clause string.</param>
         /// <param name="parameters">A list of SQL parameters that correspond to the placeholders in the clauses.</param>
-        public SqlCommandElements(Expression<Func<T, bool>> expression, string? selectClause, string whereClause, string orderByClause, List<SqlParameter> parameters)
+        public SqlQueryComponents(Expression<Func<T, bool>> expression, string? selectClause, string whereClause, string orderByClause, List<SqlParameter> parameters)
         {
             OriginalExpression = expression;
             SelectClause = selectClause;
