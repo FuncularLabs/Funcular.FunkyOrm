@@ -6,13 +6,15 @@ using System.Reflection;
 
 namespace Funcular.Data.Orm.Visitors
 {
+    using OrderByClause = (string ColumnName, bool IsDescending);
+
     /// <summary>
     /// Visits LINQ expressions to generate SQL ORDER BY clauses from ordering methods.
     /// </summary>
     /// <typeparam name="T">The type of entity being queried.</typeparam>
     public class OrderByClauseVisitor<T> : BaseExpressionVisitor<T> where T : class, new()
     {
-        private readonly List<(string ColumnName, bool IsDescending)> _orderByClauses = new List<(string, bool)>();
+        private readonly ICollection<OrderByClause> _orderByClauses = new List<(string, bool)>();
 
         /// <summary>
         /// Gets the generated ORDER BY clause.
@@ -48,9 +50,6 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="expression">The LINQ expression to visit.</param>
         public override void Visit(Expression expression)
         {
-            if (expression == null)
-                return;
-
             VisitExpression(expression);
         }
 

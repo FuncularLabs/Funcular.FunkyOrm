@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -648,6 +649,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var firstNameGuid = Guid.NewGuid().ToString();
             var lastNameGuid = Guid.NewGuid().ToString();
             var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == firstNameGuid).ToList();
+            // This should be zero:
             Debug.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
             foreach (var record in initialRecords)
             {
@@ -664,6 +666,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .Where(x => x.FirstName == firstNameGuid)
                 .All(x => x.LastName == lastNameGuid);
 
+            var peeps = _provider.Query<Person>()
+                .Where(x => x.FirstName == firstNameGuid).ToImmutableArray();
+            Debug.WriteLine($"Records after Where clause: {peeps.Length}");
+
             var result = query;
             Debug.WriteLine($"Query result: {result}");
             Assert.IsTrue(result, $"All records with FirstName={firstNameGuid} have LastName={lastNameGuid}.");
@@ -674,7 +680,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         /// Tests that the 'All' method returns true when all records matching the FirstName filter have a LastName matching the predicate.
         /// </summary>
         /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
-        //[TestMethod]
+        //[TestMethod] // disabled for the time being
         public void Query_AllWithoutPredicate_ThrowsInvalidOperationException()
         {
             // Arrange

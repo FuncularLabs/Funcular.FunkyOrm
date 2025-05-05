@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
@@ -37,8 +39,8 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="parameterGenerator">The parameter generator for creating SQL parameters.</param>
         /// <param name="translator">The translator for converting method calls to SQL.</param>
         public WhereClauseVisitor(
-            System.Collections.Concurrent.ConcurrentDictionary<string, string> columnNames,
-            System.Collections.Immutable.ImmutableArray<PropertyInfo> unmappedProperties,
+            ConcurrentDictionary<string, string> columnNames,
+            ImmutableArray<PropertyInfo> unmappedProperties,
             ParameterGenerator parameterGenerator,
             SqlExpressionTranslator translator)
             : base(columnNames, unmappedProperties)
@@ -53,9 +55,6 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="expression">The LINQ expression to visit.</param>
         public override void Visit(Expression expression)
         {
-            if (expression == null)
-                return;
-
             if (expression is LambdaExpression lambda)
             {
                 Visit(lambda.Body);

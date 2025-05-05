@@ -83,8 +83,19 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private class QueryComponents
         {
+            private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
             public string? WhereClause { get; set; }
-            public List<SqlParameter>? Parameters { get; set; }
+
+            public List<SqlParameter> Parameters
+            {
+                get => _parameters;
+                set
+                {
+                    _parameters.Clear();
+                    _parameters.AddRange(value);
+                }
+            }
+
             public string? OrderByClause { get; set; }
             public int? Skip { get; set; }
             public int? Take { get; set; }

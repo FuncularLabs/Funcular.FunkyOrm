@@ -70,8 +70,7 @@ namespace Funcular.Data.Orm.Visitors
                             return;
                         }
 
-                        var memberExpression = (node.Object != null ? node.Arguments[0] : node.Arguments[1]) as MemberExpression;
-                        if (memberExpression != null)
+                        if ((node.Object != null ? node.Arguments[0] : node.Arguments[1]) is MemberExpression memberExpression)
                         {
                             var propertyInfo = memberExpression.Member as PropertyInfo;
                             if (propertyInfo == null)

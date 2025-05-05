@@ -7,7 +7,20 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person
 	[Serializable]
 	public class Person : PersonEntity
 	{
-		#region Relationship Properties
+        #region Overrides of Object
+
+        /// <summary>Returns a string that represents the current object.</summary>
+        /// <returns>A string that represents the current object.</returns>
+        public override string ToString()
+        {
+            var birthdate = Birthdate != null ? Birthdate.Value.ToString("d") : string.Empty;
+            ;
+            return $"First: {FirstName}, Last: {LastName}, Gender: {Gender}, Birthdate: {birthdate}";
+        }
+
+        #endregion
+
+        #region Relationship Properties
 		// readonly to eliminate the possibility of null reference exceptions
         private readonly IList<PersonAddress> _personAddressJoins = new List<PersonAddress>();
 
