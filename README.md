@@ -24,8 +24,8 @@ FunkyORM requires little configuration. Most of its behaviors can be achieved us
 *   **Small footprint**: completely agnostic to DbContexts, models, joins, and relationships
 *   **Easy to use**: Support lambda queries out of the box
 *   **Usability over power**:
-    *   Defines sensible defaults like common PK conventions (e.g., `id`, `tablename_id`, `TableNameId`, etc.)
-    *   Supports `[key]` attribute for cases where tables diverge from these conventions
+    *   Implements sensible defaults for common PK naming conventions (e.g., any of `id`, `tablename_id`, `TableNameId` are detected automatically)
+    *   Supports `[key]` attribute for cases where primary key column names diverge from these conventions
     *   Auto maps matching column names ignoring case and underscores by default
     *   Ignores properties/columns not present in both source table/view and target entity by default
 *   **Easily customized**: Supports `System.ComponentModel.DataAnnotations` attributes like `[Table]`, `[Column]`, `[Key]`, `[NotMapped]`
@@ -59,7 +59,7 @@ FunkyORM is designed to be a near-drop-in replacement for Entity Framework that 
 - Joins / relationships / foreign-keys / descendants
 - Execute query criteria that don't translate to SQL (see the supported operators above)
 - Query on columns without corresponding entity properties
-- Query on derived expressions or calculated properties (e.g., order.UnitPrice * order.Quantity > 100)
+- Query on derived expressions or calculated properties (e.g., you can't use expressions like `order.UnitPrice * order.Quantity > 100`)
 
 Funky is made for developers who don't want a bunch of ceremony, and who prefer to do their own relational queries, i.e., get a collection of Customers, project their ids to an array, then get children: `var customerOrders = Orders.Where(x => customerIds.Contains(x.CustomerId))`, instead of letting EntityFramework set you up for an ‘N+1 selects’ problem or inefficient joins.
 
