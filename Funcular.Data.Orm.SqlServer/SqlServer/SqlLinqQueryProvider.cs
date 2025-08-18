@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -134,7 +134,12 @@ namespace Funcular.Data.Orm.SqlServer
             for (int i = methodCalls.Count - 1; i >= 0; i--)
             {
                 var currentCall = methodCalls[i];
-                if (i == methodCalls.Count - 1)
+                
+                if (currentCall.Method.Name is "Any" or "All" or "Count" or "Average" or "Min" or "Max")
+                {
+                    components.OuterMethodCall = currentCall;
+                }
+                else if (i == methodCalls.Count - 1 && components.OuterMethodCall == null)
                 {
                     components.OuterMethodCall = currentCall;
                 }
