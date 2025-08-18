@@ -286,7 +286,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
-                .ThenBy(x => x.MiddleInitial)
+                .ThenByDescending(x => x.MiddleInitial)
                 .ToList();
 
             // Assert
