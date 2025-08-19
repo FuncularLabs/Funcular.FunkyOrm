@@ -677,52 +677,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
 
         /// <summary>
-        /// Tests that the 'All' method returns true when all records matching the FirstName filter have a LastName matching the predicate.
-        /// </summary>
-        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
-        //[TestMethod] // disabled for the time being
-        public void Query_AllWithoutPredicate_ThrowsInvalidOperationException()
-        {
-            // Arrange
-            var firstNameGuid = Guid.NewGuid().ToString();
-            var lastNameGuid = Guid.NewGuid().ToString();
-            // Debug: Check the database state before insertion
-            var initialRecords = _provider.Query<Person>().Where(x => x.FirstName == firstNameGuid).ToList();
-            Debug.WriteLine($"Records with FirstName={firstNameGuid} before insertion: {initialRecords.Count}");
-            foreach (var record in initialRecords)
-            {
-                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, LastName={record.LastName}");
-            }
-
-            // Insert two records with the same FirstName but different LastNames
-            var insert1 = InsertTestPerson(firstNameGuid, "A", lastNameGuid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Debug.WriteLine($"Inserted person 1 with ID: {insert1}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
-            var insert2 = InsertTestPerson(firstNameGuid, "B", lastNameGuid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            Debug.WriteLine($"Inserted person 2 with ID: {insert2}, FirstName: {firstNameGuid}, LastName: {lastNameGuid}");
-
-            // Act
-            var query = _provider.Query<Person>()
-                .Where(x => x.FirstName == firstNameGuid);
-
-            // Debug: Verify the number of records after the Where clause
-            var filteredRecords = query.ToList();
-            Debug.WriteLine($"Records after Where clause: {filteredRecords.Count}");
-            foreach (var record in filteredRecords)
-            {
-                Debug.WriteLine($"Filtered record: FirstName={record.FirstName}, LastName={record.LastName}");
-            }
-
-            var result = query.All(x => x.LastName == lastNameGuid);
-
-            // Debug: Log the generated query
-            var sql = query.Expression.ToString();
-            Debug.WriteLine($"Generated query: {sql}");
-
-            // Assert
-            Assert.IsTrue(result, $"All records with FirstName={firstNameGuid} should have LastName={lastNameGuid}.");
-        }
-
-        /// <summary>
         /// Tests that the 'All' method returns false when not all records matching the FirstName filter have a LastName matching the predicate.
         /// </summary>
         /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
