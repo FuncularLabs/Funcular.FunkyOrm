@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -48,6 +48,44 @@ namespace Funcular.Data.Orm.Visitors
 
             if (node.Method.Name == "Contains")
             {
+                // Handle string.Contains(substring) differently from collection.Contains(item)
+                if (node.Object != null && node.Object.Type == typeof(string))
+                {
+                    // String Contains - generate LIKE clause
+                    TranslateExpression(node.Object, commandTextBuilder, parameters, getColumnName);
+                    commandTextBuilder.Append(" LIKE ");
+                    
+                    var searchValueExpression = node.Arguments[0];
+                    if (searchValueExpression.NodeType == ExpressionType.Constant)
+                    {
+                        var searchValue = ((ConstantExpression)searchValueExpression).Value?.ToString();
+                        var param = _parameterGenerator.CreateParameter($"%{searchValue}%");
+                        parameters.Add(param);
+                        commandTextBuilder.Append(param.ParameterName);
+                    }
+                    else if (searchValueExpression.NodeType == ExpressionType.MemberAccess)
+                    {
+                        var memberExpression = (MemberExpression)searchValueExpression;
+                        if (memberExpression.Expression is ConstantExpression constantExpression)
+                        {
+                            var value = (memberExpression.Member as FieldInfo)?.GetValue(constantExpression.Value)?.ToString();
+                            var param = _parameterGenerator.CreateParameter($"%{value}%");
+                            parameters.Add(param);
+                            commandTextBuilder.Append(param.ParameterName);
+                        }
+                        else
+                        {
+                            throw new NotSupportedException($"Unsupported member expression in string Contains: {memberExpression}");
+                        }
+                    }
+                    else
+                    {
+                        throw new NotSupportedException($"Unsupported expression type in string Contains: {searchValueExpression.NodeType}");
+                    }
+                    return;
+                }
+                
+                // Collection Contains - handle IN clause
                 var collectionExpression = node.Object ?? node.Arguments.FirstOrDefault(a => a.Type.GetInterfaces().Contains(typeof(System.Collections.IEnumerable)));
                 if (collectionExpression != null)
                 {
@@ -58,7 +96,14 @@ namespace Funcular.Data.Orm.Visitors
                     }
                     else
                     {
-                        collection = Expression.Lambda(collectionExpression).Compile().DynamicInvoke() as System.Collections.IEnumerable;
+                        try
+                        {
+                            collection = Expression.Lambda(collectionExpression).Compile().DynamicInvoke() as System.Collections.IEnumerable;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            throw new NotSupportedException($"Collection Contains with parameter references is not supported: {collectionExpression}");
+                        }
                     }
 
                     if (collection != null)

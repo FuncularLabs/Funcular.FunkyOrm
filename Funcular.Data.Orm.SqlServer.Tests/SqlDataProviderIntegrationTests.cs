@@ -28,6 +28,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestInitialize]
         public void Setup()
         {
+            _sb.Clear();
             _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
                 "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
             TestConnection();
@@ -36,7 +37,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             {
                 Log = s =>
                 {
-                    _sb.Clear();
                     Debug.WriteLine(s);
                     _sb.AppendLine(s);
                 }
@@ -286,7 +286,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
-                .ThenBy(x => x.MiddleInitial)
+                .ThenByDescending(x => x.MiddleInitial)
                 .ToList();
 
             // Assert
