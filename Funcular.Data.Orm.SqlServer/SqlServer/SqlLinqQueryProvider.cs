@@ -176,16 +176,36 @@ namespace Funcular.Data.Orm.SqlServer
 
                     if (currentCall.Method.Name is "LastOrDefault" or "Last")
                     {
-                        var orderByVisitor = new OrderByClauseVisitor<T>(
-                            SqlServerOrmDataProvider._columnNames,
-                            SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                                t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()));
-                        orderByVisitor.Visit(Expression.Call(
-                            null,
-                            typeof(Queryable).GetMethods().First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2),
-                            Expression.Constant(null),
-                            Expression.Lambda<Func<T, int>>(Expression.Property(Expression.Parameter(typeof(T), "p"), "Id"), Expression.Parameter(typeof(T), "p"))));
-                        components.OrderByClause = orderByVisitor.OrderByClause;
+                        // Check if there's already an ORDER BY clause to avoid conflicts
+                        if (string.IsNullOrEmpty(components.OrderByClause))
+                        {
+                            var idProperty = typeof(T).GetProperty("Id");
+                            if (idProperty == null)
+                            {
+                                throw new InvalidOperationException($"Entity type {typeof(T).Name} does not have an 'Id' property. " +
+                                    "LastOrDefault/Last methods require an Id property for ordering, or use an explicit OrderBy clause.");
+                            }
+
+                            var parameter = Expression.Parameter(typeof(T), "x");
+                            var propertyAccess = Expression.Property(parameter, idProperty);
+                            var orderByLambda = Expression.Lambda(propertyAccess, parameter);
+                            
+                            var orderByDescendingMethod = typeof(Queryable).GetMethods()
+                                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
+                                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
+                            
+                            var orderByExpression = Expression.Call(
+                                orderByDescendingMethod,
+                                Expression.Constant(null, typeof(IQueryable<T>)),
+                                Expression.Quote(orderByLambda));
+
+                            var orderByVisitor = new OrderByClauseVisitor<T>(
+                                SqlServerOrmDataProvider._columnNames,
+                                SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()));
+                            orderByVisitor.Visit(orderByExpression);
+                            components.OrderByClause = orderByVisitor.OrderByClause;
+                        }
                     }
                 }
                 else if (currentCall.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
