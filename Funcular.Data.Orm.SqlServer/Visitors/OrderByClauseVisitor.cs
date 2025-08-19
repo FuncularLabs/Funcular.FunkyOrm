@@ -78,14 +78,18 @@ namespace Funcular.Data.Orm.Visitors
         {
             if (node.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
             {
+                // First, traverse to the beginning of the chain to process in correct order
                 if (node.Arguments[0] is MethodCallExpression previousCall)
                 {
+                    // Only continue if the previous call is also an ordering method
                     if (previousCall.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
                     {
                         Visit(previousCall);
                     }
+                    // If it's not an ordering method (like Where), we stop here as we've processed all ordering operations
                 }
 
+                // Then process the current method call
                 var lambda = (LambdaExpression)((UnaryExpression)node.Arguments[1]).Operand;
                 var isDescending = node.Method.Name is "OrderByDescending" or "ThenByDescending";
                 VisitOrderingExpression(lambda.Body, isDescending);
