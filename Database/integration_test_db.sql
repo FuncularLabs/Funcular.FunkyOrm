@@ -26,6 +26,7 @@ CREATE TABLE address (
     city NVARCHAR(100) NOT NULL,
     state_code CHAR(2) NOT NULL,
     postal_code NVARCHAR(20) NOT NULL,
+    is_primary BIT NOT NULL DEFAULT 0,
     dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE()
 );

@@ -20,6 +20,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
 		private string? _city;
 		private string? _stateCode;
 		private string? _postalCode;
+        private bool _isPrimary;
         private DateTime _dateUtcCreated = DateTime.UtcNow;
 		private DateTime _dateUtcModified = DateTime.UtcNow;
         #endregion
@@ -118,7 +119,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
 			get => _dateUtcModified;
 			set => SetProperty(ref _dateUtcModified, value);
 		}
-		#endregion
+
+		/// <summary>
+		/// Gets or sets a value indicating whether this instance is primary.
+		/// </summary>
+		/// <value><c>null</c> if [is primary] contains no value, <c>true</c> if [is primary]; otherwise, <c>false</c>.</value>
+		[Column("is_primary", TypeName = "bit")]
+        public bool IsPrimary
+        {
+            get => _isPrimary;
+            set => _isPrimary = value;
+        }
+
+        #endregion
 
 	}
 }
