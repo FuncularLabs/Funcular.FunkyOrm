@@ -4,6 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <Copyright>Funcular Labs, Inc.</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm.git</RepositoryUrl>
@@ -16,6 +17,7 @@
     <FileVersion>0.1.1</FileVersion>
     <InformationalVersion>0.1.1-alpha.2</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <SignAssembly>False</SignAssembly>
   </PropertyGroup>
 
   <ItemGroup>
