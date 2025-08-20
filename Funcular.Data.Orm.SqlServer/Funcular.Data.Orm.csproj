@@ -9,10 +9,21 @@
     <RepositoryUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
+    <PackageIcon>funcular-logo-angle-brackets-dark.png</PackageIcon>
+    <Title>Funcular.FunkyORM</Title>
+    <Version>0.1.1-alpha.1</Version>
+    <AssemblyVersion>0.1.1</AssemblyVersion>
+    <FileVersion>0.1.1</FileVersion>
+    <InformationalVersion>0.1.1-alpha.1</InformationalVersion>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="D:\Dropbox\Family Room\funcular-labs\corporate\funcular-logo-angle-brackets-dark.png">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
