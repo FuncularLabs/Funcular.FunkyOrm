@@ -349,7 +349,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected T MapEntity<T>(SqlDataReader reader) where T : class, new()
         {
             var entity = new T();
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToImmutableArray());
+            var properties = _propertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties()]);
             var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, reader));
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
 
@@ -559,18 +559,19 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
         {
             var ordinals = new Dictionary<string, int>();
-            var schemas = reader.GetColumnSchema().Select(x => x.ColumnName)
+            var columnNamesHashSet
+                = reader.GetColumnSchema().Select(x => x.ColumnName)
                 .ToHashSet(new IgnoreUnderscoreAndCaseStringComparer());
-            foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToImmutableArray()))
+            foreach (var property in _propertiesCache.GetOrAdd(type, t => [..t.GetProperties()]))
             {
                 var columnName = GetColumnNameCached(property);
-                if (schemas.Contains(columnName))
+                if (columnNamesHashSet.Contains(columnName))
                     ordinals[columnName] = reader.GetOrdinal(columnName);
             }
 
             return ordinals;
         }
-
+        // TODO: implement case insensitive and underscore-insensitive column name retrieval
         protected internal string GetColumnName(PropertyInfo property) =>
             property.GetCustomAttribute<ColumnAttribute>()?.Name ?? property.Name.ToLower();
 
@@ -583,7 +584,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected internal static ImmutableArray<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new() =>
-            typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray();
+            [..typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)];
 
         private IQueryable<T> CreateQueryable<T>(string? selectCommand = null) where T : class, new()
         {
