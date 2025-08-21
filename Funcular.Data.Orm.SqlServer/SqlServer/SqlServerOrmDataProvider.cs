@@ -23,10 +23,16 @@ namespace Funcular.Data.Orm.SqlServer
         private readonly string _connectionString;
         private SqlTransaction? _transaction;
         internal static readonly ConcurrentDictionary<Type, string> _tableNames = new();
-        internal static readonly ConcurrentDictionary<string, string> _columnNames = new(new IgnoreUnderscoreAndCaseStringComparer());
+
+        internal static readonly ConcurrentDictionary<string, string> _columnNames =
+            new(new IgnoreUnderscoreAndCaseStringComparer());
+
         internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new();
         internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _propertiesCache = new();
-        internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedPropertiesCache = new();
+
+        internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedPropertiesCache =
+            new();
+
         internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new();
 
         #endregion
@@ -35,18 +41,21 @@ namespace Funcular.Data.Orm.SqlServer
 
         public Action<string>? Log { get; set; }
         public SqlConnection? Connection { get; set; }
+
         public SqlTransaction? Transaction
         {
             get => _transaction;
             set => _transaction = value;
         }
+
         public string? TransactionName { get; protected set; }
 
         #endregion
 
         #region Constructors
 
-        public SqlServerOrmDataProvider(string connectionString, SqlConnection? connection = null, SqlTransaction? transaction = null)
+        public SqlServerOrmDataProvider(string connectionString, SqlConnection? connection = null,
+            SqlTransaction? transaction = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             Connection = connection ?? new SqlConnection(_connectionString);
@@ -98,7 +107,8 @@ namespace Funcular.Data.Orm.SqlServer
 
             using var connectionScope = new ConnectionScope(this);
             var insertCommand = BuildInsertCommand(entity, primaryKey);
-            using var command = BuildCommand(insertCommand.CommandText, connectionScope.Connection, insertCommand.Parameters);
+            using var command = BuildCommand(insertCommand.CommandText, connectionScope.Connection,
+                insertCommand.Parameters);
             var insertedId = ExecuteInsert(command, entity, primaryKey);
             return insertedId;
         }
@@ -116,7 +126,8 @@ namespace Funcular.Data.Orm.SqlServer
             UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
             if (updateCommand.Parameters.Any())
             {
-                using var command = BuildCommand(updateCommand.CommandText, connectionScope.Connection, updateCommand.Parameters);
+                using var command = BuildCommand(updateCommand.CommandText, connectionScope.Connection,
+                    updateCommand.Parameters);
                 ExecuteUpdate(command);
             }
             else
@@ -227,7 +238,8 @@ namespace Funcular.Data.Orm.SqlServer
             return $"SELECT {columnNames} FROM {tableName}{whereClause}";
         }
 
-        protected internal SqlQueryComponents<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression) where T : class, new()
+        protected internal SqlQueryComponents<T> CreateSelectQuery<T>(Expression<Func<T, bool>> whereExpression)
+            where T : class, new()
         {
             var selectClause = CreateGetOneOrSelectCommand<T>();
             var elements = GenerateWhereClause(whereExpression);
@@ -266,13 +278,15 @@ namespace Funcular.Data.Orm.SqlServer
             }
             else
             {
-                commandElements = new SqlQueryComponents<T>(expression, string.Empty, visitor.WhereClauseBody, string.Empty, visitor.Parameters);
+                commandElements = new SqlQueryComponents<T>(expression, string.Empty, visitor.WhereClauseBody,
+                    string.Empty, visitor.Parameters);
             }
 
             return commandElements;
         }
 
-        protected internal SqlQueryComponents<T> GenerateOrderByClause<T>(Expression<Func<T, bool>> expression, SqlQueryComponents<T>? commandElements = null) where T : class, new()
+        protected internal SqlQueryComponents<T> GenerateOrderByClause<T>(Expression<Func<T, bool>> expression,
+            SqlQueryComponents<T>? commandElements = null) where T : class, new()
         {
             var visitor = new OrderByClauseVisitor<T>(
                 _columnNames,
@@ -280,7 +294,8 @@ namespace Funcular.Data.Orm.SqlServer
             visitor.Visit(expression);
             if (commandElements == null)
             {
-                commandElements = new SqlQueryComponents<T>(expression, string.Empty, string.Empty, visitor.OrderByClause, new List<SqlParameter>());
+                commandElements = new SqlQueryComponents<T>(expression, string.Empty, string.Empty,
+                    visitor.OrderByClause, new List<SqlParameter>());
             }
             else
             {
@@ -311,10 +326,12 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 results.Add(MapEntity<T>(reader));
             }
+
             return results;
         }
 
-        protected internal SqlCommand BuildCommand(string? commandText, SqlConnection connection, IEnumerable<SqlParameter>? parameters = null)
+        protected internal SqlCommand BuildCommand(string? commandText, SqlConnection connection,
+            IEnumerable<SqlParameter>? parameters = null)
         {
             var command = new SqlCommand(commandText, connection)
             {
@@ -325,6 +342,7 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 command.Parameters.AddRange(parameters.ToArray());
             }
+
             return command;
         }
 
@@ -350,6 +368,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                 }
             }
+
             return entity;
         }
 
@@ -357,7 +376,8 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Private Methods - Insert/Update Helpers
 
-        protected internal (string? CommandText, List<SqlParameter> Parameters) BuildInsertCommand<T>(T entity, PropertyInfo primaryKey) where T : class, new()
+        protected internal (string? CommandText, List<SqlParameter> Parameters) BuildInsertCommand<T>(T entity,
+            PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToImmutableArray())
@@ -384,7 +404,8 @@ namespace Funcular.Data.Orm.SqlServer
             return (commandText, parameters);
         }
 
-        protected internal int ExecuteInsert<T>(SqlCommand command, T entity, PropertyInfo primaryKey) where T : class, new()
+        protected internal int ExecuteInsert<T>(SqlCommand command, T entity, PropertyInfo primaryKey)
+            where T : class, new()
         {
             InvokeLogAction(command);
             var result = (int)command.ExecuteScalar();
@@ -393,7 +414,8 @@ namespace Funcular.Data.Orm.SqlServer
             return result;
         }
 
-        protected internal (string CommandText, List<SqlParameter> Parameters) BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
+        protected internal (string CommandText, List<SqlParameter> Parameters) BuildUpdateCommand<T>(T entity,
+            T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
             var parameters = new List<SqlParameter>();
@@ -417,7 +439,8 @@ namespace Funcular.Data.Orm.SqlServer
 
             setClause.Length -= 2;
             var pkColumn = GetColumnNameCached(primaryKey);
-            parameters.Add(CreateParameter<object>($"@{pkColumn}", primaryKey.GetValue(entity), primaryKey.PropertyType));
+            parameters.Add(
+                CreateParameter<object>($"@{pkColumn}", primaryKey.GetValue(entity), primaryKey.PropertyType));
 
             return ($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{pkColumn}", parameters);
         }
@@ -438,7 +461,8 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var defaultValue = GetDefault(primaryKey.PropertyType);
             if (!Equals(primaryKey.GetValue(entity), defaultValue))
-                throw new InvalidOperationException($"Primary key must be default value for insert: {primaryKey.GetValue(entity)}");
+                throw new InvalidOperationException(
+                    $"Primary key must be default value for insert: {primaryKey.GetValue(entity)}");
         }
 
         protected internal void ValidateUpdatePrimaryKey<T>(T entity, PropertyInfo primaryKey)
@@ -448,7 +472,8 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new InvalidOperationException("Primary key must be set for update.");
         }
 
-        protected internal SqlParameter CreateParameter<T>(string name, object? value, Type propertyType) where T : class, new()
+        protected internal SqlParameter CreateParameter<T>(string name, object? value, Type propertyType)
+            where T : class, new()
         {
             var sqlType = ParameterGenerator.GetSqlDbType(value);
             return new SqlParameter(name, value ?? DBNull.Value)
@@ -468,7 +493,8 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal PropertyInfo GetPrimaryKeyCached<T>() where T : class
         {
             return _primaryKeys.GetOrAdd(typeof(T), t => GetPrimaryKey<T>() ??
-                throw new InvalidOperationException($"No primary key found for {typeof(T).FullName}"));
+                                                         throw new InvalidOperationException(
+                                                             $"No primary key found for {typeof(T).FullName}"));
         }
 
         protected internal string GetColumnNameCached(PropertyInfo property)
@@ -516,16 +542,20 @@ namespace Funcular.Data.Orm.SqlServer
         #region Original Protected Helpers
 
         protected internal object? GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
+
         protected internal string GetColumnNames<T>() => string.Join(", ", typeof(T).GetProperties()
             .Where(p => !p.GetCustomAttributes<NotMappedAttribute>().Any())
             .Select(p => GetColumnNameCached(p)));
+
         protected internal string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
             t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower());
+
         protected string GetWhereClause<T>(dynamic key) where T : class
         {
             var pk = GetPrimaryKeyCached<T>();
             return $" WHERE {GetColumnNameCached(pk)} = {key}";
         }
+
         protected internal Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
         {
             var ordinals = new Dictionary<string, int>();
@@ -537,16 +567,22 @@ namespace Funcular.Data.Orm.SqlServer
                 if (schemas.Contains(columnName))
                     ordinals[columnName] = reader.GetOrdinal(columnName);
             }
+
             return ordinals;
         }
+
         protected internal string GetColumnName(PropertyInfo property) =>
             property.GetCustomAttribute<ColumnAttribute>()?.Name ?? property.Name.ToLower();
+
         internal PropertyInfo? GetPrimaryKey<T>() => typeof(T).GetProperties().FirstOrDefault(p =>
             p.GetCustomAttribute<KeyAttribute>() != null ||
-            p.GetCustomAttribute<DatabaseGeneratedAttribute>()?.DatabaseGeneratedOption == DatabaseGeneratedOption.Identity ||
+            p.GetCustomAttribute<DatabaseGeneratedAttribute>()?.DatabaseGeneratedOption ==
+            DatabaseGeneratedOption.Identity ||
             p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
             p.Name.Equals(typeof(T).Name + "Id", StringComparison.OrdinalIgnoreCase));
-        protected internal static ImmutableArray<PropertyInfo> GetUnmappedProperties<T>(Type type) where T : class, new() =>
+
+        protected internal static ImmutableArray<PropertyInfo> GetUnmappedProperties<T>(Type type)
+            where T : class, new() =>
             typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray();
 
         private IQueryable<T> CreateQueryable<T>(string? selectCommand = null) where T : class, new()
@@ -557,20 +593,4 @@ namespace Funcular.Data.Orm.SqlServer
 
         #endregion
     }
-
-    /*
-    internal class IgnoreUnderscoreAndCaseStringComparer : IEqualityComparer<string>
-    {
-        public bool Equals(string? x, string? y)
-        {
-            if (x == null && y == null) return true;
-            if (x == null || y == null) return false;
-            return x.Replace("_", "").Equals(y.Replace("_", ""), StringComparison.OrdinalIgnoreCase);
-        }
-
-        public int GetHashCode(string obj)
-        {
-            return obj.Replace("_", "").ToLower().GetHashCode();
-        }
-    }*/
 }
