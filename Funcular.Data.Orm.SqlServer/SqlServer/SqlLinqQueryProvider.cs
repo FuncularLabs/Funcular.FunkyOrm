@@ -200,7 +200,7 @@ namespace Funcular.Data.Orm.SqlServer
                                 Expression.Quote(orderByLambda));
 
                             var orderByVisitor = new OrderByClauseVisitor<T>(
-                                SqlServerOrmDataProvider._columnNames,
+                                SqlServerOrmDataProvider.ColumnNames,
                                 SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                                     t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()));
                             orderByVisitor.Visit(orderByExpression);
@@ -211,7 +211,7 @@ namespace Funcular.Data.Orm.SqlServer
                 else if (currentCall.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
                 {
                     var orderByVisitor = new OrderByClauseVisitor<T>(
-                        SqlServerOrmDataProvider._columnNames,
+                        SqlServerOrmDataProvider.ColumnNames,
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()));
                     orderByVisitor.Visit(currentCall);
@@ -261,7 +261,7 @@ namespace Funcular.Data.Orm.SqlServer
                 var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                 var predicateExpression = (Expression<Func<T, bool>>)lambda;
                 var whereVisitor = new WhereClauseVisitor<T>(
-                    SqlServerOrmDataProvider._columnNames,
+                    SqlServerOrmDataProvider.ColumnNames,
                     SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                         t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()),
                     parameterGenerator,
@@ -337,7 +337,7 @@ namespace Funcular.Data.Orm.SqlServer
                 var property = memberExpression?.Member as PropertyInfo;
                 if (property != null && SqlServerOrmDataProvider._unmappedPropertiesCache.All(p => p.Key.Name != property.Name))
                 {
-                    columnExpression = SqlServerOrmDataProvider._columnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetColumnName(property));
+                    columnExpression = SqlServerOrmDataProvider.ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnName(property));
                 }
                 else
                 {
@@ -369,7 +369,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The complete SQL query text.</returns>
         private string BuildQueryComponents(QueryComponents components)
         {
-            string commandText = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommand<T>();
+            string commandText = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
 
             if (!string.IsNullOrEmpty(components.WhereClause))
             {
@@ -403,7 +403,7 @@ namespace Funcular.Data.Orm.SqlServer
         private TResult? HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
         {
             using var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider);
-            using var sqlCommand = _dataProvider.BuildCommand(components.AggregateClause, connectionScope.Connection, components.Parameters);
+            using var sqlCommand = _dataProvider.BuildSqlCommandObject(components.AggregateClause, connectionScope.Connection, components.Parameters);
 
             var result = sqlCommand.ExecuteScalar();
             if (result == DBNull.Value)
@@ -477,7 +477,7 @@ namespace Funcular.Data.Orm.SqlServer
         private TResult? ExecuteQuery<TResult>(string commandText, List<SqlParameter>? parameters, bool isCollection, Expression expression)
         {
             using var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider);
-            using var command = _dataProvider.BuildCommand(commandText, connectionScope.Connection, parameters);
+            using var command = _dataProvider.BuildSqlCommandObject(commandText, connectionScope.Connection, parameters);
 
             if (isCollection)
             {

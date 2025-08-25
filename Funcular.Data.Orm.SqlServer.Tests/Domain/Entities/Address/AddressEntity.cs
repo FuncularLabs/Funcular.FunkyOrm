@@ -124,7 +124,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
 		/// Gets or sets a value indicating whether this instance is primary.
 		/// </summary>
 		/// <value><c>null</c> if [is primary] contains no value, <c>true</c> if [is primary]; otherwise, <c>false</c>.</value>
-		[Column("is_primary", TypeName = "bit")]
+		// removed attribute to test automatic column inference on column names with underscores:
+		// [Column("is_primary", TypeName = "bit")]
         public bool IsPrimary
         {
             get => _isPrimary;

@@ -25,7 +25,8 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Converts to a dictionary key, using the type name of the object and the name of the property.
+        /// Converts to a dictionary key, using the type name of the object, a dot,
+        /// and the name of the property.
         /// </summary>
         /// <param name="propertyInfo">The property information.</param>
         /// <returns>System.String.</returns>
@@ -34,7 +35,7 @@ namespace Funcular.Data.Orm
         {
             if(propertyInfo == null)
                 throw new ArgumentNullException(nameof(propertyInfo)); 
-            return propertyInfo.DeclaringType?.Name + propertyInfo.Name;
+            return propertyInfo.DeclaringType?.Name + "." + propertyInfo.Name;
         }
 
 
