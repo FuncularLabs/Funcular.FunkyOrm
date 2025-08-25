@@ -7,6 +7,7 @@ using System.Reflection;
 using Microsoft.Data.SqlClient;
 using Funcular.Data.Orm.Visitors;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Diagnostics;
 
 namespace Funcular.Data.Orm.SqlServer
 {
@@ -55,7 +56,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <exception cref="InvalidOperationException">Thrown when an operation cannot be performed, such as when All is called without a predicate.</exception>
         public TResult? Execute<TResult>(Expression expression)
         {
-            Console.WriteLine($"Executing expression: {expression}");
+            Debug.WriteLine($"Executing expression: {expression}");
             var parameterGenerator = new ParameterGenerator();
             var translator = new SqlExpressionTranslator(parameterGenerator);
 
@@ -74,7 +75,7 @@ namespace Funcular.Data.Orm.SqlServer
                 executeResult = ExecuteQuery<TResult>(commandText, components.Parameters, isCollection, expression);
             }
 
-            Console.WriteLine($"Execute result: {executeResult}");
+            Debug.WriteLine($"Execute result: {executeResult}");
             return executeResult;
         }
 
@@ -217,12 +218,7 @@ namespace Funcular.Data.Orm.SqlServer
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }
-                else if (currentCall.Method.Name is "Any" or "All" or "Count" && currentCall.Arguments.Count == 2)
-                {
-                    components.IsAggregate = true;
-                    components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
-                }
-                else if (currentCall.Method.Name is "Any" or "All" or "Count" && currentCall.Arguments.Count == 1)
+                else if (currentCall.Method.Name is "Any" or "All" or "Count" && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
@@ -247,6 +243,164 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="translator">The translator for method call expressions.</param>
         /// <returns>The SQL clause for the aggregate operation.</returns>
         private string? BuildAggregateClause(MethodCallExpression methodCall, string? whereClause, List<SqlParameter>? existingParameters, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
+        {
+            string? aggregateClause = null;
+            var parameters = existingParameters != null ? new List<SqlParameter>(existingParameters) : new List<SqlParameter>();
+            string table = _dataProvider.GetTableName<T>();
+
+            string methodName = methodCall.Method.Name;
+            bool isAny = methodName == "Any";
+            bool isAll = methodName == "All";
+            bool isCount = methodName == "Count";
+            bool isPredicateBased = isAny || isAll || isCount;
+
+            if (isPredicateBased)
+            {
+                bool hasPredicate = methodCall.Arguments.Count == 2;
+                if (isAll && !hasPredicate)
+                {
+                    throw new InvalidOperationException("All method requires a predicate.");
+                }
+
+                string? modifiedWhereClause = null;
+                if (hasPredicate)
+                {
+                    var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
+                    var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    var whereVisitor = new WhereClauseVisitor<T>(
+                        SqlServerOrmDataProvider.ColumnNames,
+                        SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()),
+                        parameterGenerator,
+                        translator);
+                    whereVisitor.Visit(predicateExpression);
+
+                    modifiedWhereClause = whereVisitor.WhereClauseBody;
+
+                    if (whereVisitor.Parameters != null)
+                    {
+                        foreach (var param in whereVisitor.Parameters)
+                        {
+                            var existingParam = parameters.FirstOrDefault(p => p.ParameterName == param.ParameterName);
+                            if (existingParam != null)
+                            {
+                                int suffix = 1;
+                                string newParamName;
+                                do
+                                {
+                                    newParamName = param.ParameterName + "_" + suffix++;
+                                } while (parameters.Any(p => p.ParameterName == newParamName));
+                                modifiedWhereClause = modifiedWhereClause.Replace(param.ParameterName, newParamName);
+                                param.ParameterName = newParamName;
+                            }
+                            parameters.Add(param);
+                        }
+                    }
+                }
+
+                if (isCount)
+                {
+                    aggregateClause = $"SELECT COUNT(*) FROM {table}";
+                    string combinedWhere = "";
+                    if (!string.IsNullOrEmpty(whereClause))
+                    {
+                        combinedWhere += whereClause;
+                    }
+                    if (hasPredicate)
+                    {
+                        if (!string.IsNullOrEmpty(combinedWhere))
+                        {
+                            combinedWhere += " AND ";
+                        }
+                        combinedWhere += modifiedWhereClause;
+                    }
+                    if (!string.IsNullOrEmpty(combinedWhere))
+                    {
+                        aggregateClause += "\r\nWHERE " + combinedWhere;
+                    }
+                }
+                else if (isAny)
+                {
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}";
+                    string combinedWhere = "";
+                    if (!string.IsNullOrEmpty(whereClause))
+                    {
+                        combinedWhere += whereClause;
+                    }
+                    if (hasPredicate)
+                    {
+                        if (!string.IsNullOrEmpty(combinedWhere))
+                        {
+                            combinedWhere += " AND ";
+                        }
+                        combinedWhere += modifiedWhereClause;
+                    }
+                    if (!string.IsNullOrEmpty(combinedWhere))
+                    {
+                        aggregateClause += "\r\nWHERE " + combinedWhere;
+                    }
+                    aggregateClause += ") THEN 1 ELSE 0 END";
+                }
+                else if (isAll)
+                {
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}";
+                    string combinedWhere = "";
+                    if (!string.IsNullOrEmpty(whereClause))
+                    {
+                        combinedWhere += whereClause;
+                        if (hasPredicate)
+                        {
+                            combinedWhere += " AND ";
+                        }
+                    }
+                    if (hasPredicate)
+                    {
+                        combinedWhere += "NOT (" + modifiedWhereClause + ")";
+                    }
+                    if (!string.IsNullOrEmpty(combinedWhere))
+                    {
+                        aggregateClause += "\r\nWHERE " + combinedWhere;
+                    }
+                    aggregateClause += ") THEN 0 ELSE 1 END";
+                }
+            }
+            else if (methodCall.Method.Name is "Average" or "Min" or "Max")
+            {
+                var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
+                string columnExpression;
+                MemberExpression? memberExpression = lambda.Body as MemberExpression
+                    ?? (lambda.Body as UnaryExpression)?.Operand as MemberExpression;
+                if (memberExpression?.Expression is not ParameterExpression)
+                {
+                    throw new NotSupportedException("Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
+                }
+                var property = memberExpression?.Member as PropertyInfo;
+                if (property != null && SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()).All(p => p.Name != property.Name))
+                {
+                    columnExpression = SqlServerOrmDataProvider.ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnName(property));
+                }
+                else
+                {
+                    throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
+                }
+                var aggregateFunction = methodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : methodCall.Method.Name.ToUpper();
+                aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {table}";
+                if (!string.IsNullOrEmpty(whereClause))
+                {
+                    aggregateClause += "\r\nWHERE " + whereClause;
+                }
+            }
+
+            // Update the components with the combined parameters, ensuring we don't lose existing parameters
+            if (existingParameters != null)
+            {
+                existingParameters.Clear();
+                existingParameters.AddRange(parameters);
+            }
+
+            return aggregateClause;
+        }
+        /*private string? BuildAggregateClause(MethodCallExpression methodCall, string? whereClause, List<SqlParameter>? existingParameters, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
         {
             string? aggregateClause = null;
             var parameters = existingParameters != null ? new List<SqlParameter>(existingParameters) : new List<SqlParameter>();
@@ -360,7 +514,7 @@ namespace Funcular.Data.Orm.SqlServer
             }
 
             return aggregateClause;
-        }
+        }*/
 
         /// <summary>
         /// Builds the complete SQL query by combining SELECT, WHERE, ORDER BY, and OFFSET/FETCH clauses.
@@ -404,7 +558,7 @@ namespace Funcular.Data.Orm.SqlServer
         {
             using var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider);
             using var sqlCommand = _dataProvider.BuildSqlCommandObject(components.AggregateClause, connectionScope.Connection, components.Parameters);
-
+            _dataProvider.InvokeLogAction(sqlCommand);
             var result = sqlCommand.ExecuteScalar();
             if (result == DBNull.Value)
             {
@@ -415,13 +569,13 @@ namespace Funcular.Data.Orm.SqlServer
                 result = 0;
             }
 
-            Console.WriteLine($"Aggregate result type: {result?.GetType()?.FullName ?? "null"}");
-            Console.WriteLine($"Aggregate result value: {result}");
+            Debug.WriteLine($"Aggregate result type: {result?.GetType()?.FullName ?? "null"}");
+            Debug.WriteLine($"Aggregate result value: {result}");
 
             if (components.OuterMethodCall?.Method.Name is "Any" or "All")
             {
                 var boolResult = Convert.ToInt32(result) == 1;
-                Console.WriteLine($"Bool result after conversion: {boolResult}");
+                Debug.WriteLine($"Bool result after conversion: {boolResult}");
                 return (TResult)(object)boolResult;
             }
             else if (components.OuterMethodCall?.Method.Name == "Count")
@@ -448,6 +602,10 @@ namespace Funcular.Data.Orm.SqlServer
                 else if (selectorType == typeof(int))
                 {
                     return (TResult)(object)Convert.ToInt32(result);
+                }
+                else if (selectorType == typeof(long))
+                {
+                    return (TResult)(object)Convert.ToInt64(result);
                 }
                 else if (selectorType == typeof(double))
                 {

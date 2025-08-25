@@ -360,7 +360,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// are mapped prior to executing any commands.
         /// </summary>
         /// <typeparam name="T"></typeparam>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         protected void DiscoverColumns<T>()
         {
             if (_mappedTypes.Contains(typeof(T))) return;
@@ -534,6 +534,7 @@ namespace Funcular.Data.Orm.SqlServer
             };
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         protected internal void InvokeLogAction(SqlCommand command)
         {
             Log?.Invoke(command.CommandText);

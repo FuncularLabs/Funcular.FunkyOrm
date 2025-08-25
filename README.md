@@ -309,10 +309,10 @@ FunkyORM requires little configuration. Most of its behaviors can be achieved us
 *   **Fast**: Competitive benchmarks when compared to similar alternatives
 *   **Small footprint**: completely agnostic to DbContexts, models, joins, and relationships
 *   **Easy to use**: Support lambda queries out of the box
-*   **Usability over power**:
+*   **Usability over complexity**:
     *   Implements sensible defaults for common PK naming conventions (e.g., any of `id`, `tablename_id`, `TableNameId` are detected automatically)
     *   Supports `[key]` attribute for cases where primary key column names diverge from these conventions
-    *   Auto maps matching column names ignoring case and underscores by default
+    *   Auto maps matching column names by default, /ignoring case and underscores/
     *   Ignores properties/columns not present in both source table/view and target entity by default
 *   **Easily customized**: Supports `System.ComponentModel.DataAnnotations` attributes like `[Table]`, `[Column]`, `[Key]`, `[NotMapped]`
 Our goal is to make it easy for developers to get up and running quickly doing what they do 80% of the time, while making it hard for them to shoot themselves in the foot; we avoid automating complex behaviors that should really be thought through more thoroughly, like joins, inclusions, recursions, etc.

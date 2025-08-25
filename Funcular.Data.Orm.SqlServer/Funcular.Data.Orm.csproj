@@ -13,10 +13,10 @@
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
     <PackageIcon>funcular-logo-angle-brackets-dark.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>0.1.1-alpha.5</Version>
+    <Version>0.5.1-beta.1</Version>
     <AssemblyVersion>0.1.1</AssemblyVersion>
     <FileVersion>0.1.1</FileVersion>
-    <InformationalVersion>0.1.1-alpha.5</InformationalVersion>
+    <InformationalVersion>0.5.1-beta.1</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
   </PropertyGroup>

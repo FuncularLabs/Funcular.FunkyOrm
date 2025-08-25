@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace Funcular.Data.Orm
 {
@@ -31,6 +32,7 @@ namespace Funcular.Data.Orm
         /// <param name="propertyInfo">The property information.</param>
         /// <returns>System.String.</returns>
         /// <exception cref="System.ArgumentNullException">propertyInfo</exception>
+        [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
         internal static string ToDictionaryKey(this PropertyInfo? propertyInfo)
         {
             if(propertyInfo == null)
@@ -45,6 +47,7 @@ namespace Funcular.Data.Orm
         /// <param name="value">The string to check and potentially modify.</param>
         /// <param name="prefix">The prefix to ensure the string starts with.</param>
         /// <returns>A new string that starts with the given prefix if it did not already.</returns>
+        //[MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
         public static string EnsureStartsWith(this string value, string prefix)
         {
             return value.StartsWith(prefix) ? value : $"{prefix}{value}";
@@ -56,6 +59,7 @@ namespace Funcular.Data.Orm
         /// <param name="value">The string to check and potentially modify.</param>
         /// <param name="suffix">The suffix to ensure the string ends with.</param>
         /// <returns>A new string that ends with the given suffix if it did not already.</returns>
+        //[MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
         public static string EnsureEndsWith(this string value, string suffix)
         {
             return value.EndsWith(suffix) ? value : $"{value}{suffix}";
