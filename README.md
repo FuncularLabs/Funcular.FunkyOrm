@@ -2,7 +2,7 @@
     
 Welcome to Funcular ORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
 
-If you are tired of ORMs that make you write raw SQL or use name/value pairs to create query predicates, Funcular ORM might be your answer; it's designed for developers who need to get up and running **fast** with minimal setup.
+If you are tired of ORMs that make you write raw SQL or use name/value pairs to create query predicates, Funcular ORM might be your answer; it's designed for developers who like the ability to use strongly-typed LINQ queries, and who need to get up and running **fast** with minimal setup. Funcular ORM offers:
     
 - **Instant Lambda Queries**: No more wrestling with raw SQL to perform complex queries; use familiar C# lambda expressions to craft your SQL statements effortlessly.
 - **Parameterized Queries**: All queries are parameterized to protect against SQL injection attacks.
