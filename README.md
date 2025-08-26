@@ -10,8 +10,8 @@ If you are tired of ORMs that make you write raw SQL or use name/value pairs to 
 - **Minimal Configuration**: Forget about DbContexts, entity models, or extensive configurations. Just define your entity classes, and you're ready to query.
 - **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 - **Skip Data Annotations**: Funcular ORM maps case-insensitively by default, ignoring underscores. Data annotation attributes are supported, but *not required* for properties that match the column name, so a FirstName property would automatically be mapped to column FirstName, First\_Name, or first_name.
-- **Performance without bulk**: Outperforms many alternatives in benchmarks, offering the power you need without the bloat; in our testing, the framework was able to query, instantiate and map and populate over 10,000 rows in 4 to 6 milliseconds.
 - **Ignores unmatched properties and columns**: While the ``[NotMapped]`` attribute is supported, it is not required for simple cases like properties that do not map to a database column or vice-versa.
+- **Performance without bulk**: Outperforms many alternatives in benchmarks, offering the power you need without the bloat; in our testing, the framework was able to query, instantiate and map and populate over 10,000 rows in 44 to 59 milliseconds. Inserts performed at 3,000 to 4,000 rows per second. Updates are currently row-at-a-time, at about .5 to .6 milliseconds per row (bulk updates are an enhancement consideration).
 
     
 ## The General Idea

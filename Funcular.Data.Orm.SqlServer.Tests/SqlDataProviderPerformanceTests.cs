@@ -64,7 +64,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 {
                     // Uncomment to see the generated SQL for each operation in the window of your choice:
                     // Debug.WriteLine(s);
-                    // Console.WriteLine(s);
+                    Console.WriteLine(s);
                     // _sb.AppendLine(s);
                 }
             };
@@ -291,6 +291,47 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
+            _excelRow++;
+            CleanupTestRecords(firstName, lastName);
+            Console.WriteLine("\r\n\r\nResults:");
+            Console.WriteLine(_sb.ToString());
+        }
+
+        [DataRow(1)]
+        [DataRow(100)]
+        [DataRow(1000)]
+        [DataRow(10000)]
+        [TestMethod]
+        public void Test_Update_Performance(int count)
+        {
+            OutputTestMethodName();
+            var firstName = Guid.NewGuid().ToString();
+            var lastName = Guid.NewGuid().ToString();
+            for (int i = 0; i < count; i++)
+            {
+                var person = new Person
+                {
+                    FirstName = firstName,
+                    LastName = lastName,
+                    Birthdate = DateTime.UtcNow.AddYears(-20).AddDays(i)
+                };
+                _provider.Insert(person);
+            }
+            var personsToUpdate = _provider.Query<Person>(p => p.FirstName == firstName && p.LastName == lastName).ToList();
+            var sw = Stopwatch.StartNew();
+            for (int j = 0; j < count; j++)
+            {
+                personsToUpdate[j].MiddleInitial = "U";
+                _provider.Update(personsToUpdate[j]);
+            }
+            sw.Stop();
+            var updated = count;
+            var format = $"Updated {updated} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / updated} ms/record | {(double)updated / sw.Elapsed.TotalSeconds} rows/second)";
+            _sb.AppendLine(format);
+            _worksheet!.Cells[_excelRow, 2].Value = "Update";
+            _worksheet.Cells[_excelRow, 3].Value = count;
+            _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / updated;
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)updated / sw.Elapsed.TotalSeconds);
             _excelRow++;
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
