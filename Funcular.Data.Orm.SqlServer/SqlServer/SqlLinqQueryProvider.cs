@@ -84,7 +84,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private class QueryComponents
         {
-            private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
+            private readonly List<SqlParameter> _parameters = [];
             public string? WhereClause { get; set; }
 
             public List<SqlParameter> Parameters
@@ -115,7 +115,7 @@ namespace Funcular.Data.Orm.SqlServer
         private QueryComponents ParseExpression(Expression expression, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
         {
             var components = new QueryComponents();
-            components.Parameters = new List<SqlParameter>(); // Initialize the parameters list
+            components.Parameters = []; // Initialize the parameters list
 
             if (expression is not MethodCallExpression)
             {
@@ -203,7 +203,7 @@ namespace Funcular.Data.Orm.SqlServer
                             var orderByVisitor = new OrderByClauseVisitor<T>(
                                 SqlServerOrmDataProvider.ColumnNames,
                                 SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()));
+                                    [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]));
                             orderByVisitor.Visit(orderByExpression);
                             components.OrderByClause = orderByVisitor.OrderByClause;
                         }
@@ -214,7 +214,7 @@ namespace Funcular.Data.Orm.SqlServer
                     var orderByVisitor = new OrderByClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNames,
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()));
+                            [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]));
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }
@@ -270,7 +270,7 @@ namespace Funcular.Data.Orm.SqlServer
                     var whereVisitor = new WhereClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNames,
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()),
+                            [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]),
                         parameterGenerator,
                         translator);
                     whereVisitor.Visit(predicateExpression);
@@ -375,7 +375,7 @@ namespace Funcular.Data.Orm.SqlServer
                     throw new NotSupportedException("Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
                 }
                 var property = memberExpression?.Member as PropertyInfo;
-                if (property != null && SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToImmutableArray()).All(p => p.Name != property.Name))
+                if (property != null && SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]).All(p => p.Name != property.Name))
                 {
                     columnExpression = SqlServerOrmDataProvider.ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnName(property));
                 }

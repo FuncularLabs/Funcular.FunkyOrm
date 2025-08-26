@@ -1,19 +1,23 @@
-# FunkyORM: The Speedy, Lambda-Powered ORM for MSSQL
+# Funcular ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
     
-Welcome to FunkyORM, the micro-ORM that promises **speed**, **simplicity**, and **lambda expression support**—all in one lightweight package! 
+Welcome to Funcular ORM, the micro-ORM that promises **speed**, **simplicity**, and **lambda expression support**—all in one lightweight package! 
 
-If you're tired of the overhead of Entity Framework or the limitations of Dapper when it comes to expressive queries, FunkyORM is your answer. Designed for developers who need to get up and running **fast** with minimal setup, FunkyORM bridges the gap with:
+If you're tired of the overhead of Entity Framework or the limitations of Dapper when it comes to expressive queries, Funcular ORM is your answer. Designed for developers who need to get up and running **fast** with minimal setup, Funcular ORM bridges the gap with:
     
 - **Instant Lambda Queries**: No more wrestling with raw SQL in Dapper to achieve complex queries; use familiar C# lambda expressions to craft your SQL statements effortlessly.
+- **Queries always use parameters**: All queries are parameterized to protect against SQL injection attacks.
+- **Queries use cached reflection**: FunkyORM caches reflection results to minimize overhead and maximize performance.
+- **Minimal Configuration**: Forget about DbContexts, entity models, or extensive configurations. Just define your entity classes, and you're ready to query.
+- **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 - **Performance without Bulk**: Outperforms many alternatives in benchmarks, offering the power you need without the bloat.
-- **Zero to Query in Seconds**: Minimal configuration means you can start querying your MSSQL databases with just your entity classes. Forget about contexts or extensive model setups!
+
     
 ## The General Idea
 ![FunkyORM-Simplicity-Diagram-Reduced](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/refs/heads/master/Funcular.Data.Orm.SqlServer/Images/FunkyORM-Easy-Ease-Simplicity-Diagram.png)
 ---
 ## Usage
 
-FunkyORM provides a lightweight micro-ORM with lambda-style queries, supporting operations like insert, update, retrieval, and advanced querying with minimal setup. Below are examples of key features, demonstrated using a `Person` entity class (assuming a SQL Server provider and database schema with tables for `Person`, `Address`, and `PersonAddress`).
+Funcular ORM provides a lightweight micro-ORM with lambda-style queries, supporting operations like insert, update, retrieval, and advanced querying with minimal setup. Below are examples of key features, demonstrated using a `Person` entity class (assuming a SQL Server provider and database schema with tables for `Person`, `Address`, and `PersonAddress`).
 
 ### Setup
 

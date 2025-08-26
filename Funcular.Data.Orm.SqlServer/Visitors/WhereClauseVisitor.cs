@@ -16,10 +16,9 @@ namespace Funcular.Data.Orm.Visitors
     public class WhereClauseVisitor<T> : BaseExpressionVisitor<T> where T : class, new()
     {
         private readonly StringBuilder _commandTextBuilder = new StringBuilder();
-        private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
+        private readonly List<SqlParameter> _parameters = [];
         private readonly ParameterGenerator _parameterGenerator;
         private readonly SqlExpressionTranslator _translator;
-        private bool _isNegated;
 
         /// <summary>
         /// Gets the generated SQL WHERE clause body.
@@ -103,9 +102,7 @@ namespace Funcular.Data.Orm.Visitors
             if (node.NodeType == ExpressionType.Not)
             {
                 _commandTextBuilder.Append("NOT ");
-                _isNegated = true;
                 Visit(node.Operand);
-                _isNegated = false;
             }
             else if (node.NodeType == ExpressionType.Convert)
             {

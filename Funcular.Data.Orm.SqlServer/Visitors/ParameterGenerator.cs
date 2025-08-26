@@ -35,6 +35,7 @@ namespace Funcular.Data.Orm.Visitors
             };
         }
 
+        // ReSharper disable once GrammarMistakeInComment
         /// <summary>
         /// Creates a new SQL parameter with a unique name for use in IN clauses.
         /// </summary>

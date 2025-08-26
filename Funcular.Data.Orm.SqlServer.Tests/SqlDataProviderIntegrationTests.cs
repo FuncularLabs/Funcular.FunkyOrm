@@ -1,15 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects;
-using Funcular.Data.Orm.SqlServer.Tests.Domain;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
@@ -18,7 +13,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     {
         private string? _connectionString;
         public required SqlServerOrmDataProvider _provider;
-        private StringBuilder _sb = new StringBuilder();
+        private StringBuilder _sb = new();
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {
@@ -427,9 +422,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -455,9 +450,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -499,8 +494,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -522,8 +517,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Jones", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new() { LastName = "Jones", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -545,8 +540,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -568,7 +563,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Male" }
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -589,7 +584,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Female" }
+                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Female" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -611,7 +606,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var firstGuid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = firstGuid, UniqueId = Guid.NewGuid(), Gender = "Male" }
+                new() { LastName = "Smith", FirstName = firstGuid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -959,9 +954,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Guid", UniqueId = Guid.NewGuid() },
-                new Person { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(-25), Gender = "Guid", UniqueId = Guid.NewGuid() },
-                new Person { LastName = "Doe", FirstName = guid, Birthdate = DateTime.Today.AddYears(-40), Gender = "Guid", UniqueId = Guid.NewGuid() }
+                new() { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Guid", UniqueId = Guid.NewGuid() },
+                new() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(-25), Gender = "Guid", UniqueId = Guid.NewGuid() },
+                new() { LastName = "Doe", FirstName = guid, Birthdate = DateTime.Today.AddYears(-40), Gender = "Guid", UniqueId = Guid.NewGuid() }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -989,8 +984,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-101), Gender = "Female", UniqueId = Guid.NewGuid() },
-                new Person { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(101), Gender = "Male", UniqueId = Guid.NewGuid() },
+                new() { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-101), Gender = "Female", UniqueId = Guid.NewGuid() },
+                new() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(101), Gender = "Male", UniqueId = Guid.NewGuid() },
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -1012,8 +1007,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "NullDate", FirstName = guid, Birthdate = null, Gender = "Male", UniqueId = Guid.NewGuid() },
-                new Person { LastName = "HasDate", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Female", UniqueId = Guid.NewGuid() }
+                new() { LastName = "NullDate", FirstName = guid, Birthdate = null, Gender = "Male", UniqueId = Guid.NewGuid() },
+                new() { LastName = "HasDate", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Female", UniqueId = Guid.NewGuid() }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -1081,10 +1076,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guids = new List<Guid?> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
             var personsToInsert = new List<Person>
             {
-                new Person { LastName = "GuidOne", FirstName = firstNameGuidString, UniqueId = guids[0], Gender = "Guid1" },
-                new Person { LastName = "GuidTwo", FirstName = firstNameGuidString, UniqueId = guids[1], Gender = "Guid2" },
-                new Person { LastName = "GuidThree", FirstName = firstNameGuidString, UniqueId = guids[2], Gender = "Guid3" },
-                new Person { LastName = "NoMatch", FirstName = firstNameGuidString, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
+                new() { LastName = "GuidOne", FirstName = firstNameGuidString, UniqueId = guids[0], Gender = "Guid1" },
+                new() { LastName = "GuidTwo", FirstName = firstNameGuidString, UniqueId = guids[1], Gender = "Guid2" },
+                new() { LastName = "GuidThree", FirstName = firstNameGuidString, UniqueId = guids[2], Gender = "Guid3" },
+                new() { LastName = "NoMatch", FirstName = firstNameGuidString, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 

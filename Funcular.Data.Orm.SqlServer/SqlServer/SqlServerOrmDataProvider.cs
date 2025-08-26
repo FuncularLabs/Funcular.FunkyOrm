@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -31,16 +30,13 @@ namespace Funcular.Data.Orm.SqlServer
         internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _propertiesCache = new();
         internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedPropertiesCache = new();
         internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new();
-        internal static readonly HashSet<Type> _mappedTypes = new();
+        internal static readonly HashSet<Type> _mappedTypes = [];
 
         #endregion
 
         #region Properties
 
-        internal static ConcurrentDictionary<string, string> ColumnNames
-        {
-            get { return _columnNames; }
-        }
+        internal static ConcurrentDictionary<string, string> ColumnNames => _columnNames;
 
         public Action<string>? Log { get; set; }
         public SqlConnection? Connection { get; set; }
@@ -254,7 +250,7 @@ namespace Funcular.Data.Orm.SqlServer
             elements.SelectClause = selectClause;
             elements.OriginalExpression = whereExpression;
             elements.WhereClause = elements.WhereClause;
-            elements.OrderByClause = GenerateOrderByClause(whereExpression).OrderByClause;
+            // elements.OrderByClause = GenerateOrderByClause(whereExpression).OrderByClause;
             return elements;
         }
 
@@ -280,7 +276,7 @@ namespace Funcular.Data.Orm.SqlServer
                 commandElements.OriginalExpression ??= expression;
                 if (visitor.Parameters.Any())
                 {
-                    commandElements.SqlParameters = commandElements.SqlParameters ?? new List<SqlParameter>();
+                    commandElements.SqlParameters ??= [];
                     commandElements.SqlParameters.AddRange(visitor.Parameters);
                 }
             }
@@ -303,7 +299,7 @@ namespace Funcular.Data.Orm.SqlServer
             if (commandElements == null)
             {
                 commandElements = new SqlQueryComponents<T>(expression, string.Empty, string.Empty,
-                    visitor.OrderByClause, new List<SqlParameter>());
+                    visitor.OrderByClause, []);
             }
             else
             {
@@ -471,7 +467,7 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var parameters = new List<SqlParameter>();
             var setClause = new StringBuilder();
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToImmutableArray())
+            var properties = _propertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties()])
                 .Where(p => p != primaryKey && !p.GetCustomAttributes<NotMappedAttribute>().Any());
 
             foreach (var property in properties)
