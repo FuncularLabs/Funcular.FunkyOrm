@@ -1,15 +1,17 @@
 # Funcular ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
     
-Welcome to Funcular ORM, the micro-ORM that promises **speed**, **simplicity**, and **lambda expression support**—all in one lightweight package! 
+Welcome to Funcular ORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
 
-If you're tired of the overhead of Entity Framework or the limitations of Dapper when it comes to expressive queries, Funcular ORM is your answer. Designed for developers who need to get up and running **fast** with minimal setup, Funcular ORM bridges the gap with:
+If you are tired of ORMs that make you write raw SQL or use name/value pairs to create query predicates, Funcular ORM might be your answer; it's designed for developers who need to get up and running **fast** with minimal setup.
     
-- **Instant Lambda Queries**: No more wrestling with raw SQL in Dapper to achieve complex queries; use familiar C# lambda expressions to craft your SQL statements effortlessly.
-- **Queries always use parameters**: All queries are parameterized to protect against SQL injection attacks.
-- **Queries use cached reflection**: FunkyORM caches reflection results to minimize overhead and maximize performance.
+- **Instant Lambda Queries**: No more wrestling with raw SQL to perform complex queries; use familiar C# lambda expressions to craft your SQL statements effortlessly.
+- **Parameterized Queries**: All queries are parameterized to protect against SQL injection attacks.
+- **Cached Reflection**: Funcular ORM caches reflection results to minimize overhead and maximize performance.
 - **Minimal Configuration**: Forget about DbContexts, entity models, or extensive configurations. Just define your entity classes, and you're ready to query.
 - **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
+- **Skip Data Annotations**: Funcular ORM maps case-insensitively, ignoring underscores. Data annotation attributes are supported, but *not required* for properties that match the column name, so a FirstName property can automatically map to column FirstName, First\_Name, or first_name.
 - **Performance without Bulk**: Outperforms many alternatives in benchmarks, offering the power you need without the bloat.
+- **Ignores unmatched properties and columns**: While the ``[NotMapped]`` attribute is supported, it is not required for simple cases like properties that do not map to a database column or vice-versa.
 
     
 ## The General Idea
