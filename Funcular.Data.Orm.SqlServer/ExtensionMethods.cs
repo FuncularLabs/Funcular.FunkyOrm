@@ -28,7 +28,7 @@ namespace Funcular.Data.Orm
         /// <summary>
         /// Returns true if <paramref name="s"/> contains <paramref name="other"/>.
         /// </summary>
-        public static bool Contains(this string s, string other)
+        public static bool Contains(this string s, string other, StringComparison comparison = StringComparison.OrdinalIgnoreCase)
         {
             return s?.IndexOf(other) > -1;
         }

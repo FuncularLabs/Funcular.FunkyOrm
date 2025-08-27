@@ -691,7 +691,21 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
         {
             var ordinals = new Dictionary<string, int>(new IgnoreUnderscoreAndCaseStringComparer());
-            var schema = reader.GetColumnSchema();
+            ICollection<string> columnNames = new List<string>();
+#if NET8_0_OR_GREATER
+            var columnSchema = reader.GetColumnSchema();
+            foreach (var dbColumn in columnSchema)
+            {
+                columnNames.Add(dbColumn.ColumnName);
+            }
+#else
+                        var schemaTable = reader.GetSchemaTable();
+                        if (schemaTable?.Columns != null)
+                            foreach (DataColumn column in schemaTable?.Columns)
+                            {
+                                columnNames.Add(column.ColumnName);
+                            }
+#endif
             var comparer = new IgnoreUnderscoreAndCaseStringComparer();
             foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray()))
             {
@@ -703,7 +717,7 @@ namespace Funcular.Data.Orm.SqlServer
                 if (actualColumnName == null)
                 {
                     // Find matching schema column using comparer semantics
-                    actualColumnName = schema.FirstOrDefault(c => comparer.Equals(c.ColumnName, property.Name))?.ColumnName;
+                    actualColumnName = columnNames.FirstOrDefault(c => comparer.Equals(c, property.Name));
                 }
 
                 if (actualColumnName != null)

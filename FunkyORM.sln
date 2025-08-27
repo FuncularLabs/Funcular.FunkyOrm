@@ -22,6 +22,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Database", "Database", "{3E
 		Database\README.txt = Database\README.txt
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer.Tests.NetFramework", "Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj", "{C64EEBCD-4EB7-42BA-AF31-E45F6BB94072}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,6 +38,10 @@ Global
 		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C64EEBCD-4EB7-42BA-AF31-E45F6BB94072}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C64EEBCD-4EB7-42BA-AF31-E45F6BB94072}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C64EEBCD-4EB7-42BA-AF31-E45F6BB94072}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C64EEBCD-4EB7-42BA-AF31-E45F6BB94072}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

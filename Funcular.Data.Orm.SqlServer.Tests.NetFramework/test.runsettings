@@ -1,0 +1,5 @@
+﻿<RunSettings>
+  <RunConfiguration>
+    <TestAdaptersPaths>bin\Debug\net48</TestAdaptersPaths>
+  </RunConfiguration>
+</RunSettings>
