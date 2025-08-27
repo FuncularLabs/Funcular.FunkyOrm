@@ -699,12 +699,12 @@ namespace Funcular.Data.Orm.SqlServer
             }
 #else
                         var schemaTable = reader.GetSchemaTable();
-                        if (schemaTable?.Columns != null)
-                            foreach (DataColumn column in schemaTable?.Columns)
-                            {
-                                columnNames.Add(column.ColumnName);
-                            }
+                        foreach (DataRow row in schemaTable?.Rows)
+                        {
+                            columnNames.Add(row["ColumnName"].ToString());
+                        }
 #endif
+
             var comparer = new IgnoreUnderscoreAndCaseStringComparer();
             foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray()))
             {
