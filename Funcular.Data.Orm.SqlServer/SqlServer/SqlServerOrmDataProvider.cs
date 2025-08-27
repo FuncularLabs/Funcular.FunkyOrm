@@ -412,11 +412,10 @@ namespace Funcular.Data.Orm.SqlServer
                         }
 #else
                         var schemaTable = reader.GetSchemaTable();
-                        if (schemaTable?.Columns != null)
-                            foreach (DataColumn column in schemaTable?.Columns)
-                            {
-                                columnNames.Add(column.ColumnName);
-                            }
+                        foreach (DataRow row in schemaTable?.Rows)
+                        {
+                            columnNames.Add(row["ColumnName"].ToString());
+                        }
 #endif
                         var comparer = new IgnoreUnderscoreAndCaseStringComparer();
                         foreach (var property in properties)
@@ -430,7 +429,7 @@ namespace Funcular.Data.Orm.SqlServer
                             if (actualColumnName != null)
                             {
                                 var key = property.ToDictionaryKey();
-                                _columnNames[key] = actualColumnName;
+                                ColumnNames[key] = actualColumnName;
                             }
                         }
 
