@@ -510,13 +510,30 @@ namespace Funcular.Data.Orm.SqlServer
             where T : class, new()
         {
             InvokeLogAction(command);
-            var result = (int)command.ExecuteScalar();
-            if (result != 0)
-                primaryKey.SetValue(entity, result);
-            return result;
+            var executeScalar = command.ExecuteScalar();
+            if(executeScalar != null)
+            {
+                var result = (int)executeScalar;
+                if (result != 0)
+                    primaryKey.SetValue(entity, result);
+                return result;
+            }
+            throw new InvalidOperationException("Insert failed: No ID returned.");
         }
 
-        protected internal (string CommandText, List<SqlParameter> Parameters) BuildUpdateCommand<T>(T entity,
+        public class UpdateCommand
+        {
+            public string CommandText;
+            public List<SqlParameter> Parameters = new List<SqlParameter>();
+
+            public UpdateCommand(string command, List<SqlParameter> parameters)
+            {
+                CommandText = command;
+                Parameters = parameters;
+            }
+        }
+
+        protected internal UpdateCommand BuildUpdateCommand<T>(T entity,
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
@@ -537,14 +554,15 @@ namespace Funcular.Data.Orm.SqlServer
                 }
             }
 
-            if (setClause.Length == 0) return (string.Empty, parameters);
+            if (setClause.Length == 0) return new UpdateCommand(string.Empty, parameters);
 
             setClause.Length -= 2;
             var pkColumn = GetCachedColumnName(primaryKey);
             parameters.Add(
                 CreateParameter<object>($"@{pkColumn}", primaryKey.GetValue(entity), primaryKey.PropertyType));
 
-            return ($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{pkColumn}", parameters);
+            return new UpdateCommand($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{pkColumn}", parameters);
+
         }
 
         protected internal void ExecuteUpdate(SqlCommand command)

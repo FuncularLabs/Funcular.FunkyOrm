@@ -7,16 +7,10 @@ using System.Reflection;
 
 namespace Funcular.Data.Orm.Visitors
 {
-    // using OrderByClause = (string ColumnName, bool IsDescending);
-
-    public class OrderByClause
+    internal struct OrderByClause
     {
-        public OrderByClause(string columnName, bool isDescending)
-        {
-            
-        }
-        public string ColumnName { get; }
-        public bool IsDescending { get; }
+        public string ColumnName;
+        public bool IsDescending;
     }
 
     /// <summary>
@@ -122,7 +116,7 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && !IsUnmappedProperty(property))
                 {
                     var columnName = GetColumnName(property);
-                    _orderByClauses.Add(new OrderByClause(columnName, isDescending));
+                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
                 }
             }
             else
