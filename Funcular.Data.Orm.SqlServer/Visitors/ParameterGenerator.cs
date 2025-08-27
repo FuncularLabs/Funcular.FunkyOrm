@@ -25,7 +25,7 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         /// <param name="value">The value to parameterize.</param>
         /// <returns>A new <see cref="SqlParameter"/> with a unique name.</returns>
-        public SqlParameter CreateParameter(object? value)
+        public SqlParameter CreateParameter(object value)
         {
             var parameterName = $"@p__linq__{_parameterCounter++}";
             var sqlType = GetSqlDbType(value);
@@ -52,24 +52,33 @@ namespace Funcular.Data.Orm.Visitors
             };
         }
 
+
         /// <summary>
         /// Determines the SQL data type for a given value.
         /// </summary>
         /// <param name="value">The value to determine the SQL data type for.</param>
         /// <returns>The corresponding <see cref="SqlDbType"/>.</returns>
-        public static SqlDbType GetSqlDbType(object? value) => value switch
+        public static SqlDbType GetSqlDbType(object value)
         {
-            null => SqlDbType.NVarChar,
-            string => SqlDbType.NVarChar,
-            int => SqlDbType.Int,
-            long => SqlDbType.BigInt,
-            bool => SqlDbType.Bit,
-            DateTime => SqlDbType.DateTime2,
-            Guid => SqlDbType.UniqueIdentifier,
-            decimal => SqlDbType.Decimal,
-            double => SqlDbType.Float,
-            float => SqlDbType.Real,
-            _ => throw new NotSupportedException($"Type {value.GetType()} is not supported for SQL parameters.")
-        };
+            if (value == null || value is string)
+                return SqlDbType.NVarChar;
+            if (value is int)
+                return SqlDbType.Int;
+            if (value is long)
+                return SqlDbType.BigInt;
+            if (value is bool)
+                return SqlDbType.Bit;
+            if (value is DateTime)
+                return SqlDbType.DateTime2;
+            if (value is Guid)
+                return SqlDbType.UniqueIdentifier;
+            if (value is decimal)
+                return SqlDbType.Decimal;
+            if (value is double)
+                return SqlDbType.Float;
+            if (value is float)
+                return SqlDbType.Real;
+            throw new NotSupportedException($"Type {value.GetType()} is not supported for SQL parameters.");
+        }
     }
 }

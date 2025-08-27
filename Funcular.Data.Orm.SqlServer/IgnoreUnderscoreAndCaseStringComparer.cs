@@ -8,9 +8,9 @@ namespace Funcular.Data.Orm
     /// Implements the <see cref="IEqualityComparer`1" />
     /// </summary>
     /// <seealso cref="IEqualityComparer`1" />
-    public class IgnoreUnderscoreAndCaseStringComparer : IEqualityComparer<string?>
+    public class IgnoreUnderscoreAndCaseStringComparer : IEqualityComparer<string>
     {
-        public bool Equals(string? x, string? y)
+        public bool Equals(string x, string y)
         {
             if (x == null && y == null)
                 return true;
@@ -24,7 +24,7 @@ namespace Funcular.Data.Orm
             return xNormalized == yNormalized;
         }
 
-        public int GetHashCode(string? obj)
+        public int GetHashCode(string obj)
         {
             if (obj == null) return 0;
 

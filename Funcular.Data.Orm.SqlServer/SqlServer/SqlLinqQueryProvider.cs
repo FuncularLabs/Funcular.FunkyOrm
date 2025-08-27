@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -18,14 +17,14 @@ namespace Funcular.Data.Orm.SqlServer
     public class SqlLinqQueryProvider<T> : IQueryProvider where T : class, new()
     {
         private readonly SqlServerOrmDataProvider _dataProvider;
-        private readonly string? _selectClause;
+        private readonly string _selectClause;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SqlLinqQueryProvider{T}"/> class.
         /// </summary>
         /// <param name="dataProvider">The data provider used to execute SQL commands.</param>
         /// <param name="selectClause">An optional custom SELECT clause to use in queries. If null, a default SELECT clause is generated.</param>
-        public SqlLinqQueryProvider(SqlServerOrmDataProvider dataProvider, string? selectClause = null)
+        public SqlLinqQueryProvider(SqlServerOrmDataProvider dataProvider, string selectClause = null)
         {
             _dataProvider = dataProvider;
             _selectClause = selectClause;
@@ -41,7 +40,7 @@ namespace Funcular.Data.Orm.SqlServer
             return new SqlQueryable<TElement>(this, expression);
         }
 
-        public object? Execute(Expression expression)
+        public object Execute(Expression expression)
         {
             return Execute<IEnumerable<T>>(expression);
         }
@@ -54,7 +53,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The result of the query execution.</returns>
         /// <exception cref="NotSupportedException">Thrown when the expression type is not supported.</exception>
         /// <exception cref="InvalidOperationException">Thrown when an operation cannot be performed, such as when All is called without a predicate.</exception>
-        public TResult? Execute<TResult>(Expression expression)
+        public TResult Execute<TResult>(Expression expression)
         {
             Debug.WriteLine($"Executing expression: {expression}");
             var parameterGenerator = new ParameterGenerator();
@@ -64,7 +63,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             bool isCollection = typeof(IEnumerable<T>).IsAssignableFrom(typeof(TResult)) && typeof(TResult) != typeof(T);
 
-            TResult? executeResult;
+            TResult executeResult;
             if (components.IsAggregate)
             {
                 executeResult = HandleAggregateQuery<TResult>(components, expression);
@@ -84,8 +83,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private class QueryComponents
         {
-            private readonly List<SqlParameter> _parameters = [];
-            public string? WhereClause { get; set; }
+            private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
+            public string WhereClause { get; set; }
 
             public List<SqlParameter> Parameters
             {
@@ -97,12 +96,12 @@ namespace Funcular.Data.Orm.SqlServer
                 }
             }
 
-            public string? OrderByClause { get; set; }
+            public string OrderByClause { get; set; }
             public int? Skip { get; set; }
             public int? Take { get; set; }
-            public string? AggregateClause { get; set; }
+            public string AggregateClause { get; set; }
             public bool IsAggregate { get; set; }
-            public MethodCallExpression? OuterMethodCall { get; set; }
+            public MethodCallExpression OuterMethodCall { get; set; }
         }
 
         /// <summary>
@@ -115,16 +114,17 @@ namespace Funcular.Data.Orm.SqlServer
         private QueryComponents ParseExpression(Expression expression, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
         {
             var components = new QueryComponents();
-            components.Parameters = []; // Initialize the parameters list
+            components.Parameters = new List<SqlParameter> { }; // Initialize the parameters list
 
-            if (expression is not MethodCallExpression)
+            var callExpression = expression as MethodCallExpression;
+            if (callExpression == null)
             {
                 return components;
             }
 
             // Collect all method calls in the chain (from outer to inner)
             var methodCalls = new List<MethodCallExpression>();
-            Expression currentExpression = expression;
+            Expression currentExpression = callExpression;
             while (currentExpression is MethodCallExpression methodCall)
             {
                 methodCalls.Add(methodCall);
@@ -136,7 +136,7 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 var currentCall = methodCalls[i];
                 
-                if (currentCall.Method.Name is "Any" or "All" or "Count" or "Average" or "Min" or "Max")
+                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max")
                 {
                     components.OuterMethodCall = currentCall;
                 }
@@ -164,7 +164,7 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     components.Take = (int)((ConstantExpression)currentCall.Arguments[1]).Value;
                 }
-                else if (currentCall.Method.Name is "FirstOrDefault" or "First" or "LastOrDefault" or "Last" && currentCall.Arguments.Count == 2)
+                else if ((currentCall.Method.Name == "FirstOrDefault" || currentCall.Method.Name == "First" || currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last") && currentCall.Arguments.Count == 2)
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
                     var whereExpression = (Expression<Func<T, bool>>)lambda;
@@ -175,7 +175,7 @@ namespace Funcular.Data.Orm.SqlServer
                         components.Parameters.AddRange(elements.SqlParameters);
                     }
 
-                    if (currentCall.Method.Name is "LastOrDefault" or "Last")
+                    if (currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last")
                     {
                         // Check if there's already an ORDER BY clause to avoid conflicts
                         if (string.IsNullOrEmpty(components.OrderByClause))
@@ -203,27 +203,27 @@ namespace Funcular.Data.Orm.SqlServer
                             var orderByVisitor = new OrderByClauseVisitor<T>(
                                 SqlServerOrmDataProvider.ColumnNames,
                                 SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                                    [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]));
+                                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
                             orderByVisitor.Visit(orderByExpression);
                             components.OrderByClause = orderByVisitor.OrderByClause;
                         }
                     }
                 }
-                else if (currentCall.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
+                else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
                     var orderByVisitor = new OrderByClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNames,
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]));
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }
-                else if (currentCall.Method.Name is "Any" or "All" or "Count" && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
+                else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }
-                else if (currentCall.Method.Name is "Average" or "Min" or "Max")
+                else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max")
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
@@ -242,9 +242,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="parameterGenerator">The parameter generator to ensure consistent parameter naming.</param>
         /// <param name="translator">The translator for method call expressions.</param>
         /// <returns>The SQL clause for the aggregate operation.</returns>
-        private string? BuildAggregateClause(MethodCallExpression methodCall, string? whereClause, List<SqlParameter>? existingParameters, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
+        private string BuildAggregateClause(MethodCallExpression methodCall, string whereClause, List<SqlParameter> existingParameters, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
         {
-            string? aggregateClause = null;
+            string aggregateClause = null;
             var parameters = existingParameters != null ? new List<SqlParameter>(existingParameters) : new List<SqlParameter>();
             string table = _dataProvider.GetTableName<T>();
 
@@ -262,7 +262,7 @@ namespace Funcular.Data.Orm.SqlServer
                     throw new InvalidOperationException("All method requires a predicate.");
                 }
 
-                string? modifiedWhereClause = null;
+                string modifiedWhereClause = null;
                 if (hasPredicate)
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
@@ -270,7 +270,7 @@ namespace Funcular.Data.Orm.SqlServer
                     var whereVisitor = new WhereClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNames,
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]),
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator);
                     whereVisitor.Visit(predicateExpression);
@@ -364,18 +364,24 @@ namespace Funcular.Data.Orm.SqlServer
                     aggregateClause += ") THEN 0 ELSE 1 END";
                 }
             }
-            else if (methodCall.Method.Name is "Average" or "Min" or "Max")
+            else if (methodCall.Method.Name == "Average" || methodCall.Method.Name == "Min" || methodCall.Method.Name == "Max")
             {
                 var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                 string columnExpression;
-                MemberExpression? memberExpression = lambda.Body as MemberExpression
+                MemberExpression memberExpression = lambda.Body as MemberExpression
                     ?? (lambda.Body as UnaryExpression)?.Operand as MemberExpression;
-                if (memberExpression?.Expression is not ParameterExpression)
+                var expression = memberExpression?.Expression as ParameterExpression;
+                if (expression == null)
                 {
                     throw new NotSupportedException("Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
                 }
                 var property = memberExpression?.Member as PropertyInfo;
-                if (property != null && SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)]).All(p => p.Name != property.Name))
+                if (property != null &&
+                    SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T),
+                            t => t.GetProperties()
+                                .Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)
+                                .ToArray())
+                        .All(p => p.Name != property.Name))
                 {
                     columnExpression = SqlServerOrmDataProvider.ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnName(property));
                 }
@@ -400,9 +406,9 @@ namespace Funcular.Data.Orm.SqlServer
 
             return aggregateClause;
         }
-        /*private string? BuildAggregateClause(MethodCallExpression methodCall, string? whereClause, List<SqlParameter>? existingParameters, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
+        /*private string BuildAggregateClause(MethodCallExpression methodCall, string whereClause, List<SqlParameter> existingParameters, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
         {
-            string? aggregateClause = null;
+            string aggregateClause = null;
             var parameters = existingParameters != null ? new List<SqlParameter>(existingParameters) : new List<SqlParameter>();
             string innerQuery = $"SELECT * FROM {_dataProvider.GetTableName<T>()}";
             if (!string.IsNullOrEmpty(whereClause))
@@ -480,7 +486,7 @@ namespace Funcular.Data.Orm.SqlServer
                 var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                 string columnExpression;
 
-                MemberExpression? memberExpression = lambda.Body as MemberExpression
+                MemberExpression memberExpression = lambda.Body as MemberExpression
                     ?? (lambda.Body as UnaryExpression)?.Operand as MemberExpression;
 
                 if (memberExpression?.Expression is not ParameterExpression)
@@ -554,74 +560,86 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="components">The query components containing the aggregate clause.</param>
         /// <param name="expression">The original LINQ expression.</param>
         /// <returns>The aggregate result cast to TResult.</returns>
-        private TResult? HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
+        private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
         {
-            using var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider);
-            using var sqlCommand = _dataProvider.BuildSqlCommandObject(components.AggregateClause, connectionScope.Connection, components.Parameters);
-            _dataProvider.InvokeLogAction(sqlCommand);
-            var result = sqlCommand.ExecuteScalar();
-            if (result == DBNull.Value)
+            using (var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider))
             {
-                if (components.OuterMethodCall?.Method.Name is "Average" or "Min" or "Max")
+                using (var sqlCommand = _dataProvider.BuildSqlCommandObject(components.AggregateClause,
+                           connectionScope.Connection, components.Parameters))
                 {
-                    throw new InvalidOperationException($"Sequence contains no elements for {components.OuterMethodCall.Method.Name}.");
-                }
-                result = 0;
-            }
+                    _dataProvider.InvokeLogAction(sqlCommand);
+                    var result = sqlCommand.ExecuteScalar();
+                    if (result == DBNull.Value)
+                    {
+                        if (components.OuterMethodCall?.Method.Name == "Average" || components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max")
+                        {
+                            throw new InvalidOperationException(
+                                $"Sequence contains no elements for {components.OuterMethodCall.Method.Name}.");
+                        }
 
-            Debug.WriteLine($"Aggregate result type: {result?.GetType()?.FullName ?? "null"}");
-            Debug.WriteLine($"Aggregate result value: {result}");
+                        result = 0;
+                    }
 
-            if (components.OuterMethodCall?.Method.Name is "Any" or "All")
-            {
-                var boolResult = Convert.ToInt32(result) == 1;
-                Debug.WriteLine($"Bool result after conversion: {boolResult}");
-                return (TResult)(object)boolResult;
-            }
-            else if (components.OuterMethodCall?.Method.Name == "Count")
-            {
-                return (TResult)(object)Convert.ToInt32(result);
-            }
-            else if (components.OuterMethodCall?.Method.Name == "Average")
-            {
-                return (TResult)(object)Convert.ToDouble(result);
-            }
-            else if (components.OuterMethodCall?.Method.Name is "Min" or "Max")
-            {
-                var lambda = (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;
-                Type selectorType = GetSelectorType(lambda.Body);
+                    Debug.WriteLine($"Aggregate result type: {result?.GetType()?.FullName ?? "null"}");
+                    Debug.WriteLine($"Aggregate result value: {result}");
 
-                if (selectorType == typeof(DateTime))
-                {
-                    return (TResult)(object)Convert.ToDateTime(result);
-                }
-                if (selectorType == typeof(DateTime?))
-                {
-                    return result is DBNull ? (TResult?)(object?)null : (TResult)(object)Convert.ToDateTime(result);
-                }
-                else if (selectorType == typeof(int))
-                {
-                    return (TResult)(object)Convert.ToInt32(result);
-                }
-                else if (selectorType == typeof(long))
-                {
-                    return (TResult)(object)Convert.ToInt64(result);
-                }
-                else if (selectorType == typeof(double))
-                {
-                    return (TResult)(object)Convert.ToDouble(result);
-                }
-                else if (selectorType == typeof(decimal))
-                {
-                    return (TResult)(object)Convert.ToDecimal(result);
-                }
-                else
-                {
-                    throw new NotSupportedException($"Unsupported selector type {selectorType} for {components.OuterMethodCall.Method.Name}.");
+                    if (components.OuterMethodCall?.Method.Name == "Any" || components.OuterMethodCall?.Method.Name == "All")
+                    {
+                        var boolResult = Convert.ToInt32(result) == 1;
+                        Debug.WriteLine($"Bool result after conversion: {boolResult}");
+                        return (TResult)(object)boolResult;
+                    }
+                    else if (components.OuterMethodCall?.Method.Name == "Count")
+                    {
+                        return (TResult)(object)Convert.ToInt32(result);
+                    }
+                    else if (components.OuterMethodCall?.Method.Name == "Average")
+                    {
+                        return (TResult)(object)Convert.ToDouble(result);
+                    }
+                    else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max")
+                    {
+                        var lambda =
+                            (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;
+                        Type selectorType = GetSelectorType(lambda.Body);
+
+                        if (selectorType == typeof(DateTime))
+                        {
+                            return (TResult)(object)Convert.ToDateTime(result);
+                        }
+
+                        if (selectorType == typeof(DateTime?))
+                        {
+                            return result is DBNull
+                                ? (TResult)(object)null
+                                : (TResult)(object)Convert.ToDateTime(result);
+                        }
+                        else if (selectorType == typeof(int))
+                        {
+                            return (TResult)(object)Convert.ToInt32(result);
+                        }
+                        else if (selectorType == typeof(long))
+                        {
+                            return (TResult)(object)Convert.ToInt64(result);
+                        }
+                        else if (selectorType == typeof(double))
+                        {
+                            return (TResult)(object)Convert.ToDouble(result);
+                        }
+                        else if (selectorType == typeof(decimal))
+                        {
+                            return (TResult)(object)Convert.ToDecimal(result);
+                        }
+                        else
+                        {
+                            throw new NotSupportedException(
+                                $"Unsupported selector type {selectorType} for {components.OuterMethodCall.Method.Name}.");
+                        }
+                    }
+
+                    return default;
                 }
             }
-
-            return default;
         }
         /// <summary>
         /// Executes the SQL query and returns the result as either a single entity or a collection.
@@ -632,28 +650,33 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="isCollection">Whether the result is a collection (IEnumerable<T>).</param>
         /// <param name="expression">The original LINQ expression for error handling.</param>
         /// <returns>The query result cast to TResult.</returns>
-        private TResult? ExecuteQuery<TResult>(string commandText, List<SqlParameter>? parameters, bool isCollection, Expression expression)
+        private TResult ExecuteQuery<TResult>(string commandText, List<SqlParameter> parameters, bool isCollection, Expression expression)
         {
-            using var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider);
-            using var command = _dataProvider.BuildSqlCommandObject(commandText, connectionScope.Connection, parameters);
-
-            if (isCollection)
+            using (var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider))
             {
-                return (TResult)(object)_dataProvider.ExecuteReaderList<T>(command);
-            }
-            else
-            {
-                var result = _dataProvider.ExecuteReaderSingle<T>(command);
-
-                if (result == null && expression is MethodCallExpression call)
+                using (var command =
+                       _dataProvider.BuildSqlCommandObject(commandText, connectionScope.Connection, parameters))
                 {
-                    if (call.Method.Name is "First" or "Last")
+                    if (isCollection)
                     {
-                        throw new InvalidOperationException($"Sequence contains no matching element for {call.Method.Name}.");
+                        return (TResult)(object)_dataProvider.ExecuteReaderList<T>(command);
+                    }
+                    else
+                    {
+                        var result = _dataProvider.ExecuteReaderSingle<T>(command);
+
+                        if (result == null && expression is MethodCallExpression call)
+                        {
+                            if (call.Method.Name == "First" || call.Method.Name == "Last")
+                            {
+                                throw new InvalidOperationException(
+                                    $"Sequence contains no matching element for {call.Method.Name}.");
+                            }
+                        }
+
+                        return (TResult)(object)result;
                     }
                 }
-
-                return (TResult)(object)result!;
             }
         }
 

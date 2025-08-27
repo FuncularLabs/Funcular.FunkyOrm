@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <Nullable>disable</Nullable>
     <Copyright>Funcular Labs, Inc.</Copyright>
     <Description>Discover FunkyORM, a lightweight micro-ORM designed for simplicity and speed. It enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. With minimal setup required, a gentle learning curve, and blazing-fast runtime performance, it's the ideal choice for efficient database interactions.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -19,6 +19,8 @@
     <InformationalVersion>0.9.1-beta.2</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
+    <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
+    <GenerateNuGetTargetMonikerAttribute>true</GenerateNuGetTargetMonikerAttribute>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,7 +28,10 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
-    <None Include="D:\Dropbox\Family Room\funcular-labs\corporate\funcular-logo-angle-brackets-dark.png">
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="funcular-logo-angle-brackets-dark.png">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
@@ -34,6 +39,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.0" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Data.Common" Version="4.3.0" />
   </ItemGroup>
 
 </Project>

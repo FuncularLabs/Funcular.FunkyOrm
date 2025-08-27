@@ -1,4 +1,6 @@
-﻿namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities
+﻿using System;
+
+namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities
 {
     /// <summary>
     ///     Indicates that the method is contained in a type that implements

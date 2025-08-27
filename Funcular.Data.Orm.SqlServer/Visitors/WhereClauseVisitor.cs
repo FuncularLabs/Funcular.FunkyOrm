@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.Immutable;
+
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
@@ -16,7 +16,7 @@ namespace Funcular.Data.Orm.Visitors
     public class WhereClauseVisitor<T> : BaseExpressionVisitor<T> where T : class, new()
     {
         private readonly StringBuilder _commandTextBuilder = new StringBuilder();
-        private readonly List<SqlParameter> _parameters = [];
+        private readonly List<SqlParameter> _parameters = new List<SqlParameter> { };
         private readonly ParameterGenerator _parameterGenerator;
         private readonly SqlExpressionTranslator _translator;
 
@@ -39,7 +39,7 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="translator">The translator for converting method calls to SQL.</param>
         public WhereClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
-            ImmutableArray<PropertyInfo> unmappedProperties,
+            ICollection<PropertyInfo> unmappedProperties,
             ParameterGenerator parameterGenerator,
             SqlExpressionTranslator translator)
             : base(columnNames, unmappedProperties)
@@ -227,20 +227,33 @@ namespace Funcular.Data.Orm.Visitors
             _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, GetColumnName);
         }
 
+
         /// <summary>
         /// Maps a C# expression operator to its SQL equivalent.
         /// </summary>
-        private string GetOperator(ExpressionType nodeType) => nodeType switch
+        private string GetOperator(ExpressionType nodeType)
         {
-            ExpressionType.Equal => " = ",
-            ExpressionType.NotEqual => " != ",
-            ExpressionType.GreaterThan => " > ",
-            ExpressionType.GreaterThanOrEqual => " >= ",
-            ExpressionType.LessThan => " < ",
-            ExpressionType.LessThanOrEqual => " <= ",
-            ExpressionType.AndAlso => " AND ",
-            ExpressionType.OrElse => " OR ",
-            _ => throw new NotSupportedException($"Operator {nodeType} is not supported.")
-        };
+            switch (nodeType)
+            {
+                case ExpressionType.Equal:
+                    return " = ";
+                case ExpressionType.NotEqual:
+                    return " != ";
+                case ExpressionType.GreaterThan:
+                    return " > ";
+                case ExpressionType.GreaterThanOrEqual:
+                    return " >= ";
+                case ExpressionType.LessThan:
+                    return " < ";
+                case ExpressionType.LessThanOrEqual:
+                    return " <= ";
+                case ExpressionType.AndAlso:
+                    return " AND ";
+                case ExpressionType.OrElse:
+                    return " OR ";
+                default:
+                    throw new NotSupportedException($"Operator {nodeType} is not supported.");
+            }
+        }
     }
 }

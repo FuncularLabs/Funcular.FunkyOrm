@@ -21,7 +21,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Gets or sets the SQL SELECT clause string.
         /// </summary>
-        public string? SelectClause { get; set; }
+        public string SelectClause { get; set; }
 
         /// <summary>
         /// Gets or sets the SQL WHERE clause string derived from the original expression.
@@ -46,7 +46,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="whereClause">The translated SQL WHERE clause string.</param>
         /// <param name="orderByClause">The translated SQL ORDER BY clause string.</param>
         /// <param name="parameters">A list of SQL parameters that correspond to the placeholders in the clauses.</param>
-        public SqlQueryComponents(Expression<Func<T, bool>> expression, string? selectClause, string whereClause, string orderByClause, List<SqlParameter> parameters)
+        public SqlQueryComponents(Expression<Func<T, bool>> expression, string selectClause, string whereClause, string orderByClause, List<SqlParameter> parameters)
         {
             OriginalExpression = expression;
             SelectClause = selectClause;

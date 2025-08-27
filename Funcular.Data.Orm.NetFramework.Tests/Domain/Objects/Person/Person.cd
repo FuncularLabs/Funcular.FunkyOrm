@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1" MembersFormat="NameAndType">
+  <Class Name="Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person.Person">
+    <Position X="3.25" Y="4" Width="3" />
+    <Compartments>
+      <Compartment Name="Fields" Collapsed="true" />
+    </Compartments>
+    <TypeIdentifier>
+      <HashCode>AABAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Domain\Objects\Person\Person.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person.PersonEntity">
+    <Position X="3.25" Y="3.5" Width="3.25" />
+    <Compartments>
+      <Compartment Name="Fields" Collapsed="true" />
+    </Compartments>
+    <TypeIdentifier>
+      <HashCode>AAECEEgAAAAAAACAQAFAgEUAgBAAAAAAAAAAAAAAQAg=</HashCode>
+      <FileName>Domain\Entities\Person\PersonEntity.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Font Name="Segoe UI" Size="9" />
+</ClassDiagram>

@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -14,11 +15,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 
 		#region Members
 		private Int32 _id;
-		private String _firstName;
-		private String _middleInitial;
-		private String _lastName;
+		private string _firstName;
+		private string _middleInitial;
+		private string _lastName;
 		private DateTime? _birthdate;
-		private String _gender;
+		private string _gender;
 		private DateTime _dateUtcCreated = DateTime.UtcNow;
         private DateTime _dateUtcModified = DateTime.UtcNow;
         #endregion
@@ -55,7 +56,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 		/// </summary>
 		[Column("middle_initial")]
 		[StringLength(1, ErrorMessage = "Max length of 1 characters exceeded.")]
-		public virtual String MiddleInitial
+		public virtual string MiddleInitial
 		{
 			get => _middleInitial;
 			set => SetProperty(ref _middleInitial, value);
@@ -67,7 +68,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 		/// </summary>
 		[Column("last_name")]
 		[StringLength(100, MinimumLength = 1, ErrorMessage = "Max length of 100 characters exceeded.")]
-		public virtual String LastName
+		public virtual string LastName
 		{
 			get => _lastName;
 			set => SetProperty(ref _lastName, value);

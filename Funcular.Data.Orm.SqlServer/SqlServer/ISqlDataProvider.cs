@@ -12,22 +12,22 @@ namespace Funcular.Data.Orm.SqlServer
         /// Gets or sets the log action (e.g., write to console, write to debug).
         /// </summary>
         /// <value>The log.</value>
-        Action<string>? Log { get; set; }
+        Action<string> Log { get; set; }
         /// <summary>
         /// Gets or sets the connection.
         /// </summary>
         /// <value>The connection.</value>
-        SqlConnection? Connection { get; set; }
+        SqlConnection Connection { get; set; }
         /// <summary>
         /// Gets or sets the transaction.
         /// </summary>
         /// <value>The transaction.</value>
-        SqlTransaction? Transaction { get; set; }
+        SqlTransaction Transaction { get; set; }
 
         /// <summary>
         /// Gets or sets the name of the current transaction, if any. This can be used for identifying transactions in complex scenarios.
         /// </summary>
-        string? TransactionName { get; }
+        string TransactionName { get; }
 
         /// <summary>
         /// Gets the entity having the specified key, if it exists.
@@ -35,7 +35,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T"></typeparam>
         /// <param name="key">The key.</param>
         /// <returns>System.Nullable&lt;T&gt;.</returns>
-        T? Get<T>(dynamic? key = null) where T : class, new();
+        T Get<T>(dynamic key = null) where T : class, new();
 
         /// <summary>
         /// Queries the specified entity type.
@@ -83,7 +83,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// Begins a new transaction.
         /// </summary>
         /// <param name="name">Optional name for the transaction.</param>
-        void BeginTransaction(string? name = "");
+        void BeginTransaction(string name = "");
 
         /// <summary>
         /// Rolls back the current transaction if one exists.

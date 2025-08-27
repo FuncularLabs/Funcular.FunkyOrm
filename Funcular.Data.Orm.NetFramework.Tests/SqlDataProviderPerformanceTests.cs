@@ -1,10 +1,14 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
 using OfficeOpenXml;
 using System.IO;
+using System.Linq;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
@@ -12,10 +16,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     public class SqlDataProviderPerformanceTests
     {
         private string _connectionString;
-        public required SqlServerOrmDataProvider _provider;
-        private readonly StringBuilder _sb = new();
-        private static ExcelPackage? _workbook;
-        private static ExcelWorksheet? _worksheet;
+        public SqlServerOrmDataProvider _provider;
+        private readonly StringBuilder _sb = new StringBuilder();
+        private static ExcelPackage _workbook;
+        private static ExcelWorksheet _worksheet;
         private static int _excelRow = 2;
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
@@ -140,7 +144,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             sw.Stop();
             var format = $"Inserted {count} records in {sw.Elapsed} ms ({(double)sw.ElapsedMilliseconds / count} ms/record | {(double)count / ((double)sw.ElapsedMilliseconds / 1000D)} rows/second)";
             _sb.Append(format);
-            _worksheet!.Cells[_excelRow, 2].Value = "Insert";
+            _worksheet.Cells[_excelRow, 2].Value = "Insert";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
@@ -176,7 +180,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var returned = results.Count;
             var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {(double)returned / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
-            _worksheet!.Cells[_excelRow, 2].Value = "Select";
+            _worksheet.Cells[_excelRow, 2].Value = "Select";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / returned;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)returned / sw.Elapsed.TotalSeconds);
@@ -212,7 +216,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var returned = results.Count;
             var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {(double)returned / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
-            _worksheet!.Cells[_excelRow, 2].Value = "Filter";
+            _worksheet.Cells[_excelRow, 2].Value = "Filter";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / returned;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)returned / sw.Elapsed.TotalSeconds);
@@ -262,7 +266,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             overallSw.Stop();
             var overallFormat = $"Overall: Paginated {totalReturned} records in {overallSw.ElapsedMilliseconds} ms ({(double)overallSw.ElapsedMilliseconds / totalReturned} ms/record | {(double)totalReturned / overallSw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(overallFormat);
-            _worksheet!.Cells[_excelRow, 2].Value = "Pagination";
+            _worksheet.Cells[_excelRow, 2].Value = "Pagination";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)overallSw.ElapsedMilliseconds / totalReturned;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)totalReturned / overallSw.Elapsed.TotalSeconds);
@@ -297,7 +301,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Console.WriteLine(result);
             var format = $"Aggregated COUNT over {count} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / count} ms/record)";
             _sb.AppendLine(format);
-            _worksheet!.Cells[_excelRow, 2].Value = "Aggregate";
+            _worksheet.Cells[_excelRow, 2].Value = "Aggregate";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
@@ -338,7 +342,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var updated = count;
             var format = $"Updated {updated} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / updated} ms/record | {(double)updated / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
-            _worksheet!.Cells[_excelRow, 2].Value = "Update";
+            _worksheet.Cells[_excelRow, 2].Value = "Update";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / updated;
             _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)updated / sw.Elapsed.TotalSeconds);

@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
+using System.Data.Common;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -15,22 +15,26 @@ using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
 {
-    using UpdateCommand = (string CommandText, List<SqlParameter> Parameters);
+    internal class UpdateCommand
+    {
+        public string CommandText { get; set; }
+        public ICollection<SqlParameter> Parameters { get; set; } = new List<SqlParameter>();
+    }
 
     public partial class SqlServerOrmDataProvider : ISqlDataProvider, IDisposable
     {
         #region Fields
 
         private readonly string _connectionString;
-        private SqlTransaction? _transaction;
+        private SqlTransaction _transaction;
         
-        internal static readonly ConcurrentDictionary<Type, string> _tableNames = new();
-        internal static readonly ConcurrentDictionary<string, string> _columnNames = new(new IgnoreUnderscoreAndCaseStringComparer());
-        internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new();
-        internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _propertiesCache = new();
-        internal static readonly ConcurrentDictionary<Type, ImmutableArray<PropertyInfo>> _unmappedPropertiesCache = new();
-        internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new();
-        internal static readonly HashSet<Type> _mappedTypes = [];
+        internal static readonly ConcurrentDictionary<Type, string> _tableNames = new ConcurrentDictionary<Type, string>();
+        internal static readonly ConcurrentDictionary<string, string> _columnNames = new ConcurrentDictionary<string, string>(new IgnoreUnderscoreAndCaseStringComparer());
+        internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new ConcurrentDictionary<Type, PropertyInfo>();
+        internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _propertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
+        internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _unmappedPropertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
+        internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<Type, Dictionary<string, int>>();
+        internal static readonly HashSet<Type> _mappedTypes = new HashSet<Type> { };
 
         #endregion
 
@@ -38,23 +42,23 @@ namespace Funcular.Data.Orm.SqlServer
 
         internal static ConcurrentDictionary<string, string> ColumnNames => _columnNames;
 
-        public Action<string>? Log { get; set; }
-        public SqlConnection? Connection { get; set; }
+        public Action<string> Log { get; set; }
+        public SqlConnection Connection { get; set; }
 
-        public SqlTransaction? Transaction
+        public SqlTransaction Transaction
         {
             get => _transaction;
             set => _transaction = value;
         }
 
-        public string? TransactionName { get; protected set; }
+        public string TransactionName { get; protected set; }
 
         #endregion
 
         #region Constructors
 
-        public SqlServerOrmDataProvider(string connectionString, SqlConnection? connection = null,
-            SqlTransaction? transaction = null)
+        public SqlServerOrmDataProvider(string connectionString, SqlConnection connection = null,
+            SqlTransaction transaction = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             Connection = connection ?? new SqlConnection(_connectionString);
@@ -65,38 +69,52 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Public Methods - CRUD Operations
 
-        public T? Get<T>(dynamic? key = null) where T : class, new()
+        public T Get<T>(dynamic key = null) where T : class, new()
         {
             DiscoverColumns<T>();
-            using var connectionScope = new ConnectionScope(this);
-            var commandText = CreateGetOneOrSelectCommandText<T>(key);
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var commandText = CreateGetOneOrSelectCommandText<T>(key);
 
-            using var command = BuildSqlCommandObject(commandText, connectionScope.Connection);
-            return ExecuteReaderSingle<T>(command);
+                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection))
+                {
+                    return ExecuteReaderSingle<T>(command);
+                }
+            }
         }
 
         public ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             DiscoverColumns<T>();
-            using var connectionScope = new ConnectionScope(this);
-            var elements = CreateSelectQueryObject(expression);
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var elements = CreateSelectQueryObject(expression);
 
-            var commandText = elements.SelectClause;
-            if (!string.IsNullOrEmpty(elements.WhereClause))
-                commandText += "\r\nWHERE " + elements.WhereClause;
-            if (!string.IsNullOrEmpty(elements.OrderByClause))
-                commandText += "\r\n" + elements.OrderByClause;
+                var commandText = elements.SelectClause;
+                if (!string.IsNullOrEmpty(elements.WhereClause))
+                    commandText += "\r\nWHERE " + elements.WhereClause;
+                if (!string.IsNullOrEmpty(elements.OrderByClause))
+                    commandText += "\r\n" + elements.OrderByClause;
 
-            using var command = BuildSqlCommandObject(commandText, connectionScope.Connection, elements.SqlParameters);
-            return ExecuteReaderList<T>(command);
+                using (var command =
+                       BuildSqlCommandObject(commandText, connectionScope.Connection, elements.SqlParameters))
+                {
+                    return ExecuteReaderList<T>(command);
+                }
+            }
         }
 
         public ICollection<T> GetList<T>() where T : class, new()
         {
             DiscoverColumns<T>();
-            using var connectionScope = new ConnectionScope(this);
-            using var command = BuildSqlCommandObject(CreateGetOneOrSelectCommandText<T>(), connectionScope.Connection);
-            return ExecuteReaderList<T>(command);
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                using (var command =
+                       BuildSqlCommandObject(CreateGetOneOrSelectCommandText<T>(), connectionScope.Connection))
+                {
+                    return ExecuteReaderList<T>(command);
+                }
+            }
         }
 
         public long Insert<T>(T entity) where T : class, new()
@@ -108,12 +126,16 @@ namespace Funcular.Data.Orm.SqlServer
             var primaryKey = GetCachedPrimaryKey<T>();
             ValidateInsertPrimaryKey(entity, primaryKey);
 
-            using var connectionScope = new ConnectionScope(this);
-            var insertCommand = BuildInsertCommandObject(entity, primaryKey);
-            using var command = BuildSqlCommandObject(insertCommand.CommandText, connectionScope.Connection,
-                insertCommand.Parameters);
-            var insertedId = ExecuteInsert(command, entity, primaryKey);
-            return insertedId;
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var insertCommand = BuildInsertCommandObject(entity, primaryKey);
+                using (var command = BuildSqlCommandObject(insertCommand.CommandText, connectionScope.Connection,
+                           insertCommand.Parameters))
+                {
+                    var insertedId = ExecuteInsert(command, entity, primaryKey);
+                    return insertedId;
+                }
+            }
         }
 
         public T Update<T>(T entity) where T : class, new()
@@ -122,29 +144,33 @@ namespace Funcular.Data.Orm.SqlServer
             var primaryKey = GetCachedPrimaryKey<T>();
             ValidateUpdatePrimaryKey(entity, primaryKey);
 
-            using var connectionScope = new ConnectionScope(this);
-            var existingEntity = Get<T>((dynamic)primaryKey.GetValue(entity));
-            if (existingEntity == null)
-                throw new InvalidOperationException("Entity does not exist in database.");
-
-            UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
-            if (updateCommand.Parameters.Any())
+            using (var connectionScope = new ConnectionScope(this))
             {
-                using var command = BuildSqlCommandObject(updateCommand.CommandText, connectionScope.Connection,
-                    updateCommand.Parameters);
-                ExecuteUpdate(command);
-            }
-            else
-            {
-                Log?.Invoke($"No update needed for {typeof(T).Name} with id {primaryKey.GetValue(entity)}.");
-            }
+                var existingEntity = Get<T>((dynamic)primaryKey.GetValue(entity));
+                if (existingEntity == null)
+                    throw new InvalidOperationException("Entity does not exist in database.");
 
-            return entity;
+                UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
+                if (updateCommand.Parameters.Any())
+                {
+                    using (var command = BuildSqlCommandObject(updateCommand.CommandText, connectionScope.Connection,
+                               updateCommand.Parameters))
+                    {
+                        ExecuteUpdate(command);
+                    }
+                }
+                else
+                {
+                    Log?.Invoke($"No update needed for {typeof(T).Name} with id {primaryKey.GetValue(entity)}.");
+                }
+
+                return entity;
+            }
         }
 
         public IQueryable<T> Query<T>() where T : class, new()
         {
-            string? selectCommand = CreateGetOneOrSelectCommandText<T>();
+            string selectCommand = CreateGetOneOrSelectCommandText<T>();
             return CreateQueryable<T>(selectCommand);
         }
 
@@ -152,7 +178,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Public Methods - Transaction Management
 
-        public void BeginTransaction(string? name = null)
+        public void BeginTransaction(string name = null)
         {
             EnsureConnectionOpen();
             if (Transaction != null)
@@ -162,7 +188,7 @@ namespace Funcular.Data.Orm.SqlServer
             TransactionName = name ?? string.Empty;
         }
 
-        public void CommitTransaction(string? name = null)
+        public void CommitTransaction(string name = null)
         {
             if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
             {
@@ -171,7 +197,7 @@ namespace Funcular.Data.Orm.SqlServer
             }
         }
 
-        public void RollbackTransaction(string? name = null)
+        public void RollbackTransaction(string name = null)
         {
             if (Transaction != null && (string.IsNullOrEmpty(name) || TransactionName == name))
             {
@@ -208,7 +234,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected SqlConnection GetConnection()
         {
             EnsureConnectionOpen();
-            return Connection!;
+            return Connection;
         }
 
         protected void EnsureConnectionOpen()
@@ -234,7 +260,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Methods - Query Building
 
-        protected internal string? CreateGetOneOrSelectCommandText<T>(dynamic? key = null) where T : class, new()
+        protected internal string CreateGetOneOrSelectCommandText<T>(dynamic key = null) where T : class, new()
         {
             var tableName = GetTableName<T>();
             string columnNames = GetColumnNames<T>();
@@ -256,9 +282,9 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
-            SqlQueryComponents<T>? commandElements = null,
-            ParameterGenerator? parameterGenerator = null,
-            SqlExpressionTranslator? translator = null) where T : class, new()
+            SqlQueryComponents<T> commandElements = null,
+            ParameterGenerator parameterGenerator = null,
+            SqlExpressionTranslator translator = null) where T : class, new()
         {
             // Use the provided ParameterGenerator and translator, or create new ones if not specified
             var paramGen = parameterGenerator ?? new ParameterGenerator();
@@ -270,13 +296,13 @@ namespace Funcular.Data.Orm.SqlServer
                 paramGen,
                 trans);
             visitor.Visit(expression);
-            if (commandElements is not null)
+            if (commandElements != null)
             {
                 commandElements.WhereClause = visitor.WhereClauseBody;
-                commandElements.OriginalExpression ??= expression;
+                commandElements.OriginalExpression = commandElements.OriginalExpression ?? expression;
                 if (visitor.Parameters.Any())
                 {
-                    commandElements.SqlParameters ??= [];
+                    commandElements.SqlParameters = commandElements.SqlParameters ?? new List<SqlParameter> { };
                     commandElements.SqlParameters.AddRange(visitor.Parameters);
                 }
             }
@@ -290,7 +316,7 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         protected internal SqlQueryComponents<T> GenerateOrderByClause<T>(Expression<Func<T, bool>> expression,
-            SqlQueryComponents<T>? commandElements = null) where T : class, new()
+            SqlQueryComponents<T> commandElements = null) where T : class, new()
         {
             var visitor = new OrderByClauseVisitor<T>(
                 ColumnNames,
@@ -299,12 +325,12 @@ namespace Funcular.Data.Orm.SqlServer
             if (commandElements == null)
             {
                 commandElements = new SqlQueryComponents<T>(expression, string.Empty, string.Empty,
-                    visitor.OrderByClause, []);
+                    visitor.OrderByClause, new List<SqlParameter> { });
             }
             else
             {
                 commandElements.OrderByClause = visitor.OrderByClause;
-                commandElements.OriginalExpression ??= expression;
+                commandElements.OriginalExpression = commandElements.OriginalExpression ?? expression;
             }
 
             return commandElements;
@@ -314,28 +340,32 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Private Methods - Execution Helpers
 
-        protected internal T? ExecuteReaderSingle<T>(SqlCommand command) where T : class, new()
+        protected internal T ExecuteReaderSingle<T>(SqlCommand command) where T : class, new()
         {
             InvokeLogAction(command);
-            using var reader = command.ExecuteReader();
-            return reader.Read() ? MapEntity<T>(reader) : null;
+            using (var reader = command.ExecuteReader())
+            {
+                return reader.Read() ? MapEntity<T>(reader) : null;
+            }
         }
 
         protected internal ICollection<T> ExecuteReaderList<T>(SqlCommand command) where T : class, new()
         {
             InvokeLogAction(command);
             var results = new List<T>();
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            using (var reader = command.ExecuteReader())
             {
-                results.Add(MapEntity<T>(reader));
-            }
+                while (reader.Read())
+                {
+                    results.Add(MapEntity<T>(reader));
+                }
 
-            return results;
+                return results;
+            }
         }
 
-        protected internal SqlCommand BuildSqlCommandObject(string? commandText, SqlConnection connection,
-            ICollection<SqlParameter>? parameters = null)
+        protected internal SqlCommand BuildSqlCommandObject(string commandText, SqlConnection connection,
+            ICollection<SqlParameter> parameters = null)
         {
             var command = new SqlCommand(commandText, connection)
             {
@@ -356,39 +386,64 @@ namespace Funcular.Data.Orm.SqlServer
         /// are mapped prior to executing any commands.
         /// </summary>
         /// <typeparam name="T"></typeparam>
-        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected void DiscoverColumns<T>()
         {
             if (_mappedTypes.Contains(typeof(T))) return;
 
             var table = GetTableName<T>();
             var commandText = $"SELECT * FROM {table}";
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties()]);
-                
-            using var connectionScope = new ConnectionScope(this);
-            using var command = BuildSqlCommandObject(commandText, connectionScope.Connection, Array.Empty<SqlParameter>());
-            using var tempReader = command.ExecuteReader(CommandBehavior.SchemaOnly);
-            var schema = tempReader.GetColumnSchema();
-            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-            foreach (var property in properties)
+            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
+
+            using (var connectionScope = new ConnectionScope(this))
             {
-                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-                    
-                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                string? actualColumnName = columnAttr?.Name ?? schema.FirstOrDefault(c => comparer.Equals(c.ColumnName, property.Name))?.ColumnName;
-                if (actualColumnName != null)
+                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection,
+                           Array.Empty<SqlParameter>()))
                 {
-                    var key = property.ToDictionaryKey();
-                    _columnNames[key] = actualColumnName;
+                    using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
+                    {
+
+                        ICollection<string> columnNames = new List<string>();
+#if NET8_0_OR_GREATER
+                        var columnSchema = reader.GetColumnSchema();
+                        foreach (var dbColumn in columnSchema)
+                        {
+                            columnNames.Add(dbColumn.ColumnName);
+                        }
+#else
+                        var schemaTable = reader.GetSchemaTable();
+                        if (schemaTable?.Columns != null)
+                            foreach (DataColumn column in schemaTable?.Columns)
+                            {
+                                columnNames.Add(column.ColumnName);
+                            }
+#endif
+                        var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+                        foreach (var property in properties)
+                        {
+                            if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
+
+                            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+                            string actualColumnName = columnAttr?.Name ??
+                                                      columnNames.FirstOrDefault(c =>
+                                                              comparer.Equals(c, property.Name));
+                            if (actualColumnName != null)
+                            {
+                                var key = property.ToDictionaryKey();
+                                _columnNames[key] = actualColumnName;
+                            }
+                        }
+
+                        _mappedTypes.Add(typeof(T));
+                    }
                 }
             }
-            _mappedTypes.Add(typeof(T));
         }
 
 
         protected T MapEntity<T>(SqlDataReader reader) where T : class, new()
         {
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties()]);
+            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
             var unmappedProperties = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, reader));
             var entity = new T();
@@ -422,12 +477,12 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="entity"></param>
         /// <param name="primaryKey"></param>
         /// <returns></returns>
-        protected internal (string? CommandText, List<SqlParameter> Parameters) BuildInsertCommandObject<T>(T entity,
+        protected internal (string CommandText, List<SqlParameter> Parameters) BuildInsertCommandObject<T>(T entity,
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
             // Properties that are not marked with [NotMapped] and are not the primary key
-            var includedProperties = _propertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties()])
+            var includedProperties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => !p.GetCustomAttributes<NotMappedAttribute>().Any() && p != primaryKey);
             var parameters = new List<SqlParameter>();
             var columnNames = new List<string>();
@@ -467,7 +522,7 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var parameters = new List<SqlParameter>();
             var setClause = new StringBuilder();
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => [..t.GetProperties()])
+            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => p != primaryKey && !p.GetCustomAttributes<NotMappedAttribute>().Any());
 
             foreach (var property in properties)
@@ -519,7 +574,7 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new InvalidOperationException("Primary key must be set for update.");
         }
 
-        protected internal SqlParameter CreateParameter<T>(string name, object? value, Type propertyType)
+        protected internal SqlParameter CreateParameter<T>(string name, object value, Type propertyType)
             where T : class, new()
         {
             var sqlType = ParameterGenerator.GetSqlDbType(value);
@@ -530,7 +585,7 @@ namespace Funcular.Data.Orm.SqlServer
             };
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected internal void InvokeLogAction(SqlCommand command)
         {
             Log?.Invoke(command.CommandText);
@@ -558,7 +613,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected internal void CleanupTransaction()
         {
-            Transaction?.Dispose();
+            Transaction.Dispose();
             Transaction = null;
             TransactionName = null;
             CloseConnectionIfNoTransaction();
@@ -595,7 +650,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Original Protected Helpers
 
-        protected internal object? GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
+        protected internal object GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 
         /// <summary>
         /// Returns a comma separated list of column names for the specified type T.
@@ -620,7 +675,7 @@ namespace Funcular.Data.Orm.SqlServer
             var ordinals = new Dictionary<string, int>(new IgnoreUnderscoreAndCaseStringComparer());
             var schema = reader.GetColumnSchema();
             var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-            foreach (var property in _propertiesCache.GetOrAdd(type, t => [..t.GetProperties()]))
+            foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray()))
             {
                 if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
 
@@ -659,18 +714,18 @@ namespace Funcular.Data.Orm.SqlServer
                   (_columnNames.TryGetValue(property.Name.ToLowerInvariant(), out var columnName)
                       ? columnName
                       : property.Name.ToLowerInvariant());
-        internal PropertyInfo? GetPrimaryKeyProperty<T>() => typeof(T).GetProperties().FirstOrDefault(p =>
+        internal PropertyInfo GetPrimaryKeyProperty<T>() => typeof(T).GetProperties().FirstOrDefault(p =>
             p.GetCustomAttribute<KeyAttribute>() != null ||
             p.GetCustomAttribute<DatabaseGeneratedAttribute>()?.DatabaseGeneratedOption ==
             DatabaseGeneratedOption.Identity ||
             p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
             p.Name.Equals(typeof(T).Name + "Id", StringComparison.OrdinalIgnoreCase));
 
-        protected internal static ImmutableArray<PropertyInfo> GetUnmappedProperties<T>(Type type)
+        protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new() =>
-            [..typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)];
+            typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray();
 
-        private IQueryable<T> CreateQueryable<T>(string? selectCommand = null) where T : class, new()
+        private IQueryable<T> CreateQueryable<T>(string selectCommand = null) where T : class, new()
         {
             var provider = new SqlLinqQueryProvider<T>(this, selectCommand);
             return new SqlQueryable<T>(provider);

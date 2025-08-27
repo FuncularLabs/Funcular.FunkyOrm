@@ -1,10 +1,13 @@
-
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Linq;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
@@ -12,8 +15,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     public class SqlDataProviderIntegrationTests
     {
         private string _connectionString;
-        public required SqlServerOrmDataProvider _provider;
-        private StringBuilder _sb = new();
+        public SqlServerOrmDataProvider _provider;
+        private StringBuilder _sb = new StringBuilder();
+        private static Random _rnd = new Random();
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {
@@ -145,7 +149,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             {
                 FirstName = guid,
                 LastName = guid,
-                Birthdate = DateTime.Today.Subtract(TimeSpan.FromDays(Random.Shared.Next(10, 30))),
+                Birthdate = DateTime.Today.Subtract(TimeSpan.FromDays(_rnd.Next(10, 30))),
                 DateUtcCreated = DateTime.UtcNow,
                 DateUtcModified = DateTime.UtcNow,
                 UniqueId = Guid.NewGuid()
@@ -262,7 +266,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("D", result[1].MiddleInitial);
             Assert.AreEqual("A", result[2].MiddleInitial);
             Assert.AreEqual("B", result[3].MiddleInitial);
-            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().IndexOf("ORDER BY", StringComparison.OrdinalIgnoreCase) > -1);
         }
 
         /// <summary>
@@ -293,8 +297,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("C", result[1].MiddleInitial);
             Assert.AreEqual("B", result[2].MiddleInitial);
             Assert.AreEqual("A", result[3].MiddleInitial);
-            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
-            Assert.IsTrue(_sb.ToString().Contains("DESC", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().IndexOf("ORDER BY", StringComparison.OrdinalIgnoreCase) > -1);
+            Assert.IsTrue(_sb.ToString().IndexOf("DESC", StringComparison.OrdinalIgnoreCase) > -1);
         }
 
         [TestMethod]
@@ -328,7 +332,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             {
                 FirstName = "Unique",
                 LastName = "Person",
-                Birthdate = DateTime.Today.Subtract(TimeSpan.FromDays(Random.Shared.Next(10, 30))),
+                Birthdate = DateTime.Today.Subtract(TimeSpan.FromDays(_rnd.Next(10, 30))),
                 DateUtcCreated = DateTime.UtcNow,
                 DateUtcModified = DateTime.UtcNow,
                 UniqueId = Guid.NewGuid()
@@ -425,9 +429,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -453,9 +457,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
@@ -497,19 +501,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName!.StartsWith("J"))
+                .Where(x => x.FirstName == guid && x.LastName.StartsWith("J"))
                 .ToList();
 
             // Assert
-            Assert.IsTrue(result.Any() && result.All(x => x.LastName!.StartsWith("J", StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.Any() && result.All(x => x.LastName.StartsWith("J", StringComparison.OrdinalIgnoreCase)));
         }
 
         [TestMethod]
@@ -520,19 +524,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Jones", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new Person { LastName = "Jones", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName!.EndsWith("s"))
+                .Where(x => x.FirstName == guid && x.LastName.EndsWith("s"))
                 .ToList();
 
             // Assert
-            Assert.IsTrue(result.Any() && result.All(x => x.LastName!.EndsWith("s", StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.Any() && result.All(x => x.LastName.EndsWith("s", StringComparison.OrdinalIgnoreCase)));
         }
 
         [TestMethod]
@@ -543,19 +547,20 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
+                new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" },
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName!.Contains("on"))
+                .Where(x => x.FirstName == guid && x.LastName.IndexOf("on", StringComparison.OrdinalIgnoreCase) > -1)
                 .ToList();
 
             // Assert
-            Assert.IsTrue(result.Any() && result.All(x => x.LastName!.Contains("on", StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.Any() &&
+                          result.All(x => x.LastName.IndexOf("on", StringComparison.OrdinalIgnoreCase) > -1));
         }
 
         [TestMethod]
@@ -566,13 +571,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Male" }
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName!.StartsWith("ToString"))
+                .Where(x => x.FirstName == guid && x.LastName.StartsWith("ToString"))
                 .ToList();
 
             // Assert
@@ -587,14 +592,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Female" }
+                new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Female" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
             var value = Guid.NewGuid().ToString();
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == guid && x.LastName!.EndsWith(value))
+                .Where(x => x.FirstName == guid && x.LastName.EndsWith(value))
                 .ToList();
 
             // Assert
@@ -609,14 +614,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var firstGuid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = firstGuid, UniqueId = Guid.NewGuid(), Gender = "Male" }
+                new Person { LastName = "Smith", FirstName = firstGuid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
             // Act
             var secondGuid = Guid.NewGuid().ToString();
             var result = _provider.Query<Person>()
-                .Where(x => x.FirstName == firstGuid && x.LastName!.Contains(secondGuid))
+                .Where(x => x.FirstName == firstGuid && x.LastName.Contains(secondGuid))
                 .ToList();
 
             // Assert
@@ -742,7 +747,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.ThrowsException<NotSupportedException>(() =>
                     _provider.Query<Person>()
                         .Where(x => x.FirstName == guid)
-                        .Average(x => x.Birthdate!.Value.Year),
+                        .Average(x => x.Birthdate.Value.Year),
                 "Aggregate function Average does not support expression evaluation; aggregates are only supported on column selectors.");
         }
 
@@ -957,9 +962,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Guid", UniqueId = Guid.NewGuid() },
-                new() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(-25), Gender = "Guid", UniqueId = Guid.NewGuid() },
-                new() { LastName = "Doe", FirstName = guid, Birthdate = DateTime.Today.AddYears(-40), Gender = "Guid", UniqueId = Guid.NewGuid() }
+                new Person { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Guid", UniqueId = Guid.NewGuid() },
+                new Person { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(-25), Gender = "Guid", UniqueId = Guid.NewGuid() },
+                new Person { LastName = "Doe", FirstName = guid, Birthdate = DateTime.Today.AddYears(-40), Gender = "Guid", UniqueId = Guid.NewGuid() }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -987,8 +992,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-101), Gender = "Female", UniqueId = Guid.NewGuid() },
-                new() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(101), Gender = "Male", UniqueId = Guid.NewGuid() },
+                new Person { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-101), Gender = "Female", UniqueId = Guid.NewGuid() },
+                new Person { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(101), Gender = "Male", UniqueId = Guid.NewGuid() },
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -1010,8 +1015,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guid = Guid.NewGuid().ToString();
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "NullDate", FirstName = guid, Birthdate = null, Gender = "Male", UniqueId = Guid.NewGuid() },
-                new() { LastName = "HasDate", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Female", UniqueId = Guid.NewGuid() }
+                new Person { LastName = "NullDate", FirstName = guid, Birthdate = null, Gender = "Male", UniqueId = Guid.NewGuid() },
+                new Person { LastName = "HasDate", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Female", UniqueId = Guid.NewGuid() }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 
@@ -1079,10 +1084,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var guids = new List<Guid?> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
             var personsToInsert = new List<Person>
             {
-                new() { LastName = "GuidOne", FirstName = firstNameGuidString, UniqueId = guids[0], Gender = "Guid1" },
-                new() { LastName = "GuidTwo", FirstName = firstNameGuidString, UniqueId = guids[1], Gender = "Guid2" },
-                new() { LastName = "GuidThree", FirstName = firstNameGuidString, UniqueId = guids[2], Gender = "Guid3" },
-                new() { LastName = "NoMatch", FirstName = firstNameGuidString, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
+                new Person { LastName = "GuidOne", FirstName = firstNameGuidString, UniqueId = guids[0], Gender = "Guid1" },
+                new Person { LastName = "GuidTwo", FirstName = firstNameGuidString, UniqueId = guids[1], Gender = "Guid2" },
+                new Person { LastName = "GuidThree", FirstName = firstNameGuidString, UniqueId = guids[2], Gender = "Guid3" },
+                new Person { LastName = "NoMatch", FirstName = firstNameGuidString, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
             };
             personsToInsert.ForEach(p => _provider.Insert(p));
 

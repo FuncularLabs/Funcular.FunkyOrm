@@ -12,12 +12,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities
     public class PersistenceStateEntity : INotifyPropertyChanged
     {
 
-        private PropertyChangedEventHandler? _propertyChanged;
+        private PropertyChangedEventHandler _propertyChanged;
 
         /// <summary>
         /// For the caller’s use.
         /// </summary>
-        public event PropertyChangedEventHandler? PropertyChanged
+        public event PropertyChangedEventHandler PropertyChanged
         {
             add
             {

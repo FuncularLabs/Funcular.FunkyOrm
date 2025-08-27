@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -6,7 +7,17 @@ using System.Reflection;
 
 namespace Funcular.Data.Orm.Visitors
 {
-    using OrderByClause = (string ColumnName, bool IsDescending);
+    // using OrderByClause = (string ColumnName, bool IsDescending);
+
+    public class OrderByClause
+    {
+        public OrderByClause(string columnName, bool isDescending)
+        {
+            
+        }
+        public string ColumnName { get; }
+        public bool IsDescending { get; }
+    }
 
     /// <summary>
     /// Visits LINQ expressions to generate SQL ORDER BY clauses from ordering methods.
@@ -14,7 +25,7 @@ namespace Funcular.Data.Orm.Visitors
     /// <typeparam name="T">The type of entity being queried.</typeparam>
     public class OrderByClauseVisitor<T> : BaseExpressionVisitor<T> where T : class, new()
     {
-        private readonly ICollection<OrderByClause> _orderByClauses = new List<(string, bool)>();
+        private readonly ICollection<OrderByClause> _orderByClauses = new List<OrderByClause>();
 
         /// <summary>
         /// Gets the generated ORDER BY clause.
@@ -38,8 +49,8 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="columnNames">Cached column name mappings from property keys to SQL column names.</param>
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
         public OrderByClauseVisitor(
-            System.Collections.Concurrent.ConcurrentDictionary<string, string> columnNames,
-            System.Collections.Immutable.ImmutableArray<PropertyInfo> unmappedProperties)
+            ConcurrentDictionary<string, string> columnNames,
+            ICollection<PropertyInfo> unmappedProperties)
             : base(columnNames, unmappedProperties)
         {
         }
@@ -76,13 +87,13 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         private void VisitMethodCall(MethodCallExpression node)
         {
-            if (node.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
+            if (node.Method.Name == "OrderBy" || node.Method.Name == "OrderByDescending" || node.Method.Name == "ThenBy" || node.Method.Name == "ThenByDescending")
             {
                 // First, traverse to the beginning of the chain to process in correct order
                 if (node.Arguments[0] is MethodCallExpression previousCall)
                 {
                     // Only continue if the previous call is also an ordering method
-                    if (previousCall.Method.Name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
+                    if (previousCall.Method.Name == "OrderBy" || previousCall.Method.Name == "OrderByDescending" || previousCall.Method.Name == "ThenBy" || previousCall.Method.Name == "ThenByDescending")
                     {
                         Visit(previousCall);
                     }
@@ -91,7 +102,7 @@ namespace Funcular.Data.Orm.Visitors
 
                 // Then process the current method call
                 var lambda = (LambdaExpression)((UnaryExpression)node.Arguments[1]).Operand;
-                var isDescending = node.Method.Name is "OrderByDescending" or "ThenByDescending";
+                var isDescending = node.Method.Name == "OrderByDescending" || node.Method.Name == "ThenByDescending";
                 VisitOrderingExpression(lambda.Body, isDescending);
             }
             else
@@ -111,7 +122,7 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && !IsUnmappedProperty(property))
                 {
                     var columnName = GetColumnName(property);
-                    _orderByClauses.Add((columnName, isDescending));
+                    _orderByClauses.Add(new OrderByClause(columnName, isDescending));
                 }
             }
             else

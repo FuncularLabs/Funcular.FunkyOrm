@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Collections.Immutable;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Linq.Expressions;
@@ -16,7 +16,7 @@ namespace Funcular.Data.Orm.Visitors
     public abstract class BaseExpressionVisitor<T> where T : class, new()
     {
         protected readonly ConcurrentDictionary<string, string> _columnNames;
-        protected readonly ImmutableArray<PropertyInfo> _unmappedProperties;
+        protected readonly ICollection<PropertyInfo> _unmappedProperties;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BaseExpressionVisitor{T}"/> class.
@@ -25,7 +25,7 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
         protected BaseExpressionVisitor(
             ConcurrentDictionary<string, string> columnNames,
-            ImmutableArray<PropertyInfo> unmappedProperties)
+            ICollection<PropertyInfo> unmappedProperties)
         {
             _columnNames = columnNames ?? throw new ArgumentNullException(nameof(columnNames));
             _unmappedProperties = unmappedProperties;
