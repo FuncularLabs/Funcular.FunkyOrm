@@ -57,7 +57,6 @@
     <Compile Include="Domain\Objects\Person\PersonAddress.cs" />
     <Compile Include="SqlDataProviderIntegrationTests.cs" />
     <Compile Include="SqlDataProviderPerformanceTests.cs" />
-    <Compile Include="UnitTest1.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
