@@ -82,10 +82,6 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Include="Domain\Objects\Person\Person.cd" />
-    <None Include="PerformanceTests\PerformanceResults_20250825_204906728.xlsx" />
-    <None Include="PerformanceTests\PerformanceResults_20250826_114011921.xlsx" />
-    <None Include="PerformanceTests\PerformanceResults_20250826_115029261.xlsx" />
-    <None Include="PerformanceTests\PerformanceResults_20250826_175030101.xlsx" />
     <None Include="PerformanceTests\PerformanceResults_20250826_195901583.xlsx" />
     <None Include="PerformanceTests\PerformanceResults_20250826_195940085.xlsx" />
     <None Include="test.runsettings" />

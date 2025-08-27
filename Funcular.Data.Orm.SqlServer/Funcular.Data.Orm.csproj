@@ -4,7 +4,7 @@
     <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
     <Nullable>disable</Nullable>
     <Copyright>Funcular Labs, Inc.</Copyright>
-    <Description>Discover FunkyORM, a lightweight micro-ORM designed for simplicity and speed. It enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. With minimal setup required, a gentle learning curve, and blazing-fast runtime performance, it's the ideal choice for efficient database interactions.</Description>
+    <Description>Discover FunkyORM, a lightweight micro-ORM designed for simplicity and speed. It enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. With minimal setup required, a gentle learning curve, and blazing-fast runtime performance. Supports .NET 8 and .NET Standard 2.0.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -13,10 +13,10 @@
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
     <PackageIcon>funcular-logo-angle-brackets-dark.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>0.9.1-beta.2</Version>
-    <AssemblyVersion>0.9.1</AssemblyVersion>
-    <FileVersion>0.9.1</FileVersion>
-    <InformationalVersion>0.9.1-beta.2</InformationalVersion>
+    <Version>0.9.2</Version>
+    <AssemblyVersion>0.9.2</AssemblyVersion>
+    <FileVersion>0.9.2</FileVersion>
+    <InformationalVersion>0.9.2</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
