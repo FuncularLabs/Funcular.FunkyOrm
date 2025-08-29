@@ -109,8 +109,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 catch (SqlException ex)
                 {
                     throw new InvalidOperationException(
-                        "Connection failed. Ensure funky_db exists and configure FUNKY_CONNECTION environment variable if not using localhost.\r\n\r\n" +
-                        ex);
+                        $"Connection failed. Ensure funky_db exists and configure FUNKY_CONNECTION environment variable if not using localhost.\r\n\r\n{ex}");
                 }
             }
         }

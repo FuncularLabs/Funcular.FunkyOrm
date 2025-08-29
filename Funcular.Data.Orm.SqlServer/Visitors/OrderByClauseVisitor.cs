@@ -31,7 +31,8 @@ namespace Funcular.Data.Orm.Visitors
                 if (!_orderByClauses.Any())
                     return string.Empty;
 
-                var clause = "ORDER BY " + string.Join(", ", _orderByClauses.Select(c => $"{c.ColumnName} {(c.IsDescending ? "DESC" : "ASC")}"));
+                var clause =
+                    $"ORDER BY {string.Join(", ", _orderByClauses.Select(c => $"{c.ColumnName} {(c.IsDescending ? "DESC" : "ASC")}"))}";
                 Console.WriteLine($"Generated ORDER BY clause: {clause}");
                 return clause;
             }

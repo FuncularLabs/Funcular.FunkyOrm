@@ -14,8 +14,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         private string _connectionString;
         public required SqlServerOrmDataProvider _provider;
         private readonly StringBuilder _sb = new();
-        private static ExcelPackage? _workbook;
-        private static ExcelWorksheet? _worksheet;
+        private static ExcelPackage _workbook;
+        private static ExcelWorksheet _worksheet;
         private static int _excelRow = 2;
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
@@ -105,8 +105,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 catch (SqlException ex)
                 {
                     throw new InvalidOperationException(
-                        "Connection failed. Ensure funky_db exists and configure FUNKY_CONNECTION environment variable if not using localhost.\r\n\r\n" +
-                        ex);
+                        $"Connection failed. Ensure funky_db exists and configure FUNKY_CONNECTION environment variable if not using localhost.\r\n\r\n{ex}");
                 }
             }
         }

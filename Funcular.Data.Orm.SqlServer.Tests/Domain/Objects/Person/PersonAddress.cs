@@ -13,14 +13,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person
 		/// Can be null, required.
 		/// </summary>
 		[NotMapped]
-		public Person? Person { get; set; }
+		public Person Person { get; set; }
 
 		/// <summary>
 		/// Gets or sets the address object.
 		/// Can be null, required.
 		/// </summary>
 		[NotMapped]
-		public Address.Address? Address { get; set; }
+		public Address.Address Address { get; set; }
 
 		#endregion
 	}
