@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer
@@ -96,5 +97,30 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <param name="name">Optional name to match when committing.</param>
         void CommitTransaction(string name = "");
+
+        /// <summary>
+        /// Asynchronously retrieves a single entity of type <typeparamref name="T"/> by the provided key or, if key is null, executes a select that may return the first matching row.
+        /// </summary>
+        Task<T> GetAsync<T>(dynamic key = null) where T : class, new();
+
+        /// <summary>
+        /// Asynchronously executes a query generated from a LINQ expression and returns the matching entities.
+        /// </summary>
+        Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression) where T : class, new();
+
+        /// <summary>
+        /// Asynchronously retrieves all rows for the specified entity type.
+        /// </summary>
+        Task<ICollection<T>> GetListAsync<T>() where T : class, new();
+
+        /// <summary>
+        /// Asynchronously inserts the provided entity into the database and returns the generated primary key.
+        /// </summary>
+        Task<long> InsertAsync<T>(T entity) where T : class, new();
+
+        /// <summary>
+        /// Asynchronously updates the specified entity in the database.
+        /// </summary>
+        Task<T> UpdateAsync<T>(T entity) where T : class, new();
     }
 }

@@ -4,7 +4,10 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
+#if NETSTANDARD20
 using System.Data.Common;
+#endif
+using System.Threading.Tasks;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -126,6 +129,178 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         #endregion
+
+        #region  Public Async Methods
+
+        /// <summary>
+        /// Asynchronously retrieves a single entity of type <typeparamref name="T"/> by the provided key or, if key is null, executes a select that may return the first matching row.
+        /// </summary>
+        public async Task<T> GetAsync<T>(dynamic key = null) where T : class, new()
+        {
+            DiscoverColumns<T>();
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var commandText = CreateGetOneOrSelectCommandText<T>(key);
+
+                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection))
+                {
+                    return await ExecuteReaderSingleAsync<T>(command).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Asynchronously executes a query generated from a LINQ expression and returns the matching entities.
+        /// </summary>
+        public async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression) where T : class, new()
+        {
+            DiscoverColumns<T>();
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var elements = CreateSelectQueryObject(expression);
+
+                var commandText = elements.SelectClause;
+                if (!string.IsNullOrEmpty(elements.WhereClause))
+                    commandText += $"\r\nWHERE {elements.WhereClause}";
+                if (!string.IsNullOrEmpty(elements.OrderByClause))
+                    commandText += $"\r\n{elements.OrderByClause}";
+
+                using (var command =
+                             BuildSqlCommandObject(commandText, connectionScope.Connection, elements.SqlParameters))
+                {
+                    return await ExecuteReaderListAsync<T>(command).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Asynchronously retrieves all rows for the specified entity type.
+        /// </summary>
+        public async Task<ICollection<T>> GetListAsync<T>() where T : class, new()
+        {
+            DiscoverColumns<T>();
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                using (var command =
+                             BuildSqlCommandObject(CreateGetOneOrSelectCommandText<T>(), connectionScope.Connection))
+                {
+                    return await ExecuteReaderListAsync<T>(command).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Asynchronously inserts the provided entity into the database and returns the generated primary key.
+        /// </summary>
+        public async Task<long> InsertAsync<T>(T entity) where T : class, new()
+        {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+
+            DiscoverColumns<T>();
+            var primaryKey = GetCachedPrimaryKey<T>();
+            ValidateInsertPrimaryKey(entity, primaryKey);
+
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var insertCommand = BuildInsertCommandObject(entity, primaryKey);
+                using (var command = BuildSqlCommandObject(insertCommand.CommandText, connectionScope.Connection,
+                                 insertCommand.Parameters))
+                {
+                    var insertedId = await ExecuteInsertAsync(command, entity, primaryKey).ConfigureAwait(false);
+                    return insertedId;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Asynchronously updates the specified entity in the database.
+        /// </summary>
+        public async Task<T> UpdateAsync<T>(T entity) where T : class, new()
+        {
+            DiscoverColumns<T>();
+            var primaryKey = GetCachedPrimaryKey<T>();
+            ValidateUpdatePrimaryKey(entity, primaryKey);
+
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var existingEntity = await GetAsync<T>((dynamic)primaryKey.GetValue(entity)).ConfigureAwait(false);
+                if (existingEntity == null)
+                    throw new InvalidOperationException("Entity does not exist in database.");
+
+                UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
+                if (updateCommand.Parameters.Any())
+                {
+                    using (var command = BuildSqlCommandObject(updateCommand.CommandText, connectionScope.Connection,
+                                     updateCommand.Parameters))
+                    {
+                        await ExecuteUpdateAsync(command).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    Log?.Invoke($"No update needed for {typeof(T).Name} with id {primaryKey.GetValue(entity)}.");
+                }
+
+                return entity;
+            }
+        }
+        #endregion
+        // --- Async Execution Helpers ---
+
+        #region Protected Async Execution Helpers
+
+        protected internal async Task<T> ExecuteReaderSingleAsync<T>(SqlCommand command) where T : class, new()
+        {
+            InvokeLogAction(command);
+            using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+            {
+                return await reader.ReadAsync().ConfigureAwait(false) ? MapEntity<T>(reader) : null;
+            }
+        }
+
+        protected internal async Task<ICollection<T>> ExecuteReaderListAsync<T>(SqlCommand command) where T : class, new()
+        {
+            InvokeLogAction(command);
+            var results = new List<T>();
+            using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+            {
+                while (await reader.ReadAsync().ConfigureAwait(false))
+                {
+                    results.Add(MapEntity<T>(reader));
+                }
+                return results;
+            }
+        }
+
+        protected internal async Task<long> ExecuteInsertAsync<T>(SqlCommand command, T entity, PropertyInfo primaryKey)
+            where T : class, new()
+        {
+            InvokeLogAction(command);
+            var executeScalar = await command.ExecuteScalarAsync().ConfigureAwait(false);
+            if (executeScalar != null)
+            {
+                var result = Convert.ToInt64(executeScalar);
+                if (result != 0)
+                    if (primaryKey.PropertyType == typeof(int))
+                        primaryKey.SetValue(entity, (int)result);
+                    else
+                        primaryKey.SetValue(entity, result);
+                return result;
+            }
+            throw new InvalidOperationException("Insert failed: No ID returned.");
+        }
+
+        protected internal async Task ExecuteUpdateAsync(SqlCommand command)
+        {
+            InvokeLogAction(command);
+            var rowsAffected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+            if (rowsAffected == 0)
+                throw new InvalidOperationException("Update failed: No rows affected.");
+        }
+
+        #endregion
+
 
         #region Public Methods - CRUD Operations
 
@@ -654,9 +829,9 @@ namespace Funcular.Data.Orm.SqlServer
             return entity;
         }
 
-#endregion
+        #endregion
 
-        #region Private Methods - Insert/Update Helpers
+        #region Protected Methods - Insert/Update Helpers
 
         /// <summary>
         /// Builds an INSERT statement and the corresponding parameter list for the provided entity.

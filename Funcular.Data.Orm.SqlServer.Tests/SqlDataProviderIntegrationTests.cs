@@ -11,9 +11,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     [TestClass]
     public class SqlDataProviderIntegrationTests
     {
-        private string _connectionString;
+        protected string _connectionString;
         public required SqlServerOrmDataProvider _provider;
-        private StringBuilder _sb = new();
+        protected readonly StringBuilder _sb = new();
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {

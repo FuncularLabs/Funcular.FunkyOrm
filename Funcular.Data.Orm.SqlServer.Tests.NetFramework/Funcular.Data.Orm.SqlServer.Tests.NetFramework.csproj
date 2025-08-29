@@ -21,6 +21,7 @@
     </NuGetPackageImportStamp>
   </PropertyGroup>
   <PropertyGroup>
+    <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
@@ -55,6 +56,7 @@
     <Compile Include="Domain\Objects\Address\Address.cs" />
     <Compile Include="Domain\Objects\Person\Person.cs" />
     <Compile Include="Domain\Objects\Person\PersonAddress.cs" />
+    <Compile Include="SqlDataProviderIntegrationAsyncTests.cs" />
     <Compile Include="SqlDataProviderIntegrationTests.cs" />
     <Compile Include="SqlDataProviderPerformanceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

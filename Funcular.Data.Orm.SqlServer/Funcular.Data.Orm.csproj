@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>net8.0;netstandard2.0;net48</TargetFrameworks>
     <Nullable>disable</Nullable>
+    <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
     <Copyright>Funcular Labs, Inc.</Copyright>
     <Description>Discover FunkyORM, a lightweight micro-ORM designed for simplicity and speed. It enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Supports .NET 8 and .NET Standard 2.0.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
