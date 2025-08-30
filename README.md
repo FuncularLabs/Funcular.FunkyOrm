@@ -118,6 +118,15 @@ var nullBirthdatePersons = provider.Query<Person>()
     .ToList();
 ```
 
+Handle deletes (must be in a transaction).
+```csharp
+provider.BeginTransaction();
+// returns the number of rows deleted:
+int deleted = _provider.Delete<Person>(x => x.Id == 123);
+provider.RollbackTransaction();
+// or provider.CommitTransaction();
+```
+
 ### String Operations in Queries
 
 Support for `StartsWith`, `EndsWith`, and `Contains` on string properties.
@@ -345,8 +354,8 @@ FunkyORM is designed to be a near-drop-in replacement for Entity Framework that 
   - Key
   - NotMapped
   - DatabaseGenerated
+- DELETE commands\* (Note: deletes can only be performed within a transaction, and they require a valid WHERE clause.)
 ## What It Does Not Do
-- DELETE commands (see note below)
 - Bulk inserts
 - Joins / relationships / foreign-keys / descendants
 - Execute query criteria that don't translate to SQL (see the supported operators above)
@@ -357,7 +366,7 @@ Funky is made for developers who don't want a bunch of ceremony, and who prefer 
 
 We made FunkyORM to use ourselves, and we enjoy using it. We hope you do too!
 
-Note: As a user, you won’t be able to delete data through FunkyORM right now. This limitation is intentional to protect your data while we refine the tool. If you need to perform deletions, you’ll need to use an alternative approach outside the ORM, like direct database queries. We encourage you to share your feedback on how this impacts your workflow—it’ll help us prioritize adding DELETE support in future releases.
+
 
 # Quickstart
 The easiest way to get started with FunkyORM is to execute the provided scripts to create and populate the integration test database ([funky_db]). Everything needed to do this is provided in the solution. The test project already contains entities and business objects to demonstrate the basic features of Funky. 

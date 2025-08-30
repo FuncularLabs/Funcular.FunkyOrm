@@ -73,6 +73,15 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         internal static readonly HashSet<Type> _mappedTypes = new HashSet<Type> { };
 
+        /// <summary>
+        /// Represents a thread-safe collection of entity mappers, where each mapper is identified by a unique string key.    
+        /// </summary>
+        /// <remarks>This dictionary is used to store and retrieve delegates that map entities to specific
+        /// types or formats. It ensures thread-safe access and updates, making it suitable for concurrent
+        /// operations.</remarks>
+        internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
+
+
         #endregion
 
         #region Properties
@@ -245,6 +254,35 @@ namespace Funcular.Data.Orm.SqlServer
                 return entity;
             }
         }
+
+        public async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) where T : class, new()
+        {
+            if (Transaction == null)
+                throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            if (predicate == null)
+                throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+
+            var components = GenerateWhereClause(predicate);
+            // Defensive: block trivial or parameter-only WHERE clauses
+            if (string.IsNullOrWhiteSpace(components.WhereClause) ||
+                components.WhereClause.Trim().Equals("@p__linq__0", StringComparison.OrdinalIgnoreCase) ||
+                components.WhereClause.Trim().Equals("1=1", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
+
+            var tableName = GetTableName<T>();
+            var commandText = $"DELETE FROM {tableName} WHERE {components.WhereClause}";
+
+            using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
+            {
+                InvokeLogAction(command);
+                var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                if (affected == 0)
+                    Log?.Invoke($"Delete affected zero rows for {typeof(T).Name}.");
+                return affected;
+            }
+        }
+
         #endregion
         // --- Async Execution Helpers ---
 
@@ -446,6 +484,43 @@ namespace Funcular.Data.Orm.SqlServer
             return CreateQueryable<T>(selectCommand);
         }
 
+        /// <summary>
+        /// Deletes entities of type <typeparamref name="T"/> matching the given predicate.
+        /// Requires a valid WHERE clause and an active transaction.
+        /// Throws if either condition is not met.
+        /// </summary>
+        /// <typeparam name="T">Entity type.</typeparam>
+        /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
+        /// <returns>The number of rows deleted.</returns>
+        public int Delete<T>(Expression<Func<T, bool>> predicate) where T : class, new()
+        {
+            if (Transaction == null)
+                throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            if (predicate == null)
+                throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+
+            var components = GenerateWhereClause(predicate);
+
+            // Defensive: block trivial or parameter-only WHERE clauses
+            if (string.IsNullOrWhiteSpace(components.WhereClause) ||
+                components.WhereClause.Trim().Equals("@p__linq__0", StringComparison.OrdinalIgnoreCase) ||
+                components.WhereClause.Trim().Equals("1=1", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
+
+            var tableName = GetTableName<T>();
+            var commandText = $"DELETE FROM {tableName} WHERE {components.WhereClause}";
+
+            using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
+            {
+                InvokeLogAction(command);
+                var affected = command.ExecuteNonQuery();
+                if (affected == 0)
+                    Log?.Invoke($"Delete affected zero rows for {typeof(T).Name}.");
+                return affected;
+            }
+        }
+
         #endregion
 
         #region Public Methods - Transaction Management
@@ -494,16 +569,6 @@ namespace Funcular.Data.Orm.SqlServer
         #endregion
 
         #region Public Methods - Utility
-
-        /*public static void ClearMappings()
-        {
-            _tableNames.Clear();
-            ColumnNames.Clear();
-            _primaryKeys.Clear();
-            _propertiesCache.Clear();
-            _unmappedPropertiesCache.Clear();
-            _columnOrdinalsCache.Clear();
-        }*/
 
         /// <summary>
         /// Disposes the provider, closing and disposing the underlying connection and transaction.
@@ -798,35 +863,160 @@ namespace Funcular.Data.Orm.SqlServer
 
 
         /// <summary>
-        /// Maps the current row of the provided <see cref="SqlDataReader"/> to an instance of <typeparamref name="T"/>.
-        /// Uses cached ordinals and conversion to handle nullable and value types correctly.
+        /// Generates a schema signature for the current result set of the provided <see cref="SqlDataReader"/>.
         /// </summary>
-        /// <typeparam name="T">The entity type to map.</typeparam>
-        /// <param name="reader">An active <see cref="SqlDataReader"/> positioned at a valid row.</param>
-        /// <returns>An instantiated and populated <typeparamref name="T"/> instance.</returns>
+        /// <remarks>The schema signature is useful for identifying the structure of a result set,
+        /// including column names and their corresponding data types. This method assumes that the <paramref
+        /// name="reader"/> is positioned on a valid result set.</remarks>
+        /// <param name="reader">The <see cref="SqlDataReader"/> from which to generate the schema signature. Must not be <see
+        /// langword="null"/>.</param>
+        /// <returns>A string representing the schema of the result set, where each column is represented as
+        /// "<c>ColumnName:FullyQualifiedTypeName</c>", and columns are separated by a pipe ("|") character.</returns>
+        private static string GetSchemaSignature(SqlDataReader reader)
+        {
+            var cols = new List<string>();
+            for (int i = 0; i < reader.FieldCount; i++)
+                cols.Add($"{reader.GetName(i)}:{reader.GetFieldType(i)?.FullName}");
+            return string.Join("|", cols);
+        }
+
+        /// <summary>
+        /// Maps the current row of a <see cref="SqlDataReader"/> to an instance of the specified entity type.
+        /// </summary>
+        /// <remarks>This method uses a cached mapping function to optimize repeated mappings for the same
+        /// entity type and schema. The mapping function is generated based on the schema of the <see
+        /// cref="SqlDataReader"/> at runtime.</remarks>
+        /// <typeparam name="T">The type of the entity to map to. Must be a reference type with a parameterless constructor.</typeparam>
+        /// <param name="reader">The <see cref="SqlDataReader"/> containing the data to map. The reader must be positioned on a valid row.</param>
+        /// <returns>An instance of the specified entity type <typeparamref name="T"/> populated with data from the current row
+        /// of the reader.</returns>
         protected T MapEntity<T>(SqlDataReader reader) where T : class, new()
+        {
+            // Use both type and schema signature as cache key
+            string schemaKey = typeof(T).FullName + "|" + GetSchemaSignature(reader);
+
+            var mapper = (Func<SqlDataReader, T>)_entityMappers.GetOrAdd(schemaKey, _ =>
+                BuildDataReaderMapper<T>(reader)
+            );
+            return mapper(reader);
+        }
+
+        /// <summary>
+        /// Builds a function that maps a <see cref="SqlDataReader"/> to an instance of the specified type <typeparamref
+        /// name="T"/>.
+        /// </summary>
+        /// <remarks>The mapping function dynamically matches the columns in the <see
+        /// cref="SqlDataReader"/> to the properties of  the specified type <typeparamref name="T"/> based on their
+        /// names. Properties that do not have a corresponding  column in the data reader or are explicitly marked as
+        /// unmapped are ignored. <para> The method supports common data types such as <see cref="int"/>, <see
+        /// cref="string"/>, <see cref="bool"/>,  <see cref="DateTime"/>, and others. For unsupported types, the method
+        /// falls back to using  <see cref="Convert.ChangeType(object, Type)"/> to convert the value. </para> <para>
+        /// Nullable properties are handled appropriately, and columns with <see cref="DBNull"/> values are skipped 
+        /// during assignment. </para></remarks>
+        /// <typeparam name="T">The type of the object to map to. Must be a reference type with a parameterless constructor.</typeparam>
+        /// <param name="reader">The <see cref="SqlDataReader"/> instance used to determine column mappings.</param>
+        /// <returns>A function that takes a <see cref="SqlDataReader"/> and returns an instance of <typeparamref name="T"/> 
+        /// with its properties populated from the corresponding columns in the data reader.</returns>
+        private Func<SqlDataReader, T> BuildDataReaderMapper<T>(SqlDataReader reader) where T : class, new()
         {
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
             var unmappedProperties = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
-            var columnOrdinals = _columnOrdinalsCache.GetOrAdd(typeof(T), t => GetColumnOrdinals(t, reader));
-            var entity = new T();
+            var columnOrdinals = GetColumnOrdinals(typeof(T), reader);
+
+            var readerParam = Expression.Parameter(typeof(SqlDataReader), "r");
+            var entityVar = Expression.Variable(typeof(T), "entity");
+            var expressions = new List<Expression>
+    {
+        Expression.Assign(entityVar, Expression.New(typeof(T)))
+    };
+
             foreach (var property in properties)
             {
                 if (unmappedProperties.Any(p => p.Name == property.Name)) continue;
 
                 var columnName = GetCachedColumnName(property);
-                if (columnOrdinals.TryGetValue(columnName, out int ordinal))
+                if (!columnOrdinals.TryGetValue(columnName, out int ordinal)) continue;
+
+                var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+
+                // r.IsDBNull(ordinal)
+                var isDbNullCall = Expression.Call(
+                    readerParam,
+                    typeof(SqlDataReader).GetMethod("IsDBNull"),
+                    Expression.Constant(ordinal)
+                );
+
+                // Typed getter selection
+                MethodInfo getter = null;
+                if (propertyType == typeof(int))
+                    getter = typeof(SqlDataReader).GetMethod("GetInt32");
+                else if (propertyType == typeof(long))
+                    getter = typeof(SqlDataReader).GetMethod("GetInt64");
+                else if (propertyType == typeof(string))
+                    getter = typeof(SqlDataReader).GetMethod("GetString");
+                else if (propertyType == typeof(bool))
+                    getter = typeof(SqlDataReader).GetMethod("GetBoolean");
+                else if (propertyType == typeof(DateTime))
+                    getter = typeof(SqlDataReader).GetMethod("GetDateTime");
+                else if (propertyType == typeof(Guid))
+                    getter = typeof(SqlDataReader).GetMethod("GetGuid");
+                else if (propertyType == typeof(decimal))
+                    getter = typeof(SqlDataReader).GetMethod("GetDecimal");
+                else if (propertyType == typeof(double))
+                    getter = typeof(SqlDataReader).GetMethod("GetDouble");
+                else if (propertyType == typeof(float))
+                    getter = typeof(SqlDataReader).GetMethod("GetFloat");
+                // Add more types as needed
+
+                Expression valueExpr;
+                if (getter != null)
                 {
-                    var value = reader[ordinal];
-                    if (value != DBNull.Value)
-                    {
-                        var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-                        property.SetValue(entity, Convert.ChangeType(value, propertyType));
-                    }
+                    valueExpr = Expression.Call(readerParam, getter, Expression.Constant(ordinal));
                 }
+                else
+                {
+                    // Fallback to GetValue + Convert.ChangeType
+                    var getValueCall = Expression.Call(readerParam, typeof(SqlDataReader).GetMethod("GetValue"), Expression.Constant(ordinal));
+                    var convertCall = Expression.Call(
+                        typeof(Convert).GetMethod("ChangeType", new[] { typeof(object), typeof(Type) }),
+                        getValueCall,
+                        Expression.Constant(propertyType, typeof(Type))
+                    );
+                    valueExpr = Expression.Convert(convertCall, propertyType);
+                }
+
+                // If property is Nullable<T>, wrap value
+                Expression assignExpr;
+                if (property.PropertyType != propertyType)
+                {
+                    var nullableCtor = property.PropertyType.GetConstructor(new[] { propertyType });
+                    assignExpr = Expression.New(nullableCtor, valueExpr);
+                }
+                else
+                {
+                    assignExpr = valueExpr;
+                }
+
+                // entity.Property = valueExpr
+                var propertyAssign = Expression.Assign(
+                    Expression.Property(entityVar, property),
+                    assignExpr
+                );
+
+                // if (!IsDbNull) assign
+                var conditionalAssign = Expression.IfThen(
+                    Expression.IsFalse(isDbNullCall),
+                    propertyAssign
+                );
+
+                expressions.Add(conditionalAssign);
             }
 
-            return entity;
+            expressions.Add(entityVar);
+
+            var body = Expression.Block(new[] { entityVar }, expressions);
+            var lambda = Expression.Lambda<Func<SqlDataReader, T>>(body, readerParam);
+            return lambda.Compile();
         }
 
         #endregion

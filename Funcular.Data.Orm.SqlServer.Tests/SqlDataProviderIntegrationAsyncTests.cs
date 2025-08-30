@@ -282,5 +282,78 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("Zimmerman", ordered[0].LastName);
             Assert.AreEqual("Adams", ordered[1].LastName);
         }
+
+        [TestMethod]
+        public async Task DeleteAsync_WithValidWhereClauseAndTransaction_DeletesEntity()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = await InsertTestPersonAsync(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var deleted = await _provider.DeleteAsync<Person>(x => x.Id == personId);
+            _provider.CommitTransaction();
+
+            Assert.AreEqual(1, deleted);
+            var person = await _provider.GetAsync<Person>(personId);
+            Assert.IsNull(person);
+        }
+
+        [TestMethod]
+        public async Task DeleteAsync_WithoutTransaction_ThrowsException()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = await InsertTestPersonAsync(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () =>
+                await _provider.DeleteAsync<Person>(x => x.Id == personId)
+            );
+            // Cleanup
+            _provider.BeginTransaction();
+            await _provider.DeleteAsync<Person>(x => x.Id == personId);
+            _provider.CommitTransaction();
+        }
+
+        [TestMethod]
+        public async Task DeleteAsync_WithoutWhereClause_ThrowsException()
+        {
+            OutputTestMethodName();
+            _provider.BeginTransaction();
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () =>
+                await _provider.DeleteAsync<Person>(null)
+            );
+            _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public async Task DeleteAsync_WithEmptyWhereClause_ThrowsException()
+        {
+            OutputTestMethodName();
+            _provider.BeginTransaction();
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () =>
+                await _provider.DeleteAsync<Person>(x => true)
+            );
+            _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public async Task DeleteAsync_DoesNotAffectOtherEntities()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId1 = await InsertTestPersonAsync(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var personId2 = await InsertTestPersonAsync(guid, "B", guid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var deleted = await _provider.DeleteAsync<Person>(x => x.Id == personId1);
+            _provider.CommitTransaction();
+
+            Assert.AreEqual(1, deleted);
+            var person1 = await _provider.GetAsync<Person>(personId1);
+            var person2 = await _provider.GetAsync<Person>(personId2);
+            Assert.IsNull(person1);
+            Assert.IsNotNull(person2);
+        }
     }
 }

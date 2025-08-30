@@ -122,5 +122,25 @@ namespace Funcular.Data.Orm.SqlServer
         /// Asynchronously updates the specified entity in the database.
         /// </summary>
         Task<T> UpdateAsync<T>(T entity) where T : class, new();
+
+        /// <summary>
+        /// Asynchronously deletes entities of type <typeparamref name="T"/> matching the given predicate.
+        /// Requires a valid WHERE clause and an active transaction.
+        /// Throws if either condition is not met.
+        /// </summary>
+        /// <typeparam name="T">Entity type.</typeparam>
+        /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
+        /// <returns>The number of rows deleted.</returns>
+        Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) where T : class, new();
+
+        /// <summary>
+        /// Deletes entities of type <typeparamref name="T"/> matching the given predicate.
+        /// Requires a valid WHERE clause and an active transaction.
+        /// Throws if either condition is not met.
+        /// </summary>
+        /// <typeparam name="T">Entity type.</typeparam>
+        /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
+        /// <returns>The number of rows deleted.</returns>
+        int Delete<T>(Expression<Func<T, bool>> predicate) where T : class, new();
     }
 }

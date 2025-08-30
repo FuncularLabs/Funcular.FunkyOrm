@@ -950,6 +950,82 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             Assert.IsNotNull(committedLink);
         }
 
+        [TestMethod]
+        public void Delete_WithValidWhereClauseAndTransaction_DeletesEntity()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var deleted = _provider.Delete<Person>(x => x.Id == personId);
+            _provider.CommitTransaction();
+
+            Assert.AreEqual(1, deleted);
+            var person = _provider.Get<Person>(personId);
+            Assert.IsNull(person);
+        }
+
+        [TestMethod]
+        public void Delete_WithoutTransaction_ThrowsException()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            var ex = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(x => x.Id == personId)
+            );
+            StringAssert.Contains(ex.Message, "transaction");
+            // Cleanup
+            _provider.BeginTransaction();
+            _provider.Delete<Person>(x => x.Id == personId);
+            _provider.CommitTransaction();
+        }
+
+        [TestMethod]
+        public void Delete_WithoutWhereClause_ThrowsException()
+        {
+            OutputTestMethodName();
+            _provider.BeginTransaction();
+            var ex = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(null)
+            );
+            StringAssert.Contains(ex.Message, "WHERE clause");
+            _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public void Delete_WithEmptyWhereClause_ThrowsException()
+        {
+            OutputTestMethodName();
+            _provider.BeginTransaction();
+            var ex = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(x => true)
+            );
+            StringAssert.Contains(ex.Message, "non-empty, valid WHERE clause");
+            _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public void Delete_DoesNotAffectOtherEntities()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId1 = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var personId2 = InsertTestPerson(guid, "B", guid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var deleted = _provider.Delete<Person>(x => x.Id == personId1);
+            _provider.CommitTransaction();
+
+            Assert.AreEqual(1, deleted);
+            var person1 = _provider.Get<Person>(personId1);
+            var person2 = _provider.Get<Person>(personId2);
+            Assert.IsNull(person1);
+            Assert.IsNotNull(person2);
+        }
+
         #region DateTime Tests
 
         [TestMethod]
