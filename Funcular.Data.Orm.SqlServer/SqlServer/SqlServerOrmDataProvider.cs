@@ -896,34 +896,6 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Simple DTO used by the provider to represent an UPDATE command and its parameters.
-        /// This is the nested variant used to clearly scope the type to the provider.
-        /// </summary>
-        public class UpdateCommand
-        {
-            /// <summary>
-            /// The SQL update command text.
-            /// </summary>
-            public string CommandText;
-
-            /// <summary>
-            /// The list of <see cref="SqlParameter"/> instances required by the command.
-            /// </summary>
-            public List<SqlParameter> Parameters = new List<SqlParameter>();
-
-            /// <summary>
-            /// Initializes a new instance of the nested <see cref="UpdateCommand"/> type.
-            /// </summary>
-            /// <param name="command">The SQL command text.</param>
-            /// <param name="parameters">The parameters to attach to the command.</param>
-            public UpdateCommand(string command, List<SqlParameter> parameters)
-            {
-                CommandText = command;
-                Parameters = parameters;
-            }
-        }
-
-        /// <summary>
         /// Builds an UPDATE statement for the specified entity by comparing it to the existing persisted instance.
         /// Only properties whose values have changed are included in the SET clause.
         /// </summary>
@@ -1085,27 +1057,40 @@ namespace Funcular.Data.Orm.SqlServer
         #region Nested Types
 
         /// <summary>
+        /// Simple DTO used by the provider to represent an UPDATE command and its parameters.
+        /// This is the nested variant used to clearly scope the type to the provider.
+        /// </summary>
+        public class UpdateCommand
+        {
+            /// <summary>
+            /// Initializes a new instance of the nested <see cref="command"/> type.
+            /// </summary>
+            /// <param name="parameters">The SQL command text.</param>
+            /// <param name="command">The parameters to attach to the command.</param>
+            public UpdateCommand(string command, List<SqlParameter> parameters)
+            {
+                CommandText = command;
+                Parameters = parameters;
+            }
+
+            /// <summary>
+            /// The SQL update command text.
+            /// </summary>
+            public string CommandText;
+
+            /// <summary>
+            /// The list of <see cref="SqlParameter"/> instances required by the command.
+            /// </summary>
+            public List<SqlParameter> Parameters = new List<SqlParameter>();
+        }
+
+        /// <summary>
         /// Helper type that manages a connection scope for a single operation.
         /// If the provider did not have a connection when the scope was created, the scope
         /// will dispose the created connection on Dispose (unless a transaction is active).
         /// </summary>
         internal class ConnectionScope : IDisposable
         {
-            /// <summary>
-            /// The provider that owns the connection used by this scope.
-            /// </summary>
-            protected internal readonly SqlServerOrmDataProvider _provider;
-
-            /// <summary>
-            /// True when the scope created the connection (provider.Connection was null at construction).
-            /// </summary>
-            protected internal readonly bool _createdConnection;
-
-            /// <summary>
-            /// Gets the active connection for the scope. Ensures the connection is open via the provider.
-            /// </summary>
-            public SqlConnection Connection => _provider.GetConnection();
-
             /// <summary>
             /// Initializes a new instance of the <see cref="ConnectionScope"/> class.
             /// </summary>
@@ -1115,6 +1100,21 @@ namespace Funcular.Data.Orm.SqlServer
                 _provider = provider;
                 _createdConnection = provider.Connection == null;
             }
+
+            /// <summary>
+            /// Gets the active connection for the scope. Ensures the connection is open via the provider.
+            /// </summary>
+            public SqlConnection Connection => _provider.GetConnection();
+
+            /// <summary>
+            /// The provider that owns the connection used by this scope.
+            /// </summary>
+            protected internal readonly SqlServerOrmDataProvider _provider;
+
+            /// <summary>
+            /// True when the scope created the connection (provider.Connection was null at construction).
+            /// </summary>
+            protected internal readonly bool _createdConnection;
 
             /// <summary>
             /// Disposes the scope, disposing the underlying connection if the scope created it and there is no active transaction.
