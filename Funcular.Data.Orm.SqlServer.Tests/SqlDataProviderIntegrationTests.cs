@@ -244,7 +244,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
             InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "C", "Adams", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "C", "AdAMS", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
@@ -275,7 +275,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
             InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "C", "Adams", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "C", "AdAMS", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
@@ -999,7 +999,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var ex = Assert.ThrowsException<InvalidOperationException>(() =>
                 _provider.Delete<Person>(x => true)
             );
-            StringAssert.Contains(ex.Message, "non-empty, valid WHERE clause");
+            StringAssert.Contains(ex.Message, "WHERE clause");
             _provider.RollbackTransaction();
         }
 
@@ -1020,6 +1020,87 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var person2 = _provider.Get<Person>(personId2);
             Assert.IsNull(person1);
             Assert.IsNotNull(person2);
+        }
+
+        [TestMethod]
+        public void Delete_TrivialWhereClause_ThrowsException()
+        {
+            OutputTestMethodName();
+            _provider.BeginTransaction();
+            // Trivial: x => true
+            var ex1 = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(x => true));
+            StringAssert.Contains(ex1.Message, "Delete operation WHERE clause must reference at least one column");
+
+            // Trivial: 1 < 2
+            var ex2 = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(x => 1 < 2));
+            StringAssert.Contains(ex2.Message, "Delete operation WHERE clause must reference at least one column");
+
+            // Trivial: self-referencing column
+            var ex3 = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(x => x.FirstName == x.FirstName));
+            StringAssert.Contains(ex3.Message, "self-referencing column expression");
+
+            _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public void Delete_WhereClauseWithoutTableColumn_ThrowsException()
+        {
+            OutputTestMethodName();
+            _provider.BeginTransaction();
+            // WHERE clause does not reference any table column
+            var ex = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(x => "abc" == "abc"));
+            StringAssert.Contains(ex.Message, "must reference at least one column");
+            _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public void Delete_ById_DeletesEntityAndReturnsTrue()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var result = _provider.Delete<Person>(personId);
+            _provider.CommitTransaction();
+
+            Assert.IsTrue(result, "Delete should return true for existing entity.");
+            var deletedPerson = _provider.Get<Person>(personId);
+            Assert.IsNull(deletedPerson, "Deleted entity should not be found.");
+        }
+
+        [TestMethod]
+        public void Delete_ById_ReturnsFalseForNonExistentEntity()
+        {
+            OutputTestMethodName();
+            var nonExistentId = -999999;
+
+            _provider.BeginTransaction();
+            var result = _provider.Delete<Person>(nonExistentId);
+            _provider.CommitTransaction();
+
+            Assert.IsFalse(result, "Delete should return false for non-existent entity.");
+        }
+
+        [TestMethod]
+        public void Delete_ById_ThrowsIfNoTransaction()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            var ex = Assert.ThrowsException<InvalidOperationException>(() =>
+                _provider.Delete<Person>(personId));
+            StringAssert.Contains(ex.Message, "transaction");
+
+            // Cleanup
+            _provider.BeginTransaction();
+            _provider.Delete<Person>(personId);
+            _provider.CommitTransaction();
         }
 
         #region DateTime Tests

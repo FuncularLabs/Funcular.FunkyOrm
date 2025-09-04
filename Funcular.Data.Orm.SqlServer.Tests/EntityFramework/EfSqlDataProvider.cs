@@ -155,6 +155,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             return _context.SaveChanges();
         }
 
+        public bool Delete<T>(long id) where T : class, new()
+        {
+            return false;
+        }
+
         #endregion
 
         #region CRUD (async)

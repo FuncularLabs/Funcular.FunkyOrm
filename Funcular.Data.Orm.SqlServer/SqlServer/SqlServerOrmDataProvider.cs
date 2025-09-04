@@ -255,6 +255,19 @@ namespace Funcular.Data.Orm.SqlServer
             }
         }
 
+        /// <summary>
+        /// Deletes records from the database table corresponding to the specified entity type that match the given
+        /// predicate.
+        /// </summary>
+        /// <remarks>This method requires an active transaction. If no transaction is active, an <see
+        /// cref="InvalidOperationException"/> is thrown. Additionally, the predicate must produce a valid WHERE clause;
+        /// trivial or empty conditions (e.g., "1=1") are not allowed and will result in an exception.</remarks>
+        /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
+        /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
+        /// delete operation. The predicate must not be null and must result in a valid, non-trivial condition.</param>
+        /// <returns>The number of rows affected by the delete operation.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the predicate
+        /// results in an invalid or trivial WHERE clause.</exception>
         public async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) where T : class, new()
         {
             if (Transaction == null)
@@ -280,6 +293,39 @@ namespace Funcular.Data.Orm.SqlServer
                 if (affected == 0)
                     Log?.Invoke($"Delete affected zero rows for {typeof(T).Name}.");
                 return affected;
+            }
+        }
+
+        /// <summary>
+        /// Deletes an entity of the specified type from the database by its primary key.
+        /// </summary>
+        /// <remarks>This method must be called within the context of an active transaction. If no
+        /// transaction is active,  an <see cref="InvalidOperationException"/> is thrown. If the specified entity does
+        /// not exist in the  database, the method returns <see langword="false"/> without throwing an
+        /// exception.</remarks>
+        /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
+        /// <param name="id">The primary key value of the entity to delete. This value is used to identify the entity in the database.</param>
+        /// <returns><see langword="true"/> if the entity was successfully deleted; otherwise, <see langword="false"/>.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
+        public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
+        {
+            if (Transaction == null)
+                throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            var pk = GetCachedPrimaryKey<T>();
+            var tableName = GetTableName<T>();
+            var pkColumn = GetCachedColumnName(pk);
+
+            var commandText = $"DELETE FROM {tableName} WHERE {pkColumn} = @id";
+            var param = new SqlParameter("@id", id);
+
+            using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
+            {
+                InvokeLogAction(command);
+                var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                if (affected == 0)
+                    Log?.Invoke($"Delete affected zero rows for {typeof(T).Name} with id {id}.");
+                return affected > 0;
             }
         }
 
@@ -502,11 +548,31 @@ namespace Funcular.Data.Orm.SqlServer
 
             var components = GenerateWhereClause(predicate);
 
-            // Defensive: block trivial or parameter-only WHERE clauses
-            if (string.IsNullOrWhiteSpace(components.WhereClause) ||
-                components.WhereClause.Trim().Equals("@p__linq__0", StringComparison.OrdinalIgnoreCase) ||
-                components.WhereClause.Trim().Equals("1=1", StringComparison.OrdinalIgnoreCase))
+            // Enhanced validation
+            if (string.IsNullOrWhiteSpace(components.WhereClause))
                 throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
+
+            // Trivial patterns
+            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
+            if (trivialPatterns.Any(p => components.WhereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
+
+            // Self-referencing column (e.g., x => x.Id == x.Id)
+            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (regex.IsMatch(components.WhereClause))
+                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
+
+            // Must reference at least one column from the target table
+            var tableColumns = typeof(T).GetProperties()
+                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
+                .Select(p => GetCachedColumnName(p))
+                .ToList();
+
+            bool columnReferenced = tableColumns.Any(col =>
+                components.WhereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!columnReferenced)
+                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
 
             var tableName = GetTableName<T>();
             var commandText = $"DELETE FROM {tableName} WHERE {components.WhereClause}";
@@ -518,6 +584,39 @@ namespace Funcular.Data.Orm.SqlServer
                 if (affected == 0)
                     Log?.Invoke($"Delete affected zero rows for {typeof(T).Name}.");
                 return affected;
+            }
+        }
+
+        /// <summary>
+        /// Deletes a record from the database table corresponding to the specified type, based on the provided primary
+        /// key value.
+        /// </summary>
+        /// <remarks>This method must be called within an active transaction. If no transaction is active,
+        /// an <see cref="InvalidOperationException"/> is thrown. If no record matches the specified primary key, the
+        /// method returns <see langword="false"/> and logs a message, if a log action is provided.</remarks>
+        /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
+        /// <param name="id">The primary key value of the record to delete.</param>
+        /// <returns><see langword="true"/> if the record was successfully deleted; otherwise, <see langword="false"/>.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
+        public bool Delete<T>(long id) where T : class, new()
+        {
+            if (Transaction == null)
+                throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            var pk = GetCachedPrimaryKey<T>();
+            var tableName = GetTableName<T>();
+            var pkColumn = GetCachedColumnName(pk);
+
+            var commandText = $"DELETE FROM {tableName} WHERE {pkColumn} = @id";
+            var param = new SqlParameter("@id", id);
+
+            using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
+            {
+                InvokeLogAction(command);
+                var affected = command.ExecuteNonQuery();
+                if (affected == 0)
+                    Log?.Invoke($"Delete affected zero rows for {typeof(T).Name} with id {id}.");
+                return affected > 0;
             }
         }
 
@@ -733,6 +832,51 @@ namespace Funcular.Data.Orm.SqlServer
             }
 
             return commandElements;
+        }
+
+        /// <summary>
+        /// Validates the provided WHERE clause to ensure it meets the requirements for a delete operation.
+        /// </summary>
+        /// <remarks>This method ensures that the WHERE clause is meaningful and safe for use in a delete
+        /// operation. It prevents trivial or invalid conditions that could lead to unintended data
+        /// destruction.</remarks>
+        /// <typeparam name="T">The type representing the target table. The properties of this type are used to validate column references
+        /// in the WHERE clause.</typeparam>
+        /// <param name="whereClause">The SQL WHERE clause to validate. Must be a non-empty, non-trivial expression that references at least one
+        /// column from the target table.</param>
+        /// <exception cref="InvalidOperationException">Thrown if the WHERE clause is null, empty, or consists only of whitespace; if it contains trivial
+        /// expressions (e.g., "1=1"); if it includes self-referencing column expressions (e.g., "column = column"); or
+        /// if it does not reference any columns from the target table.</exception>
+        private void ValidateWhereClause<T>(string whereClause)
+        {
+            if (string.IsNullOrWhiteSpace(whereClause))
+                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
+
+            var trivialPatterns = new[]
+            {
+                "1=1", "1 < 2", "1 > 0", "@p__linq__0", "true", "WHERE 1=1", "WHERE 1 < 2"
+            };
+
+            // Check for trivial patterns
+            if (trivialPatterns.Any(p => whereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
+
+            // Check for self-referencing column expressions (e.g., first_name = first_name)
+            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (regex.IsMatch(whereClause))
+                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
+
+            // Check that at least one column from the target table is referenced
+            var tableColumns = typeof(T).GetProperties()
+                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
+                .Select(p => GetCachedColumnName(p))
+                .ToList();
+
+            bool columnReferenced = tableColumns.Any(col =>
+                whereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!columnReferenced)
+                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
         }
 
         #endregion

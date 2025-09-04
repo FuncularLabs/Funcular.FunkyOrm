@@ -14,8 +14,11 @@ If you are tired of ORMs that make you write raw SQL or use name/value pairs to 
 - **Performance without bulk**: Outperforms many alternatives in benchmarks, offering the power you need without the bloat; in our testing, the framework was able to query, instantiate and map and populate over 10,000 rows in 44 to 59 milliseconds. Inserts performed at 3,000 to 4,000 rows per second. Updates are currently row-at-a-time, at about .5 to .6 milliseconds per row (bulk updates are an enhancement consideration).
 
     
-## Performance (rows/second)
-![FunkyORM-Performance](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/refs/heads/master/Funcular.Data.Orm.SqlServer/Images/FunkyORM-Easy-Ease-Simplicity-Diagram.png)
+## Performance vs. Entity Framework (rows/second)
+
+Funcular ORM is designed to be fast. In our benchmarks, it performed significantly faster than Entity Framework Core 7 in single-row write operations, and on-par with EF in read operations. Below are some sample results from our benchmarking tests, showing rows per second for various operations.
+
+![FunkyORM-Performance](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/refs/heads/master/Funcular.Data.Orm.SqlServer/Images/funcular-orm-entity-framework-performance-comparison.png)
 ---
 ## Usage
 

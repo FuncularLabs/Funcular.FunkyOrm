@@ -142,5 +142,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
         /// <returns>The number of rows deleted.</returns>
         int Delete<T>(Expression<Func<T, bool>> predicate) where T : class, new();
+
+        bool Delete<T>(long id) where T : class, new();
     }
 }
