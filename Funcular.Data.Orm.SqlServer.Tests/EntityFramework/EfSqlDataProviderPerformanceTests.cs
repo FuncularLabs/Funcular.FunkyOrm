@@ -1,19 +1,17 @@
 ﻿using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
 using OfficeOpenXml;
-using System.IO;
 
-namespace Funcular.Data.Orm.SqlServer.Tests
+namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 {
     [TestClass]
-    public class SqlDataProviderPerformanceTests
+    public class EfSqlDataProviderPerformanceTests
     {
-        private string _connectionString;
-        public required SqlServerOrmDataProvider _provider;
-        private readonly StringBuilder _sb = new();
+        protected string _connectionString;
+        public required EfSqlDataProvider _provider;
+        protected readonly StringBuilder _sb = new();
         private static ExcelPackage _workbook;
         private static ExcelWorksheet _worksheet;
         private static int _excelRow = 2;
@@ -42,7 +40,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var projectDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
             var perfDir = Path.Combine(projectDir, "PerformanceTests");
             Directory.CreateDirectory(perfDir);
-            var filePath = Path.Combine(perfDir, $"PerformanceResults_FuncularOrm_{DateTime.Now:yyyyMMdd_HHmmssfff}.xlsx");
+            var filePath = Path.Combine(perfDir, $"PerformanceResults_EntityFramework_{DateTime.Now:yyyyMMdd_HHmmssfff}.xlsx");
             using (var stream = File.Create(filePath))
             {
                 _workbook?.SaveAs(stream);
@@ -58,7 +56,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                                 "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
             TestConnection();
 
-            _provider = new SqlServerOrmDataProvider(_connectionString)
+            _provider = new EfSqlDataProvider(_connectionString)
             {
                 Log = s =>
                 {
@@ -120,10 +118,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             OutputTestMethodName();
             var firstName = Guid.NewGuid().ToString();
             var lastName = Guid.NewGuid().ToString();
-            var persons = new List<Person>(count);
+            var persons = new List<EfPerson>(count);
             for (int i = 0; i < count; i++)
             {
-                var person = new Person
+                var person = new EfPerson
                 {
                     FirstName = firstName,
                     LastName = lastName,
@@ -137,12 +135,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 _provider.Insert(persons[j]);
             }
             sw.Stop();
-            var format = $"Inserted {count} records in {sw.Elapsed} ms ({(double)sw.ElapsedMilliseconds / count} ms/record | {(double)count / ((double)sw.ElapsedMilliseconds / 1000D)} rows/second)";
+            var format = $"Inserted {count} records in {sw.Elapsed} ms ({(double)sw.ElapsedMilliseconds / count} ms/record | {count / (sw.ElapsedMilliseconds / 1000D)} rows/second)";
             _sb.Append(format);
             _worksheet!.Cells[_excelRow, 2].Value = "Insert";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round(count / sw.Elapsed.TotalSeconds);
             _excelRow++;
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
@@ -161,7 +159,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastName = Guid.NewGuid().ToString();
             for (int i = 0; i < count; i++)
             {
-                var person = new Person
+                var person = new EfPerson
                 {
                     FirstName = firstName,
                     LastName = lastName,
@@ -170,15 +168,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 _provider.Insert(person);
             }
             var sw = Stopwatch.StartNew();
-            var results = _provider.Query<Person>().OrderByDescending(x => x.Id).Take(count).ToList();
+            var results = _provider.Query<EfPerson>().OrderByDescending(x => x.Id).Take(count).ToList();
             sw.Stop();
             var returned = results.Count;
-            var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {(double)returned / sw.Elapsed.TotalSeconds} rows/second)";
+            var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {returned / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
             _worksheet!.Cells[_excelRow, 2].Value = "Select";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / returned;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)returned / sw.Elapsed.TotalSeconds);
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round(returned / sw.Elapsed.TotalSeconds);
             _excelRow++;
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
@@ -197,7 +195,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastName = Guid.NewGuid().ToString();
             for (int i = 0; i < count; i++)
             {
-                var person = new Person
+                var person = new EfPerson
                 {
                     FirstName = firstName,
                     LastName = lastName,
@@ -206,15 +204,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 _provider.Insert(person);
             }
             var sw = Stopwatch.StartNew();
-            var results = _provider.Query<Person>(p => p.FirstName == firstName && p.LastName == lastName).ToList();
+            var results = _provider.Query<EfPerson>(p => p.FirstName == firstName && p.LastName == lastName).ToList();
             sw.Stop();
             var returned = results.Count;
-            var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {(double)returned / sw.Elapsed.TotalSeconds} rows/second)";
+            var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {returned / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
             _worksheet!.Cells[_excelRow, 2].Value = "Filter";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / returned;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)returned / sw.Elapsed.TotalSeconds);
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round(returned / sw.Elapsed.TotalSeconds);
             _excelRow++;
 
             CleanupTestRecords(firstName, lastName);
@@ -233,7 +231,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastName = Guid.NewGuid().ToString();
             for (int i = 0; i < count; i++)
             {
-                var person = new Person
+                var person = new EfPerson
                 {
                     FirstName = firstName,
                     LastName = lastName,
@@ -247,7 +245,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             for (int page = 0; page < 10; page++)
             {
                 var pageSw = Stopwatch.StartNew();
-                var results = _provider.Query<Person>()
+                var results = _provider.Query<EfPerson>()
                     .Where(p => p.FirstName == firstName && p.LastName == lastName)
                     .Skip(page * pageSize)
                     .Take(pageSize)
@@ -255,16 +253,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 pageSw.Stop();
                 var recordsInPage = results.Count;
                 totalReturned += recordsInPage;
-                var pageFormat = $"Page {page + 1}: Paginated {recordsInPage} records in {pageSw.ElapsedMilliseconds} ms ({(double)pageSw.ElapsedMilliseconds / recordsInPage} ms/record | {(double)recordsInPage / pageSw.Elapsed.TotalSeconds} rows/second)";
+                var pageFormat = $"Page {page + 1}: Paginated {recordsInPage} records in {pageSw.ElapsedMilliseconds} ms ({(double)pageSw.ElapsedMilliseconds / recordsInPage} ms/record | {recordsInPage / pageSw.Elapsed.TotalSeconds} rows/second)";
                 _sb.AppendLine(pageFormat);
             }
             overallSw.Stop();
-            var overallFormat = $"Overall: Paginated {totalReturned} records in {overallSw.ElapsedMilliseconds} ms ({(double)overallSw.ElapsedMilliseconds / totalReturned} ms/record | {(double)totalReturned / overallSw.Elapsed.TotalSeconds} rows/second)";
+            var overallFormat = $"Overall: Paginated {totalReturned} records in {overallSw.ElapsedMilliseconds} ms ({(double)overallSw.ElapsedMilliseconds / totalReturned} ms/record | {totalReturned / overallSw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(overallFormat);
             _worksheet!.Cells[_excelRow, 2].Value = "Pagination";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)overallSw.ElapsedMilliseconds / totalReturned;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)totalReturned / overallSw.Elapsed.TotalSeconds);
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round(totalReturned / overallSw.Elapsed.TotalSeconds);
             _excelRow++;
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
@@ -282,7 +280,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastName = Guid.NewGuid().ToString();
             for (int i = 0; i < count; i++)
             {
-                var person = new Person
+                var person = new EfPerson
                 {
                     FirstName = firstName,
                     LastName = lastName,
@@ -291,7 +289,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 _provider.Insert(person);
             }
             var sw = Stopwatch.StartNew();
-            var result = _provider.Query<Person>().Count(p => p.FirstName == firstName && p.LastName == lastName);
+            var result = _provider.Query<EfPerson>().Count(p => p.FirstName == firstName && p.LastName == lastName);
             sw.Stop();
             Console.WriteLine(result);
             var format = $"Aggregated COUNT over {count} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / count} ms/record)";
@@ -299,7 +297,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _worksheet!.Cells[_excelRow, 2].Value = "Aggregate";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round(count / sw.Elapsed.TotalSeconds);
             _excelRow++;
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
@@ -318,7 +316,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var lastName = Guid.NewGuid().ToString();
             for (int i = 0; i < count; i++)
             {
-                var person = new Person
+                var person = new EfPerson
                 {
                     FirstName = firstName,
                     LastName = lastName,
@@ -326,7 +324,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 };
                 _provider.Insert(person);
             }
-            var personsToUpdate = _provider.Query<Person>(p => p.FirstName == firstName && p.LastName == lastName).ToList();
+            var personsToUpdate = _provider.Query<EfPerson>(p => p.FirstName == firstName && p.LastName == lastName).ToList();
             var sw = Stopwatch.StartNew();
             for (int j = 0; j < count; j++)
             {
@@ -335,12 +333,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             }
             sw.Stop();
             var updated = count;
-            var format = $"Updated {updated} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / updated} ms/record | {(double)updated / sw.Elapsed.TotalSeconds} rows/second)";
+            var format = $"Updated {updated} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / updated} ms/record | {updated / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
             _worksheet!.Cells[_excelRow, 2].Value = "Update";
             _worksheet.Cells[_excelRow, 3].Value = count;
             _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / updated;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)updated / sw.Elapsed.TotalSeconds);
+            _worksheet.Cells[_excelRow, 5].Value = Math.Round(updated / sw.Elapsed.TotalSeconds);
             _excelRow++;
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
