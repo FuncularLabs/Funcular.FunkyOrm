@@ -33,6 +33,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 Log = s =>
                 {
                     Debug.WriteLine(s);
+                    Console.WriteLine(s);
                     _sb.AppendLine(s);
                 }
             };

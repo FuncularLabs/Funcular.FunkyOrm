@@ -66,7 +66,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Cache mapping entity types to a mapping of column name -> ordinal index for the most recent reader.
         /// </summary>
-        internal static readonly ConcurrentDictionary<Type, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<Type, Dictionary<string, int>>();
+        internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
 
         /// <summary>
         /// Tracks which types have had their mappings discovered (to avoid repeated database schema calls).
@@ -81,6 +81,10 @@ namespace Funcular.Data.Orm.SqlServer
         /// operations.</remarks>
         internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
 
+        /// <summary>
+        /// Cache mapping property types to their corresponding value setters.
+        /// </summary>
+        internal static readonly ConcurrentDictionary<PropertyInfo, Action<object, object>> _propertySetters = new ConcurrentDictionary<PropertyInfo, Action<object, object>>();
 
         #endregion
 
@@ -237,11 +241,11 @@ namespace Funcular.Data.Orm.SqlServer
                 if (existingEntity == null)
                     throw new InvalidOperationException("Entity does not exist in database.");
 
-                UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
-                if (updateCommand.Parameters.Any())
+                CommandParameters commandParameters = BuildUpdateCommand(entity, existingEntity, primaryKey);
+                if (commandParameters.Parameters.Any())
                 {
-                    using (var command = BuildSqlCommandObject(updateCommand.CommandText, connectionScope.Connection,
-                                     updateCommand.Parameters))
+                    using (var command = BuildSqlCommandObject(commandParameters.CommandText, connectionScope.Connection,
+                                     commandParameters.Parameters))
                     {
                         await ExecuteUpdateAsync(command).ConfigureAwait(false);
                     }
@@ -501,11 +505,11 @@ namespace Funcular.Data.Orm.SqlServer
                 if (existingEntity == null)
                     throw new InvalidOperationException("Entity does not exist in database.");
 
-                UpdateCommand updateCommand = BuildUpdateCommand(entity, existingEntity, primaryKey);
-                if (updateCommand.Parameters.Any())
+                CommandParameters commandParameters = BuildUpdateCommand(entity, existingEntity, primaryKey);
+                if (commandParameters.Parameters.Any())
                 {
-                    using (var command = BuildSqlCommandObject(updateCommand.CommandText, connectionScope.Connection,
-                               updateCommand.Parameters))
+                    using (var command = BuildSqlCommandObject(commandParameters.CommandText, connectionScope.Connection,
+                               commandParameters.Parameters))
                     {
                         ExecuteUpdate(command);
                     }
@@ -1034,6 +1038,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="reader">The <see cref="SqlDataReader"/> containing the data to map. The reader must be positioned on a valid row.</param>
         /// <returns>An instance of the specified entity type <typeparamref name="T"/> populated with data from the current row
         /// of the reader.</returns>
+#if NET8_0_OR_GREATER
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+#else
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#endif
         protected T MapEntity<T>(SqlDataReader reader) where T : class, new()
         {
             // Use both type and schema signature as cache key
@@ -1061,106 +1070,66 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="reader">The <see cref="SqlDataReader"/> instance used to determine column mappings.</param>
         /// <returns>A function that takes a <see cref="SqlDataReader"/> and returns an instance of <typeparamref name="T"/> 
         /// with its properties populated from the corresponding columns in the data reader.</returns>
+#if NET8_0_OR_GREATER
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+#else
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#endif
         private Func<SqlDataReader, T> BuildDataReaderMapper<T>(SqlDataReader reader) where T : class, new()
         {
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties());
-            var unmappedProperties = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
-            var columnOrdinals = GetColumnOrdinals(typeof(T), reader);
+            var type = typeof(T);
+            string schemaSignature = GetSchemaSignature(reader);
+            string ordinalsKey = type.FullName + "|" + schemaSignature;
 
-            var readerParam = Expression.Parameter(typeof(SqlDataReader), "r");
-            var entityVar = Expression.Variable(typeof(T), "entity");
-            var expressions = new List<Expression>
-    {
-        Expression.Assign(entityVar, Expression.New(typeof(T)))
-    };
-
-            foreach (var property in properties)
+            var schemaOrdinals = _columnOrdinalsCache.GetOrAdd(ordinalsKey, _ =>
             {
-                if (unmappedProperties.Any(p => p.Name == property.Name)) continue;
+                var ordinals = new Dictionary<string, int>(new IgnoreUnderscoreAndCaseStringComparer());
+                for (int i = 0; i < reader.FieldCount; i++)
+                    ordinals[reader.GetName(i)] = i;
+                return ordinals;
+            });
 
-                var columnName = GetCachedColumnName(property);
-                if (!columnOrdinals.TryGetValue(columnName, out int ordinal)) continue;
+            var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
+            var unmappedNames = new HashSet<string>(
+                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name)
+            );
 
-                var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-
-                // r.IsDBNull(ordinal)
-                var isDbNullCall = Expression.Call(
-                    readerParam,
-                    typeof(SqlDataReader).GetMethod("IsDBNull"),
-                    Expression.Constant(ordinal)
-                );
-
-                // Typed getter selection
-                MethodInfo getter = null;
-                if (propertyType == typeof(int))
-                    getter = typeof(SqlDataReader).GetMethod("GetInt32");
-                else if (propertyType == typeof(long))
-                    getter = typeof(SqlDataReader).GetMethod("GetInt64");
-                else if (propertyType == typeof(string))
-                    getter = typeof(SqlDataReader).GetMethod("GetString");
-                else if (propertyType == typeof(bool))
-                    getter = typeof(SqlDataReader).GetMethod("GetBoolean");
-                else if (propertyType == typeof(DateTime))
-                    getter = typeof(SqlDataReader).GetMethod("GetDateTime");
-                else if (propertyType == typeof(Guid))
-                    getter = typeof(SqlDataReader).GetMethod("GetGuid");
-                else if (propertyType == typeof(decimal))
-                    getter = typeof(SqlDataReader).GetMethod("GetDecimal");
-                else if (propertyType == typeof(double))
-                    getter = typeof(SqlDataReader).GetMethod("GetDouble");
-                else if (propertyType == typeof(float))
-                    getter = typeof(SqlDataReader).GetMethod("GetFloat");
-                // Add more types as needed
-
-                Expression valueExpr;
-                if (getter != null)
+            // Precompute mapping array
+            var mappings = properties
+                .Where(p => !unmappedNames.Contains(p.Name))
+                .Select(p =>
                 {
-                    valueExpr = Expression.Call(readerParam, getter, Expression.Constant(ordinal));
-                }
-                else
+                    var columnName = GetCachedColumnName(p);
+                    if (!schemaOrdinals.TryGetValue(columnName, out int ordinal)) return null;
+                    var setter = GetOrCreateSetter(p);
+                    var propertyType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
+                    return new { Ordinal = ordinal, Setter = setter, Type = propertyType, IsEnum = propertyType.IsEnum };
+                })
+                .Where(m => m != null)
+                .ToArray();
+
+            return r =>
+            {
+                var entity = new T();
+                foreach (var m in mappings)
                 {
-                    // Fallback to GetValue + Convert.ChangeType
-                    var getValueCall = Expression.Call(readerParam, typeof(SqlDataReader).GetMethod("GetValue"), Expression.Constant(ordinal));
-                    var convertCall = Expression.Call(
-                        typeof(Convert).GetMethod("ChangeType", new[] { typeof(object), typeof(Type) }),
-                        getValueCall,
-                        Expression.Constant(propertyType, typeof(Type))
-                    );
-                    valueExpr = Expression.Convert(convertCall, propertyType);
+                    if (r.IsDBNull(m.Ordinal)) continue;
+                    object value;
+                    if (m.Type == typeof(int)) value = r.GetInt32(m.Ordinal);
+                    else if (m.Type == typeof(long)) value = r.GetInt64(m.Ordinal);
+                    else if (m.Type == typeof(string)) value = r.GetString(m.Ordinal);
+                    else if (m.Type == typeof(bool)) value = r.GetBoolean(m.Ordinal);
+                    else if (m.Type == typeof(DateTime)) value = r.GetDateTime(m.Ordinal);
+                    else if (m.Type == typeof(Guid)) value = r.GetGuid(m.Ordinal);
+                    else if (m.Type == typeof(decimal)) value = r.GetDecimal(m.Ordinal);
+                    else if (m.Type == typeof(double)) value = r.GetDouble(m.Ordinal);
+                    else if (m.Type == typeof(float)) value = r.GetFloat(m.Ordinal);
+                    else if (m.IsEnum) value = Enum.ToObject(m.Type, r.GetValue(m.Ordinal));
+                    else value = Convert.ChangeType(r.GetValue(m.Ordinal), m.Type);
+                    m.Setter(entity, value);
                 }
-
-                // If property is Nullable<T>, wrap value
-                Expression assignExpr;
-                if (property.PropertyType != propertyType)
-                {
-                    var nullableCtor = property.PropertyType.GetConstructor(new[] { propertyType });
-                    assignExpr = Expression.New(nullableCtor, valueExpr);
-                }
-                else
-                {
-                    assignExpr = valueExpr;
-                }
-
-                // entity.Property = valueExpr
-                var propertyAssign = Expression.Assign(
-                    Expression.Property(entityVar, property),
-                    assignExpr
-                );
-
-                // if (!IsDbNull) assign
-                var conditionalAssign = Expression.IfThen(
-                    Expression.IsFalse(isDbNullCall),
-                    propertyAssign
-                );
-
-                expressions.Add(conditionalAssign);
-            }
-
-            expressions.Add(entityVar);
-
-            var body = Expression.Block(new[] { entityVar }, expressions);
-            var lambda = Expression.Lambda<Func<SqlDataReader, T>>(body, readerParam);
-            return lambda.Compile();
+                return entity;
+            };
         }
 
         #endregion
@@ -1175,7 +1144,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="entity">The entity instance from which to read values.</param>
         /// <param name="primaryKey">The primary key property info for the entity type.</param>
         /// <returns>A tuple containing CommandText and the list of SqlParameter instances.</returns>
-        protected internal (string CommandText, List<SqlParameter> Parameters) BuildInsertCommandObject<T>(T entity,
+        protected internal CommandParameters BuildInsertCommandObject<T>(T entity,
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
@@ -1201,7 +1170,7 @@ namespace Funcular.Data.Orm.SqlServer
                 INSERT INTO {tableName} ({string.Join(", ", columnNames)})
                 OUTPUT INSERTED.{GetCachedColumnName(primaryKey)}
                 VALUES ({string.Join(", ", parameterNames)})";
-            return (commandText, parameters);
+            return new CommandParameters(commandText, parameters);
         }
 
         /// <summary>
@@ -1237,8 +1206,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="entity">The new entity values.</param>
         /// <param name="existing">The existing persisted entity used for change detection.</param>
         /// <param name="primaryKey">The primary key property used in the WHERE clause.</param>
-        /// <returns>An <see cref="UpdateCommand"/> containing the SQL and parameters. If no changes are detected, the CommandText will be empty.</returns>
-        protected internal UpdateCommand BuildUpdateCommand<T>(T entity,
+        /// <returns>An <see cref="CommandParameters"/> containing the SQL and parameters. If no changes are detected, the CommandText will be empty.</returns>
+        protected internal CommandParameters BuildUpdateCommand<T>(T entity,
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
@@ -1259,14 +1228,14 @@ namespace Funcular.Data.Orm.SqlServer
                 }
             }
 
-            if (setClause.Length == 0) return new UpdateCommand(string.Empty, parameters);
+            if (setClause.Length == 0) return new CommandParameters(string.Empty, parameters);
 
             setClause.Length -= 2;
             var pkColumn = GetCachedColumnName(primaryKey);
             parameters.Add(
                 CreateParameter<object>($"@{pkColumn}", primaryKey.GetValue(entity), primaryKey.PropertyType));
 
-            return new UpdateCommand($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{pkColumn}", parameters);
+            return new CommandParameters($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{pkColumn}", parameters);
 
         }
 
@@ -1358,6 +1327,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The entity type whose primary key is requested.</typeparam>
         /// <returns>The <see cref="PropertyInfo"/> representing the primary key.</returns>
         /// <exception cref="InvalidOperationException">Thrown when no primary key can be found for the type.</exception>
+#if NET8_0_OR_GREATER
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+#else
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#endif
         protected internal PropertyInfo GetCachedPrimaryKey<T>() where T : class
         {
             return _primaryKeys.GetOrAdd(typeof(T), t => GetPrimaryKeyProperty<T>() ??
@@ -1394,14 +1368,14 @@ namespace Funcular.Data.Orm.SqlServer
         /// Simple DTO used by the provider to represent an UPDATE command and its parameters.
         /// This is the nested variant used to clearly scope the type to the provider.
         /// </summary>
-        public class UpdateCommand
+        public class CommandParameters
         {
             /// <summary>
             /// Initializes a new instance of the nested <see cref="command"/> type.
             /// </summary>
             /// <param name="parameters">The SQL command text.</param>
             /// <param name="command">The parameters to attach to the command.</param>
-            public UpdateCommand(string command, List<SqlParameter> parameters)
+            public CommandParameters(string command, List<SqlParameter> parameters)
             {
                 CommandText = command;
                 Parameters = parameters;
@@ -1570,6 +1544,30 @@ namespace Funcular.Data.Orm.SqlServer
                   (_columnNames.TryGetValue(property.Name.ToLowerInvariant(), out var columnName)
                       ? columnName
                       : property.Name.ToLowerInvariant());
+
+        /// <summary>
+        /// Retrieves an existing property setter delegate for the specified property or creates a new one if it does
+        /// not exist.
+        /// </summary>
+        /// <remarks>This method uses caching to store and reuse compiled property setter delegates for
+        /// improved performance. If the property does not already have a cached setter, a new one is created using
+        /// expression trees and added to the cache.</remarks>
+        /// <param name="property">The <see cref="PropertyInfo"/> representing the property for which the setter delegate is required.</param>
+        /// <returns>An <see cref="Action{T1, T2}"/> delegate that sets the value of the specified property.  The first parameter
+        /// is the object instance, and the second parameter is the value to set.</returns>
+        private static Action<object, object> GetOrCreateSetter(PropertyInfo property)
+        {
+            return _propertySetters.GetOrAdd(property, prop =>
+            {
+                var instance = Expression.Parameter(typeof(object), "instance");
+                var value = Expression.Parameter(typeof(object), "value");
+                var convertInstance = Expression.Convert(instance, prop.DeclaringType);
+                var convertValue = Expression.Convert(value, prop.PropertyType);
+                var body = Expression.Assign(Expression.Property(convertInstance, prop), convertValue);
+                var lambda = Expression.Lambda<Action<object, object>>(body, instance, value);
+                return lambda.Compile();
+            });
+        }
 
         /// <summary>
         /// Attempts to find the primary key property for type <typeparamref name="T"/>.

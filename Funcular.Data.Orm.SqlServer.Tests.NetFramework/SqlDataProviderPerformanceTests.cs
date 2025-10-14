@@ -52,6 +52,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 _workbook?.SaveAs(stream);
             }
             _workbook?.Dispose();
+
+            // Nullify static references to help GC
+            _workbook = null;
+            _worksheet = null;
+
+            // Force garbage collection to release memory (use cautiously in tests)
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
         }
 
         [TestInitialize]

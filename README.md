@@ -1,6 +1,9 @@
-# Funcular ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
+# Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
     
-Welcome to Funcular ORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
+Welcome to Funcular ORM, aka FunkyORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
+
+- *If you just want the NuGet package, look here at [NuGet.org](https://www.nuget.org/packages/Funcular.Data.Orm).*
+- *If you just want to see how to get started, look at our [code samples below](#code-samples).*
 
 If you are tired of ORMs that make you write raw SQL or use name/value pairs to create query predicates, Funcular ORM might be your answer; it's designed for developers who like the ability to use strongly-typed LINQ queries, and who need to get up and running **fast** with minimal setup. Funcular ORM offers:
     
@@ -20,6 +23,7 @@ Funcular ORM is designed to be fast. In our benchmarks, it performed significant
 
 ![FunkyORM-Performance](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/refs/heads/master/Funcular.Data.Orm.SqlServer/Images/funcular-orm-entity-framework-performance-comparison.png)
 ---
+<a id="code-samples"></a>
 ## Usage
 
 Funcular ORM provides a lightweight micro-ORM with lambda-style queries, supporting operations like insert, update, retrieval, and advanced querying with minimal setup. Below are examples of key features, demonstrated using a `Person` entity class (assuming a SQL Server provider and database schema with tables for `Person`, `Address`, and `PersonAddress`).
@@ -237,9 +241,12 @@ var pagedResults = provider.Query<Person>()
 
 ### Aggregate Functions
 
+##### Important: Aggregate functions like `Count`, `Max`, `Min`, `Any`, and `All` must start with a predicate-less query, or the query will be executed and the aggregate operation will occur in .NET rather than SQL.
+
 Count matching records.
 
 ```csharp
+// notice no predicate in the Query() call:
 var count = provider.Query<Person>()
     .Count(p => p.Gender == "Male");
 // Returns the number of male persons
@@ -248,6 +255,7 @@ var count = provider.Query<Person>()
 Max and Min on properties.
 
 ```csharp
+// notice no predicate in the Query() call:
 var maxId = provider.Query<Person>()
     .Max(p => p.Id);
 
@@ -258,12 +266,14 @@ var minBirthdate = provider.Query<Person>()
 Check existence with `Any`.
 
 ```csharp
+// notice no predicate in the Query() call:
 var hasMales = provider.Query<Person>().Any(p => p.Gender == "Male");
 ```
 
 Check all match a condition with `All`.
 
 ```csharp
+// notice no predicate in the Query() call:
 var allHaveLastName = provider.Query<Person>()
     .Where(p => p.FirstName == "John")
     .All(p => p.LastName == "Doe");

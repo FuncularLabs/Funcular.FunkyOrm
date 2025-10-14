@@ -1003,7 +1003,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             var ex = Assert.ThrowsException<InvalidOperationException>(() =>
                 _provider.Delete<Person>(x => true)
             );
-            StringAssert.Contains(ex.Message, "non-empty, valid WHERE clause");
+            StringAssert.Contains(ex.Message, "Delete operation WHERE clause must reference at least one column from the target table.");
             _provider.RollbackTransaction();
         }
 
