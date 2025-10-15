@@ -414,6 +414,11 @@ namespace Funcular.Data.Orm.SqlServer
 
         /// <summary>
         /// Executes a query generated from a LINQ expression and returns the matching entities.
+        /// This method executes the query immediately and returns an <see cref="ICollection{T}"/> of results.
+        /// Note: For performance reasons, prefer <see cref="Query{T}()"/> followed by chained LINQ operations (e.g., .Where(predicate).Count())
+        /// when performing aggregates or when deferred execution is desired. Using this overload with a predicate loads all matching
+        /// entities into memory before any further operations, whereas chaining on the parameterless overload allows SQL Server
+        /// to handle aggregates and filtering efficiently.
         /// </summary>
         /// <typeparam name="T">Entity type being queried.</typeparam>
         /// <param name="expression">Expression used to generate the WHERE clause.</param>
@@ -525,6 +530,9 @@ namespace Funcular.Data.Orm.SqlServer
 
         /// <summary>
         /// Creates an <see cref="IQueryable{T}"/> backed by the provider, allowing deferred LINQ-to-SQL execution.
+        /// Use this overload for chaining LINQ operations (e.g., .Where(predicate), .OrderBy(), .Count(predicate)) where
+        /// the query is translated to SQL and executed only when enumerated. This is preferred for aggregates and complex
+        /// queries as it allows SQL Server to optimize execution, avoiding unnecessary data transfer.
         /// </summary>
         /// <typeparam name="T">The entity type for the queryable.</typeparam>
         /// <returns>An <see cref="IQueryable{T}"/> instance that will translate LINQ expressions to SQL when enumerated.</returns>

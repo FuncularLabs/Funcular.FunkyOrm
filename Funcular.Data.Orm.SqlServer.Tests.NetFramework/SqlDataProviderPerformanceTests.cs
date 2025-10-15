@@ -21,6 +21,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         private static ExcelPackage _workbook;
         private static ExcelWorksheet _worksheet;
         private static int _excelRow = 2;
+        private static readonly bool _enableExcelLogging = false;
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {
@@ -30,37 +31,43 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         [ClassInitialize]
         public static void ClassSetup(TestContext context)
         {
-            ExcelPackage.License.SetNonCommercialOrganization("Funcular Labs - Open Source Projects");
-            _workbook = new ExcelPackage();
-            _worksheet = _workbook.Workbook.Worksheets.Add("Performance");
-            _worksheet.Cells["B1"].Value = "test";
-            _worksheet.Cells["C1"].Value = "count";
-            _worksheet.Cells["D1"].Value = "elapsed per instance (ms)";
-            _worksheet.Cells["E1"].Value = "instances per second";
-            _excelRow = 2;
+            if (_enableExcelLogging)
+            {
+                ExcelPackage.License.SetNonCommercialOrganization("Funcular Labs - Open Source Projects");
+                _workbook = new ExcelPackage();
+                _worksheet = _workbook.Workbook.Worksheets.Add("Performance");
+                _worksheet.Cells["B1"].Value = "test";
+                _worksheet.Cells["C1"].Value = "count";
+                _worksheet.Cells["D1"].Value = "elapsed per instance (ms)";
+                _worksheet.Cells["E1"].Value = "instances per second";
+                _excelRow = 2;
+            }
         }
 
         [ClassCleanup]
         public static void ClassCleanup()
         {
-            var projectDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
-            var perfDir = Path.Combine(projectDir, "PerformanceTests");
-            Directory.CreateDirectory(perfDir);
-            var filePath = Path.Combine(perfDir, $"PerformanceResults_{DateTime.Now:yyyyMMdd_HHmmssfff}.xlsx");
-            using (var stream = File.Create(filePath))
+            if (_enableExcelLogging)
             {
-                _workbook?.SaveAs(stream);
+                var projectDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
+                var perfDir = Path.Combine(projectDir, "PerformanceTests");
+                Directory.CreateDirectory(perfDir);
+                var filePath = Path.Combine(perfDir, $"PerformanceResults_{DateTime.Now:yyyyMMdd_HHmmssfff}.xlsx");
+                using (var stream = File.Create(filePath))
+                {
+                    _workbook?.SaveAs(stream);
+                }
+                _workbook?.Dispose();
+
+                // Nullify static references to help GC
+                _workbook = null;
+                _worksheet = null;
+
+                // Force garbage collection to release memory (use cautiously in tests)
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
             }
-            _workbook?.Dispose();
-
-            // Nullify static references to help GC
-            _workbook = null;
-            _worksheet = null;
-
-            // Force garbage collection to release memory (use cautiously in tests)
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
         }
 
         [TestInitialize]
@@ -123,6 +130,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             }
         }
 
+        private static void LogPerformanceToExcel(string testName, object count, double elapsedPerInstance, double instancesPerSecond)
+        {
+            if (_enableExcelLogging)
+            {
+                _worksheet.Cells[_excelRow, 2].Value = testName;
+                _worksheet.Cells[_excelRow, 3].Value = count;
+                _worksheet.Cells[_excelRow, 4].Value = elapsedPerInstance;
+                _worksheet.Cells[_excelRow, 5].Value = instancesPerSecond;
+                _excelRow++;
+            }
+        }
+
         [DataRow(1)]
         [DataRow(100)]
         [DataRow(1000)]
@@ -152,11 +171,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             sw.Stop();
             var format = $"Inserted {count} records in {sw.Elapsed} ms ({(double)sw.ElapsedMilliseconds / count} ms/record | {(double)count / ((double)sw.ElapsedMilliseconds / 1000D)} rows/second)";
             _sb.Append(format);
-            _worksheet.Cells[_excelRow, 2].Value = "Insert";
-            _worksheet.Cells[_excelRow, 3].Value = count;
-            _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
-            _excelRow++;
+            LogPerformanceToExcel("Insert", count, (double)sw.ElapsedMilliseconds / count, Math.Round((double)count / sw.Elapsed.TotalSeconds));
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
             Console.WriteLine(_sb.ToString());
@@ -188,11 +203,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             var returned = results.Count;
             var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {(double)returned / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
-            _worksheet.Cells[_excelRow, 2].Value = "Select";
-            _worksheet.Cells[_excelRow, 3].Value = count;
-            _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / returned;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)returned / sw.Elapsed.TotalSeconds);
-            _excelRow++;
+            LogPerformanceToExcel("Select", count, (double)sw.ElapsedMilliseconds / returned, Math.Round((double)returned / sw.Elapsed.TotalSeconds));
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
             Console.WriteLine(_sb.ToString());
@@ -224,12 +235,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             var returned = results.Count;
             var format = $"Filtered {returned} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / returned} ms/record | {(double)returned / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
-            _worksheet.Cells[_excelRow, 2].Value = "Filter";
-            _worksheet.Cells[_excelRow, 3].Value = count;
-            _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / returned;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)returned / sw.Elapsed.TotalSeconds);
-            _excelRow++;
-
+            LogPerformanceToExcel("Filter", count, (double)sw.ElapsedMilliseconds / returned, Math.Round((double)returned / sw.Elapsed.TotalSeconds));
             CleanupTestRecords(firstName, lastName);
 
             Console.WriteLine("\r\n\r\nResults:");
@@ -274,11 +280,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             overallSw.Stop();
             var overallFormat = $"Overall: Paginated {totalReturned} records in {overallSw.ElapsedMilliseconds} ms ({(double)overallSw.ElapsedMilliseconds / totalReturned} ms/record | {(double)totalReturned / overallSw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(overallFormat);
-            _worksheet.Cells[_excelRow, 2].Value = "Pagination";
-            _worksheet.Cells[_excelRow, 3].Value = count;
-            _worksheet.Cells[_excelRow, 4].Value = (double)overallSw.ElapsedMilliseconds / totalReturned;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)totalReturned / overallSw.Elapsed.TotalSeconds);
-            _excelRow++;
+            LogPerformanceToExcel("Pagination", count, (double)overallSw.ElapsedMilliseconds / totalReturned, Math.Round((double)totalReturned / overallSw.Elapsed.TotalSeconds));
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
             Console.WriteLine(_sb.ToString());
@@ -309,11 +311,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             Console.WriteLine(result);
             var format = $"Aggregated COUNT over {count} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / count} ms/record)";
             _sb.AppendLine(format);
-            _worksheet.Cells[_excelRow, 2].Value = "Aggregate";
-            _worksheet.Cells[_excelRow, 3].Value = count;
-            _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / count;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)count / sw.Elapsed.TotalSeconds);
-            _excelRow++;
+            LogPerformanceToExcel("Aggregate", count, (double)sw.ElapsedMilliseconds / count, Math.Round((double)count / sw.Elapsed.TotalSeconds));
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
             Console.WriteLine(_sb.ToString());
@@ -350,11 +348,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             var updated = count;
             var format = $"Updated {updated} records in {sw.ElapsedMilliseconds} ms ({(double)sw.ElapsedMilliseconds / updated} ms/record | {(double)updated / sw.Elapsed.TotalSeconds} rows/second)";
             _sb.AppendLine(format);
-            _worksheet.Cells[_excelRow, 2].Value = "Update";
-            _worksheet.Cells[_excelRow, 3].Value = count;
-            _worksheet.Cells[_excelRow, 4].Value = (double)sw.ElapsedMilliseconds / updated;
-            _worksheet.Cells[_excelRow, 5].Value = Math.Round((double)updated / sw.Elapsed.TotalSeconds);
-            _excelRow++;
+            LogPerformanceToExcel("Update", count, (double)sw.ElapsedMilliseconds / updated, Math.Round((double)updated / sw.Elapsed.TotalSeconds));
             CleanupTestRecords(firstName, lastName);
             Console.WriteLine("\r\n\r\nResults:");
             Console.WriteLine(_sb.ToString());

@@ -243,6 +243,25 @@ var pagedResults = provider.Query<Person>()
 
 ##### Important: Aggregate functions like `Count`, `Max`, `Min`, `Any`, and `All` must start with a predicate-less query, or the query will be executed and the aggregate operation will occur in .NET rather than SQL.
 
+**Performance Note: Immediate vs. Deferred Execution**
+
+Funcular ORM provides two ways to query data, each with different execution behaviors that significantly impact performance, especially for aggregates:
+
+- **`Query<T>(predicate)`**: Executes immediately, loading all matching entities into memory before any further operations. Use this for small result sets or when you need the full collection right away.
+- **`Query<T>()`**: Returns an `IQueryable<T>` for deferred execution. Chain LINQ operations (e.g., `.Where(predicate)`, `.Count(predicate)`) and the query is translated to SQL only when enumerated. This allows SQL Server to optimize aggregates and filtering, avoiding unnecessary data transfer.
+
+For aggregates, always prefer the deferred approach to leverage SQL Server's efficiency:
+
+```csharp
+// Efficient: Aggregate handled by SQL Server
+var count = provider.Query<Person>()
+    .Count(p => p.Gender == "Male");
+
+// Less efficient: Loads all matching records first, then counts in .NET
+var count = provider.Query<Person>(p => p.Gender == "Male")
+    .Count();
+```
+
 Count matching records.
 
 ```csharp
