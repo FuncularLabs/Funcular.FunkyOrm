@@ -55,6 +55,7 @@
     <Compile Include="Domain\Entities\Person\PersonEntity.cs" />
     <Compile Include="Domain\Objects\Address\Address.cs" />
     <Compile Include="Domain\Objects\Person\Person.cs" />
+    <Compile Include="Domain\Objects\Person\Person.partial.cs" />
     <Compile Include="Domain\Objects\Person\PersonAddress.cs" />
     <Compile Include="SqlDataProviderIntegrationAsyncTests.cs" />
     <Compile Include="SqlDataProviderIntegrationTests.cs" />

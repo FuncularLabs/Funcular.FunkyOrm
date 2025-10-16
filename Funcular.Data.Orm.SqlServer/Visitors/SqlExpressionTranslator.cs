@@ -189,11 +189,10 @@ namespace Funcular.Data.Orm.Visitors
             List<Microsoft.Data.SqlClient.SqlParameter> parameters,
             Func<PropertyInfo, string> getColumnName)
         {
-            if (node.Expression is MemberExpression memberExpression &&
-                memberExpression.Expression is ParameterExpression &&
-                memberExpression.Member.Name == "Value")
+            if (node.Expression is MemberExpression valueMember && valueMember.Member.Name == "Value" &&
+                valueMember.Expression is MemberExpression dateMember && dateMember.Expression is ParameterExpression)
             {
-                var property = memberExpression.Member as PropertyInfo;
+                var property = dateMember.Member as PropertyInfo;
                 if (property != null)
                 {
                     var columnName = getColumnName(property);

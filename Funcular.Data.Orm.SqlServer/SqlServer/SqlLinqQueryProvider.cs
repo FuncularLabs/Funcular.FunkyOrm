@@ -108,10 +108,6 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Parses the LINQ expression tree to extract query components such as WHERE, ORDER BY, paging, and aggregates.
         /// </summary>
-        /// <param name="expression">The LINQ expression to parse.</param>
-        /// <param name="parameterGenerator">The parameter generator for SQL parameters.</param>
-        /// <param name="translator">The SQL expression translator for method calls.</param>
-        /// <returns>A <see cref="QueryComponents"/> object containing the extracted components.</returns>
         private QueryComponents ParseExpression(Expression expression, ParameterGenerator parameterGenerator, SqlExpressionTranslator translator)
         {
             var components = new QueryComponents();
@@ -232,6 +228,19 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
+                }
+                else if (currentCall.Method.Name == "Select")
+                {
+                    var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                    var selectVisitor = new SelectClauseVisitor<T>(
+                        SqlServerOrmDataProvider.ColumnNames,
+                        SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                        parameterGenerator,
+                        translator);
+                    selectVisitor.Visit(lambda.Body);
+                    components.SelectClause = selectVisitor.SelectClause;
+                    components.Parameters.AddRange(selectVisitor.Parameters);
                 }
             }
 
@@ -416,11 +425,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Builds the complete SQL query by combining SELECT, WHERE, ORDER BY, and paging clauses.
         /// </summary>
-        /// <param name="components">The query components extracted from the expression.</param>
-        /// <returns>The complete SQL query text.</returns>
         private string BuildQueryComponents(QueryComponents components)
         {
-            string commandText = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
+            string selectPart = !string.IsNullOrEmpty(components.SelectClause) ? $"SELECT {components.SelectClause}" : ((_selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>()).Split(new[] { " FROM " }, StringSplitOptions.None)[0]);
+            string fromPart = $"FROM {_dataProvider.GetTableName<T>()}";
+            string commandText = $"{selectPart}\r\n{fromPart}";
 
             if (!string.IsNullOrEmpty(components.WhereClause))
             {

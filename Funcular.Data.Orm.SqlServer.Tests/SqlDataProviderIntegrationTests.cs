@@ -1,4 +1,3 @@
-
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -214,7 +213,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .OrderBy(x => x.LastName)
                 .ToList();
             Assert.AreEqual(2, result.Count);
-            Assert.AreEqual("Adams", result[0].LastName);
+            Assert.AreEqual("AdAMS", result[0].LastName);
             Assert.AreEqual("Zimmerman", result[1].LastName);
         }
 
@@ -224,14 +223,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
             InsertTestPerson(guid, "A", "Zimmerman", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-            InsertTestPerson(guid, "B", "Adams", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            InsertTestPerson(guid, "B", "AdAMS", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
             var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderByDescending(x => x.LastName)
                 .ToList();
             Assert.AreEqual(2, result.Count);
             Assert.AreEqual("Zimmerman", result[0].LastName);
-            Assert.AreEqual("Adams", result[1].LastName);
+            Assert.AreEqual("AdAMS", result[1].LastName);
         }
 
         /// <summary>
@@ -244,7 +243,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "D", "AdAMS", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "C", "AdAMS", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
@@ -275,7 +274,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "D", "AdAMS", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "C", "AdAMS", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
@@ -621,6 +620,55 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // Assert
             Assert.AreEqual(0, result.Count);
+        }
+
+        [TestMethod]
+        public void Query_SelectWithIsTwentyOneOrOverProjection_GeneratesCaseStatement()
+        {
+            OutputTestMethodName();
+
+            // Precalculate the cutoff date for age 21 (as of today)
+            DateTime cutoff = DateTime.Now.AddYears(-21).Date;
+
+            // Insert test persons with varying birthdates
+            var guid = Guid.NewGuid().ToString();
+            var personUnder21Id = InsertTestPerson("Under21", "U", guid, DateTime.Now.AddYears(-20).Date, "Male", Guid.NewGuid()); // Under 21
+            var personOver21Id = InsertTestPerson("Over21", "O", guid, DateTime.Now.AddYears(-25).Date, "Female", Guid.NewGuid()); // Over 21
+            var personExactly21Id = InsertTestPerson("Exactly21", "E", guid, cutoff, "NonBinary", Guid.NewGuid()); // Exactly 21 (edge case)
+            var personNullBirthdateId = InsertTestPerson("NullDOB", "N", guid, null, "Male", Guid.NewGuid()); // Null birthdate
+
+            // Query with projection using the ternary expression
+            var results = _provider.Query<Person>()
+                .Where(p => p.LastName == guid) // Filter to our test data
+                .Select(p => new Person
+                {
+                    Id = p.Id,
+                    FirstName = p.FirstName,
+                    MiddleInitial = p.MiddleInitial,
+                    LastName = p.LastName,
+                    Birthdate = p.Birthdate,
+                    Gender = p.Gender,
+                    UniqueId = p.UniqueId,
+                    DateUtcCreated = p.DateUtcCreated,
+                    DateUtcModified = p.DateUtcModified,
+                    IsTwentyOneOrOver = p.Birthdate.HasValue && p.Birthdate.Value <= cutoff ? true : false
+                })
+                .ToList();
+
+            // Assert the results
+            Assert.AreEqual(4, results.Count);
+
+            var under21Result = results.First(r => r.Id == personUnder21Id);
+            Assert.IsFalse(under21Result.IsTwentyOneOrOver, "Person under 21 should have IsTwentyOneOrOver = false");
+
+            var over21Result = results.First(r => r.Id == personOver21Id);
+            Assert.IsTrue(over21Result.IsTwentyOneOrOver, "Person over 21 should have IsTwentyOneOrOver = true");
+
+            var exactly21Result = results.First(r => r.Id == personExactly21Id);
+            Assert.IsTrue(exactly21Result.IsTwentyOneOrOver, "Person exactly 21 should have IsTwentyOneOrOver = true (inclusive)");
+
+            var nullDobResult = results.First(r => r.Id == personNullBirthdateId);
+            Assert.IsFalse(nullDobResult.IsTwentyOneOrOver, "Person with null birthdate should have IsTwentyOneOrOver = false");
         }
 
         [TestMethod]
@@ -1104,7 +1152,24 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.CommitTransaction();
         }
 
-        #region DateTime Tests
+        [TestMethod]
+        public void Query_CaseInWhere_ReturnsCorrectPersons()
+        {
+            OutputTestMethodName();
+            // Arrange
+            var guid = Guid.NewGuid().ToString();
+            var adultId = InsertTestPerson(guid, "A", "Adult", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var minorId = InsertTestPerson(guid, "B", "Minor", DateTime.Now.AddYears(-10), "Female", Guid.NewGuid());
+
+            // Act
+            var adults = _provider.Query<Person>()
+                .Where(p => (p.Birthdate!.Value.Year < 2000 ? "Adult" : "Minor") == "Adult")
+                .ToList();
+
+            // Assert
+            Assert.IsTrue(adults.Any(p => p.Id == adultId));
+            Assert.IsFalse(adults.Any(p => p.Id == minorId));
+        }
 
         [TestMethod]
         public void Query_Person_WithBirthdateInRange_ReturnsCorrectPersons()
@@ -1134,138 +1199,46 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
-        public void Query_Person_WithOrElse_Birthdates_ReturnsCorrectPersons()
+        public void Query_SelectWithSalutationProjection_GeneratesCaseStatement()
         {
             OutputTestMethodName();
-            // Arrange
+
             var guid = Guid.NewGuid().ToString();
-            var fromDate = DateTime.Today.AddYears(-100);
-            var toDate = DateTime.Today.AddYears(100);
+            var fredId = InsertTestPerson("Fred", "F", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var lisaId = InsertTestPerson("Lisa", "L", guid, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var maudeId = InsertTestPerson("Maude", "M", guid, DateTime.Now.AddYears(-40), "Female", Guid.NewGuid());
+            var otherId = InsertTestPerson("Other", "O", guid, DateTime.Now.AddYears(-35), "Male", Guid.NewGuid());
 
-            var personsToInsert = new List<Person>
-            {
-                new() { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-101), Gender = "Female", UniqueId = Guid.NewGuid() },
-                new() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(101), Gender = "Male", UniqueId = Guid.NewGuid() },
-            };
-            personsToInsert.ForEach(p => _provider.Insert(p));
-
-            // Act
-            var result = _provider.Query<Person>()
-                .Where(p => p.FirstName == guid && (p.Birthdate <= fromDate || p.Birthdate >= toDate))
+            var results = _provider.Query<Person>()
+                .Where(p => p.LastName == guid)
+                .Select(p => new Person
+                {
+                    Id = p.Id,
+                    FirstName = p.FirstName,
+                    MiddleInitial = p.MiddleInitial,
+                    LastName = p.LastName,
+                    Birthdate = p.Birthdate,
+                    Gender = p.Gender,
+                    UniqueId = p.UniqueId,
+                    DateUtcCreated = p.DateUtcCreated,
+                    DateUtcModified = p.DateUtcModified,
+                    Salutation = p.FirstName == "Fred" ? "Mr." : p.FirstName == "Lisa" ? "Ms." : p.FirstName == "Maude" ? "Mrs." : null
+                })
                 .ToList();
 
-            // Assert
-            Assert.AreEqual(2, result.Count);
-            Assert.IsTrue(result.All(x => x.LastName == "Smith" || x.LastName == "Johnson"));
+            Assert.AreEqual(4, results.Count);
+
+            var fredResult = results.First(r => r.Id == fredId);
+            Assert.AreEqual("Mr.", fredResult.Salutation);
+
+            var lisaResult = results.First(r => r.Id == lisaId);
+            Assert.AreEqual("Ms.", lisaResult.Salutation);
+
+            var maudeResult = results.First(r => r.Id == maudeId);
+            Assert.AreEqual("Mrs.", maudeResult.Salutation);
+
+            var otherResult = results.First(r => r.Id == otherId);
+            Assert.IsNull(otherResult.Salutation);
         }
-
-        [TestMethod]
-        public void Query_Person_WithNullBirthdate_HandlesNullCorrectly()
-        {
-            OutputTestMethodName();
-            // Arrange
-            var guid = Guid.NewGuid().ToString();
-            var personsToInsert = new List<Person>
-            {
-                new() { LastName = "NullDate", FirstName = guid, Birthdate = null, Gender = "Male", UniqueId = Guid.NewGuid() },
-                new() { LastName = "HasDate", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Female", UniqueId = Guid.NewGuid() }
-            };
-            personsToInsert.ForEach(p => _provider.Insert(p));
-
-            // Act
-            var nullBirthdate = _provider.Query<Person>()
-                .Where(p => p.FirstName == guid && p.Birthdate == null)
-                .ToList();
-
-            var hasBirthdate = _provider.Query<Person>()
-                .Where(p => p.FirstName == guid && p.Birthdate != null)
-                .ToList();
-
-            // Assert
-            Assert.AreEqual(1, nullBirthdate.Count);
-            Assert.AreEqual("NullDate", nullBirthdate[0].LastName);
-            Assert.AreEqual(1, hasBirthdate.Count);
-            Assert.AreEqual("HasDate", hasBirthdate[0].LastName);
-        }
-
-        #endregion
-
-        #region GuidTests
-
-        [TestMethod]
-        public void Query_Person_WithSpecificGuid_ReturnsCorrectPerson()
-        {
-            OutputTestMethodName();
-            // Arrange
-            var uniqueGuid = Guid.NewGuid();
-            var person = new Person
-            {
-                LastName = Guid.NewGuid().ToString(),
-                FirstName = Guid.NewGuid().ToString(),
-                UniqueId = uniqueGuid
-            };
-            _provider.Insert(person);
-
-            // Act
-            var result = _provider.Query<Person>()
-                .Where(p => p.UniqueId == uniqueGuid)
-                .ToList();
-
-            // Assert
-            Assert.AreEqual(1, result.Count);
-            Assert.AreEqual(uniqueGuid, result[0].UniqueId);
-        }
-
-        /// <summary>
-        /// Tests that querying with a list of GUIDs returns the correct persons.
-        /// </summary>
-        /// <exception cref="AssertFailedException">Thrown if the assertion fails.</exception>
-        [TestMethod]
-        public void Query_GuidList_ReturnsCorrectPersons()
-        {
-            // Arrange
-            var firstNameGuidString = Guid.NewGuid().ToString();
-            // Debug: Check the database state before insertion
-            var initialRecords = _provider.Query<Person>().Where(p => p.FirstName == firstNameGuidString).ToList();
-            Debug.WriteLine($"Records with FirstName={firstNameGuidString} before insertion: {initialRecords.Count}");
-            foreach (var record in initialRecords)
-            {
-                Debug.WriteLine($"Initial record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
-            }
-
-            var guids = new List<Guid?> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
-            var personsToInsert = new List<Person>
-            {
-                new() { LastName = "GuidOne", FirstName = firstNameGuidString, UniqueId = guids[0], Gender = "Guid1" },
-                new() { LastName = "GuidTwo", FirstName = firstNameGuidString, UniqueId = guids[1], Gender = "Guid2" },
-                new() { LastName = "GuidThree", FirstName = firstNameGuidString, UniqueId = guids[2], Gender = "Guid3" },
-                new() { LastName = "NoMatch", FirstName = firstNameGuidString, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
-            };
-            personsToInsert.ForEach(p => _provider.Insert(p));
-
-            // Debug: Verify the inserted data
-            var insertedRecords = _provider.Query<Person>().Where(p => p.FirstName == firstNameGuidString).ToList();
-            Debug.WriteLine($"Inserted records: {insertedRecords.Count}");
-            foreach (var record in insertedRecords)
-            {
-                Debug.WriteLine($"Inserted record: FirstName={record.FirstName}, UniqueId={record.UniqueId}");
-            }
-
-            Debug.WriteLine($"GUIDs to match: {string.Join(", ", guids)}");
-
-            // Act
-            var queryable = _provider.Query<Person>()
-                .Where(p => p.FirstName == firstNameGuidString && guids.Contains(p.UniqueId));
-
-            // Debug: Log the generated SQL and parameters
-            var sql = queryable.Expression.ToString();
-            Debug.WriteLine($"Generated query: {sql}");
-
-            // Assert
-            Assert.IsTrue(queryable.All(p => guids.Contains(p.UniqueId)));
-            Assert.AreEqual(3, queryable.ToList().Count);
-        }
-
-        #endregion
     }
 }

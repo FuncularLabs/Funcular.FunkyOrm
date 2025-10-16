@@ -1104,11 +1104,25 @@ namespace Funcular.Data.Orm.SqlServer
 
             // Precompute mapping array
             var mappings = properties
-                .Where(p => !unmappedNames.Contains(p.Name))
                 .Select(p =>
                 {
-                    var columnName = GetCachedColumnName(p);
-                    if (!schemaOrdinals.TryGetValue(columnName, out int ordinal)) return null;
+                    // If the property is marked [NotMapped] we still want to bind it
+                    // when the query projection included an alias with the same name.
+                    // For mapped properties use the cached column name; for unmapped use the property name
+                    // (the projection aliases use the CLR property name).
+                    string columnName;
+                    if (unmappedNames.Contains(p.Name))
+                    {
+                        columnName = p.Name; // projection alias expected to match property name
+                    }
+                    else
+                    {
+                        columnName = GetCachedColumnName(p);
+                    }
+
+                    if (string.IsNullOrEmpty(columnName) || !schemaOrdinals.TryGetValue(columnName, out int ordinal))
+                        return null;
+
                     var setter = GetOrCreateSetter(p);
                     var propertyType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
                     return new { Ordinal = ordinal, Setter = setter, Type = propertyType, IsEnum = propertyType.IsEnum };

@@ -46,6 +46,12 @@ namespace Funcular.Data.Orm.SqlServer
         public int? Take { get; set; }
 
         /// <summary>
+        /// Gets or sets the SQL SELECT clause.
+        /// </summary>
+        public string SelectClause { get; set; }
+
+
+        /// <summary>
         /// Gets or sets the SQL clause for aggregate operations (Any, All, Count, Average, Min, Max).
         /// </summary>
         public string AggregateClause { get; set; }

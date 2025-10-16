@@ -7,7 +7,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Objects.Person
 {
 	///<inheritdoc cref="PersonEntity"/>
 	[Serializable]
-	public class Person : PersonEntity
+	public partial class Person : PersonEntity
 	{
         #region Overrides of Object
 
