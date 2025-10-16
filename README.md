@@ -266,7 +266,10 @@ var results = provider.Query<Person>()
     {
         Id = p.Id,
         FirstName = p.FirstName,
-        Salutation = p.FirstName == "Fred" ? "Mr." : p.FirstName == "Lisa" ? "Ms." : p.FirstName == "Maude" ? "Mrs." : null
+        Salutation = p.FirstName == "Fred" ? "Mr." :
+                p.FirstName == "Lisa" ? "Ms." :
+                p.FirstName == "Maude" ? "Mrs." :
+                null
     })
     .ToList();
 // Assigns salutation based on first name using chained ternaries
