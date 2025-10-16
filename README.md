@@ -226,6 +226,68 @@ var multiDescending = provider.Query<Person>()
     .ToList();
 ```
 
+### Ternary Operator Support
+
+Funcular ORM supports the C# ternary operator (`?:`) in WHERE clauses, projections (Select), and ORDER BY clauses, translating them to SQL CASE statements for efficient server-side evaluation. This allows conditional logic to be pushed to the database. Supports chained ternaries. Note that inner expressions within ternaries are not evaluated in C#; the entire expression is translated to SQL.
+
+Use ternary in WHERE clauses for conditional filtering:
+
+```csharp
+var adults = provider.Query<Person>()
+    .Where(p => (p.Birthdate!.Value.Year < 2000 ? "Adult" : "Minor") == "Adult")
+    .ToList();
+// Filters persons classified as "Adult" based on birth year
+```
+
+Use ternary in projections to compute derived properties:
+
+```csharp
+var cutoff = DateTime.Now.AddYears(-21).Date;
+var results = provider.Query<Person>()
+    .Select(p => new Person
+    {
+        Id = p.Id,
+        FirstName = p.FirstName,
+        LastName = p.LastName,
+        Birthdate = p.Birthdate,
+        IsTwentyOneOrOver = p.Birthdate.HasValue && p.Birthdate.Value <= cutoff ? true : false
+    })
+    .ToList();
+// Computes IsTwentyOneOrOver based on birthdate
+```
+
+Chained ternaries in projections:
+
+```csharp
+var results = provider.Query<Person>()
+    .Select(p => new Person
+    {
+        Id = p.Id,
+        FirstName = p.FirstName,
+        Salutation = p.FirstName == "Fred" ? "Mr." : p.FirstName == "Lisa" ? "Ms." : p.FirstName == "Maude" ? "Mrs." : null
+    })
+    .ToList();
+// Assigns salutation based on first name using chained ternaries
+```
+
+Use ternary in ORDER BY clauses:
+
+```csharp
+var result = provider.Query<Person>()
+    .OrderBy(p => p.Gender == "Male" ? p.LastName : p.FirstName)
+    .ToList();
+// Orders by LastName for males, FirstName for others
+```
+
+Descending order with ternary:
+
+```csharp
+var result = provider.Query<Person>()
+    .OrderByDescending(p => p.Gender == "Male" ? p.LastName : p.FirstName)
+    .ToList();
+// Orders descending by LastName for males, FirstName for others
+```
+
 ### Paging Results
 
 Use `Skip` and `Take` for pagination.
@@ -374,6 +436,7 @@ FunkyORM is designed to be a near-drop-in replacement for Entity Framework that 
   - C# `.StartsWith,` `EndsWith` and `Contains` invocations on strings
   - C# `.Contains` invocations on arrays (converts these to `IN` clauses with a SqlParameter for each member of the `IN` set)
   - C# `OrderBy, ThenBy, OrderByDescending, ThenByDescending, Skip, Take`
+  - C# ternary operator (?:) support in WHERE clauses, projections, and ORDER BY clauses, translating to SQL CASE statements. Supports chained ternaries. Note that inner expressions within ternaries are not evaluated in C#; the entire expression is translated to SQL.
   - C# `Any` (with an optional predicate), `All` (predicate is required)
   - C# Aggregates like `Count, Average, Min, Max` on single column expressions
 - UPDATE commands

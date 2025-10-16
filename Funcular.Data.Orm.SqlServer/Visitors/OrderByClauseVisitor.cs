@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Globalization;
 
 namespace Funcular.Data.Orm.Visitors
 {
@@ -118,11 +120,186 @@ namespace Funcular.Data.Orm.Visitors
                 {
                     var columnName = GetColumnName(property);
                     _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    return;
                 }
             }
-            else
+            else if (expression is UnaryExpression unary && unary.Operand is MemberExpression unaryMember)
             {
-                throw new NotSupportedException("Only simple member access is supported in OrderBy expressions.");
+                // e.g., conversions: p => (object)p.SomeProp; handle underlying member
+                var property = unaryMember.Member as PropertyInfo;
+                if (property != null && !IsUnmappedProperty(property))
+                {
+                    var columnName = GetColumnName(property);
+                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    return;
+                }
+            }
+            else if (expression is ConditionalExpression conditional)
+            {
+                // Build a CASE WHEN ... THEN ... ELSE ... END expression for ORDER BY
+                var caseSql = BuildCaseExpression(conditional);
+                _orderByClauses.Add(new OrderByClause { ColumnName = caseSql, IsDescending = isDescending });
+                return;
+            }
+
+            throw new NotSupportedException("Only simple member access or ternary (conditional) expressions are supported in OrderBy expressions.");
+        }
+
+        /// <summary>
+        /// Builds a CASE WHEN ... THEN ... ELSE ... END SQL fragment from a ConditionalExpression.
+        /// Supports simple tests: member.HasValue and binary comparisons like member == constant.
+        /// Supports branches that are member accesses or constants.
+        /// </summary>
+        private string BuildCaseExpression(ConditionalExpression conditional)
+        {
+            string testSql = BuildTestSql(conditional.Test);
+            string trueSql = BuildValueSql(conditional.IfTrue);
+            string falseSql = BuildValueSql(conditional.IfFalse);
+
+            return $"CASE WHEN {testSql} THEN {trueSql} ELSE {falseSql} END";
+        }
+
+        private string BuildTestSql(Expression test)
+        {
+            switch (test)
+            {
+                case MemberExpression mem when mem.Member.MemberType == MemberTypes.Property && mem.Member.Name == "HasValue" && mem.Expression is MemberExpression inner:
+                    {
+                        var prop = inner.Member as PropertyInfo;
+                        if (prop != null && !IsUnmappedProperty(prop))
+                        {
+                            var col = GetColumnName(prop);
+                            return $"{col} IS NOT NULL";
+                        }
+                        break;
+                    }
+                case BinaryExpression bin:
+                    {
+                        var left = bin.Left;
+                        var right = bin.Right;
+
+                        string leftSql = BuildValueSql(left);
+                        string rightSql = BuildValueSql(right);
+
+                        switch (bin.NodeType)
+                        {
+                            case ExpressionType.Equal:
+                                return $"{leftSql} = {rightSql}";
+                            case ExpressionType.NotEqual:
+                                return $"{leftSql} != {rightSql}";
+                            case ExpressionType.GreaterThan:
+                                return $"{leftSql} > {rightSql}";
+                            case ExpressionType.GreaterThanOrEqual:
+                                return $"{leftSql} >= {rightSql}";
+                            case ExpressionType.LessThan:
+                                return $"{leftSql} < {rightSql}";
+                            case ExpressionType.LessThanOrEqual:
+                                return $"{leftSql} <= {rightSql}";
+                            default:
+                                throw new NotSupportedException($"Binary operator {bin.NodeType} is not supported in ORDER BY conditional tests.");
+                        }
+                    }
+                default:
+                    throw new NotSupportedException($"Unsupported conditional test expression in ORDER BY: {test.NodeType}");
+            }
+
+            throw new NotSupportedException($"Unsupported conditional test expression in ORDER BY: {test}");
+        }
+
+        private string BuildValueSql(Expression expr)
+        {
+            switch (expr)
+            {
+                case MemberExpression memberExpr:
+                    {
+                        // If it's a parameter member => column
+                        if (memberExpr.Expression is ParameterExpression)
+                        {
+                            var property = memberExpr.Member as PropertyInfo;
+                            if (property != null && !IsUnmappedProperty(property))
+                                return GetColumnName(property);
+                            throw new NotSupportedException($"Member {memberExpr.Member.Name} is not a mapped property.");
+                        }
+
+                        // Constant captured in closure (e.g. static field)
+                        if (memberExpr.Expression is ConstantExpression constExpr)
+                        {
+                            var value = (memberExpr.Member as FieldInfo)?.GetValue(constExpr.Value);
+                            return FormatConstant(value);
+                        }
+
+                        // Nullable.Value access: e.g., p.Birthdate.Value -> map to column
+                        if (memberExpr.Member.MemberType == MemberTypes.Property && memberExpr.Member.Name == "Value" && memberExpr.Expression is MemberExpression inner)
+                        {
+                            if (inner.Expression is ParameterExpression)
+                            {
+                                var innerProp = inner.Member as PropertyInfo;
+                                if (innerProp != null && !IsUnmappedProperty(innerProp))
+                                {
+                                    return GetColumnName(innerProp);
+                                }
+                            }
+                        }
+
+                        // Fallback: try to evaluate
+                        try
+                        {
+                            var evaluated = Expression.Lambda(Expression.Convert(memberExpr, typeof(object))).Compile().DynamicInvoke();
+                            return FormatConstant(evaluated);
+                        }
+                        catch
+                        {
+                            throw new NotSupportedException($"Unsupported member expression in ORDER BY: {memberExpr}");
+                        }
+                    }
+                case ConstantExpression constExpr:
+                    return FormatConstant(constExpr.Value);
+                case UnaryExpression unary when unary.NodeType == ExpressionType.Convert:
+                    return BuildValueSql(unary.Operand);
+                default:
+                    // Attempt to evaluate the expression to a constant
+                    try
+                    {
+                        var evaluated = Expression.Lambda(Expression.Convert(expr, typeof(object))).Compile().DynamicInvoke();
+                        return FormatConstant(evaluated);
+                    }
+                    catch
+                    {
+                        throw new NotSupportedException($"Unsupported expression in ORDER BY branch: {expr.NodeType}");
+                    }
+            }
+        }
+
+        private string FormatConstant(object value)
+        {
+            if (value == null) return "NULL";
+
+            switch (value)
+            {
+                case string s:
+                    return $"'{s.Replace("'", "''")}'";
+                case DateTime dt:
+                    // SQL-friendly ISO format (no timezone)
+                    return $"'{dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)}'";
+                case bool b:
+                    return b ? "1" : "0";
+                case Guid g:
+                    return $"'{g}'";
+                case byte _:
+                case sbyte _:
+                case short _:
+                case ushort _:
+                case int _:
+                case uint _:
+                case long _:
+                case ulong _:
+                case float _:
+                case double _:
+                case decimal _:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture);
+                default:
+                    // fallback with quoted ToString
+                    return $"'{value?.ToString()?.Replace("'", "''")}'";
             }
         }
     }

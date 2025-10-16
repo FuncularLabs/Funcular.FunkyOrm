@@ -207,7 +207,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
             InsertTestPerson(guid, "A", "Zimmerman", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
-            InsertTestPerson(guid, "B", "Adams", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            InsertTestPerson(guid, "B", "AdAMS", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
             var result = _provider.Query<Person>()
                 .Where(x => x.FirstName == guid)
                 .OrderBy(x => x.LastName)
@@ -1239,6 +1239,104 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             var otherResult = results.First(r => r.Id == otherId);
             Assert.IsNull(otherResult.Salutation);
+        }
+
+        [TestMethod]
+        public void Query_OrderByWithTernaryExpression_GeneratesCaseAndOrdersCorrectly()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+
+            // Use unique last-names per test run to avoid colliding with pre-existing data
+            var maleLast = "ZLast_" + guid;
+            var femaleLast = "ALast_" + guid;
+            var otherLast = "BLast_" + guid;
+
+            // Insert test persons with different genders and predictable names for ordering
+            var maleId = InsertTestPerson("John", "J", maleLast, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var femaleId = InsertTestPerson("Jane", "J", femaleLast, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var otherId = InsertTestPerson("Alex", "A", otherLast, DateTime.Now.AddYears(-20), "Other", Guid.NewGuid());
+
+            // Act: Order by ternary expression - if Gender == "Male" then LastName, else FirstName
+            var result = _provider.Query<Person>()
+                .Where(p => p.LastName == maleLast || p.LastName == femaleLast || p.LastName == otherLast)
+                .OrderBy(p => p.Gender == "Male" ? p.LastName : p.FirstName)
+                .ToList();
+
+            // Assert: Order should be Alex (FirstName), Jane (FirstName), John (LastName "ZLast")
+            Assert.AreEqual(3, result.Count);
+            Assert.AreEqual("Alex", result[0].FirstName);
+            Assert.AreEqual("Jane", result[1].FirstName);
+            Assert.AreEqual("John", result[2].FirstName);
+            // Validate CASE statement is generated in ORDER BY
+            Assert.IsTrue(_sb.ToString().Contains("CASE", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [TestMethod]
+        public void Query_OrderByDescendingWithTernaryExpression_GeneratesCaseAndOrdersCorrectly()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+
+            // Use unique last-names per test run to avoid colliding with pre-existing data
+            var maleLast = "ZLast_" + guid;
+            var femaleLast = "ALast_" + guid;
+            var otherLast = "BLast_" + guid;
+
+            // Insert test persons with different genders and predictable names for ordering
+            var maleId = InsertTestPerson("John", "J", maleLast, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var femaleId = InsertTestPerson("Jane", "J", femaleLast, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            var otherId = InsertTestPerson("Alex", "A", otherLast, DateTime.Now.AddYears(-20), "Other", Guid.NewGuid());
+
+            // Act: Order by descending ternary expression - if Gender == "Male" then LastName, else FirstName
+            var result = _provider.Query<Person>()
+                .Where(p => p.LastName == maleLast || p.LastName == femaleLast || p.LastName == otherLast)
+                .OrderByDescending(p => p.Gender == "Male" ? p.LastName : p.FirstName)
+                .ToList();
+
+            // Assert: Reverse order - John (LastName "ZLast"), Jane (FirstName), Alex (FirstName)
+            Assert.AreEqual(3, result.Count);
+            Assert.AreEqual("John", result[0].FirstName);
+            Assert.AreEqual("Jane", result[1].FirstName);
+            Assert.AreEqual("Alex", result[2].FirstName);
+            // Validate CASE statement is generated in ORDER BY with DESC
+            Assert.IsTrue(_sb.ToString().Contains("CASE", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().Contains("DESC", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [TestMethod]
+        public void Query_ThenByWithTernaryExpression_GeneratesCaseAndOrdersCorrectly()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            // Use unique last-name to avoid collisions with other data
+            var sameLast = "SameLast_" + guid;
+
+            // Insert test persons with same LastName but different FirstNames and MiddleInitials
+            InsertTestPerson("John", "Z", sameLast, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            InsertTestPerson("Jane", "A", sameLast, DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            InsertTestPerson("Alex", "B", sameLast, DateTime.Now.AddYears(-20), "Other", Guid.NewGuid());
+
+            // Act: Order by LastName, then by ternary - if Gender == "Male" then MiddleInitial, else FirstName
+            var result = _provider.Query<Person>()
+                .Where(p => p.LastName == sameLast)
+                .OrderBy(p => p.LastName)
+                .ThenBy(p => p.Gender == "Male" ? p.MiddleInitial : p.FirstName)
+                .ToList();
+
+            // Assert: All have same LastName, then ordered by ternary.
+            // For the ternary CASE when gender == "Male" then middle_initial else first_name,
+            // values will be: John -> "Z", Jane -> "Jane", Alex -> "Alex"
+            // Lexical ascending order is: "Alex", "Jane", "Z" => Alex, Jane, John
+            Assert.AreEqual(3, result.Count);
+            Assert.AreEqual("Alex", result[0].FirstName);
+            Assert.AreEqual("Jane", result[1].FirstName);
+            Assert.AreEqual("John", result[2].FirstName);
+            // Validate CASE statement is generated
+            Assert.IsTrue(_sb.ToString().Contains("CASE", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
         }
     }
 }
