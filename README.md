@@ -1,3 +1,5 @@
+🌟 *New in v1.5.0: Ternary operator support in WHERE clauses, projections, and ORDER BY clauses. See "Ternary Operator Support" heading below for details.*
+
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
     
 Welcome to Funcular ORM, aka FunkyORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
