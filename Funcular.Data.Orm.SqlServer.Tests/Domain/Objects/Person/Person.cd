@@ -6,12 +6,12 @@
       <Compartment Name="Fields" Collapsed="true" />
     </Compartments>
     <TypeIdentifier>
-      <HashCode>AABAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <HashCode>AABAAAAAAAAAAAAFAAAAAAAEAAAAAAAAAAABAAAAAAA=</HashCode>
       <FileName>Domain\Objects\Person\Person.cs</FileName>
     </TypeIdentifier>
   </Class>
   <Class Name="Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person.PersonEntity">
-    <Position X="3.25" Y="3.5" Width="3.25" />
+    <Position X="7.5" Y="3.5" Width="3.25" />
     <Compartments>
       <Compartment Name="Fields" Collapsed="true" />
     </Compartments>

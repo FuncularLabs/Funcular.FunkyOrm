@@ -1170,9 +1170,10 @@ namespace Funcular.Data.Orm.SqlServer
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            // Properties that are not marked with [NotMapped] and are not the primary key
+            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var includedProperties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => !p.GetCustomAttributes<NotMappedAttribute>().Any() && p != primaryKey);
+                .Where(p => unmapped.All(up => up.Name != p.Name) && p != primaryKey);
+            // Properties that are not marked with [NotMapped] and are not the primary key
             var parameters = new List<SqlParameter>();
             var columnNames = new List<string>();
             var parameterNames = new List<string>();
@@ -1235,8 +1236,9 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var parameters = new List<SqlParameter>();
             var setClause = new StringBuilder();
+            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => p != primaryKey && !p.GetCustomAttributes<NotMappedAttribute>().Any());
+                .Where(p => p != primaryKey && unmapped.All(up => up.Name != p.Name));
 
             foreach (var property in properties)
             {
@@ -1476,9 +1478,14 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">Entity type to reflect over.</typeparam>
         /// <returns>A comma separated list of resolved column names.</returns>
-        protected internal string GetColumnNames<T>() => string.Join(", ", typeof(T).GetProperties()
-            .Where(p => !p.GetCustomAttributes<NotMappedAttribute>().Any())
-            .Select(p => GetCachedColumnName(p)));
+        protected internal string GetColumnNames<T>() where T : class, new()
+        {
+            DiscoverColumns<T>(); // Ensure column mappings are discovered
+            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            return string.Join(", ", typeof(T).GetProperties()
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Select(p => GetCachedColumnName(p)));
+        }
 
         /// <summary>
         /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
@@ -1597,7 +1604,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// and common naming patterns such as "Id" or "{TypeName}Id".
         /// </summary>
         /// <typeparam name="T">The type to inspect.</typeparam>
-        /// <returns>The primary key <see cref="PropertyInfo"/> or null if none found.</returns>
+        /// <returns>The primary key <see cref="PropertyInfo"/> or null if no primary key can be determined.</returns>
         internal PropertyInfo GetPrimaryKeyProperty<T>() => typeof(T).GetProperties().FirstOrDefault(p =>
             p.GetCustomAttribute<KeyAttribute>() != null ||
             p.GetCustomAttribute<DatabaseGeneratedAttribute>()?.DatabaseGeneratedOption ==
@@ -1613,8 +1620,20 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="type">The CLR Type (provided by the cache accessor).</param>
         /// <returns>A collection of properties decorated with <see cref="NotMappedAttribute"/>.</returns>
         protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
-            where T : class, new() =>
-            typeof(T).GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray();
+            where T : class, new()
+        {
+            var properties = typeof(T).GetProperties();
+            var explicitlyUnmapped = properties.Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null);
+            var implicitlyUnmapped = properties.Where(p =>
+            {
+                if (explicitlyUnmapped.Any(up => up.Name == p.Name)) return false; // Already handled
+                var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
+                if (columnAttr != null) return false; // Explicit column mapping
+                var key = p.ToDictionaryKey();
+                return !_columnNames.ContainsKey(key); // No cached column mapping
+            });
+            return explicitlyUnmapped.Concat(implicitlyUnmapped).ToArray();
+        }
 
         /// <summary>
         /// Creates an <see cref="IQueryable{T}"/> backed by a <see cref="SqlLinqQueryProvider{T}"/>.

@@ -1338,5 +1338,57 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsTrue(_sb.ToString().Contains("CASE", StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(_sb.ToString().Contains("ORDER BY", StringComparison.OrdinalIgnoreCase));
         }
+
+        [TestMethod]
+        public void Query_SelectDoesNotIncludeUnmappedProperties()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            
+            // Clear previous logs
+            _sb.Clear();
+            
+            // Query to trigger SELECT generation
+            var person = _provider.Get<Person>(personId);
+            
+            // Assert that unmapped properties like 'uniqueid' are not in the SELECT
+            var sql = _sb.ToString();
+            Assert.IsTrue(sql.Contains("SELECT", StringComparison.OrdinalIgnoreCase));
+            Assert.IsFalse(sql.Contains("Salutation", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [TestMethod]
+        public void Insert_DoesNotIncludeUnmappedProperties()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            
+            // Clear previous logs
+            _sb.Clear();
+            
+            var person = new Person
+            {
+                FirstName = guid,
+                MiddleInitial = "A",
+                LastName = guid,
+                Birthdate = DateTime.Now.AddYears(-30),
+                Gender = "Male",
+                Salutation = "Mr.", // Unmapped
+                IsTwentyOneOrOver = true,
+                UniqueId = Guid.NewGuid(),
+                DateUtcCreated = DateTime.UtcNow,
+                DateUtcModified = DateTime.UtcNow,
+                
+            };
+            
+            _provider.Insert(person);
+            
+            // Assert INSERT SQL does not include 'uniqueid'
+            var sql = _sb.ToString();
+            Assert.IsTrue(sql.Contains("INSERT", StringComparison.OrdinalIgnoreCase));
+            Assert.IsFalse(sql.Contains("Salutation", StringComparison.OrdinalIgnoreCase));
+            Assert.IsFalse(sql.Contains("IsTwentyOneOrOver", StringComparison.OrdinalIgnoreCase));
+        }
     }
 }
