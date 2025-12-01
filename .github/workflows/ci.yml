@@ -31,8 +31,15 @@ jobs:
         dotnet-version: 8.0.x
     - name: Restore dependencies
       run: dotnet restore
-    - name: Test .NET 8
-      run: dotnet test Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore --verbosity normal
+    - name: Build .NET 8 tests
+      run: dotnet build Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore
+    - name: Setup LocalDB
+      run: |
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "IF DB_ID('funky_db') IS NOT NULL DROP DATABASE funky_db;"
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
+    - name: Run tests with playlist
+      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
 
   test-netframework:
     runs-on: windows-latest
