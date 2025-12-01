@@ -1399,7 +1399,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Query_With_Closure_In_Predicate_Succeeds()
         {
             OutputTestMethodName();
-            var personIds = _provider.GetList<Person>().OrderBy(p => new Guid()).Select(p => p.Id).Take(2);
+            var personIds = _provider.GetList<Person>().OrderBy(p => Guid.NewGuid()).Select(p => p.Id).Take(2);
             // Ensure addresses exist
             var addressIds = new List<int>();
             var addressLines = new[] { "123 Main St" };//, "456 Oak Ave", "789 Pine Rd", "101 Elm St", "202 Maple Ln", "303 Birch Blvd", "404 Cedar Ct", "505 Spruce Pl", "606 Willow Way", "707 Ash Dr" };
