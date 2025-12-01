@@ -41,7 +41,7 @@ jobs:
         sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
         sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
     - name: Run tests with playlist
-      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
+      run: dotnet vstest Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
 
   # test-netframework:
   #   runs-on: windows-latest
