@@ -13,7 +13,7 @@ using OfficeOpenXml;
 namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
 {
     [TestClass]
-    public class SqlDataProviderPerformanceTests
+    public class SqlDataProviderNetFrameworkPerformanceTests
     {
         private string _connectionString;
         public SqlServerOrmDataProvider _provider;

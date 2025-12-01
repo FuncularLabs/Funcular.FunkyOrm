@@ -1429,8 +1429,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 var available = addressIds.Where(a => !assigned.Contains(a)).ToList();
                 if (!available.Any()) break;
                 var rnd = new Random();
-                var num = rnd.Next(3, 6);
-                for (int j = 0; j < num; j++)
+                var num = rnd.Next(4, 7);
+#pragma warning disable CS0162 // Unreachable code detected
+                for (int i = 0; i < num; i++)
                 {
                     var addressId = available[rnd.Next(available.Count)];
                     var existingPa = _provider.Query<PersonAddress>(x => x.PersonId == personId && x.AddressId == addressId).FirstOrDefault();
@@ -1444,6 +1445,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                     Assert.IsNotNull(existingPa);
                     break;
                 }
+#pragma warning restore CS0162 // Unreachable code detected
                 break;
             }
         }

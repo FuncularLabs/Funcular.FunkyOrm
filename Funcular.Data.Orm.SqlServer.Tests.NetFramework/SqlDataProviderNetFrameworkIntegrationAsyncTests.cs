@@ -12,7 +12,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
 {
     [TestClass]
-    public class SqlDataProviderIntegrationAsyncTests
+    public class SqlDataProviderNetFrameworkIntegrationAsyncTests
     {
         public SqlServerOrmDataProvider _provider;
         private string _connectionString;
