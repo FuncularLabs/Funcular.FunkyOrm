@@ -18,7 +18,9 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
-      run: dotnet build --configuration Release --no-restore
+      run: |
+        dotnet build Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj --configuration Release --no-restore
+        dotnet build Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore
 
   test-net8:
     runs-on: windows-latest

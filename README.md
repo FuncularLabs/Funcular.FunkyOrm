@@ -1,6 +1,6 @@
 ##### Release Notes:
+###### 🤕 1.6.0: Fixed privately reported issue with predicates captured in closures not being translated correctly in some cases.
 ###### 🤕 1.5.2: Fixed #3 (Unmapped properties lacking [NotMapped] attribute were included in some SQL statements)
-
 ###### 🌟 *New in v1.5.0: Ternary operator support in WHERE clauses, projections, and ORDER BY clauses. See "Ternary Operator Support" heading below for details.*
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL

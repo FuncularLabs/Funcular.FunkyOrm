@@ -23,7 +23,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Setup()
         {
             _sb.Clear();
-            _connectionString = //Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
+            _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
                 "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=funky_db;Integrated Security=True;";
             TestConnection();
 
