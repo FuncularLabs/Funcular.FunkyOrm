@@ -153,6 +153,7 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         private void VisitMember(MemberExpression node)
         {
+            // Column mapping for parameter-member (e.g., x.RepId)
             if (node.Expression is ParameterExpression)
             {
                 var property = node.Member as PropertyInfo;
@@ -160,31 +161,95 @@ namespace Funcular.Data.Orm.Visitors
                 {
                     var columnName = GetColumnName(property);
                     _commandTextBuilder.Append(columnName);
+                    return;
                 }
             }
-            else if (node.Expression is MemberExpression memberExpression &&
-                     memberExpression.Expression is ParameterExpression &&
-                     memberExpression.Member.Name == "Value")
+
+            // Nullable<T>.Value date handling (e.g., p.Birthdate.Value.Year)
+            if (node.Expression is MemberExpression memberExpression &&
+                memberExpression.Expression is ParameterExpression &&
+                memberExpression.Member.Name == "Value")
             {
                 _translator.TranslateDateMember(node, _commandTextBuilder, _parameters, GetColumnName);
+                return;
             }
-            else if (node.Expression is ConstantExpression constantExpression)
+
+            // Captured value in closure: constantExpression.Value is the closure instance.
+            if (node.Expression is ConstantExpression constantExpression)
             {
-                var value = (node.Member as FieldInfo)?.GetValue(constantExpression.Value);
+                object value;
+                if (node.Member is FieldInfo field)
+                {
+                    value = field.GetValue(constantExpression.Value);
+                }
+                else if (node.Member is PropertyInfo prop)
+                {
+                    value = prop.GetValue(constantExpression.Value);
+                }
+                else
+                {
+                    // Last-resort: evaluate expression to object to handle odd shapes
+                    try
+                    {
+                        var lambda = Expression.Lambda<Func<object>>(Expression.Convert(node, typeof(object)));
+                        value = lambda.Compile()();
+                    }
+                    catch
+                    {
+                        value = constantExpression.Value;
+                    }
+                }
+
                 var param = _parameterGenerator.CreateParameter(value);
                 _parameters.Add(param);
                 _commandTextBuilder.Append(param.ParameterName);
+                return;
             }
-            else if ((node.Member.Name == "Year" || node.Member.Name == "Month" || node.Member.Name == "Day") &&
-                     node.Expression is MemberExpression valueMember && valueMember.Member.Name == "Value" &&
-                     valueMember.Expression is MemberExpression dateMember && dateMember.Expression is ParameterExpression)
+
+            // Date member helpers (Year/Month/Day) for Nullable.Value chains
+            if ((node.Member.Name == "Year" || node.Member.Name == "Month" || node.Member.Name == "Day") &&
+                node.Expression is MemberExpression valueMember && valueMember.Member.Name == "Value" &&
+                valueMember.Expression is MemberExpression dateMember && dateMember.Expression is ParameterExpression)
             {
                 _translator.TranslateDateMember(node, _commandTextBuilder, _parameters, GetColumnName);
+                return;
             }
-            else if (node.Expression != null)
+
+            // Handle nested member access on constants (e.g. closure.Inner.Field) or static members
+            if (IsConstantMemberAccess(node))
+            {
+                object value;
+                try
+                {
+                    var lambda = Expression.Lambda<Func<object>>(Expression.Convert(node, typeof(object)));
+                    value = lambda.Compile()();
+                }
+                catch
+                {
+                    throw new NotSupportedException($"Could not evaluate expression: {node}");
+                }
+
+                var param = _parameterGenerator.CreateParameter(value);
+                _parameters.Add(param);
+                _commandTextBuilder.Append(param.ParameterName);
+                return;
+            }
+
+            // otherwise recurse into inner expression
+            if (node.Expression != null)
             {
                 Visit(node.Expression);
             }
+        }
+
+        private bool IsConstantMemberAccess(MemberExpression node)
+        {
+            var expr = node.Expression;
+            while (expr is MemberExpression member)
+            {
+                expr = member.Expression;
+            }
+            return expr is ConstantExpression || expr == null;
         }
 
         /// <summary>
@@ -279,6 +344,12 @@ namespace Funcular.Data.Orm.Visitors
         }
     }
 }
+
+
+
+
+
+
 
 
 

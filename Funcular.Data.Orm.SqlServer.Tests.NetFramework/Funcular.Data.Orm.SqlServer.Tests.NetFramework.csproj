@@ -58,7 +58,7 @@
     <Compile Include="Domain\Objects\Person\Person.partial.cs" />
     <Compile Include="Domain\Objects\Person\PersonAddress.cs" />
     <Compile Include="SqlDataProviderIntegrationAsyncTests.cs" />
-    <Compile Include="SqlDataProviderIntegrationTests.cs" />
+    <Compile Include="SqlDataProviderNetFrameworkIntegrationTests.cs" />
     <Compile Include="SqlDataProviderPerformanceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
