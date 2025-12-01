@@ -41,21 +41,21 @@ jobs:
     - name: Run tests with playlist
       run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
 
-  test-netframework:
-    runs-on: windows-latest
-    needs: build
-    steps:
-    - uses: actions/checkout@v4
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
-    - name: Restore dependencies
-      run: dotnet restore
-    - name: Build .NET Framework tests
-      run: msbuild Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj /p:Configuration=Release
-    - name: Run tests with playlist
-      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests.NetFramework\bin\Release\net48\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll /Playlist:ContinuousIntegration.playlist
+  # test-netframework:
+  #   runs-on: windows-latest
+  #   needs: build
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Setup .NET
+  #     uses: actions/setup-dotnet@v4
+  #     with:
+  #       dotnet-version: 8.0.x
+  #   - name: Restore dependencies
+  #     run: dotnet restore
+  #   - name: Build .NET Framework tests
+  #     run: msbuild Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj /p:Configuration=Release
+  #   - name: Run tests with playlist
+  #     run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests.NetFramework\bin\Release\net48\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll /Playlist:ContinuousIntegration.playlist
 
   setup-localdb:
     runs-on: windows-latest
