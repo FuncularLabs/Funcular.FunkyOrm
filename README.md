@@ -1,10 +1,13 @@
-#### Release Notes:
-##### 🤕 1.5.2: Fixed #3 (Unmapped properties lacking [NotMapped] attribute are included in some SQL statements)
+##### Release Notes:
+###### 🤕 1.5.2: Fixed #3 (Unmapped properties lacking [NotMapped] attribute were included in some SQL statements)
 
-##### 🌟 *New in v1.5.0: Ternary operator support in WHERE clauses, projections, and ORDER BY clauses. See "Ternary Operator Support" heading below for details.*
+###### 🌟 *New in v1.5.0: Ternary operator support in WHERE clauses, projections, and ORDER BY clauses. See "Ternary Operator Support" heading below for details.*
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
-    
+
+[![Build Status](https://github.com/FuncularLabs/Funcular.FunkyOrm/workflows/CI/badge.svg)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
+[![Tests Status](https://github.com/FuncularLabs/Funcular.FunkyOrm/workflows/CI/badge.svg)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
+
 Welcome to Funcular ORM, aka FunkyORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
 
 - *If you just want the NuGet package, look here at [NuGet.org](https://www.nuget.org/packages/Funcular.Data.Orm).*

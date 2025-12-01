@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, development ]
+  pull_request:
+    branches: [ main, master, development ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+  test-net8:
+    runs-on: windows-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Test .NET 8
+      run: dotnet test Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore --verbosity normal
+
+  test-netframework:
+    runs-on: windows-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build .NET Framework tests
+      run: msbuild Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj /p:Configuration=Release
+    - name: Run tests with playlist
+      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests.NetFramework\bin\Release\net48\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll /Playlist:ContinuousIntegration.playlist
+
+  setup-localdb:
+    runs-on: windows-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup LocalDB
+      run: |
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "IF DB_ID('funky_db') IS NOT NULL DROP DATABASE funky_db;"
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql

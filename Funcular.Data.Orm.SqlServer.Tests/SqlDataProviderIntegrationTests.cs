@@ -23,8 +23,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Setup()
         {
             _sb.Clear();
-            _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
-                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
+            /*_connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
+                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";*/
+            _connectionString = //Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
+                                "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=funky_db;Integrated Security=True;";
             TestConnection();
 
             _provider = new SqlServerOrmDataProvider(_connectionString)
