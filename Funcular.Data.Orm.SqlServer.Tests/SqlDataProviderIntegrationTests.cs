@@ -1407,7 +1407,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var addressLines = new[] { "123 Main St" };//, "456 Oak Ave", "789 Pine Rd", "101 Elm St", "202 Maple Ln", "303 Birch Blvd", "404 Cedar Ct", "505 Spruce Pl", "606 Willow Way", "707 Ash Dr" };
             foreach (var line in addressLines)
             {
-                var existing = _provider.Query<Address>(a => a.Line1 == line).FirstOrDefault();
+                var existing = _provider.Query<Address>().Where(a => a.Line1 == line).FirstOrDefault();
                 if (existing == null)
                 {
                     var address = new Address
@@ -1436,7 +1436,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 for (int i = 0; i < num; i++)
                 {
                     var addressId = available[rnd.Next(available.Count)];
-                    var existingPa = _provider.Query<PersonAddress>(x => x.PersonId == personId && x.AddressId == addressId).FirstOrDefault();
+                    var existingPa = _provider.Query<PersonAddress>().Where(x => x.PersonId == personId && x.AddressId == addressId).FirstOrDefault();
                     if (existingPa == null)
                     {
                         var pa = new PersonAddress { PersonId = personId, AddressId = addressId };
@@ -1450,6 +1450,36 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 #pragma warning restore CS0162 // Unreachable code detected
                 break;
             }
+        }
+
+        [TestMethod]
+        public void Query_With_Successive_Where_Clauses_Should_Use_Unique_Parameters()
+        {
+            OutputTestMethodName();
+            
+            // Arrange
+            var uniqueId = Guid.NewGuid();
+            var firstName = "TestMultiWhere_" + uniqueId.ToString().Substring(0, 8);
+            var lastName = "Last_" + uniqueId.ToString().Substring(0, 8);
+            
+            // Person 1: Matches both
+            InsertTestPerson(firstName, "M", lastName, DateTime.Now.AddYears(-30), "Male", uniqueId);
+            
+            // Person 2: Matches LastName only (should be excluded if AND works)
+            var uniqueId2 = Guid.NewGuid();
+            InsertTestPerson("DifferentFirst", "X", lastName, DateTime.Now.AddYears(-30), "Male", uniqueId2);
+
+            // Act
+            var query = _provider.Query<Person>();
+            query = query.Where(x => x.FirstName.StartsWith("TestMultiWhere"));
+            query = query.Where(x => x.LastName.StartsWith("Last_"));
+            
+            // This should not throw an exception about duplicate parameters
+            var results = query.ToList();
+
+            // Assert
+            Assert.IsTrue(results.Any(x => x.UniqueId == uniqueId), "Should find the matching person");
+            Assert.IsFalse(results.Any(x => x.UniqueId == uniqueId2), "Should NOT find the person matching only the second criteria");
         }
     }
 }

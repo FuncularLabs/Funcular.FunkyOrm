@@ -423,6 +423,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">Entity type being queried.</typeparam>
         /// <param name="expression">Expression used to generate the WHERE clause.</param>
         /// <returns>A collection of matching <typeparamref name="T"/> instances.</returns>
+        [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         public ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             DiscoverColumns<T>();

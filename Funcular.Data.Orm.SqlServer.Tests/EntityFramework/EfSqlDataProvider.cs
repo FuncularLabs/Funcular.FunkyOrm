@@ -98,6 +98,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             return _context.Set<T>().AsNoTracking();
         }
 
+        [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         public ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new()
         {
             return _context.Set<T>().AsNoTracking().Where(expression).ToList();

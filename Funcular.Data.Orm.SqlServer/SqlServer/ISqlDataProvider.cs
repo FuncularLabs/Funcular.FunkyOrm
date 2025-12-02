@@ -53,6 +53,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T"></typeparam>
         /// <param name="expression">The expression.</param>
         /// <returns>ICollection&lt;T&gt;.</returns>
+        [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new();
 
         /// <summary>

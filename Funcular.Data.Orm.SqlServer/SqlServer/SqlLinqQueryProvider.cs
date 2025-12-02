@@ -147,7 +147,14 @@ namespace Funcular.Data.Orm.SqlServer
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
                     var whereExpression = (Expression<Func<T, bool>>)lambda;
                     var elements = _dataProvider.GenerateWhereClause(whereExpression, parameterGenerator: parameterGenerator, translator: translator);
-                    components.WhereClause = elements.WhereClause;
+                    if (string.IsNullOrEmpty(components.WhereClause))
+                    {
+                        components.WhereClause = elements.WhereClause;
+                    }
+                    else
+                    {
+                        components.WhereClause = $"({components.WhereClause}) AND ({elements.WhereClause})";
+                    }
                     if (elements.SqlParameters != null)
                     {
                         components.Parameters.AddRange(elements.SqlParameters);
@@ -170,7 +177,14 @@ namespace Funcular.Data.Orm.SqlServer
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
                     var whereExpression = (Expression<Func<T, bool>>)lambda;
                     var elements = _dataProvider.GenerateWhereClause(whereExpression, parameterGenerator: parameterGenerator, translator: translator);
-                    components.WhereClause = elements.WhereClause;
+                    if (string.IsNullOrEmpty(components.WhereClause))
+                    {
+                        components.WhereClause = elements.WhereClause;
+                    }
+                    else
+                    {
+                        components.WhereClause = $"({components.WhereClause}) AND ({elements.WhereClause})";
+                    }
                     if (elements.SqlParameters != null)
                     {
                         components.Parameters.AddRange(elements.SqlParameters);
