@@ -7,6 +7,9 @@
 
 [![Build Status](https://github.com/FuncularLabs/Funcular.FunkyOrm/workflows/CI/badge.svg)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![Tests Status](https://github.com/FuncularLabs/Funcular.FunkyOrm/workflows/CI/badge.svg)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
+[![CI](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions/workflows/ci.yml/badge.svg)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions/workflows/ci.yml)
+
+## Overview
 
 Welcome to Funcular ORM, aka FunkyORM, the micro-ORM designed for **speed**, **simplicity**, and **lambda expression support**. 
 
