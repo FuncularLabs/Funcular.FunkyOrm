@@ -10,7 +10,7 @@ namespace Funcular.Data.Orm.Visitors
     public class ParameterGenerator
     {
         private int _parameterCounter;
-
+            
         /// <summary>
         /// Initializes a new instance of the <see cref="ParameterGenerator"/> class.
         /// </summary>
@@ -78,6 +78,12 @@ namespace Funcular.Data.Orm.Visitors
                 return SqlDbType.Float;
             if (value is float)
                 return SqlDbType.Real;
+            if (value is Enum) 
+                return SqlDbType.Int; // or map underlying type
+            if (value is short || value is ushort || value is byte || value is sbyte) 
+                return SqlDbType.SmallInt;
+            if (value is uint || value is ulong) 
+                return SqlDbType.BigInt;
             throw new NotSupportedException($"Type {value.GetType()} is not supported for SQL parameters.");
         }
     }

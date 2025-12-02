@@ -23,8 +23,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Setup()
         {
             _sb.Clear();
+            /*_connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
+                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";*/
             _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
-                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
+                                "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=funky_db;Integrated Security=True;";
             TestConnection();
 
             _provider = new SqlServerOrmDataProvider(_connectionString)
@@ -1389,6 +1391,65 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsTrue(sql.Contains("INSERT", StringComparison.OrdinalIgnoreCase));
             Assert.IsFalse(sql.Contains("Salutation", StringComparison.OrdinalIgnoreCase));
             Assert.IsFalse(sql.Contains("IsTwentyOneOrOver", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// This test verifies that a query with a closure in the predicate works correctly, addressing
+        /// a bug found in a consuming project.
+        /// </summary>
+        [TestMethod]
+        public void Query_With_Closure_In_Predicate_Succeeds()
+        {
+            OutputTestMethodName();
+            var personIds = _provider.GetList<Person>().OrderBy(p => Guid.NewGuid()).Select(p => p.Id).Take(2);
+            // Ensure addresses exist
+            var addressIds = new List<int>();
+            var addressLines = new[] { "123 Main St" };//, "456 Oak Ave", "789 Pine Rd", "101 Elm St", "202 Maple Ln", "303 Birch Blvd", "404 Cedar Ct", "505 Spruce Pl", "606 Willow Way", "707 Ash Dr" };
+            foreach (var line in addressLines)
+            {
+                var existing = _provider.Query<Address>(a => a.Line1 == line).FirstOrDefault();
+                if (existing == null)
+                {
+                    var address = new Address
+                    {
+                        Line1 = line,
+                        City = "TestCity",
+                        StateCode = "TC",
+                        PostalCode = "12345"
+                    };
+                    addressIds.Add((int)_provider.Insert(address));
+                }
+                else
+                {
+                    addressIds.Add(existing.Id);
+                }
+            }
+
+            foreach (var personId in personIds)
+            {
+                var assigned = new HashSet<int>();
+                var available = addressIds.Where(a => !assigned.Contains(a)).ToList();
+                if (!available.Any()) break;
+                var rnd = new Random();
+                var num = rnd.Next(4, 7);
+#pragma warning disable CS0162 // Unreachable code detected
+                for (int i = 0; i < num; i++)
+                {
+                    var addressId = available[rnd.Next(available.Count)];
+                    var existingPa = _provider.Query<PersonAddress>(x => x.PersonId == personId && x.AddressId == addressId).FirstOrDefault();
+                    if (existingPa == null)
+                    {
+                        var pa = new PersonAddress { PersonId = personId, AddressId = addressId };
+                        _provider.Insert(pa);
+                        existingPa = pa;
+                    }
+                    assigned.Add(addressId);
+                    Assert.IsNotNull(existingPa);
+                    break;
+                }
+#pragma warning restore CS0162 // Unreachable code detected
+                break;
+            }
         }
     }
 }

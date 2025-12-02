@@ -148,6 +148,7 @@ namespace Funcular.Data.Orm.Visitors
                 }
             }
 
+            // Parameter-based member -> column name
             if (node.Expression is ParameterExpression)
             {
                 var property = node.Member as PropertyInfo;
@@ -155,28 +156,45 @@ namespace Funcular.Data.Orm.Visitors
                 {
                     var columnName = GetColumnName(property);
                     _selectBuilder.Append(columnName);
+                    return;
                 }
-                else if (property != null && IsUnmappedProperty(property))
-                {
-                    // For unmapped properties, we might assign to them, but in SELECT, it's the source.
-                    // This might not be used directly.
+                if (property != null && IsUnmappedProperty(property))
                     throw new NotSupportedException("Unmapped properties cannot be selected directly.");
-                }
             }
-            else if (node.Expression is ConstantExpression constantExpression)
+
+            // Captured closure value
+            if (node.Expression is ConstantExpression constantExpression)
             {
-                var value = (node.Member as FieldInfo)?.GetValue(constantExpression.Value);
+                object value;
+                if (node.Member is FieldInfo field)
+                    value = field.GetValue(constantExpression.Value);
+                else if (node.Member is PropertyInfo prop)
+                    value = prop.GetValue(constantExpression.Value);
+                else
+                {
+                    try
+                    {
+                        var lambda = Expression.Lambda<Func<object>>(Expression.Convert(node, typeof(object)));
+                        value = lambda.Compile()();
+                    }
+                    catch
+                    {
+                        value = constantExpression.Value;
+                    }
+                }
+
                 var param = _parameterGenerator.CreateParameter(value);
                 _parameters.Add(param);
                 _selectBuilder.Append(param.ParameterName);
+                return;
             }
-            else if (node.Expression != null)
+
+            // Recurse otherwise
+            if (node.Expression != null)
             {
                 Visit(node.Expression);
             }
         }
-
-        // ... existing code ...
 
         /// <summary>
         /// Visits a constant expression to create SQL parameters.
@@ -208,8 +226,6 @@ namespace Funcular.Data.Orm.Visitors
             // For anonymous types, generate SELECT with aliases.
             // But for simplicity, assume it's handled in MemberInit.
         }
-
-        // ... existing code ...
 
         /// <summary>
         /// Visits a member init expression for object initialization.

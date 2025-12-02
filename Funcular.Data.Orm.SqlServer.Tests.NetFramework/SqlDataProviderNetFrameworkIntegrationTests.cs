@@ -12,7 +12,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
 {
     [TestClass]
-    public class SqlDataProviderIntegrationTests
+    public class SqlDataProviderNetFrameworkIntegrationTests
     {
         private string _connectionString;
         public SqlServerOrmDataProvider _provider;
@@ -28,8 +28,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         public void Setup()
         {
             _sb.Clear();
+            /*_connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
+                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";*/
             _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
-                "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=SSPI;TrustServerCertificate=true;";
+                                "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=funky_db;Integrated Security=True;";
             TestConnection();
 
             _provider = new SqlServerOrmDataProvider(_connectionString)
@@ -248,7 +250,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
             InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
-            InsertTestPerson(guid, "C", "Adams", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "C", "AdAMS", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
 
@@ -278,7 +280,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             // Arrange
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "D", "Adams", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
+            InsertTestPerson(guid, "D", "AdAMS", DateTime.Now.AddYears(-40), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "C", "Adams", DateTime.Now.AddYears(-35), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "B", "Jones", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
             InsertTestPerson(guid, "A", "Jones", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid(), DateTime.UtcNow, DateTime.UtcNow);
@@ -1187,7 +1189,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             Assert.IsTrue(queryable.All(p => guids.Contains(p.UniqueId)));
             Assert.AreEqual(3, queryable.ToList().Count);
         }
-
         #endregion
     }
 }

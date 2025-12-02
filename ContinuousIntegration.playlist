@@ -1,0 +1,901 @@
+<Playlist Version="2.0">
+  <Rule Name="Includes" Match="Any">
+    <Rule Match="All">
+      <Property Name="Solution" />
+      <Rule Match="Any">
+        <Rule Match="All">
+          <Property Name="Project" Value="Funcular.Data.Orm.SqlServer.Tests" />
+          <Rule Match="Any">
+            <Rule Match="All">
+              <Property Name="Namespace" Value="Funcular.Data.Orm.SqlServer.Tests" />
+              <Rule Match="Any">
+                <Rule Match="All">
+                  <Property Name="Class" Value="SqlDataProviderIntegrationTests" />
+                  <Rule Match="Any">
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_ById_DeletesEntityAndReturnsTrue" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_ById_DeletesEntityAndReturnsTrue" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_ById_ReturnsFalseForNonExistentEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_ById_ReturnsFalseForNonExistentEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_ById_ThrowsIfNoTransaction" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_ById_ThrowsIfNoTransaction" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_DoesNotAffectOtherEntities" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_DoesNotAffectOtherEntities" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_TrivialWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_TrivialWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_WhereClauseWithoutTableColumn_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WhereClauseWithoutTableColumn_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_WithEmptyWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithEmptyWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_WithoutTransaction_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithoutTransaction_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_WithoutWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithoutWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Delete_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Get_WithExistingId_ReturnsPerson" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Get_WithExistingId_ReturnsPerson" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="GetList_ReturnsAllPersonAddressLinks" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="GetList_ReturnsAllPersonAddressLinks" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Insert_DoesNotIncludeUnmappedProperties" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Insert_DoesNotIncludeUnmappedProperties" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Insert_NewPerson_IncreasesCount" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Insert_NewPerson_IncreasesCount" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_AllWithPredicate_ReturnsFalseIfNotAllMatch" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AllWithPredicate_ReturnsFalseIfNotAllMatch" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_AllWithPredicate_ReturnsTrueIfAllMatch" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AllWithPredicate_ReturnsTrueIfAllMatch" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_AnyWithPredicate_ReturnsTrueIfMatches" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AnyWithPredicate_ReturnsTrueIfMatches" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_AverageWithSelector_ReturnsCorrectAverage" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AverageWithSelector_ReturnsCorrectAverage" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_CaseInWhere_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_CaseInWhere_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_CountWithPredicate_ReturnsCorrectCount" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_CountWithPredicate_ReturnsCorrectCount" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_FirstWithPredicate_ReturnsFirstMatchingEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstWithPredicate_ReturnsFirstMatchingEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_FirstWithPredicate_ThrowsIfNoMatch" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstWithPredicate_ThrowsIfNoMatch" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_LastOrDefaultWithPredicate_ReturnsLastMatchingEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_LastOrDefaultWithPredicate_ReturnsLastMatchingEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_MaxDateWithSelector_ReturnsMaximum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_MaxDateWithSelector_ReturnsMaximum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_MaxIdWithSelector_ReturnsMaximum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_MaxIdWithSelector_ReturnsMaximum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_MinWithSelector_ReturnsMinimum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_MinWithSelector_ReturnsMinimum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_OrderBy_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderBy_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_OrderByDescending_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderByDescending_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_OrderByDescendingWithTernaryExpression_GeneratesCaseAndOrdersCorrectly" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderByDescendingWithTernaryExpression_GeneratesCaseAndOrdersCorrectly" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_OrderByWithSkipTake_ReturnsCorrectSubset" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderByWithSkipTake_ReturnsCorrectSubset" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_OrderByWithTernaryExpression_GeneratesCaseAndOrdersCorrectly" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderByWithTernaryExpression_GeneratesCaseAndOrdersCorrectly" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_LastNameContains_NoMatch_ReturnsEmptyList" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameContains_NoMatch_ReturnsEmptyList" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_LastNameContains_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameContains_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_LastNameEndsWith_NoMatch_ReturnsEmptyList" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameEndsWith_NoMatch_ReturnsEmptyList" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_LastNameEndsWith_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameEndsWith_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_LastNameStartsWith_NoMatch_ReturnsEmptyList" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameStartsWith_NoMatch_ReturnsEmptyList" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_LastNameStartsWith_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameStartsWith_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_WithBirthdateInRange_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithBirthdateInRange_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_WithEmptyList_ReturnsEmptyResult" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithEmptyList_ReturnsEmptyResult" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_WithLastNameInArray_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithLastNameInArray_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_Person_WithLastNameInList_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithLastNameInList_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_SelectDoesNotIncludeUnmappedProperties" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_SelectDoesNotIncludeUnmappedProperties" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_SelectWithIsTwentyOneOrOverProjection_GeneratesCaseStatement" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_SelectWithIsTwentyOneOrOverProjection_GeneratesCaseStatement" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_SelectWithSalutationProjection_GeneratesCaseStatement" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_SelectWithSalutationProjection_GeneratesCaseStatement" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_SkipTake_ReturnsCorrectSubset" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_SkipTake_ReturnsCorrectSubset" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_ThenBy_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_ThenBy_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_ThenByDescending_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_ThenByDescending_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_ThenByWithTernaryExpression_GeneratesCaseAndOrdersCorrectly" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_ThenByWithTernaryExpression_GeneratesCaseAndOrdersCorrectly" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_WhenExpressionDoesNotMatch_ReturnsEmpty" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WhenExpressionDoesNotMatch_ReturnsEmpty" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_WhenExpressionMatches_ReturnsEntities" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WhenExpressionMatches_ReturnsEntities" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.SqlDataProviderIntegrationTests.Query_With_Closure_In_Predicate_Succeeds" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_With_Closure_In_Predicate_Succeeds" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_WithExpression_ReturnsFilteredAddresses" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WithExpression_ReturnsFilteredAddresses" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Transaction_BeginCommit" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_BeginCommit" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Transaction_BeginRollback" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_BeginRollback" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Transaction_MultipleOperations" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_MultipleOperations" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Update_PersonUpdates" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Update_PersonUpdates" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Warm_Up" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Warm_Up" />
+                      </Rule>
+                    </Rule>
+                  </Rule>
+                </Rule>
+                <Rule Match="All">
+                  <Property Name="Class" Value="SqlDataProviderIntegrationAsyncTests" />
+                  <Rule Match="Any">
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="DeleteAsync_DoesNotAffectOtherEntities" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_DoesNotAffectOtherEntities" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="DeleteAsync_WithEmptyWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithEmptyWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="DeleteAsync_WithoutTransaction_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithoutTransaction_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="DeleteAsync_WithoutWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithoutWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="DeleteAsync_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Get_WithExistingId_ReturnsPerson_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Get_WithExistingId_ReturnsPerson_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="GetList_ReturnsAllPersonAddressLinks_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="GetList_ReturnsAllPersonAddressLinks_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Insert_NewPerson_IncreasesCount_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Insert_NewPerson_IncreasesCount_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Query_WithExpression_ReturnsFilteredAddresses_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WithExpression_ReturnsFilteredAddresses_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="QueryAsync_CountWithPredicate_ReturnsCorrectCount" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_CountWithPredicate_ReturnsCorrectCount" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="QueryAsync_MaxIdWithSelector_ReturnsMaximum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_MaxIdWithSelector_ReturnsMaximum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="QueryAsync_MinWithSelector_ReturnsMinimum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_MinWithSelector_ReturnsMinimum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="QueryAsync_OrderBy_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_OrderBy_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="QueryAsync_OrderByDescending_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_OrderByDescending_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Transaction_BeginCommit_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_BeginCommit_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Update_PersonUpdates_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Update_PersonUpdates_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Warm_Up_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Warm_Up_Async" />
+                      </Rule>
+                    </Rule>
+                  </Rule>
+                </Rule>
+              </Rule>
+            </Rule>
+          </Rule>
+        </Rule>
+        <Rule Match="All">
+          <Property Name="Project" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework" />
+          <Rule Match="Any">
+            <Rule Match="All">
+              <Property Name="Namespace" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework" />
+              <Rule Match="Any">
+                <Rule Match="All">
+                  <Property Name="Class" Value="SqlDataProviderNetFrameworkIntegrationTests" />
+                  <Rule Match="Any">
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Delete_DoesNotAffectOtherEntities" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_DoesNotAffectOtherEntities" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Delete_WithEmptyWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithEmptyWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Delete_WithoutTransaction_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithoutTransaction_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Delete_WithoutWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithoutWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Delete_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Delete_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Get_WithExistingId_ReturnsPerson" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Get_WithExistingId_ReturnsPerson" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.GetList_ReturnsAllPersonAddressLinks" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="GetList_ReturnsAllPersonAddressLinks" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Insert_NewPerson_IncreasesCount" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Insert_NewPerson_IncreasesCount" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_AllWithPredicate_ReturnsFalseIfNotAllMatch" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AllWithPredicate_ReturnsFalseIfNotAllMatch" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_AllWithPredicate_ReturnsTrueIfAllMatch" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AllWithPredicate_ReturnsTrueIfAllMatch" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_AnyWithPredicate_ReturnsTrueIfMatches" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AnyWithPredicate_ReturnsTrueIfMatches" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_AverageWithSelector_ReturnsCorrectAverage" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_AverageWithSelector_ReturnsCorrectAverage" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_CountWithPredicate_ReturnsCorrectCount" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_CountWithPredicate_ReturnsCorrectCount" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_FirstWithPredicate_ReturnsFirstMatchingEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstWithPredicate_ReturnsFirstMatchingEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_FirstWithPredicate_ThrowsIfNoMatch" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstWithPredicate_ThrowsIfNoMatch" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_GuidList_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_GuidList_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_LastOrDefaultWithPredicate_ReturnsLastMatchingEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_LastOrDefaultWithPredicate_ReturnsLastMatchingEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_MaxDateWithSelector_ReturnsMaximum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_MaxDateWithSelector_ReturnsMaximum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_MaxIdWithSelector_ReturnsMaximum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_MaxIdWithSelector_ReturnsMaximum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_MinWithSelector_ReturnsMinimum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_MinWithSelector_ReturnsMinimum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_OrderBy_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderBy_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_OrderByDescending_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderByDescending_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_OrderByWithSkipTake_ReturnsCorrectSubset" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_OrderByWithSkipTake_ReturnsCorrectSubset" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_LastNameContains_NoMatch_ReturnsEmptyList" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameContains_NoMatch_ReturnsEmptyList" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_LastNameContains_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameContains_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_LastNameEndsWith_NoMatch_ReturnsEmptyList" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameEndsWith_NoMatch_ReturnsEmptyList" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_LastNameEndsWith_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameEndsWith_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_LastNameStartsWith_NoMatch_ReturnsEmptyList" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameStartsWith_NoMatch_ReturnsEmptyList" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_LastNameStartsWith_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_LastNameStartsWith_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithBirthdateInRange_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithBirthdateInRange_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithEmptyList_ReturnsEmptyResult" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithEmptyList_ReturnsEmptyResult" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithLastNameInArray_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithLastNameInArray_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithLastNameInList_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithLastNameInList_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithNullBirthdate_HandlesNullCorrectly" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithNullBirthdate_HandlesNullCorrectly" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithOrElse_Birthdates_ReturnsCorrectPersons" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithOrElse_Birthdates_ReturnsCorrectPersons" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_Person_WithSpecificGuid_ReturnsCorrectPerson" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_Person_WithSpecificGuid_ReturnsCorrectPerson" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_SkipTake_ReturnsCorrectSubset" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_SkipTake_ReturnsCorrectSubset" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_ThenBy_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_ThenBy_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_ThenByDescending_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_ThenByDescending_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_WhenExpressionDoesNotMatch_ReturnsEmpty" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WhenExpressionDoesNotMatch_ReturnsEmpty" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_WhenExpressionMatches_ReturnsEntities" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WhenExpressionMatches_ReturnsEntities" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Query_WithExpression_ReturnsFilteredAddresses" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WithExpression_ReturnsFilteredAddresses" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Transaction_BeginCommit" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_BeginCommit" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Transaction_BeginRollback" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_BeginRollback" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Transaction_MultipleOperations" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_MultipleOperations" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Update_PersonUpdates" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Update_PersonUpdates" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationTests.Warm_Up" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Warm_Up" />
+                      </Rule>
+                    </Rule>
+                  </Rule>
+                </Rule>
+                <Rule Match="All">
+                  <Property Name="Class" Value="SqlDataProviderNetFrameworkIntegrationAsyncTests" />
+                  <Rule Match="Any">
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.DeleteAsync_DoesNotAffectOtherEntities" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_DoesNotAffectOtherEntities" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.DeleteAsync_WithEmptyWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithEmptyWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.DeleteAsync_WithoutTransaction_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithoutTransaction_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.DeleteAsync_WithoutWhereClause_ThrowsException" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithoutWhereClause_ThrowsException" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.DeleteAsync_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="DeleteAsync_WithValidWhereClauseAndTransaction_DeletesEntity" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Get_WithExistingId_ReturnsPerson_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Get_WithExistingId_ReturnsPerson_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.GetList_ReturnsAllPersonAddressLinks_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="GetList_ReturnsAllPersonAddressLinks_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Insert_NewPerson_IncreasesCount_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Insert_NewPerson_IncreasesCount_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_FirstOrDefaultWithPredicate_ReturnsFirstMatchingEntity_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Query_WithExpression_ReturnsFilteredAddresses_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Query_WithExpression_ReturnsFilteredAddresses_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.QueryAsync_CountWithPredicate_ReturnsCorrectCount" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_CountWithPredicate_ReturnsCorrectCount" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.QueryAsync_MaxIdWithSelector_ReturnsMaximum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_MaxIdWithSelector_ReturnsMaximum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.QueryAsync_MinWithSelector_ReturnsMinimum" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_MinWithSelector_ReturnsMinimum" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.QueryAsync_OrderBy_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_OrderBy_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.QueryAsync_OrderByDescending_ReturnsOrderedResults" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="QueryAsync_OrderByDescending_ReturnsOrderedResults" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Transaction_BeginCommit_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Transaction_BeginCommit_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Update_PersonUpdates_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Update_PersonUpdates_Async" />
+                      </Rule>
+                    </Rule>
+                    <Rule Match="All">
+                      <Property Name="TestWithNormalizedFullyQualifiedName" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework.SqlDataProviderNetFrameworkIntegrationAsyncTests.Warm_Up_Async" />
+                      <Rule Match="Any">
+                        <Property Name="DisplayName" Value="Warm_Up_Async" />
+                      </Rule>
+                    </Rule>
+                  </Rule>
+                </Rule>
+              </Rule>
+            </Rule>
+          </Rule>
+        </Rule>
+      </Rule>
+    </Rule>
+  </Rule>
+</Playlist>
