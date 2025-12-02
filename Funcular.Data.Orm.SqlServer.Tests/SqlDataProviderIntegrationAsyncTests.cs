@@ -355,5 +355,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsNull(person1);
             Assert.IsNotNull(person2);
         }
+
+        [TestMethod]
+        public async Task DeleteAsync_ById_DeletesEntity()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = await InsertTestPersonAsync(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var deleted = await _provider.DeleteAsync<Person>(personId);
+            _provider.CommitTransaction();
+
+            Assert.IsTrue(deleted);
+            var person = await _provider.GetAsync<Person>(personId);
+            Assert.IsNull(person);
+        }
     }
 }

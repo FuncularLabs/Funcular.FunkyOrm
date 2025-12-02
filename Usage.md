@@ -88,6 +88,11 @@ provider.Insert(person);
 var jane = provider.Get<Person>(person.Id);
 ```
 
+### Get All (List)
+```csharp
+var allPeople = provider.GetList<Person>();
+```
+
 ### Update
 ```csharp
 jane.LastName = "Smith";
@@ -97,6 +102,14 @@ provider.Update(jane);
 ### Delete
 **Safety First!** Deletes require a transaction and a non-trivial WHERE clause. We don't want you accidentally wiping the table.
 
+**Delete by ID:**
+```csharp
+provider.BeginTransaction();
+provider.Delete<Person>(jane.Id);
+provider.CommitTransaction();
+```
+
+**Delete by Predicate:**
 ```csharp
 provider.BeginTransaction();
 try 
@@ -109,6 +122,32 @@ catch
     provider.RollbackTransaction();
     throw;
 }
+```
+
+---
+
+## Async Support
+
+We love async! All major operations have an `Async` counterpart.
+
+```csharp
+// Async Get
+var person = await provider.GetAsync<Person>(1);
+
+// Async List
+var people = await provider.GetListAsync<Person>();
+
+// Async Query
+var adults = await provider.QueryAsync<Person>(p => p.Age >= 18);
+
+// Async Insert
+await provider.InsertAsync(newPerson);
+
+// Async Update
+await provider.UpdateAsync(existingPerson);
+
+// Async Delete
+await provider.DeleteAsync<Person>(p => p.Id == 1);
 ```
 
 ---

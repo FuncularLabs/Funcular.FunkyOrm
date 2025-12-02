@@ -1510,6 +1510,22 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             StringAssert.Contains(exception.Message, "Expected table names: 'MissingTable' or 'missing_table'");
             StringAssert.Contains(exception.Message, "use the [Table(\"TableName\")] attribute");
         }
+
+        [TestMethod]
+        public void Delete_ById_DeletesEntity()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+
+            _provider.BeginTransaction();
+            var deleted = _provider.Delete<Person>(personId);
+            _provider.CommitTransaction();
+
+            Assert.IsTrue(deleted);
+            var person = _provider.Get<Person>(personId);
+            Assert.IsNull(person);
+        }
     }
 
     public class MissingTable
