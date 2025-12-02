@@ -25,6 +25,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Visitors\Visitors\**" />
+    <EmbeddedResource Remove="Visitors\Visitors\**" />
+    <None Remove="Visitors\Visitors\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
@@ -45,10 +51,6 @@
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Data.Common" Version="4.3.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Visitors\Visitors\" />
   </ItemGroup>
 
 </Project>
