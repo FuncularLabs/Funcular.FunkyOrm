@@ -43,7 +43,7 @@ jobs:
     - name: Add VSTest to PATH
       run: echo "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\Extensions\TestPlatform" >> $env:GITHUB_PATH
     - name: Run tests with playlist
-      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
+      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll "/Playlist:$env:GITHUB_WORKSPACE\ContinuousIntegration.playlist"
 
   # test-netframework:
   #   runs-on: windows-latest
