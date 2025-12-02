@@ -51,4 +51,13 @@ var adults = provider.Query<Person>()
 
 For detailed usage examples, performance benchmarks, and a comparison with other ORMs, please see our **[Usage Guide](Usage.md)**.
 
-> **Note**: Check out the **Comparison Table** in the Usage Guide to see how we stack up against Entity Framework and Dapper!
+### Comparison: FunkyORM vs. The World
+
+| Feature | Entity Framework | Dapper | FunkyORM |
+| :--- | :--- | :--- | :--- |
+| **Setup** | Heavy (DbContext, Config) | Light | **Lightest** |
+| **Query Style** | LINQ | SQL Strings | **LINQ** |
+| **Performance** | Good (if tuned) | Excellent | **Excellent** |
+| **Mapping** | Strict (needs config) | Manual/Strict | **Forgiving/Auto** |
+| **SQL Injection** | Protected | Manual Parameterization | **Protected** |
+| **Vibe** | Enterprise Java | Hardcore Metal | **Cool Jazz** |
