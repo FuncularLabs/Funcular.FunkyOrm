@@ -40,13 +40,10 @@ jobs:
         sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "IF DB_ID('funky_db') IS NOT NULL DROP DATABASE funky_db;"
         sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
         sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
-    - name: Find VSTest Path
-      run: |
-        $vsPath = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VSTest -property installationPath
-        $vstestPath = "$vsPath\Common7\IDE\Extensions\TestPlatform\vstest.console.exe"
-        echo "VSTEST_PATH=$vstestPath" >> $env:GITHUB_ENV
+    - name: Add VSTest to PATH
+      run: echo "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\Extensions\TestPlatform" >> $env:GITHUB_PATH
     - name: Run tests with playlist
-      run: cmd /c "%VSTEST_PATH%" /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
+      run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests\bin\Release\net8.0\Funcular.Data.Orm.SqlServer.Tests.dll /Playlist:ContinuousIntegration.playlist
 
   # test-netframework:
   #   runs-on: windows-latest
@@ -63,14 +60,3 @@ jobs:
   #     run: msbuild Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj /p:Configuration=Release
   #   - name: Run tests with playlist
   #     run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests.NetFramework\bin\Release\net48\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll /Playlist:ContinuousIntegration.playlist
-
-  setup-localdb:
-    runs-on: windows-latest
-    needs: build
-    steps:
-    - uses: actions/checkout@v4
-    - name: Setup LocalDB
-      run: |
-        sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "IF DB_ID('funky_db') IS NOT NULL DROP DATABASE funky_db;"
-        sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
-        sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
