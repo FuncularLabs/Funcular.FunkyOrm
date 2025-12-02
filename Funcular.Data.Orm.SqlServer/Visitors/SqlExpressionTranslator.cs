@@ -147,28 +147,51 @@ namespace Funcular.Data.Orm.Visitors
                 if (memberExpression != null)
                 {
                     var memberName = getColumnName(memberExpression.Member as PropertyInfo);
-                    var constantExpression = node.Arguments[0] as ConstantExpression;
-                    if (constantExpression != null)
+                    var argExpr = node.Arguments[0];
+                    string value = null;
+                    if (argExpr.NodeType == ExpressionType.Constant)
                     {
-                        var value = constantExpression.Value?.ToString();
-                        if (value != null)
+                        value = ((ConstantExpression)argExpr).Value?.ToString();
+                    }
+                    else if (argExpr.NodeType == ExpressionType.MemberAccess)
+                    {
+                        var memberExpr = (MemberExpression)argExpr;
+                        if (memberExpr.Expression is ConstantExpression constExpr)
                         {
-                            var param = _parameterGenerator.CreateParameter(value);
-                            parameters.Add(param);
-                            if (node.Method.Name == "StartsWith")
-                            {
-                                commandTextBuilder.Append($"{memberName} LIKE {param.ParameterName} + '%'");
-                            }
-                            else if (node.Method.Name == "EndsWith")
-                            {
-                                commandTextBuilder.Append($"{memberName} LIKE '%' + {param.ParameterName}");
-                            }
-                            else if (node.Method.Name == "Contains")
-                            {
-                                commandTextBuilder.Append($"{memberName} LIKE '%' + {param.ParameterName} + '%'");
-                            }
-                            return;
+                            value = (memberExpr.Member as FieldInfo)?.GetValue(constExpr.Value)?.ToString();
                         }
+                        else
+                        {
+                            throw new NotSupportedException($"Unsupported member expression in {node.Method.Name}: {memberExpr}");
+                        }
+                    }
+                    else
+                    {
+                        throw new NotSupportedException($"Unsupported expression type in {node.Method.Name}: {argExpr.NodeType}. Expression: {argExpr}");
+                    }
+                    if (value != null)
+                    {
+                        var param = _parameterGenerator.CreateParameter(value);
+                        parameters.Add(param);
+                        string pattern;
+                        if (node.Method.Name == "StartsWith")
+                        {
+                            pattern = $"{param.ParameterName} + '%'";
+                        }
+                        else if (node.Method.Name == "EndsWith")
+                        {
+                            pattern = $"'%' + {param.ParameterName}";
+                        }
+                        else if (node.Method.Name == "Contains")
+                        {
+                            pattern = $"'%' + {param.ParameterName} + '%'";
+                        }
+                        else
+                        {
+                            throw new NotSupportedException($"Unexpected method {node.Method.Name}");
+                        }
+                        commandTextBuilder.Append($"{memberName} LIKE {pattern}");
+                        return;
                     }
                 }
             }

@@ -338,12 +338,37 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Async Execution Helpers
 
+        private void HandleSqlException<T>(SqlException ex)
+        {
+            if (ex.Number == 208) // Invalid object name
+            {
+                var typeName = typeof(T).Name;
+                var snakeCase = IgnoreUnderscoreAndCaseStringComparer.ToLowerSnakeCase(typeName);
+
+                var message = $"The table or view for entity '{typeName}' was not found in the database. " +
+                              $"Ensure that the table exists and is named correctly. " +
+                              $"Expected table names: '{typeName}' or '{snakeCase}'. " +
+                              $"If the table has a different name, use the [Table(\"TableName\")] attribute on the entity class.";
+
+                throw new InvalidOperationException(message, ex);
+            }
+            throw ex;
+        }
+
         protected internal async Task<T> ExecuteReaderSingleAsync<T>(SqlCommand command) where T : class, new()
         {
             InvokeLogAction(command);
-            using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+            try
             {
-                return await reader.ReadAsync().ConfigureAwait(false) ? MapEntity<T>(reader) : null;
+                using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+                {
+                    return await reader.ReadAsync().ConfigureAwait(false) ? MapEntity<T>(reader) : null;
+                }
+            }
+            catch (SqlException ex)
+            {
+                HandleSqlException<T>(ex);
+                throw;
             }
         }
 
@@ -351,13 +376,21 @@ namespace Funcular.Data.Orm.SqlServer
         {
             InvokeLogAction(command);
             var results = new List<T>();
-            using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+            try
             {
-                while (await reader.ReadAsync().ConfigureAwait(false))
+                using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
                 {
-                    results.Add(MapEntity<T>(reader));
+                    while (await reader.ReadAsync().ConfigureAwait(false))
+                    {
+                        results.Add(MapEntity<T>(reader));
+                    }
+                    return results;
                 }
-                return results;
+            }
+            catch (SqlException ex)
+            {
+                HandleSqlException<T>(ex);
+                throw;
             }
         }
 
@@ -906,9 +939,17 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal T ExecuteReaderSingle<T>(SqlCommand command) where T : class, new()
         {
             InvokeLogAction(command);
-            using (var reader = command.ExecuteReader())
+            try
             {
-                return reader.Read() ? MapEntity<T>(reader) : null;
+                using (var reader = command.ExecuteReader())
+                {
+                    return reader.Read() ? MapEntity<T>(reader) : null;
+                }
+            }
+            catch (SqlException ex)
+            {
+                HandleSqlException<T>(ex);
+                throw;
             }
         }
 
@@ -922,14 +963,22 @@ namespace Funcular.Data.Orm.SqlServer
         {
             InvokeLogAction(command);
             var results = new List<T>();
-            using (var reader = command.ExecuteReader())
+            try
             {
-                while (reader.Read())
+                using (var reader = command.ExecuteReader())
                 {
-                    results.Add(MapEntity<T>(reader));
-                }
+                    while (reader.Read())
+                    {
+                        results.Add(MapEntity<T>(reader));
+                    }
 
-                return results;
+                    return results;
+                }
+            }
+            catch (SqlException ex)
+            {
+                HandleSqlException<T>(ex);
+                throw;
             }
         }
 
@@ -979,40 +1028,48 @@ namespace Funcular.Data.Orm.SqlServer
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection,
                            Array.Empty<SqlParameter>()))
                 {
-                    using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
+                    try
                     {
+                        using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
+                        {
 
-                        ICollection<string> columnNames = new List<string>();
+                            ICollection<string> columnNames = new List<string>();
 #if NET8_0_OR_GREATER
-                        var columnSchema = reader.GetColumnSchema();
-                        foreach (var dbColumn in columnSchema)
-                        {
-                            columnNames.Add(dbColumn.ColumnName);
-                        }
-#else
-                        var schemaTable = reader.GetSchemaTable();
-                        foreach (DataRow row in schemaTable?.Rows)
-                        {
-                            columnNames.Add(row["ColumnName"].ToString());
-                        }
-#endif
-                        var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-                        foreach (var property in properties)
-                        {
-                            if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-
-                            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                            string actualColumnName = columnAttr?.Name ??
-                                                      columnNames.FirstOrDefault(c =>
-                                                              comparer.Equals(c, property.Name));
-                            if (actualColumnName != null)
+                            var columnSchema = reader.GetColumnSchema();
+                            foreach (var dbColumn in columnSchema)
                             {
-                                var key = property.ToDictionaryKey();
-                                ColumnNames[key] = actualColumnName;
+                                columnNames.Add(dbColumn.ColumnName);
                             }
-                        }
+#else
+                            var schemaTable = reader.GetSchemaTable();
+                            foreach (DataRow row in schemaTable?.Rows)
+                            {
+                                columnNames.Add(row["ColumnName"].ToString());
+                            }
+#endif
+                            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+                            foreach (var property in properties)
+                            {
+                                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
 
-                        _mappedTypes.Add(typeof(T));
+                                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+                                string actualColumnName = columnAttr?.Name ??
+                                                          columnNames.FirstOrDefault(c =>
+                                                                  comparer.Equals(c, property.Name));
+                                if (actualColumnName != null)
+                                {
+                                    var key = property.ToDictionaryKey();
+                                    ColumnNames[key] = actualColumnName;
+                                }
+                            }
+
+                            _mappedTypes.Add(typeof(T));
+                        }
+                    }
+                    catch (SqlException ex)
+                    {
+                        HandleSqlException<T>(ex);
+                        throw;
                     }
                 }
             }

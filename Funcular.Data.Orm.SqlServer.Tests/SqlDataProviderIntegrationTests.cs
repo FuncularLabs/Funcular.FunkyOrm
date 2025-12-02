@@ -1494,5 +1494,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             StringAssert.Contains(exception.Message, "GetHashCode");
         }
+
+        [TestMethod]
+        public void Query_MissingTable_Throws_Informative_Exception()
+        {
+            OutputTestMethodName();
+            
+            var exception = Assert.ThrowsException<InvalidOperationException>(() =>
+            {
+                _provider.Query<MissingTable>().ToList();
+            });
+
+            Console.WriteLine(exception.Message);
+            StringAssert.Contains(exception.Message, "The table or view for entity 'MissingTable' was not found");
+            StringAssert.Contains(exception.Message, "Expected table names: 'MissingTable' or 'missing_table'");
+            StringAssert.Contains(exception.Message, "use the [Table(\"TableName\")] attribute");
+        }
+    }
+
+    public class MissingTable
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
     }
 }
