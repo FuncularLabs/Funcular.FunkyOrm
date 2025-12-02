@@ -1401,55 +1401,24 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Query_With_Closure_In_Predicate_Succeeds()
         {
             OutputTestMethodName();
-            var personIds = _provider.GetList<Person>().OrderBy(p => Guid.NewGuid()).Select(p => p.Id).Take(2);
-            // Ensure addresses exist
-            var addressIds = new List<int>();
-            var addressLines = new[] { "123 Main St" };//, "456 Oak Ave", "789 Pine Rd", "101 Elm St", "202 Maple Ln", "303 Birch Blvd", "404 Cedar Ct", "505 Spruce Pl", "606 Willow Way", "707 Ash Dr" };
-            foreach (var line in addressLines)
-            {
-                var existing = _provider.Query<Address>().Where(a => a.Line1 == line).FirstOrDefault();
-                if (existing == null)
-                {
-                    var address = new Address
-                    {
-                        Line1 = line,
-                        City = "TestCity",
-                        StateCode = "TC",
-                        PostalCode = "12345"
-                    };
-                    addressIds.Add((int)_provider.Insert(address));
-                }
-                else
-                {
-                    addressIds.Add(existing.Id);
-                }
-            }
+            
+            // Arrange
+            var uniqueId = Guid.NewGuid();
+            var personId = InsertTestPerson("ClosureTest", "C", "User", DateTime.Now.AddYears(-25), "Male", uniqueId);
+            var addressId = InsertTestAddress("123 Closure Ln", null, "TestCity", "NY", "10001");
+            
+            var pa = new PersonAddress { PersonId = personId, AddressId = addressId };
+            _provider.Insert(pa);
 
-            foreach (var personId in personIds)
-            {
-                var assigned = new HashSet<int>();
-                var available = addressIds.Where(a => !assigned.Contains(a)).ToList();
-                if (!available.Any()) break;
-                var rnd = new Random();
-                var num = rnd.Next(4, 7);
-#pragma warning disable CS0162 // Unreachable code detected
-                for (int i = 0; i < num; i++)
-                {
-                    var addressId = available[rnd.Next(available.Count)];
-                    var existingPa = _provider.Query<PersonAddress>().Where(x => x.PersonId == personId && x.AddressId == addressId).FirstOrDefault();
-                    if (existingPa == null)
-                    {
-                        var pa = new PersonAddress { PersonId = personId, AddressId = addressId };
-                        _provider.Insert(pa);
-                        existingPa = pa;
-                    }
-                    assigned.Add(addressId);
-                    Assert.IsNotNull(existingPa);
-                    break;
-                }
-#pragma warning restore CS0162 // Unreachable code detected
-                break;
-            }
+            // Act
+            // The predicate uses local variables 'personId' and 'addressId', forcing the provider to handle closures.
+            var existingPa = _provider.Query<PersonAddress>()
+                .FirstOrDefault(x => x.PersonId == personId && x.AddressId == addressId);
+
+            // Assert
+            Assert.IsNotNull(existingPa, "Should find the PersonAddress record using closure variables.");
+            Assert.AreEqual(personId, existingPa.PersonId);
+            Assert.AreEqual(addressId, existingPa.AddressId);
         }
 
         [TestMethod]
@@ -1480,6 +1449,50 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Assert
             Assert.IsTrue(results.Any(x => x.UniqueId == uniqueId), "Should find the matching person");
             Assert.IsFalse(results.Any(x => x.UniqueId == uniqueId2), "Should NOT find the person matching only the second criteria");
+        }
+
+        [TestMethod]
+        public void OrderBy_With_Unsupported_MethodCall_Throws_Informative_Exception()
+        {
+            OutputTestMethodName();
+            
+            var exception = Assert.ThrowsException<NotSupportedException>(() => 
+            {
+                _provider.Query<Person>().OrderBy(p => Guid.NewGuid()).ToList();
+            });
+
+            // The expression string for Guid.NewGuid() is usually "NewGuid()"
+            StringAssert.Contains(exception.Message, "NewGuid()");
+        }
+
+        [TestMethod]
+        public void OrderBy_With_Unsupported_Arithmetic_Throws_Informative_Exception()
+        {
+            OutputTestMethodName();
+            
+            var exception = Assert.ThrowsException<NotSupportedException>(() => 
+            {
+                _provider.Query<Person>().OrderBy(p => p.Id + 100).ToList();
+            });
+
+            // The expression string for p.Id + 100 usually contains "+" and "100"
+            StringAssert.Contains(exception.Message, "+");
+            StringAssert.Contains(exception.Message, "100");
+        }
+
+        [TestMethod]
+        public void Where_With_Unsupported_MethodCall_Throws_Informative_Exception()
+        {
+            OutputTestMethodName();
+            
+            var exception = Assert.ThrowsException<NotSupportedException>(() => 
+            {
+                // ToString() on a property is not supported in SQL translation (except maybe inside other calls, but usually not directly as a boolean)
+                // Actually ToString is often ignored or not supported. Let's use something definitely not supported like GetHashCode()
+                _provider.Query<Person>().Where(p => p.FirstName.GetHashCode() == 123).ToList();
+            });
+
+            StringAssert.Contains(exception.Message, "GetHashCode");
         }
     }
 }

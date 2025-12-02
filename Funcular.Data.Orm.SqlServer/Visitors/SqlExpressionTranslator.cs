@@ -80,7 +80,7 @@ namespace Funcular.Data.Orm.Visitors
                     }
                     else
                     {
-                        throw new NotSupportedException($"Unsupported expression type in string Contains: {searchValueExpression.NodeType}");
+                        throw new NotSupportedException($"Unsupported expression type in string Contains: {searchValueExpression.NodeType}. Expression: {searchValueExpression}");
                     }
                     return;
                 }
@@ -173,7 +173,7 @@ namespace Funcular.Data.Orm.Visitors
                 }
             }
 
-            commandTextBuilder.Append("1=0");
+            throw new NotSupportedException($"Method call {node.Method.Name} is not supported. Expression: {node}");
         }
 
         /// <summary>
@@ -267,7 +267,7 @@ namespace Funcular.Data.Orm.Visitors
                     }
                     break;
                 default:
-                    throw new NotSupportedException($"Expression type {node.NodeType} is not supported for translation.");
+                    throw new NotSupportedException($"Expression type {node.NodeType} is not supported for translation. Expression: {node}");
             }
         }
     }

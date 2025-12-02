@@ -93,7 +93,7 @@ namespace Funcular.Data.Orm.Visitors
                     VisitConditional(conditional);
                     break;
                 default:
-                    throw new NotSupportedException($"Expression type {node.NodeType} is not supported.");
+                    throw new NotSupportedException($"Expression type {node.NodeType} is not supported. Expression: {node}");
             }
         }
 
@@ -113,7 +113,7 @@ namespace Funcular.Data.Orm.Visitors
             }
             else
             {
-                throw new NotSupportedException($"Unary operator {node.NodeType} is not supported.");
+                throw new NotSupportedException($"Unary operator {node.NodeType} is not supported. Expression: {node}");
             }
         }
 

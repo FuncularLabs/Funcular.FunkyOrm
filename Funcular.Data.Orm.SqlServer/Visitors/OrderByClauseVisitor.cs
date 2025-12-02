@@ -142,7 +142,7 @@ namespace Funcular.Data.Orm.Visitors
                 return;
             }
 
-            throw new NotSupportedException("Only simple member access or ternary (conditional) expressions are supported in OrderBy expressions.");
+            throw new NotSupportedException($"Only simple member access or ternary (conditional) expressions are supported in OrderBy expressions. Unsupported expression: {expression}");
         }
 
         /// <summary>
