@@ -268,7 +268,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// trivial or empty conditions (e.g., "1=1") are not allowed and will result in an exception.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
-        /// delete operation. The predicate must not be null and must result in a valid, non-trivial condition.</param>
+        /// delete operation. The predicate must not be null and must result in a valid, non-trivial condition.
+        /// Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
         /// <returns>The number of rows affected by the delete operation.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the predicate
         /// results in an invalid or trivial WHERE clause.</exception>
@@ -281,11 +282,32 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
             var components = GenerateWhereClause(predicate);
-            // Defensive: block trivial or parameter-only WHERE clauses
-            if (string.IsNullOrWhiteSpace(components.WhereClause) ||
-                components.WhereClause.Trim().Equals("@p__linq__0", StringComparison.OrdinalIgnoreCase) ||
-                components.WhereClause.Trim().Equals("1=1", StringComparison.OrdinalIgnoreCase))
+            
+            // Enhanced validation
+            if (string.IsNullOrWhiteSpace(components.WhereClause))
                 throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
+
+            // Trivial patterns
+            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
+            if (trivialPatterns.Any(p => components.WhereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
+
+            // Self-referencing column (e.g., x => x.Id == x.Id)
+            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (regex.IsMatch(components.WhereClause.Trim()))
+                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
+
+            // Must reference at least one column from the target table
+            var tableColumns = typeof(T).GetProperties()
+                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
+                .Select(p => GetCachedColumnName(p))
+                .ToList();
+
+            bool columnReferenced = tableColumns.Any(col =>
+                components.WhereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!columnReferenced)
+                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
 
             var tableName = GetTableName<T>();
             var commandText = $"DELETE FROM {tableName} WHERE {components.WhereClause}";
@@ -582,7 +604,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// Throws if either condition is not met.
         /// </summary>
         /// <typeparam name="T">Entity type.</typeparam>
-        /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
+        /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
+        /// The predicate must result in a non-trivial condition. Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
         /// <returns>The number of rows deleted.</returns>
         public int Delete<T>(Expression<Func<T, bool>> predicate) where T : class, new()
         {
@@ -604,8 +627,8 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
 
             // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(components.WhereClause))
+            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (regex.IsMatch(components.WhereClause.Trim()))
                 throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
 
             // Must reference at least one column from the target table

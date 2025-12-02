@@ -15,6 +15,23 @@ Look, we get it. You've got choices.
 *   **Auto-Inference**: Name your table `Person` and your class `Person`. We'll figure it out. Name your column `first_name` and your property `FirstName`. We'll figure that out too.
 *   **Forgiving Mapping**: Got a property in your class that isn't in the database? We ignore it. Got a column in the database that isn't in your class? We ignore that too. No more crashing because you added a helper property to your view model.
 
+### Comparison: FunkyORM vs. The World
+
+| Feature | Entity Framework | Dapper | FunkyORM |
+| :--- | :--- | :--- | :--- |
+| **Setup** | Heavy (DbContext, Config) | Light | **Lightest** |
+| **Query Style** | LINQ | SQL Strings | **LINQ** |
+| **Performance** | Good (if tuned) | Excellent | **Excellent** |
+| **Mapping** | Strict (needs config) | Manual/Strict | **Forgiving/Auto** |
+| **SQL Injection** | Protected | Manual Parameterization | **Protected** |
+| **Vibe** | Enterprise Java | Hardcore Metal | **Cool Jazz** |
+
+### Performance vs. Entity Framework (rows/second)
+
+Funcular ORM is designed to be fast. In our benchmarks, it performed significantly faster than Entity Framework Core 7 in single-row write operations, and on-par with EF in read operations. Below are some sample results from our benchmarking tests, showing rows per second for various operations.
+
+![FunkyORM-Performance](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/refs/heads/master/Funcular.Data.Orm.SqlServer/Images/funcular-orm-entity-framework-performance-comparison.png)
+
 ---
 
 ## Getting Started
@@ -81,6 +98,22 @@ public class Employee
 var person = new Person { FirstName = "Jane", LastName = "Doe" };
 provider.Insert(person);
 // person.Id is automatically updated with the new identity value!
+```
+
+For related entities, insert separately and link via junction tables:
+
+```csharp
+var address = new Address
+{
+    Line1 = "123 Main St",
+    City = "Springfield",
+    StateCode = "IL",
+    PostalCode = "62704"
+};
+provider.Insert(address);
+
+var link = new PersonAddress { PersonId = person.Id, AddressId = address.Id };
+provider.Insert(link);
 ```
 
 ### Get (by ID)
@@ -245,8 +278,9 @@ You tried to call `.Delete()` without starting a transaction.
 *   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
 
 ### 4. "A WHERE clause (predicate) is required for deletes"
-You tried to delete everything. We stopped you.
-*   **The Fix**: Provide a predicate. If you *really* want to delete everything, use `p => 1 == 1` (but don't say we didn't warn you).
+You tried to delete everything, or used a trivial predicate like `x => true` or `x => 1 == 1`. We stopped you.
+*   **The Fix**: Provide a valid, non-trivial predicate that references at least one column. We explicitly block "delete all" operations to prevent catastrophic data loss.
+    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, execute a raw SQL command.
 
 ---
 
@@ -261,15 +295,6 @@ We've cleaned up the API a bit.
 
 ---
 
-## Comparison: FunkyORM vs. The World
 
-| Feature | Entity Framework | Dapper | FunkyORM |
-| :--- | :--- | :--- | :--- |
-| **Setup** | Heavy (DbContext, Config) | Light | **Lightest** |
-| **Query Style** | LINQ | SQL Strings | **LINQ** |
-| **Performance** | Good (if tuned) | Excellent | **Excellent** |
-| **Mapping** | Strict (needs config) | Manual/Strict | **Forgiving/Auto** |
-| **SQL Injection** | Protected | Manual Parameterization | **Protected** |
-| **Vibe** | Enterprise Java | Hardcore Metal | **Cool Jazz** |
 
 Happy Coding! 🚀
