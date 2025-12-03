@@ -207,7 +207,7 @@ await provider.DeleteAsync<Person>(p => p.Id == 1);
 This is where FunkyORM shines. You write C#, we write SQL.
 
 ### Basic Filtering (`Where`)
-**New in v1.7.0**: You can now chain `.Where()` calls!
+**New in v2.0.0**: You can now chain `.Where()` calls!
 
 ```csharp
 // Simple
@@ -278,7 +278,7 @@ var status = provider.Query<Person>()
 We try to give you helpful error messages. Here are some you might see and what they mean.
 
 ### 1. "The table or view for entity 'MyClass' was not found..." (Error 208)
-**New in v1.7.0**: If you see this, it means we couldn't find a table that matches your class name.
+**New in v2.0.0**: If you see this, it means we couldn't find a table that matches your class name.
 *   **The Fix**: 
     *   Check your spelling.
     *   Check if the table is in a different schema (e.g., `sales.Person`).
@@ -301,7 +301,7 @@ You tried to delete everything, or used a trivial predicate like `x => true` or 
 
 ---
 
-## Deprecations (v1.7.0)
+## Breaking Changes & Deprecations (v2.0.0)
 
 We've cleaned up the API a bit.
 

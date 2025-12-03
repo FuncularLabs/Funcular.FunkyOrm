@@ -2,7 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.7.0] - 2025-12-02
+## [2.0.0] - 2025-12-02
+
+### Breaking Changes
+- **Method Obsolescence**: The `Query<T>(Expression<Func<T, bool>> predicate)` overload is now marked as `[Obsolete]`.
+  - **Reason**: This method caused immediate execution, which often led to performance issues (loading all data into memory before filtering).
+  - **Migration**: Change `provider.Query<Person>(p => p.Id == 1)` to `provider.Query<Person>().Where(p => p.Id == 1)`.
 
 ### Added
 - **Chained Where Clauses**: You can now chain multiple `.Where()` calls on a query. They will be combined with `AND`.
@@ -13,11 +18,6 @@ All notable changes to this project will be documented in this file.
 - **Enhanced Error Messaging**:
   - **Missing Tables**: If you try to query a table that doesn't exist, we now throw a helpful exception suggesting the expected table name (PascalCase or snake_case) or advising to use the `[Table]` attribute.
   - **Unsupported Expressions**: clearer error messages when using unsupported methods or properties in `Where` and `OrderBy` clauses.
-
-### Changed
-- **Deprecation**: The `Query<T>(Expression<Func<T, bool>> predicate)` overload is now marked as `[Obsolete]`.
-  - **Reason**: This method caused immediate execution, which often led to performance issues (loading all data into memory before filtering).
-  - **Migration**: Change `provider.Query<Person>(p => p.Id == 1)` to `provider.Query<Person>().Where(p => p.Id == 1)`.
 
 ### Fixed
 - **Parameter Reuse Bug**: Fixed an issue where chaining multiple `.Where()` clauses would reuse parameter names (e.g., `@p0`), causing SQL errors.
