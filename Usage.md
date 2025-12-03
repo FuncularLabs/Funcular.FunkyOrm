@@ -15,6 +15,23 @@ Look, we get it. You've got choices.
 *   **Auto-Inference**: Name your table `Person` and your class `Person`. We'll figure it out. Name your column `first_name` and your property `FirstName`. We'll figure that out too.
 *   **Forgiving Mapping**: Got a property in your class that isn't in the database? We ignore it. Got a column in the database that isn't in your class? We ignore that too. No more crashing because you added a helper property to your view model.
 
+### Naming Conventions
+We strongly encourage following standard naming conventions. If you do, FunkyORM works with zero configuration.
+
+*   **Tables**: We automatically match your class name to a table name.
+    *   **Class**: `Person` -> **Table**: `Person`, `person`, `PERSON`
+    *   **Class**: `PersonAddress` -> **Table**: `PersonAddress`, `person_address`, `PERSON_ADDRESS`
+*   **Columns**: We automatically match your property name to a column name, ignoring case and underscores.
+    *   **Property**: `FirstName` -> **Column**: `FirstName`, `first_name`, `FIRST_NAME`, `First_Name`
+*   **Primary Keys**: We automatically detect your primary key if it follows one of these patterns (case-insensitive):
+    *   `Id`
+    *   `{ClassName}Id` (e.g., `PersonId`)
+    *   `{ClassName}_Id` (e.g., `Person_Id`)
+    *   Any property with the `[Key]` attribute.
+    *   Any property with `[DatabaseGenerated(DatabaseGeneratedOption.Identity)]`.
+
+If your database schema deviates from these conventions (e.g., legacy databases), you can easily override them using standard Data Annotations (`[Table]`, `[Column]`, `[Key]`).
+
 ### Comparison: FunkyORM vs. The World
 
 | Feature | Entity Framework | Dapper | FunkyORM |
