@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.7.0] - 2025-12-02
+## [2.0.0] - 2025-12-02
 
 ### Added
 - **Chained Where Clauses**: You can now chain multiple `.Where()` calls on a query. They will be combined with `AND`.

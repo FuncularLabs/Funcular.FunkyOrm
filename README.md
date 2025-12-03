@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v1.7.0**: Chained `Where` clauses, enhanced error messaging, API cleanup.
+> * **v2.0.0**: Major release. Breaking change to `Query<T>(predicate)`, safety enhancements for Deletes, chained `Where` clauses.
 > * **v1.6.0**: Fix for closure predicates, added CI/CD.
 > * **v1.5.2**: Fix for unmapped properties.
 
