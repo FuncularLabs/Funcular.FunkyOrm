@@ -84,3 +84,14 @@ BEGIN
     FROM person_address pa 
     INNER JOIN inserted i ON pa.id = i.id;
 END;
+GO
+
+-- Table: User (Reserved Word Test)
+CREATE TABLE [User] (
+    [Key] INT IDENTITY(1,1) PRIMARY KEY,
+    [Name] NVARCHAR(100) NOT NULL,
+    [Order] INT NOT NULL,
+    [Select] BIT NOT NULL DEFAULT 0
+);
+GO
+

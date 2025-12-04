@@ -32,6 +32,15 @@ We strongly encourage following standard naming conventions. If you do, FunkyORM
 
 If your database schema deviates from these conventions (e.g., legacy databases), you can easily override them using standard Data Annotations (`[Table]`, `[Column]`, `[Key]`).
 
+### Reserved Words
+FunkyORM automatically handles MSSQL reserved words for you. If you have a table named `User` or a column named `Order`, we will automatically enclose them in brackets (e.g., `[User]`, `[Order]`) in the generated SQL. You don't need to do anything special in your code.
+
+```csharp
+// This works even if 'User' is a reserved word in SQL
+var user = new User { Name = "Paul", Order = 1 };
+provider.Insert(user);
+```
+
 ### Comparison: FunkyORM vs. The World
 
 | Feature | Entity Framework | Dapper | FunkyORM |
@@ -48,6 +57,25 @@ If your database schema deviates from these conventions (e.g., legacy databases)
 Funcular ORM is designed to be fast. In our benchmarks, it performed significantly faster than Entity Framework Core 7 in single-row write operations, and on-par with EF in read operations. Below are some sample results from our benchmarking tests, showing rows per second for various operations.
 
 ![FunkyORM-Performance](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/refs/heads/master/Funcular.Data.Orm.SqlServer/Images/funcular-orm-entity-framework-performance-comparison.png)
+
+## Avoiding Pitfalls
+
+While FunkyORM is designed to be forgiving, there are a few things to watch out for:
+
+1.  **Reserved Words in Raw SQL**: While we handle reserved words in our generated queries, if you write raw SQL using `ExecuteNonQuery` or similar methods, you are responsible for escaping reserved words yourself.
+    ```csharp
+    // BAD: 'User' is a reserved word
+    provider.ExecuteNonQuery("DELETE FROM User WHERE Id = @Id", new { Id = 1 });
+
+    // GOOD: Enclose it in brackets
+    provider.ExecuteNonQuery("DELETE FROM [User] WHERE Id = @Id", new { Id = 1 });
+    ```
+
+2.  **Case Sensitivity in Manual Mapping**: If you use `[Column("Name")]` attributes, ensure the name matches the database column exactly if your database collation is case-sensitive. While our auto-discovery is case-insensitive, explicit attributes are taken literally in some contexts.
+
+3.  **Schema Changes**: If you change your database schema (e.g., rename a column), remember to restart your application. FunkyORM caches schema information at startup for performance. It won't know about schema changes until the application restarts or you manually clear the cache.
+
+4.  **Complex LINQ Queries**: We support a subset of LINQ optimized for SQL generation. Highly complex in-memory operations (like custom method calls inside a `.Where()` clause) may not translate to SQL. Keep your predicates simple and focused on data filtering.
 
 ---
 

@@ -1526,6 +1526,57 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var person = _provider.Get<Person>(personId);
             Assert.IsNull(person);
         }
+        [TestMethod]
+        public void ReservedWords_InsertAndSelect_ShouldSucceed()
+        {
+            OutputTestMethodName();
+            
+            var user = new Domain.Objects.User.User
+            {
+                Name = "Test User",
+                Order = 1,
+                Select = true
+            };
+
+            // Test Insert
+            var key = _provider.Insert(user);
+            Assert.IsTrue(key > 0, "Insert should return a valid identity key");
+
+            // Test Get
+            var retrievedUser = _provider.Get<Domain.Objects.User.User>(key);
+            Assert.IsNotNull(retrievedUser, "Should retrieve the inserted user");
+            Assert.AreEqual(user.Name, retrievedUser.Name);
+            Assert.AreEqual(user.Order, retrievedUser.Order);
+            Assert.AreEqual(user.Select, retrievedUser.Select);
+
+            // Test Update
+            retrievedUser.Name = "Updated User";
+            retrievedUser.Order = 2;
+            retrievedUser.Select = false;
+            
+            var updatedResult = _provider.Update(retrievedUser);
+            Assert.IsNotNull(updatedResult, "Update should return the updated entity");
+
+            var updatedUser = _provider.Get<Domain.Objects.User.User>(key);
+            Assert.AreEqual("Updated User", updatedUser.Name);
+            Assert.AreEqual(2, updatedUser.Order);
+            Assert.IsFalse(updatedUser.Select);
+
+            // Test Query with Where clause using reserved words
+            var queriedUser = _provider.Query<Domain.Objects.User.User>()
+                .Where(u => u.Order == 2 && u.Select == false)
+                .OrderByDescending(u => u.Key)
+                .FirstOrDefault();
+            
+            Assert.IsNotNull(queriedUser);
+            Assert.AreEqual(key, queriedUser.Key);
+
+            // Cleanup
+            _provider.BeginTransaction();
+            _provider.Delete<Domain.Objects.User.User>(key);
+            _provider.CommitTransaction();
+        }
+
     }
 
     public class MissingTable

@@ -1082,7 +1082,7 @@ namespace Funcular.Data.Orm.SqlServer
                                 if (actualColumnName != null)
                                 {
                                     var key = property.ToDictionaryKey();
-                                    ColumnNames[key] = actualColumnName;
+                                    ColumnNames[key] = EncloseIfReserved(actualColumnName);
                                 }
                             }
 
@@ -1201,8 +1201,22 @@ namespace Funcular.Data.Orm.SqlServer
                         columnName = GetCachedColumnName(p);
                     }
 
-                    if (string.IsNullOrEmpty(columnName) || !schemaOrdinals.TryGetValue(columnName, out int ordinal))
-                        return null;
+                    if (string.IsNullOrEmpty(columnName)) return null;
+
+                    if (!schemaOrdinals.TryGetValue(columnName, out int ordinal))
+                    {
+                        // Try removing brackets if present (e.g. [Order] -> Order)
+                        if (columnName.StartsWith("[") && columnName.EndsWith("]"))
+                        {
+                            var unbracketed = columnName.Substring(1, columnName.Length - 2);
+                            if (!schemaOrdinals.TryGetValue(unbracketed, out ordinal))
+                                return null;
+                        }
+                        else
+                        {
+                            return null;
+                        }
+                    }
 
                     var setter = GetOrCreateSetter(p);
                     var propertyType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
@@ -1328,8 +1342,8 @@ namespace Funcular.Data.Orm.SqlServer
                 if (!Equals(newValue, oldValue))
                 {
                     var columnName = GetCachedColumnName(property);
-                    setClause.Append($"{columnName} = @{columnName}, ");
-                    parameters.Add(CreateParameter<object>($"@{columnName}", newValue, property.PropertyType));
+                    setClause.Append($"{columnName} = @{property.Name}, ");
+                    parameters.Add(CreateParameter<object>($"@{property.Name}", newValue, property.PropertyType));
                 }
             }
 
@@ -1338,9 +1352,9 @@ namespace Funcular.Data.Orm.SqlServer
             setClause.Length -= 2;
             var pkColumn = GetCachedColumnName(primaryKey);
             parameters.Add(
-                CreateParameter<object>($"@{pkColumn}", primaryKey.GetValue(entity), primaryKey.PropertyType));
+                CreateParameter<object>($"@{primaryKey.Name}", primaryKey.GetValue(entity), primaryKey.PropertyType));
 
-            return new CommandParameters($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{pkColumn}", parameters);
+            return new CommandParameters($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{primaryKey.Name}", parameters);
 
         }
 
@@ -1569,13 +1583,38 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
+        /// Checks if the provided string is a reserved word in MSSQL.
+        /// </summary>
+        public static bool IsReservedWord(string word)
+        {
+            return _reservedWords.Contains(word?.ToUpperInvariant());
+        }
+
+        /// <summary>
+        /// Encloses the word in brackets if it is a reserved word.
+        /// </summary>
+        public static string EncloseIfReserved(string word)
+        {
+            if (string.IsNullOrWhiteSpace(word)) return word;
+            // If already enclosed, return as is
+            if (word.StartsWith("[") && word.EndsWith("]")) return word;
+            
+            return IsReservedWord(word) ? $"[{word}]" : word;
+        }
+
+        private static readonly HashSet<string> _reservedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUTHORIZATION", "BACKUP", "BEGIN", "BETWEEN", "BREAK", "BROWSE", "BULK", "BY", "CASCADE", "CASE", "CHECK", "CHECKPOINT", "CLOSE", "CLUSTERED", "COALESCE", "COLLATE", "COLUMN", "COMMIT", "COMPUTE", "CONSTRAINT", "CONTAINS", "CONTAINSTABLE", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CURRENT", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR", "DATABASE", "DBCC", "DEALLOCATE", "DECLARE", "DEFAULT", "DELETE", "DENY", "DESC", "DISK", "DISTINCT", "DISTRIBUTED", "DOUBLE", "DROP", "DUMP", "ELSE", "END", "ERRLVL", "ESCAPE", "EXCEPT", "EXEC", "EXECUTE", "EXISTS", "EXIT", "EXTERNAL", "FETCH", "FILE", "FILLFACTOR", "FOR", "FOREIGN", "FREETEXT", "FREETEXTTABLE", "FROM", "FULL", "FUNCTION", "GOTO", "GRANT", "GROUP", "HAVING", "HOLDLOCK", "IDENTITY", "IDENTITY_INSERT", "IDENTITYCOL", "IF", "IN", "INDEX", "INNER", "INSERT", "INTERSECT", "INTO", "IS", "JOIN", "KEY", "KILL", "LEFT", "LIKE", "LINENO", "LOAD", "MERGE", "NATIONAL", "NOCHECK", "NONCLUSTERED", "NOT", "NULL", "NULLIF", "OF", "OFF", "OFFSETS", "ON", "OPEN", "OPENDATASOURCE", "OPENQUERY", "OPENROWSET", "OPENXML", "OPTION", "OR", "ORDER", "OUTER", "OVER", "PERCENT", "PIVOT", "PLAN", "PRECISION", "PRIMARY", "PRINT", "PROC", "PROCEDURE", "PUBLIC", "RAISERROR", "READ", "READTEXT", "RECONFIGURE", "REFERENCES", "REPLICATION", "RESTORE", "RESTRICT", "RETURN", "REVERT", "REVOKE", "RIGHT", "ROLLBACK", "ROWCOUNT", "ROWGUIDCOL", "RULE", "SAVE", "SCHEMA", "SECURITYAUDIT", "SELECT", "SEMANTICKEYPHRASETABLE", "SEMANTICSIMILARITYDETAILSTABLE", "SEMANTICSIMILARITYTABLE", "SESSION_USER", "SET", "SETUSER", "SHUTDOWN", "SOME", "STATISTICS", "SYSTEM_USER", "TABLE", "TABLESAMPLE", "TEXTSIZE", "THEN", "TO", "TOP", "TRAN", "TRANSACTION", "TRIGGER", "TRUNCATE", "TRY_CONVERT", "TSEQUAL", "UNION", "UNIQUE", "UNPIVOT", "UPDATE", "UPDATETEXT", "USE", "USER", "VALUES", "VARYING", "VIEW", "WAITFOR", "WHEN", "WHERE", "WHILE", "WITH", "WITHIN GROUP", "WRITETEXT"
+        };
+
+        /// <summary>
         /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
         /// Defaults to the lower-cased CLR type name when no attribute is present.
         /// </summary>
         /// <typeparam name="T">The entity type to determine the table name for.</typeparam>
         /// <returns>The resolved table name.</returns>
         protected internal string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
-            t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower());
+            EncloseIfReserved(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
 
         /// <summary>
         /// Builds a simple WHERE clause for a primary key lookup. The caller is responsible for providing a safe key expression.
@@ -1634,7 +1673,7 @@ namespace Funcular.Data.Orm.SqlServer
                     ordinals[actualColumnName] = ordinal;
 
                     // Populate _columnNames for future GetColumnName calls
-                    _columnNames[property.Name.ToLowerInvariant()] = actualColumnName;
+                    _columnNames[property.Name.ToLowerInvariant()] = EncloseIfReserved(actualColumnName);
                 }
             }
             return ordinals;
@@ -1650,10 +1689,10 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal string ComputeColumnName(PropertyInfo property) =>
             property.GetCustomAttribute<NotMappedAttribute>() != null
                 ? string.Empty
-                : property.GetCustomAttribute<ColumnAttribute>()?.Name ??
+                : EncloseIfReserved(property.GetCustomAttribute<ColumnAttribute>()?.Name ??
                   (_columnNames.TryGetValue(property.Name.ToLowerInvariant(), out var columnName)
                       ? columnName
-                      : property.Name.ToLowerInvariant());
+                      : property.Name.ToLowerInvariant()));
 
         /// <summary>
         /// Retrieves an existing property setter delegate for the specified property or creates a new one if it does

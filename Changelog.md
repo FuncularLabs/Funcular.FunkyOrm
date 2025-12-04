@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2025-12-03
+
+### Added
+- **Reserved Word Support**: Added automatic handling for MSSQL reserved words (e.g., `User`, `Key`, `Order`, `Select`).
+  - Table and column names that match reserved words are now automatically enclosed in brackets (e.g., `[User]`, `[Order]`) in generated SQL.
+  - This applies to `Insert`, `Update`, `Delete`, and `Query` operations.
+  - This ensures that legacy databases or schemas using reserved words can be used seamlessly without manual configuration.
+
 ## [2.0.0] - 2025-12-02
 
 ### Added
