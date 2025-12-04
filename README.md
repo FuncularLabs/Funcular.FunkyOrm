@@ -1,12 +1,16 @@
 > **Recent Changes**
+> * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
 > * **v2.0.0**: Major release. Breaking change to `Query<T>(predicate)`, safety enhancements for Deletes, chained `Where` clauses.
 > * **v1.6.0**: Fix for closure predicates, added CI/CD.
-> * **v1.5.2**: Fix for unmapped properties.
+
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
 
-[![CI](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions/workflows/ci.yml/badge.svg)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions/workflows/ci.yml)
-
+[![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
+[![Downloads](https://img.shields.io/nuget/dt/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
+[![CI status](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=CI)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 ## Overview
 
 Welcome to **Funcular ORM** (aka FunkyORM), the micro-ORM designed for developers who want the **speed** of a micro-ORM with the **simplicity** and **type safety** of LINQ.
@@ -26,24 +30,86 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
     
 ## Getting Started
 
-Install the NuGet package `Funcular.Data.Orm` and initialize the provider:
+### 1. Installation
+
+Add the package to your project via the .NET CLI:
+
+```bash
+dotnet add package Funcular.Data.Orm
+```
+
+### 2. Initialization
+
+Create an instance of `SqlServerOrmDataProvider`. You can do this once and register it as a singleton in your DI container, or create it as needed.
 
 ```csharp
 using Funcular.Data.Orm.SqlServer;
 
-var provider = new SqlServerOrmDataProvider("Server=.;Database=MyDb;Integrated Security=True;TrustServerCertificate=True;");
+// Initialize with your connection string
+var connectionString = "Server=.;Database=MyDb;Integrated Security=True;TrustServerCertificate=True;";
+var provider = new SqlServerOrmDataProvider(connectionString);
 ```
 
-### Basic Usage
+### 3. Define Your Data Models
+
+FunkyORM is designed to keep your code clean. **You usually don't need attributes.**
+
+By default, we map the **intersection** of your class properties and the database table columns.
+*   If your class has a `FullName` property but the table doesn't, we ignore it. No `[NotMapped]` needed.
+*   If the table has a `CreatedDate` column but your class doesn't, we ignore it. No errors.
+
+We also infer table names and primary keys automatically.
 
 ```csharp
-// Insert
-provider.Insert(new Person { FirstName = "Jane", LastName = "Doe" });
+// No attributes needed!
+// Maps to table 'Person', 'Persons', 'PERSON', etc.
+public class Person
+{
+    // Automatically detected as Primary Key
+    public int Id { get; set; }
+    
+    // Maps to column 'FirstName', 'first_name', etc.
+    public string FirstName { get; set; }
+    public string LastName { get; set; }
+    public int Age { get; set; }
+    
+    // Ignored automatically if no matching column exists
+    public string FullName => $"{FirstName} {LastName}";
+}
+```
 
-// Query
+If you need to deviate from conventions (e.g., mapping `Person` class to `tbl_Users`), you can still use standard `System.ComponentModel.DataAnnotations`:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+[Table("tbl_Users")]
+public class Person
+{
+    [Key]
+    [Column("user_id")]
+    public int Id { get; set; }
+    // ...
+}
+```
+
+### 4. Start Querying
+
+```csharp
+// Insert a new record
+var newPerson = new Person { FirstName = "Jane", LastName = "Doe", Age = 25 };
+provider.Insert(newPerson);
+
+// Get by ID
+var person = provider.Get<Person>(1);
+
+// Complex Querying with LINQ
 var adults = provider.Query<Person>()
     .Where(p => p.Age >= 18)
-    .OrderBy(p => p.LastName)
+    .Where(p => p.LastName.StartsWith("D"))
+    .OrderByDescending(p => p.Age)
+    .Limit(10)
     .ToList();
 ```
 
