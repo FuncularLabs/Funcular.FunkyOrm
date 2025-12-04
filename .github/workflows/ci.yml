@@ -21,23 +21,6 @@ jobs:
       run: |
         dotnet build Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj --configuration Release --no-restore
         dotnet build Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore
-    publish:
-      runs-on: windows-latest
-      needs: test-net8
-      if: github.ref == 'refs/heads/master'
-      steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-          
-      - name: Pack
-        run: dotnet pack Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj --configuration Release --output nupkgs
-        
-      - name: Push to NuGet
-        run: dotnet nuget push nupkgs\*.nupkg --api-key ${{ secrets.NUGET_PUBLISH_SECRET }} --source https://api.nuget.org/v3/index.json
 
   test-net8:
     runs-on: windows-latest
@@ -59,6 +42,24 @@ jobs:
         sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
     - name: Run tests with filter
       run: dotnet test Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework"
+
+  publish:
+    runs-on: windows-latest
+    needs: test-net8
+    if: github.ref == 'refs/heads/master'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+        
+    - name: Pack
+      run: dotnet pack Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj --configuration Release --output nupkgs
+      
+    - name: Push to NuGet
+      run: dotnet nuget push nupkgs\*.nupkg --api-key ${{ secrets.NUGET_PUBLISH_SECRET }} --source https://api.nuget.org/v3/index.json
 
   # test-netframework:
   #   runs-on: windows-latest
