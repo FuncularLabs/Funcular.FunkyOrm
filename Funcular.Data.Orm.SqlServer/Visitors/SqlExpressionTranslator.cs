@@ -87,14 +87,31 @@ namespace Funcular.Data.Orm.Visitors
                 }
                 
                 // Collection Contains - handle IN clause
-                Expression collectionExpression;
-                if (node.Object is UnaryExpression unary && unary.NodeType == ExpressionType.Convert && unary.Method?.Name == "op_Implicit" && unary.Operand.Type.IsArray)
+                Expression collectionExpression = node.Object;
+
+                // If it's an extension method (Object is null), the first argument is the collection
+                if (collectionExpression == null && node.Arguments.Count > 0)
+                {
+                    collectionExpression = node.Arguments[0];
+                }
+
+                // Unwrap implicit conversions (e.g. Array -> ReadOnlySpan in .NET 10+)
+                if (collectionExpression is UnaryExpression unary && unary.Method?.Name == "op_Implicit")
                 {
                     collectionExpression = unary.Operand;
                 }
-                else
+                else if (collectionExpression is MethodCallExpression mc && mc.Method.Name == "op_Implicit")
                 {
-                    collectionExpression = node.Object ?? node.Arguments.FirstOrDefault(a => a.Type.GetInterfaces().Contains(typeof(System.Collections.IEnumerable)));
+                    collectionExpression = mc.Arguments[0];
+                }
+
+                // Verify it is IEnumerable (and not string, though string should be handled above)
+                if (collectionExpression != null &&
+                    (!typeof(System.Collections.IEnumerable).IsAssignableFrom(collectionExpression.Type) || collectionExpression.Type == typeof(string)))
+                {
+                    // Fallback to searching arguments for IEnumerable if the above didn't work
+                    // This preserves original behavior for edge cases
+                    collectionExpression = node.Object ?? node.Arguments.FirstOrDefault(a => a.Type != typeof(string) && typeof(System.Collections.IEnumerable).IsAssignableFrom(a.Type));
                 }
                 if (collectionExpression != null)
                 {

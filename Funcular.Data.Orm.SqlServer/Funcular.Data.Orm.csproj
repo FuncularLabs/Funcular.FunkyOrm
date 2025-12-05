@@ -14,10 +14,10 @@
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
     <PackageIcon>funcular-logo-angle-brackets-dark.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>2.2.0</Version>
-    <AssemblyVersion>2.2.0</AssemblyVersion>
-    <FileVersion>2.2.0</FileVersion>
-    <InformationalVersion>2.2.0</InformationalVersion>
+    <Version>2.2.5</Version>
+    <AssemblyVersion>2.2.5</AssemblyVersion>
+    <FileVersion>2.2.5</FileVersion>
+    <InformationalVersion>2.2.5</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
