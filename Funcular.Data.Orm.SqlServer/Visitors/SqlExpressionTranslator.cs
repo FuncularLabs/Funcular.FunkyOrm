@@ -36,6 +36,7 @@ namespace Funcular.Data.Orm.Visitors
             List<Microsoft.Data.SqlClient.SqlParameter> parameters,
             Func<PropertyInfo, string> getColumnName)
         {
+            // Inert change to trigger build
             if (node.Method.Name == "ToString")
             {
                 // ToString is a no-op in SQL; just visit the object
