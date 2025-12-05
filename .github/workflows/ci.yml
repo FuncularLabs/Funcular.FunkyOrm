@@ -55,6 +55,12 @@ jobs:
       with:
         dotnet-version: 8.0.x
         
+    - name: Restore dependencies
+      run: dotnet restore
+        
+    - name: Build
+      run: dotnet build Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj --configuration Release --no-restore
+        
     - name: Pack
       run: dotnet pack Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj --configuration Release --output nupkgs
       
