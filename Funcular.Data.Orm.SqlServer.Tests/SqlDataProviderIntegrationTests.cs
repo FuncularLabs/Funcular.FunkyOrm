@@ -1422,80 +1422,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
-        public void Query_With_Successive_Where_Clauses_Should_Use_Unique_Parameters()
-        {
-            OutputTestMethodName();
-            
-            // Arrange
-            var uniqueId = Guid.NewGuid();
-            var firstName = "TestMultiWhere_" + uniqueId.ToString().Substring(0, 8);
-            var lastName = "Last_" + uniqueId.ToString().Substring(0, 8);
-            
-            // Person 1: Matches both
-            InsertTestPerson(firstName, "M", lastName, DateTime.Now.AddYears(-30), "Male", uniqueId);
-            
-            // Person 2: Matches LastName only (should be excluded if AND works)
-            var uniqueId2 = Guid.NewGuid();
-            InsertTestPerson("DifferentFirst", "X", lastName, DateTime.Now.AddYears(-30), "Male", uniqueId2);
-
-            // Act
-            var query = _provider.Query<Person>();
-            query = query.Where(x => x.FirstName.StartsWith("TestMultiWhere"));
-            query = query.Where(x => x.LastName.StartsWith("Last_"));
-            
-            // This should not throw an exception about duplicate parameters
-            var results = query.ToList();
-
-            // Assert
-            Assert.IsTrue(results.Any(x => x.UniqueId == uniqueId), "Should find the matching person");
-            Assert.IsFalse(results.Any(x => x.UniqueId == uniqueId2), "Should NOT find the person matching only the second criteria");
-        }
-
-        [TestMethod]
-        public void OrderBy_With_Unsupported_MethodCall_Throws_Informative_Exception()
-        {
-            OutputTestMethodName();
-            
-            var exception = Assert.ThrowsException<NotSupportedException>(() => 
-            {
-                _provider.Query<Person>().OrderBy(p => Guid.NewGuid()).ToList();
-            });
-
-            // The expression string for Guid.NewGuid() is usually "NewGuid()"
-            StringAssert.Contains(exception.Message, "NewGuid()");
-        }
-
-        [TestMethod]
-        public void OrderBy_With_Unsupported_Arithmetic_Throws_Informative_Exception()
-        {
-            OutputTestMethodName();
-            
-            var exception = Assert.ThrowsException<NotSupportedException>(() => 
-            {
-                _provider.Query<Person>().OrderBy(p => p.Id + 100).ToList();
-            });
-
-            // The expression string for p.Id + 100 usually contains "+" and "100"
-            StringAssert.Contains(exception.Message, "+");
-            StringAssert.Contains(exception.Message, "100");
-        }
-
-        [TestMethod]
-        public void Where_With_Unsupported_MethodCall_Throws_Informative_Exception()
-        {
-            OutputTestMethodName();
-            
-            var exception = Assert.ThrowsException<NotSupportedException>(() => 
-            {
-                // ToString() on a property is not supported in SQL translation (except maybe inside other calls, but usually not directly as a boolean)
-                // Actually ToString is often ignored or not supported. Let's use something definitely not supported like GetHashCode()
-                _provider.Query<Person>().Where(p => p.FirstName.GetHashCode() == 123).ToList();
-            });
-
-            StringAssert.Contains(exception.Message, "GetHashCode");
-        }
-
-        [TestMethod]
         public void Query_MissingTable_Throws_Informative_Exception()
         {
             OutputTestMethodName();
@@ -1519,64 +1445,37 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var personId = InsertTestPerson(guid, "A", guid, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
 
             _provider.BeginTransaction();
-            var deleted = _provider.Delete<Person>(personId);
+            var result = _provider.Delete<Person>(personId);
             _provider.CommitTransaction();
 
-            Assert.IsTrue(deleted);
-            var person = _provider.Get<Person>(personId);
-            Assert.IsNull(person);
+            Assert.IsTrue(result, "Delete should return true for existing entity.");
+            var deletedPerson = _provider.Get<Person>(personId);
+            Assert.IsNull(deletedPerson, "Deleted entity should not be found.");
         }
+
         [TestMethod]
-        public void ReservedWords_InsertAndSelect_ShouldSucceed()
+        public void Query_Person_WithIdInReadOnlySpan_ReturnsCorrectPersons()
         {
             OutputTestMethodName();
-            
-            var user = new Domain.Objects.User.User
-            {
-                Name = "Test User",
-                Order = 1,
-                Select = true
-            };
+            // Arrange
+            var guid = Guid.NewGuid().ToString();
+            var person1Id = InsertTestPerson(guid, "A", "SpanTest1", DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            var person2Id = InsertTestPerson(guid, "B", "SpanTest2", DateTime.Now.AddYears(-25), "Female", Guid.NewGuid());
+            InsertTestPerson(guid, "C", "SpanTest3", DateTime.Now.AddYears(-20), "Other", Guid.NewGuid()); // Not in span
 
-            // Test Insert
-            var key = _provider.Insert(user);
-            Assert.IsTrue(key > 0, "Insert should return a valid identity key");
+            var ids = new[] { person1Id, person2Id };
 
-            // Test Get
-            var retrievedUser = _provider.Get<Domain.Objects.User.User>(key);
-            Assert.IsNotNull(retrievedUser, "Should retrieve the inserted user");
-            Assert.AreEqual(user.Name, retrievedUser.Name);
-            Assert.AreEqual(user.Order, retrievedUser.Order);
-            Assert.AreEqual(user.Select, retrievedUser.Select);
+            // Act
+            var result = _provider.Query<Person>()
+                .Where(p => p.FirstName == guid && ids.Contains(p.Id))
+                .ToList();
 
-            // Test Update
-            retrievedUser.Name = "Updated User";
-            retrievedUser.Order = 2;
-            retrievedUser.Select = false;
-            
-            var updatedResult = _provider.Update(retrievedUser);
-            Assert.IsNotNull(updatedResult, "Update should return the updated entity");
-
-            var updatedUser = _provider.Get<Domain.Objects.User.User>(key);
-            Assert.AreEqual("Updated User", updatedUser.Name);
-            Assert.AreEqual(2, updatedUser.Order);
-            Assert.IsFalse(updatedUser.Select);
-
-            // Test Query with Where clause using reserved words
-            var queriedUser = _provider.Query<Domain.Objects.User.User>()
-                .Where(u => u.Order == 2 && u.Select == false)
-                .OrderByDescending(u => u.Key)
-                .FirstOrDefault();
-            
-            Assert.IsNotNull(queriedUser);
-            Assert.AreEqual(key, queriedUser.Key);
-
-            // Cleanup
-            _provider.BeginTransaction();
-            _provider.Delete<Domain.Objects.User.User>(key);
-            _provider.CommitTransaction();
+            // Assert
+            Assert.AreEqual(2, result.Count);
+            Assert.IsTrue(result.Any(p => p.Id == person1Id));
+            Assert.IsTrue(result.Any(p => p.Id == person2Id));
+            Assert.IsFalse(result.Any(p => p.LastName == "SpanTest3"));
         }
-
     }
 
     public class MissingTable

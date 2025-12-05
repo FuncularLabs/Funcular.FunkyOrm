@@ -121,6 +121,17 @@ public class Person
     // Not in the DB? No problem. It's ignored automatically.
     public string FullName => $"{FirstName} {LastName}";
 }
+
+// Example of automatic snake_case to PascalCase mapping
+// Table: "user_role" or "UserRole"
+public class UserRole
+{
+    // Column: "user_role_id" or "UserRoleId"
+    public int UserRoleId { get; set; }
+    
+    // Column: "role_name" or "RoleName"
+    public string RoleName { get; set; }
+}
 ```
 
 If your names don't match our conventions, use attributes:
@@ -167,8 +178,14 @@ var jane = provider.Get<Person>(person.Id);
 ```
 
 ### Get All (List)
+**Warning:** `GetList<T>()` retrieves *every* record in the table. This is great for small lookup tables (e.g., `OrderStatus`, `Country`), but a **very bad idea** for large tables (e.g., `Transaction`, `Log`). For large datasets, use `GetList<T>(predicate)` to filter your results.
+
 ```csharp
-var allPeople = provider.GetList<Person>();
+// Good for small tables
+var allStatuses = provider.GetList<OrderStatus>();
+
+// Bad for large tables - don't do this!
+// var allLogs = provider.GetList<Log>(); 
 ```
 
 ### Update
@@ -204,31 +221,6 @@ catch
 
 ---
 
-## Async Support
-
-We love async! All major operations have an `Async` counterpart.
-
-```csharp
-// Async Get
-var person = await provider.GetAsync<Person>(1);
-
-// Async List
-var people = await provider.GetListAsync<Person>();
-
-// Async Query
-var adults = await provider.QueryAsync<Person>(p => p.Age >= 18);
-
-// Async Insert
-await provider.InsertAsync(newPerson);
-
-// Async Update
-await provider.UpdateAsync(existingPerson);
-
-// Async Delete
-await provider.DeleteAsync<Person>(p => p.Id == 1);
-```
-
----
 
 ## Querying (The Fun Part)
 
@@ -286,6 +278,43 @@ var count = provider.Query<Person>().Count(p => p.Gender == "Female");
 // var count = provider.Query<Person>().Where(...).ToList().Count(); 
 ```
 
+### Advanced Querying: IN and LIKE
+We support powerful filtering patterns that translate to efficient SQL.
+
+#### The `IN` Clause
+Want to find records where a value matches one of many options? Use `.Contains()` on a local collection (List, Array, etc.). This translates to a SQL `IN` clause.
+
+```csharp
+// Define your list of IDs or values
+var targetIds = new[] { 1, 5, 10, 20 };
+
+// Query: SELECT * FROM Person WHERE Id IN (1, 5, 10, 20)
+var selectedPeople = provider.Query<Person>()
+    .Where(p => targetIds.Contains(p.Id))
+    .ToList();
+
+// Works with strings too!
+var validStates = new List<string> { "NY", "CA", "TX" };
+var coastalPeople = provider.Query<Address>()
+    .Where(a => validStates.Contains(a.StateCode))
+    .ToList();
+```
+
+#### The `LIKE` Clause
+Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property.
+
+```csharp
+// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%'
+var smiths = provider.Query<Person>()
+    .Where(p => p.LastName.Contains("Smith"))
+    .ToList();
+
+// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%'
+var scots = provider.Query<Person>()
+    .Where(p => p.LastName.StartsWith("Mc"))
+    .ToList();
+```
+
 ### Advanced: Ternary Operators
 We support C# ternary operators in queries! They translate to SQL `CASE` statements.
 
@@ -297,6 +326,32 @@ var status = provider.Query<Person>()
         AgeGroup = p.Birthdate < DateTime.Now.AddYears(-18) ? "Adult" : "Minor" 
     })
     .ToList();
+```
+
+---
+
+## Async Support
+
+We love async! All major operations have an `Async` counterpart.
+
+```csharp
+// Async Get
+var person = await provider.GetAsync<Person>(1);
+
+// Async List
+var people = await provider.GetListAsync<Person>();
+
+// Async Query
+var adults = await provider.QueryAsync<Person>(p => p.Age >= 18);
+
+// Async Insert
+await provider.InsertAsync(newPerson);
+
+// Async Update
+await provider.UpdateAsync(existingPerson);
+
+// Async Delete
+await provider.DeleteAsync<Person>(p => p.Id == 1);
 ```
 
 ---

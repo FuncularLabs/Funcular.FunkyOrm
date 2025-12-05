@@ -86,7 +86,15 @@ namespace Funcular.Data.Orm.Visitors
                 }
                 
                 // Collection Contains - handle IN clause
-                var collectionExpression = node.Object ?? node.Arguments.FirstOrDefault(a => a.Type.GetInterfaces().Contains(typeof(System.Collections.IEnumerable)));
+                Expression collectionExpression;
+                if (node.Object is UnaryExpression unary && unary.NodeType == ExpressionType.Convert && unary.Method?.Name == "op_Implicit" && unary.Operand.Type.IsArray)
+                {
+                    collectionExpression = unary.Operand;
+                }
+                else
+                {
+                    collectionExpression = node.Object ?? node.Arguments.FirstOrDefault(a => a.Type.GetInterfaces().Contains(typeof(System.Collections.IEnumerable)));
+                }
                 if (collectionExpression != null)
                 {
                     System.Collections.IEnumerable collection = null;
@@ -115,7 +123,8 @@ namespace Funcular.Data.Orm.Visitors
                             return;
                         }
 
-                        if ((node.Object != null ? node.Arguments[0] : node.Arguments[1]) is MemberExpression memberExpression)
+                        var itemArgumentIndex = node.Object != null ? 0 : 1;
+                        if (node.Arguments[itemArgumentIndex] is MemberExpression memberExpression)
                         {
                             var propertyInfo = memberExpression.Member as PropertyInfo;
                             if (propertyInfo == null)
