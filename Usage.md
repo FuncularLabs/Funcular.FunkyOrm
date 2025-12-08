@@ -300,6 +300,24 @@ var coastalPeople = provider.Query<Address>()
     .ToList();
 ```
 
+#### Chained Queries with Ordering and Paging
+You can chain multiple `Where` clauses, apply ordering, and paginate results for efficient data retrieval.
+
+```csharp
+// Example: Find users by multiple criteria, ordered by name, with pagination
+var firstNames = new[] { "Alice", "Bob", "Charlie" };
+var lastNames = new[] { "Smith", "Johnson", "Williams" };
+
+var results = provider.Query<Person>()
+    .Where(p => firstNames.Contains(p.FirstName))
+    .Where(p => lastNames.Contains(p.LastName))
+    .OrderBy(p => p.LastName)
+    .Skip(2)
+    .Take(3)
+    .ToList();
+// This efficiently filters, sorts, and pages the data in the database.
+```
+
 #### The `LIKE` Clause
 Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property.
 

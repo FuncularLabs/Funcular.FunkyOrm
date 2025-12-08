@@ -1,7 +1,11 @@
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [2.3.0] - 2025-12-08
+
+### Fixed
+- **Parameter Naming in Chained Queries**: Resolved an issue where chained `Where` clauses with array `Contains` would reuse parameter names (e.g., `@p0`), causing SQL Server errors. Parameters now use unique names like `@p__linq__0`, `@p__linq__1`, etc., ensuring correct execution of complex queries.
 
 ## [2.2.0] - 2025-12-05
 

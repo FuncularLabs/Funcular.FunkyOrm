@@ -1476,8 +1476,82 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsTrue(result.Any(p => p.Id == person2Id));
             Assert.IsFalse(result.Any(p => p.LastName == "SpanTest3"));
         }
-    }
 
+        [TestMethod]
+        public void Query_ChainedWhereWithMultipleArrayContains_ReturnsCorrectPersons()
+        {
+            OutputTestMethodName();
+            // Arrange
+            var uniqueId = Guid.NewGuid().ToString();
+            var firstNamesPool = new[] { $"Alice{uniqueId}", $"Bob{uniqueId}", $"Charlie{uniqueId}", $"Diana{uniqueId}", $"Eve{uniqueId}" };
+            var lastNamesPool = new[] { $"Smith{uniqueId}", $"Johnson{uniqueId}", $"Williams{uniqueId}", $"Brown{uniqueId}", $"Davis{uniqueId}" };
+            // Insert persons with various combinations and different birthdates and genders
+            InsertTestPerson(firstNamesPool[0], "A", lastNamesPool[0], DateTime.Now.AddYears(-20), "Female", Guid.NewGuid());
+            InsertTestPerson(firstNamesPool[1], "B", lastNamesPool[1], DateTime.Now.AddYears(-25), "Male", Guid.NewGuid());
+            InsertTestPerson(firstNamesPool[2], "C", lastNamesPool[2], DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+            InsertTestPerson(firstNamesPool[3], "D", lastNamesPool[3], DateTime.Now.AddYears(-35), "Female", Guid.NewGuid());
+            InsertTestPerson(firstNamesPool[4], "E", lastNamesPool[4], DateTime.Now.AddYears(-40), "Female", Guid.NewGuid());
+            // Select fixed first names and last names for deterministic test
+            var selectedFirstNames = new[] { firstNamesPool[0], firstNamesPool[3] }; // Alice, Diana
+            var selectedLastNames = new[] { lastNamesPool[0], lastNamesPool[3] }; // Smith, Brown
+            // Act
+            var query = _provider.Query<Person>();
+            query = query.Where(x => selectedFirstNames.Contains(x.FirstName));
+            query = query.Where(x => selectedLastNames.Contains(x.LastName));
+            // Add Birthdate between -35 and -20 years
+            var minDate = DateTime.Now.AddYears(-40);
+            var maxDate = DateTime.Now.AddYears(-15);
+            query = query.Where(x => x.Birthdate >= minDate && x.Birthdate <= maxDate);
+            // Add Gender == "Female"
+            query = query.Where(x => x.Gender == "Female");
+            var results = query.ToList();
+            // Assert
+            Assert.AreEqual(2, results.Count); // Alice Smith and Diana Brown
+            Assert.IsTrue(results.Any(p => p.FirstName == firstNamesPool[0] && p.LastName == lastNamesPool[0])); // Alice Smith
+            Assert.IsTrue(results.Any(p => p.FirstName == firstNamesPool[3] && p.LastName == lastNamesPool[3])); // Diana Brown
+        }
+
+        [TestMethod]
+        public void Query_ChainedWhereWithOrderBySkipTake_ReturnsCorrectPersons()
+        {
+            OutputTestMethodName();
+            // Arrange
+            var uniqueId = Guid.NewGuid().ToString();
+            var firstNamesPool = new[] { $"Alice{uniqueId}", $"Bob{uniqueId}", $"Charlie{uniqueId}", $"Diana{uniqueId}", $"Eve{uniqueId}" };
+            var lastNamesPool = new[] { $"Smith{uniqueId}", $"Johnson{uniqueId}", $"Williams{uniqueId}", $"Brown{uniqueId}", $"Davis{uniqueId}" };
+            // Insert persons with various combinations
+            foreach (var first in firstNamesPool)
+            {
+                foreach (var last in lastNamesPool)
+                {
+                    InsertTestPerson(first, "A", last, DateTime.Now.AddYears(-30), "Male", Guid.NewGuid());
+                }
+            }
+            // Select specific first names and last names for deterministic test
+            var selectedFirstNames = new[] { firstNamesPool[0], firstNamesPool[1], firstNamesPool[2] }; // Alice, Bob, Charlie
+            var selectedLastNames = new[] { lastNamesPool[0], lastNamesPool[1], lastNamesPool[2] }; // Smith, Johnson, Williams
+            // Act
+            var query = _provider.Query<Person>();
+            query = query.Where(x => selectedFirstNames.Contains(x.FirstName));
+            query = query.Where(x => selectedLastNames.Contains(x.LastName));
+            query = query.OrderBy(x => x.LastName);
+            query = query.Skip(2);
+            query = query.Take(3);
+            var results = query.ToList();
+            // Assert
+            Assert.AreEqual(3, results.Count);
+            // After filtering: 3x3=9
+            // Ordered by LastName ASC: Johnson, Smith, Williams
+            // Johnson: Alice, Bob, Charlie (order undefined, but skip 2: skip first 2, take Charlie Johnson)
+            // Then Smith: Alice, Bob, Charlie -> take Alice Smith, Bob Smith
+            Assert.AreEqual("Charlie", results[0].FirstName.Replace(uniqueId, ""));
+            Assert.AreEqual("Johnson", results[0].LastName.Replace(uniqueId, ""));
+            Assert.AreEqual("Alice", results[1].FirstName.Replace(uniqueId, ""));
+            Assert.AreEqual("Smith", results[1].LastName.Replace(uniqueId, ""));
+            Assert.AreEqual("Bob", results[2].FirstName.Replace(uniqueId, ""));
+            Assert.AreEqual("Smith", results[2].LastName.Replace(uniqueId, ""));
+        }
+    }
     public class MissingTable
     {
         public int Id { get; set; }

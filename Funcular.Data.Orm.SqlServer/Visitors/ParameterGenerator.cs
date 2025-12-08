@@ -44,7 +44,7 @@ namespace Funcular.Data.Orm.Visitors
         /// <returns>A new <see cref="SqlParameter"/> with a unique name.</returns>
         public SqlParameter CreateParameterForInClause(object value, int index)
         {
-            var parameterName = $"@p{index}";
+            var parameterName = $"@p__linq__{_parameterCounter++}";
             var sqlType = GetSqlDbType(value);
             return new SqlParameter(parameterName, value)
             {
