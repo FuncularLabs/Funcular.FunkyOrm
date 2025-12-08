@@ -110,7 +110,7 @@ var adults = provider.Query<Person>()
     .Where(p => p.Age >= 18)
     .Where(p => p.LastName.StartsWith("D"))
     .OrderByDescending(p => p.Age)
-    .Limit(10)
+    .Take(10)
     .ToList();
 ```
 
