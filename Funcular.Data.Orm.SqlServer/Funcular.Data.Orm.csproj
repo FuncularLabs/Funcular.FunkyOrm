@@ -12,12 +12,12 @@
     <RepositoryUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
-    <PackageIcon>funcular-logo-angle-brackets-dark.png</PackageIcon>
+    <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>2.3.1</Version>
-    <AssemblyVersion>2.3.1</AssemblyVersion>
-    <FileVersion>2.3.1</FileVersion>
-    <InformationalVersion>2.3.1</InformationalVersion>
+    <Version>2.3.2</Version>
+    <AssemblyVersion>2.3.2</AssemblyVersion>
+    <FileVersion>2.3.2</FileVersion>
+    <InformationalVersion>2.3.2</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -38,9 +38,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="funcular-logo-angle-brackets-dark.png">
+    <None Include="funky-orm-lineart-256x256.png">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 

@@ -1,11 +1,12 @@
 > **Recent Changes**
-> * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
+> * **v2.3.2**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors and published package icon update.
 > * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
 > * **v2.0.0**: Major release. Breaking change to `Query<T>(predicate)`, safety enhancements for Deletes, chained `Where` clauses.
 > * **v1.6.0**: Fix for closure predicates, added CI/CD.
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
+![Funcular logo](funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
 [![Downloads](https://img.shields.io/nuget/dt/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
