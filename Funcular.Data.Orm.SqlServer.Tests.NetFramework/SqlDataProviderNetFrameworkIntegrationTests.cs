@@ -33,6 +33,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
                                 "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=funky_db;Integrated Security=True;";
             TestConnection();
+            EnsureSchema();
 
             _provider = new SqlServerOrmDataProvider(_connectionString)
             {
@@ -48,6 +49,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         public void Cleanup()
         {
             _provider?.Dispose();
+        }
+
+        private void EnsureSchema()
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[person]') AND name = 'employer_id') 
+                    BEGIN 
+                        ALTER TABLE person ADD employer_id INT NULL; 
+                    END";
+                cmd.ExecuteNonQuery();
+            }
         }
 
         private void TestConnection()

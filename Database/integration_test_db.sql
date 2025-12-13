@@ -5,17 +5,10 @@ GO
 USE funky_db;
 GO
 
--- Table: person
-CREATE TABLE person (
+-- Table: country
+CREATE TABLE country (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    first_name NVARCHAR(100) NOT NULL,
-    middle_initial CHAR(1) NULL,
-    last_name NVARCHAR(100) NOT NULL,
-    birthdate DATE NULL,
-    gender NVARCHAR(10) NULL,
-    uniqueid UNIQUEIDENTIFIER NULL,
-    dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-    dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+    name NVARCHAR(100) NOT NULL
 );
 
 -- Table: address
@@ -27,8 +20,33 @@ CREATE TABLE address (
     state_code CHAR(2) NOT NULL,
     postal_code NVARCHAR(20) NOT NULL,
     is_primary BIT NOT NULL DEFAULT 0,
+    country_id INT NULL,
     dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-    dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+    dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_address_country FOREIGN KEY (country_id) REFERENCES country(id)
+);
+
+-- Table: organization
+CREATE TABLE organization (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    name NVARCHAR(100) NOT NULL,
+    headquarters_address_id INT NULL,
+    CONSTRAINT FK_organization_address FOREIGN KEY (headquarters_address_id) REFERENCES address(id)
+);
+
+-- Table: person
+CREATE TABLE person (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    first_name NVARCHAR(100) NOT NULL,
+    middle_initial CHAR(1) NULL,
+    last_name NVARCHAR(100) NOT NULL,
+    birthdate DATE NULL,
+    gender NVARCHAR(10) NULL,
+    uniqueid UNIQUEIDENTIFIER NULL,
+    employer_id INT NULL,
+    dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_person_organization FOREIGN KEY (employer_id) REFERENCES organization(id)
 );
 
 -- Table: person_address (for many-to-many relationship)
@@ -36,6 +54,7 @@ CREATE TABLE person_address (
     id INT IDENTITY(1,1) PRIMARY KEY,
     person_id INT NOT NULL,
     address_id INT NOT NULL,
+    address_type INT NOT NULL DEFAULT 0,
     dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     CONSTRAINT FK_person_address_person FOREIGN KEY (person_id) REFERENCES person(id),

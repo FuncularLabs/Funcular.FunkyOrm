@@ -18,6 +18,16 @@ namespace Funcular.Data.Orm.SqlServer
         public string WhereClause { get; set; }
 
         /// <summary>
+        /// Gets or sets the SQL JOIN clauses.
+        /// </summary>
+        public string JoinClause { get; set; }
+
+        /// <summary>
+        /// Gets or sets the list of individual SQL JOIN clauses.
+        /// </summary>
+        public List<string> JoinClausesList { get; set; } = new List<string>();
+
+        /// <summary>
         /// Gets or sets the list of SQL parameters for the query.
         /// </summary>
         public List<SqlParameter> Parameters

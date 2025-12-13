@@ -19,6 +19,7 @@ namespace Funcular.Data.Orm.Visitors
         private readonly List<SqlParameter> _parameters = new List<SqlParameter> { };
         private readonly ParameterGenerator _parameterGenerator;
         private readonly SqlExpressionTranslator _translator;
+        private readonly string _tableName;
 
         /// <summary>
         /// Gets the generated SQL SELECT clause.
@@ -37,15 +38,18 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
         /// <param name="parameterGenerator">The parameter generator for creating SQL parameters.</param>
         /// <param name="translator">The translator for converting method calls to SQL.</param>
+        /// <param name="tableName">The name of the table to qualify columns with.</param>
         public SelectClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
             ParameterGenerator parameterGenerator,
-            SqlExpressionTranslator translator)
+            SqlExpressionTranslator translator,
+            string tableName = null)
             : base(columnNames, unmappedProperties)
         {
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
             _translator = translator ?? throw new ArgumentNullException(nameof(translator));
+            _tableName = tableName;
         }
 
         /// <summary>
@@ -155,6 +159,10 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && !IsUnmappedProperty(property))
                 {
                     var columnName = GetColumnName(property);
+                    if (!string.IsNullOrEmpty(_tableName))
+                    {
+                        columnName = $"{_tableName}.{columnName}";
+                    }
                     _selectBuilder.Append(columnName);
                     return;
                 }

@@ -1,5 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Funcular.Data.Orm.Attributes;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person 
 {
@@ -120,6 +124,38 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
         /// </summary>
         /// <value>The unique identifier.</value>
         public Guid? UniqueId { get; set; }
+
+        [Column("employer_id")]
+        [OrmForeignKey(typeof(OrganizationEntity))]
+        public int? EmployerId { get; set; }
+
+        // Implicit Mode - Converted to Explicit to avoid ambiguity in subclass Person
+        [RemoteProperty(typeof(CountryEntity), 
+            nameof(EmployerId), 
+            nameof(OrganizationEntity.HeadquartersAddressId), 
+            nameof(AddressEntity.CountryId), 
+            nameof(CountryEntity.Name))]
+        public string EmployerHeadquartersCountryName { get; set; }
+
+        // Explicit Mode
+        [RemoteProperty(typeof(CountryEntity),
+            nameof(EmployerId),
+            nameof(OrganizationEntity.HeadquartersAddressId),
+            nameof(AddressEntity.CountryId),
+            nameof(CountryEntity.Name)
+        )]
+        public string ExplicitCountryName { get; set; }
+
+        // Remote Key Example (fetching ID) - Converted to Explicit to avoid ambiguity
+        [RemoteKey(typeof(CountryEntity), 
+            nameof(EmployerId), 
+            nameof(OrganizationEntity.HeadquartersAddressId), 
+            nameof(AddressEntity.CountryId), 
+            nameof(CountryEntity.Id))]
+        public int? EmployerHeadquartersCountryId { get; set; }
+
+        [NotMapped]
+        public ICollection<CountryEntity> AssociatedCountries { get; set; } = new List<CountryEntity>();
 
         #endregion
 

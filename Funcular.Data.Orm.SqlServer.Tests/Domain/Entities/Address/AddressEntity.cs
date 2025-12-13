@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Funcular.Data.Orm.Attributes;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address 
 {
@@ -8,7 +10,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
 	/// Maps to dbo.address table
 	/// </summary>
 	//The data annotation is unnecessary because 
-	//[Table("address")]
+	[Table("address")]
 	[Serializable]
 	public class AddressEntity : PersistenceStateEntity
 	{
@@ -131,6 +133,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
             get => _isPrimary;
             set => _isPrimary = value;
         }
+
+        [Column("country_id")]
+        [OrmForeignKey(typeof(CountryEntity))]
+        public int? CountryId { get; set; }
 
         #endregion
 

@@ -19,6 +19,8 @@ namespace Funcular.Data.Orm.Visitors
         private readonly List<SqlParameter> _parameters = new List<SqlParameter> { };
         private readonly ParameterGenerator _parameterGenerator;
         private readonly SqlExpressionTranslator _translator;
+        private readonly string _tableName;
+        private readonly Dictionary<string, string> _remotePropertyMap;
 
         /// <summary>
         /// Gets the generated SQL WHERE clause body.
@@ -37,15 +39,21 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
         /// <param name="parameterGenerator">The parameter generator for creating SQL parameters.</param>
         /// <param name="translator">The translator for converting method calls to SQL.</param>
+        /// <param name="tableName">The name of the table to qualify columns with.</param>
+        /// <param name="remotePropertyMap">Optional map of remote property names to their SQL aliases (e.g. "EmployerCountryId" -> "[country_1].[id]").</param>
         public WhereClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
             ParameterGenerator parameterGenerator,
-            SqlExpressionTranslator translator)
+            SqlExpressionTranslator translator,
+            string tableName = null,
+            Dictionary<string, string> remotePropertyMap = null)
             : base(columnNames, unmappedProperties)
         {
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
             _translator = translator ?? throw new ArgumentNullException(nameof(translator));
+            _tableName = tableName;
+            _remotePropertyMap = remotePropertyMap;
         }
 
         /// <summary>
@@ -157,9 +165,21 @@ namespace Funcular.Data.Orm.Visitors
             if (node.Expression is ParameterExpression)
             {
                 var property = node.Member as PropertyInfo;
+
+                // Check for remote property mapping first
+                if (property != null && _remotePropertyMap != null && _remotePropertyMap.TryGetValue(property.Name, out string remoteColumn))
+                {
+                    _commandTextBuilder.Append(remoteColumn);
+                    return;
+                }
+
                 if (property != null && !IsUnmappedProperty(property))
                 {
                     var columnName = GetColumnName(property);
+                    if (!string.IsNullOrEmpty(_tableName))
+                    {
+                        columnName = $"{_tableName}.{columnName}";
+                    }
                     _commandTextBuilder.Append(columnName);
                     return;
                 }
@@ -298,7 +318,11 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         private void VisitMethodCall(MethodCallExpression node)
         {
-            _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, GetColumnName);
+            _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, prop =>
+            {
+                var col = GetColumnName(prop);
+                return !string.IsNullOrEmpty(_tableName) ? $"{_tableName}.{col}" : col;
+            });
         }
 
         /// <summary>

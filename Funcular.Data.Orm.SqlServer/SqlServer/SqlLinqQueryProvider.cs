@@ -133,7 +133,7 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 var currentCall = methodCalls[i];
 
-                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max")
+                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
                     components.OuterMethodCall = currentCall;
                 }
@@ -154,6 +154,14 @@ namespace Funcular.Data.Orm.SqlServer
                     else
                     {
                         components.WhereClause = $"({components.WhereClause}) AND ({elements.WhereClause})";
+                    }
+                    if (!string.IsNullOrEmpty(elements.JoinClause))
+                    {
+                        components.JoinClause = elements.JoinClause;
+                        if (elements.JoinClausesList != null)
+                        {
+                            components.JoinClausesList.AddRange(elements.JoinClausesList);
+                        }
                     }
                     if (elements.SqlParameters != null)
                     {
@@ -184,6 +192,14 @@ namespace Funcular.Data.Orm.SqlServer
                     else
                     {
                         components.WhereClause = $"({components.WhereClause}) AND ({elements.WhereClause})";
+                    }
+                    if (!string.IsNullOrEmpty(elements.JoinClause))
+                    {
+                        components.JoinClause = elements.JoinClause;
+                        if (elements.JoinClausesList != null)
+                        {
+                            components.JoinClausesList.AddRange(elements.JoinClausesList);
+                        }
                     }
                     if (elements.SqlParameters != null)
                     {
@@ -238,7 +254,7 @@ namespace Funcular.Data.Orm.SqlServer
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }
-                else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max")
+                else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
@@ -251,7 +267,8 @@ namespace Funcular.Data.Orm.SqlServer
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
-                        translator);
+                        translator,
+                        _dataProvider.GetTableName<T>());
                     selectVisitor.Visit(lambda.Body);
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);
@@ -301,7 +318,8 @@ namespace Funcular.Data.Orm.SqlServer
                         SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
-                        translator);
+                        translator,
+                        _dataProvider.GetTableName<T>());
                     whereVisitor.Visit(predicateExpression);
 
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
@@ -393,7 +411,7 @@ namespace Funcular.Data.Orm.SqlServer
                     aggregateClause += ") THEN 0 ELSE 1 END";
                 }
             }
-            else if (methodCall.Method.Name == "Average" || methodCall.Method.Name == "Min" || methodCall.Method.Name == "Max")
+            else if (methodCall.Method.Name == "Average" || methodCall.Method.Name == "Min" || methodCall.Method.Name == "Max" || methodCall.Method.Name == "Sum")
             {
                 var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                 string columnExpression;
@@ -441,9 +459,45 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private string BuildQueryComponents(QueryComponents components)
         {
-            string selectPart = !string.IsNullOrEmpty(components.SelectClause) ? $"SELECT {components.SelectClause}" : ((_selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>()).Split(new[] { " FROM " }, StringSplitOptions.None)[0]);
-            string fromPart = $"FROM {_dataProvider.GetTableName<T>()}";
+            var baseCommand = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
+            var parts = baseCommand.Split(new[] { " FROM " }, StringSplitOptions.None);
+
+            string selectPart = !string.IsNullOrEmpty(components.SelectClause) ? $"SELECT {components.SelectClause}" : parts[0];
+            string fromPart = parts.Length > 1 ? $"FROM {parts[1]}" : $"FROM {_dataProvider.GetTableName<T>()}";
+            
+            // If the base command has a WHERE clause, we need to be careful not to duplicate it or malform the query
+            // For now, we assume the base command from Query<T> does not have a WHERE clause.
+            // If parts[1] contains WHERE, we might need to split it out.
+            if (parts.Length > 1 && parts[1].Contains(" WHERE "))
+            {
+                var fromAndWhere = parts[1].Split(new[] { " WHERE " }, StringSplitOptions.None);
+                fromPart = $"FROM {fromAndWhere[0]}";
+                // We are ignoring the base WHERE clause here, which might be correct for Query<T>() but risky if reused.
+                // Given the usage in Query<T>(), it should be fine.
+            }
+
             string commandText = $"{selectPart}\r\n{fromPart}";
+
+            if (components.JoinClausesList != null && components.JoinClausesList.Any())
+            {
+                foreach (var join in components.JoinClausesList)
+                {
+                    // Naive check to prevent duplicate joins if they are already in the base command
+                    // We normalize spaces for comparison
+                    if (!fromPart.Replace("  ", " ").Contains(join.Trim().Replace("  ", " ")))
+                    {
+                        commandText += $"\r\n{join}";
+                    }
+                }
+            }
+            else if (!string.IsNullOrEmpty(components.JoinClause))
+            {
+                 // Fallback if list is empty but string is not (shouldn't happen with new logic)
+                 if (!fromPart.Contains(components.JoinClause.Trim()))
+                 {
+                     commandText += $"\r\n{components.JoinClause}";
+                 }
+            }
 
             if (!string.IsNullOrEmpty(components.WhereClause))
             {
@@ -512,7 +566,7 @@ namespace Funcular.Data.Orm.SqlServer
                     {
                         return (TResult)(object)Convert.ToDouble(result);
                     }
-                    else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max")
+                    else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max" || components.OuterMethodCall?.Method.Name == "Sum")
                     {
                         var lambda =
                             (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;

@@ -9,7 +9,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Entities.Address
 	/// Maps to dbo.address table
 	/// </summary>
 	//The data annotation is unnecessary because 
-	//[Table("address")]
+	[Table("address")]
 	[Serializable]
 	public class AddressEntity : PersistenceStateEntity
 	{

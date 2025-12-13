@@ -28,6 +28,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _connectionString = Environment.GetEnvironmentVariable("FUNKY_CONNECTION") ??
                                 "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=funky_db;Integrated Security=True;";
             TestConnection();
+            EnsureSchema();
 
             _provider = new SqlServerOrmDataProvider(_connectionString)
             {
@@ -44,6 +45,46 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void Cleanup()
         {
             _provider?.Dispose();
+        }
+
+        private void EnsureSchema()
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'country')
+                    BEGIN
+                        CREATE TABLE country (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            name NVARCHAR(100) NOT NULL
+                        );
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[address]') AND name = 'country_id') 
+                    BEGIN 
+                        ALTER TABLE address ADD country_id INT NULL; 
+                        ALTER TABLE address ADD CONSTRAINT FK_address_country FOREIGN KEY (country_id) REFERENCES country(id);
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'organization')
+                    BEGIN
+                        CREATE TABLE organization (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            name NVARCHAR(100) NOT NULL,
+                            headquarters_address_id INT NULL,
+                            CONSTRAINT FK_organization_address FOREIGN KEY (headquarters_address_id) REFERENCES address(id)
+                        );
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[person]') AND name = 'employer_id') 
+                    BEGIN 
+                        ALTER TABLE person ADD employer_id INT NULL; 
+                        ALTER TABLE person ADD CONSTRAINT FK_person_organization FOREIGN KEY (employer_id) REFERENCES organization(id);
+                    END";
+                cmd.ExecuteNonQuery();
+            }
         }
 
         private void TestConnection()
@@ -63,7 +104,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             }
         }
 
-        private int InsertTestPerson(string firstName, string middleInitial, string lastName, DateTime? birthdate, string gender, Guid uniqueId, DateTime? dateUtcCreated = null, DateTime? dateUtcModified = null)
+        protected int InsertTestPerson(string firstName, string middleInitial, string lastName, DateTime? birthdate, string gender, Guid uniqueId, DateTime? dateUtcCreated = null, DateTime? dateUtcModified = null)
         {
             if (gender?.Length > 10) gender = gender.Substring(0, 10);
 
@@ -83,7 +124,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             return person.Id;
         }
 
-        private int InsertTestAddress(string line1, string line2, string city, string stateCode, string postalCode)
+        protected int InsertTestAddress(string line1, string line2, string city, string stateCode, string postalCode)
         {
             var address = new Address
             {
@@ -97,7 +138,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             return address.Id;
         }
 
-        private void InsertTestPersonAddress(int personId, int addressId)
+        protected void InsertTestPersonAddress(int personId, int addressId)
         {
             var link = new PersonAddress { PersonId = personId, AddressId = addressId };
             _provider.Insert(link);

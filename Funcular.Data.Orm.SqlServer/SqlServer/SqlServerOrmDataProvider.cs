@@ -13,6 +13,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Funcular.Data.Orm.Attributes;
 using Funcular.Data.Orm.Visitors;
 using Microsoft.Data.SqlClient;
 
@@ -501,6 +502,24 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
+        /// Executes a raw SQL command and returns the number of rows affected.
+        /// </summary>
+        /// <param name="sql">The SQL command to execute.</param>
+        /// <param name="parameters">Optional parameters for the command.</param>
+        /// <returns>The number of rows affected.</returns>
+        public int ExecuteNonQuery(string sql, params SqlParameter[] parameters)
+        {
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                using (var command = BuildSqlCommandObject(sql, connectionScope.Connection, parameters))
+                {
+                    InvokeLogAction(command);
+                    return command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
         /// Retrieves all rows for the specified entity type.
         /// </summary>
         /// <typeparam name="T">The entity type to retrieve.</typeparam>
@@ -795,6 +814,104 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Methods - Query Building
 
+        internal class ResolvedRemoteJoinInfo
+        {
+            public string JoinClauses { get; set; }
+            public List<string> IndividualJoinClauses { get; set; }
+            public string ExtraColumns { get; set; }
+            public Dictionary<string, string> PropertyToColumnMap { get; set; }
+        }
+
+        internal ResolvedRemoteJoinInfo ResolveRemoteJoins<T>(string tableName)
+        {
+            var info = new ResolvedRemoteJoinInfo
+            {
+                JoinClauses = string.Empty,
+                IndividualJoinClauses = new List<string>(),
+                ExtraColumns = string.Empty,
+                PropertyToColumnMap = new Dictionary<string, string>()
+            };
+
+            var remoteProperties = typeof(T).GetProperties()
+                .Where(p => Attribute.IsDefined(p, typeof(RemoteAttributeBase)))
+                .ToList();
+
+            if (!remoteProperties.Any()) return info;
+
+            var resolver = new RemotePathResolver();
+            var joinClauses = new StringBuilder();
+            var extraColumns = new StringBuilder();
+            
+            var existingJoins = new Dictionary<string, string>();
+            var aliasCounts = new Dictionary<string, int>();
+
+            // Helper to get table name for non-generic types
+            string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
+                EncloseIfReserved(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
+
+            foreach (var prop in remoteProperties)
+            {
+                var attr = (RemoteAttributeBase)prop.GetCustomAttributes(typeof(RemoteAttributeBase), true).First();
+                var remoteType = attr.RemoteEntityType;
+                string[] keyPath = attr.KeyPath;
+
+                var resolvedPath = resolver.Resolve(typeof(T), remoteType, keyPath);
+
+                string currentAlias = tableName; 
+
+                foreach (var step in resolvedPath.Joins)
+                {
+                    string targetTableName = GetTableNameByType(step.TargetTableType);
+                    string targetTableCleanName = targetTableName.Trim('[', ']');
+                    
+                    string joinKey = $"{currentAlias}|{targetTableName}|{step.ForeignKeyProperty}";
+                    
+                    if (existingJoins.ContainsKey(joinKey))
+                    {
+                        currentAlias = existingJoins[joinKey];
+                    }
+                    else
+                    {
+                        if (!aliasCounts.ContainsKey(targetTableCleanName)) aliasCounts[targetTableCleanName] = 0;
+                        int count = aliasCounts[targetTableCleanName]++;
+                        
+                        string targetAlias = $"[{targetTableCleanName}_{count}]";
+                        
+                        var fkProp = step.SourceTableType.GetProperty(step.ForeignKeyProperty);
+                        string fkColumn = fkProp != null ? GetCachedColumnName(fkProp) : $"[{step.ForeignKeyProperty}]";
+                        
+                        var pkProp = step.TargetTableType.GetProperty(step.TargetKeyProperty);
+                        string pkColumn = pkProp != null ? GetCachedColumnName(pkProp) : $"[{step.TargetKeyProperty}]";
+
+                        string joinClause = $" LEFT JOIN {targetTableName} {targetAlias} ON {currentAlias}.{fkColumn} = {targetAlias}.{pkColumn}";
+                        joinClauses.Append(joinClause);
+                        info.IndividualJoinClauses.Add(joinClause);
+                        
+                        existingJoins[joinKey] = targetAlias;
+                        currentAlias = targetAlias;
+                    }
+                }
+
+                var finalProp = resolvedPath.TargetProperty;
+                string finalColumn = finalProp != null ? GetCachedColumnName(finalProp) : $"[{resolvedPath.FinalColumnName}]";
+                
+                // Map the property to the aliased column
+                // Only map if it's a RemoteKey (as requested) or if we want to support filtering on values too.
+                // The user asked for "keys only" for WHERE clauses.
+                if (attr is RemoteKeyAttribute || attr is RemotePropertyAttribute)
+                {
+                    info.PropertyToColumnMap[prop.Name] = $"{currentAlias}.{finalColumn}";
+                }
+
+                extraColumns.Append($", {currentAlias}.{finalColumn} AS [{prop.Name}]");
+            }
+
+            info.JoinClauses = joinClauses.ToString();
+            info.ExtraColumns = extraColumns.ToString();
+
+            return info;
+        }
+
         /// <summary>
         /// Builds a SELECT statement for the specified type optionally constrained by a primary key.
         /// The returned SQL contains the resolved column list and a WHERE clause when <paramref name="key"/> is provided.
@@ -807,6 +924,31 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             string columnNames = GetColumnNames<T>();
             var whereClause = key != null ? GetWhereClause<T>(key) : string.Empty;
+
+            // --- Remote Key Logic ---
+            var remoteInfo = ResolveRemoteJoins<T>(tableName);
+            
+            if (!string.IsNullOrEmpty(remoteInfo.JoinClauses))
+            {
+                // Prefix main table columns to avoid ambiguity
+                var columns = columnNames.Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < columns.Length; i++)
+                {
+                    columns[i] = $"{tableName}.{columns[i]}";
+                }
+                columnNames = string.Join(", ", columns);
+
+                if (!string.IsNullOrEmpty(whereClause))
+                {
+                    var pk = GetCachedPrimaryKey<T>();
+                    var pkCol = GetCachedColumnName(pk);
+                    whereClause = whereClause.Replace(pkCol, $"{tableName}.{pkCol}");
+                }
+
+                columnNames += remoteInfo.ExtraColumns;
+                tableName += remoteInfo.JoinClauses;
+            }
+
             return $"SELECT {columnNames} FROM {tableName}{whereClause}";
         }
 
@@ -849,15 +991,23 @@ namespace Funcular.Data.Orm.SqlServer
             var paramGen = parameterGenerator ?? new ParameterGenerator();
             var trans = translator ?? new SqlExpressionTranslator(paramGen);
 
+            // Resolve remote joins to get the property map
+            var tableName = GetTableName<T>();
+            var remoteInfo = ResolveRemoteJoins<T>(tableName);
+
             var visitor = new WhereClauseVisitor<T>(
                 ColumnNames,
                 _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
                 paramGen,
-                trans);
+                trans,
+                tableName,
+                remoteInfo.PropertyToColumnMap); // Pass the map
             visitor.Visit(expression);
             if (commandElements != null)
             {
                 commandElements.WhereClause = visitor.WhereClauseBody;
+                commandElements.JoinClause = remoteInfo.JoinClauses; // Set JoinClause
+                commandElements.JoinClausesList = remoteInfo.IndividualJoinClauses; // Set JoinClausesList
                 commandElements.OriginalExpression = commandElements.OriginalExpression ?? expression;
                 if (visitor.Parameters.Any())
                 {
@@ -867,8 +1017,9 @@ namespace Funcular.Data.Orm.SqlServer
             }
             else
             {
-                commandElements = new SqlQueryComponents<T>(expression, string.Empty, visitor.WhereClauseBody,
+                commandElements = new SqlQueryComponents<T>(expression, string.Empty, visitor.WhereClauseBody, remoteInfo.JoinClauses,
                     string.Empty, visitor.Parameters);
+                commandElements.JoinClausesList = remoteInfo.IndividualJoinClauses;
             }
 
             return commandElements;
@@ -966,7 +1117,12 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 using (var reader = command.ExecuteReader())
                 {
-                    return reader.Read() ? MapEntity<T>(reader) : null;
+                    var entity = reader.Read() ? MapEntity<T>(reader) : null;
+                    if (entity != null)
+                    {
+                        PopulateRemoteCollections(entity);
+                    }
+                    return entity;
                 }
             }
             catch (SqlException ex)
@@ -992,10 +1148,10 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     while (reader.Read())
                     {
-                        results.Add(MapEntity<T>(reader));
+                        var entity = MapEntity<T>(reader);
+                        PopulateRemoteCollections(entity);
+                        results.Add(entity);
                     }
-
-                    return results;
                 }
             }
             catch (SqlException ex)
@@ -1003,6 +1159,7 @@ namespace Funcular.Data.Orm.SqlServer
                 HandleSqlException<T>(ex);
                 throw;
             }
+            return results;
         }
 
         /// <summary>
@@ -1767,6 +1924,93 @@ namespace Funcular.Data.Orm.SqlServer
             var provider = new SqlLinqQueryProvider<T>(this, selectCommand);
             return new SqlQueryable<T>(provider);
         }
+
+        private void PopulateRemoteCollections<T>(T entity) where T : class, new()
+        {
+            var props = typeof(T).GetProperties()
+                .Where(p => Attribute.IsDefined(p, typeof(RemoteCollectionAttribute)));
+
+            foreach (var prop in props)
+            {
+                var attr = prop.GetCustomAttribute<RemoteCollectionAttribute>();
+                var remoteType = attr.RemoteEntityType;
+
+                // Resolve path from T to RemoteType
+                var resolver = new RemotePathResolver();
+                // We want path from T (Source) to RemoteType (Target).
+                // Implicit resolution should find it (Person -> PersonAddress -> Address -> Country).
+                var path = resolver.Resolve(typeof(T), remoteType, attr.KeyPath ?? new string[] { "Id" }); // "Id" is dummy target prop
+
+                // Build Query
+                // We want to select RemoteType.*
+                // FROM RemoteType
+                // JOIN ... back to T
+                // WHERE T.Id = entity.Id
+
+                var sb = new StringBuilder();
+                var remoteTableName = GetTableNameByType(remoteType);
+                sb.Append($"SELECT {remoteTableName}.* FROM {remoteTableName}");
+
+                var currentAlias = remoteTableName;
+                var joins = path.Joins.ToList();
+                joins.Reverse();
+
+                // joins is now: RemoteType -> TN, TN -> ... -> T
+                
+                foreach (var step in joins)
+                {
+                    // Step: Source -> Target (Original)
+                    // We are traversing Target -> Source (Reverse)
+                    
+                    var targetTable = GetTableNameByType(step.SourceTableType); // We are joining the 'Source' of the step
+                    var targetAlias = targetTable; 
+                    
+                    var sourceTable = GetTableNameByType(step.TargetTableType); // Where we are coming from (Target of step)
+                    var sourceAlias = sourceTable; 
+                    
+                    string joinCondition;
+                    if (!step.IsReverse) // Original was Fwd: Source.FK = Target.PK
+                    {
+                        // We are at Target. Joining Source.
+                        // ON Source.FK = Target.PK
+                        joinCondition = $"{targetAlias}.{GetCachedColumnName(step.SourceTableType.GetProperty(step.ForeignKeyProperty))} = {sourceAlias}.{GetCachedColumnName(step.TargetTableType.GetProperty(step.TargetKeyProperty))}";
+                    }
+                    else // Original was Rev: Source.PK = Target.FK
+                    {
+                        // We are at Target. Joining Source.
+                        // ON Source.PK = Target.FK
+                        joinCondition = $"{targetAlias}.{GetCachedColumnName(step.SourceTableType.GetProperty(step.ForeignKeyProperty))} = {sourceAlias}.{GetCachedColumnName(step.TargetTableType.GetProperty(step.TargetKeyProperty))}";
+                    }
+                    
+                    sb.Append($" JOIN {targetTable} ON {joinCondition}");
+                }
+
+                // WHERE T.Id = entity.Id
+                var pkProp = GetPrimaryKeyProperty<T>();
+                var pkVal = pkProp.GetValue(entity);
+                sb.Append($" WHERE {GetTableNameByType(typeof(T))}.{GetCachedColumnName(pkProp)} = @Id");
+
+                var parameters = new List<SqlParameter> { new SqlParameter("@Id", pkVal) };
+                
+                // Execute
+                // We need to invoke ExecuteReaderList<TRemote> dynamically because TRemote is known at runtime
+                var method = typeof(SqlServerOrmDataProvider).GetMethod("ExecuteReaderList", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .MakeGenericMethod(remoteType);
+                
+                using (var command = BuildSqlCommandObject(sb.ToString(), Connection, parameters))
+                {
+                    var result = method.Invoke(this, new object[] { command });
+                    
+                    // Set property
+                    // Property type is ICollection<TRemote> or List<TRemote>
+                    // result is ICollection<TRemote> (actually List<TRemote>)
+                    prop.SetValue(entity, result);
+                }
+            }
+        }
+
+        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, t =>
+            EncloseIfReserved(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
 
         #endregion
     }

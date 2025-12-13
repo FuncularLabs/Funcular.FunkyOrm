@@ -41,6 +41,12 @@ var user = new User { Name = "Paul", Order = 1 };
 provider.Insert(user);
 ```
 
+**Generated SQL:**
+```sql
+INSERT INTO [User] ([Name], [Order]) VALUES (@p0, @p1);
+SELECT SCOPE_IDENTITY();
+```
+
 ### Comparison: FunkyORM vs. The World
 
 | Feature | Entity Framework | Dapper | FunkyORM |
@@ -259,6 +265,15 @@ var page2 = provider.Query<Person>()
     .ToList();
 ```
 
+**Generated SQL:**
+```sql
+SELECT [Id], [FirstName], [LastName], [Birthdate] 
+FROM [Person]
+ORDER BY [Id]
+OFFSET 10 ROWS
+FETCH NEXT 10 ROWS ONLY
+```
+
 ### Projections (`Select`)
 Don't need the whole object? Just grab what you need.
 ```csharp
@@ -276,6 +291,13 @@ var count = provider.Query<Person>().Count(p => p.Gender == "Female");
 
 // BAD: Pulls ALL records into memory, then counts them. Ouch.
 // var count = provider.Query<Person>().Where(...).ToList().Count(); 
+```
+
+**Generated SQL:**
+```sql
+SELECT COUNT(*) 
+FROM [Person] 
+WHERE [Gender] = @p0
 ```
 
 ### Advanced Querying: IN and LIKE
@@ -413,6 +435,286 @@ We've cleaned up the API a bit.
 
 ---
 
+## Advanced Features: Remote Keys & Properties
 
+FunkyORM allows you to flatten your object graph by mapping properties directly to columns in related tables, even if they are several hops away. This eliminates the "N+1 query problem" for simple lookups and makes your code cleaner.
+
+We provide three attributes to control this behavior:
+
+### 1. `[OrmForeignKey]` — The Link Builder
+**"This property connects me to another table."**
+
+Use this when you have a column in your table that holds the ID of another entity, but the property name doesn't follow the standard `[EntityName]Id` convention. This attribute tells the ORM how to "walk" from one table to another.
+
+*   **Purpose:** Defines the relationship structure (the "edges" of the graph).
+*   **Target:** A local column (usually an `int` or `Guid`).
+*   **Result:** Does not fetch new data itself; it enables *other* properties to fetch data through it.
+
+**Example:**
+```csharp
+// The property name is just "EmployerId", but it points to the "OrganizationEntity".
+// Without this (or the new Smart Inference), the ORM wouldn't know where "EmployerId" goes.
+[OrmForeignKey(typeof(OrganizationEntity))]
+public int? EmployerId { get; set; }
+```
+
+### 2. `[RemoteKey]` — The Distant ID
+**"I want the ID of a related record, possibly far away."**
+
+Use this when you want to grab the **Primary Key** (ID) of a related entity without loading the entire object. This is useful for foreign keys that don't exist in your table but exist in a related table (e.g., your Employer's Country ID).
+
+*   **Purpose:** Projects a **Key** (ID) from a distant table into your current entity.
+*   **Target:** A property that will hold the distant ID.
+*   **Result:** The ORM performs the necessary JOINs to find that specific ID and populates this property.
+
+**Example:**
+```csharp
+// "I don't have a CountryId column. My Employer has an Address, 
+// and that Address has a Country. Get me that Country's ID."
+[RemoteKey(typeof(CountryEntity), nameof(CountryEntity.Id))]
+public int? EmployerHeadquartersCountryId { get; set; }
+```
+
+### 3. `[RemoteProperty]` — The Distant Value
+**"I want a specific value (like a Name or Date) from a related record."**
+
+Use this when you want to display a piece of information (like a name, description, or date) from a related entity directly on your object, flattening the data structure.
+
+*   **Purpose:** Projects a **Value** (non-key) from a distant table into your current entity.
+*   **Target:** A property that will hold the distant value (string, date, etc.).
+*   **Result:** The ORM performs the necessary JOINs to find that specific column and populates this property.
+
+**Example:**
+```csharp
+// "I don't want the whole Country object. Just get me the Name 
+// of the Country where my Employer is located."
+[RemoteProperty(typeof(CountryEntity), nameof(CountryEntity.Name))]
+public string EmployerHeadquartersCountryName { get; set; }
+```
+
+### Superpower: Deep Filtering
+
+You can use `[RemoteKey]` AND `[RemoteProperty]` properties directly in your LINQ `.Where()` clauses. The ORM will automatically generate the necessary JOINs (even across multiple tables) and filter the results in the database.
+
+**Example:**
+```csharp
+// Find all people whose employer is headquartered in the country with ID 5.
+// The ORM automatically joins Person -> Organization -> Address -> Country.
+var people = provider.Query<PersonEntity>()
+    .Where(p => p.EmployerHeadquartersCountryId == 5)
+    .ToList();
+
+// Find all people whose employer is in "USA".
+// This works too!
+var americans = provider.Query<PersonEntity>()
+    .Where(p => p.EmployerHeadquartersCountryName == "USA")
+    .ToList();
+```
+
+**Generated SQL (The Magic):**
+```sql
+SELECT 
+    [person].[Id], [person].[FirstName], ..., 
+    [country_1].[Name] AS [EmployerHeadquartersCountryName]
+FROM [person]
+LEFT JOIN [organization] [organization_0] ON [person].[employer_id] = [organization_0].[id]
+LEFT JOIN [address] [address_0] ON [organization_0].[headquarters_address_id] = [address_0].[id]
+LEFT JOIN [country] [country_1] ON [address_0].[country_id] = [country_1].[id]
+WHERE [country_1].[Name] = @p0
+```
+
+*   **Note**: This allows you to filter by properties that don't even exist on your main table, without writing a single JOIN manually.
+
+### Populating Related Collections (The "Explicit" Way)
+
+Unlike Entity Framework's `.Include()` or Lazy Loading, FunkyORM does not automatically populate collection properties. We believe in **Explicit Intent**: you should know exactly when and how you are fetching data.
+
+However, the `[RemoteKey]` feature makes this incredibly simple. By flattening the graph to get the IDs you need, you can populate complex collections with simple, efficient lookups.
+
+**Scenario**: You want to populate a `Countries` collection on `Person` with every country they are associated with (e.g., via their Employer).
+
+**Step 1: Define the Entity**
+```csharp
+public class PersonEntity
+{
+    // The Remote Key gets us the ID automatically
+    [RemoteKey(typeof(CountryEntity), nameof(CountryEntity.Id))]
+    public int? EmployerHeadquartersCountryId { get; set; }
+
+    // The collection is NOT mapped to the database
+    [NotMapped]
+    public ICollection<CountryEntity> AssociatedCountries { get; set; } = new List<CountryEntity>();
+}
+```
+
+**Step 2: Fetch and Populate**
+```csharp
+// 1. Fetch the person (Remote Key is populated automatically)
+var person = provider.Query<PersonEntity>().First(p => p.Id == 123);
+
+// 2. Explicitly fetch the related country using the ID we already have
+if (person.EmployerHeadquartersCountryId.HasValue)
+{
+    var country = provider.Query<CountryEntity>()
+        .FirstOrDefault(c => c.Id == person.EmployerHeadquartersCountryId.Value);
+    
+    if (country != null)
+    {
+        person.AssociatedCountries.Add(country);
+    }
+}
+```
+
+**Why is this better?**
+*   **No Magic**: You see exactly what queries are running.
+*   **No N+1 on the Graph**: You aren't pulling down `Organization` and `Address` objects just to get to `Country`. You jump straight to the data you need.
+*   **Flexibility**: You can easily combine multiple sources (e.g., `HomeCountryId`, `BillingCountryId`) into a single collection without complex `Union` queries or massive object graphs.
+
+### Summary Cheat Sheet
+
+| Attribute | Role | Analogy | Returns |
+| :--- | :--- | :--- | :--- |
+| **`[OrmForeignKey]`** | **The Bridge** | "The road to the City starts here." | Nothing (It *is* the link) |
+| **`[RemoteKey]`** | **The Coordinates** | "What is the Zip Code of that City?" | An ID (`int`/`Guid`) |
+| **`[RemoteProperty]`** | **The View** | "What is the Name of that City?" | A Value (`string`/`date`) |
+
+### Putting it all together
+
+Here is a complete example showing how to handle multiple remote keys to the same target table (e.g., a Person has an Employer in one Country, and a Home Address in another).
+
+```csharp
+public class PersonEntity
+{
+    // ============================================================
+    // SCENARIO 1: Employer Location (Long Path)
+    // Path: Person -> Organization -> Address -> Country
+    // ============================================================
+
+    // 1. The Link: Defines the relationship to Organization
+    [OrmForeignKey(typeof(OrganizationEntity))]
+    public int? EmployerId { get; set; }
+
+    // 2. The Distant ID: Uses the link above to get the Employer's Country ID
+    // We specify the full path of properties to traverse to avoid ambiguity
+    [RemoteKey(typeof(CountryEntity), 
+        nameof(EmployerId), 
+        nameof(OrganizationEntity.HeadquartersAddressId), 
+        nameof(AddressEntity.CountryId), 
+        nameof(CountryEntity.Id))]
+    public int? EmployerCountryId { get; set; }
+
+    // 3. The Distant Value: Uses the link above to get the Employer's Country Name
+    [RemoteProperty(typeof(CountryEntity), 
+        nameof(EmployerId), 
+        nameof(OrganizationEntity.HeadquartersAddressId), 
+        nameof(AddressEntity.CountryId), 
+        nameof(CountryEntity.Name))]
+    public string EmployerCountryName { get; set; }
+
+
+    // ============================================================
+    // SCENARIO 2: Home Location (Short Path)
+    // Path: Person -> Address -> Country
+    // ============================================================
+
+    // 1. The Link: Defines the relationship to Address
+    [OrmForeignKey(typeof(AddressEntity))]
+    public int? HomeAddressId { get; set; }
+
+    // 2. The Distant ID: Uses the link above to get the Home Country ID
+    // We specify the path here too, ensuring we use HomeAddressId, not EmployerId
+    [RemoteKey(typeof(CountryEntity), 
+        nameof(HomeAddressId), 
+        nameof(AddressEntity.CountryId), 
+        nameof(CountryEntity.Id))]
+    public int? HomeCountryId { get; set; }
+
+    // 3. The Distant Value: Home Country Name
+    [RemoteProperty(typeof(CountryEntity), 
+        nameof(HomeAddressId), 
+        nameof(AddressEntity.CountryId), 
+        nameof(CountryEntity.Name))]
+    public string HomeCountryName { get; set; }
+}
+```
+
+### Comparison: Achieving "Superpowers" in Other Frameworks
+
+To appreciate why `[RemoteProperty]` and `[RemoteKey]` are "superpowers," let's look at what it takes to achieve the same result—getting a flattened property from a related table—in other popular frameworks.
+
+**Goal**: Get a `Person` object with their `EmployerCountryName` populated.
+
+#### 1. Entity Framework Core
+You have two main options, both with trade-offs:
+
+**Option A: Include Everything (The "Heavy" Way)**
+You load the entire object graph. This is easy to write but bad for performance if you only need one field.
+```csharp
+var person = context.People
+    .Include(p => p.Employer)
+        .ThenInclude(e => e.Address)
+            .ThenInclude(a => a.Country)
+    .FirstOrDefault(p => p.Id == 1);
+
+// Access: person.Employer.Address.Country.Name
+// Downside: You just loaded 3 extra objects into memory.
+```
+
+**Option B: Projection (The "Verbose" Way)**
+You project into a DTO or anonymous type. This is efficient but requires writing a new class or losing your entity type.
+```csharp
+var personDto = context.People
+    .Select(p => new PersonDto 
+    {
+        Id = p.Id,
+        Name = p.Name,
+        // ... manually map every other property ...
+        EmployerCountryName = p.Employer.Address.Country.Name
+    })
+    .FirstOrDefault(p => p.Id == 1);
+
+// Downside: You have to manually map every property you want back.
+```
+
+#### 2. Dapper
+Dapper is fast, but you are back to writing raw SQL and handling the mapping yourself.
+
+```csharp
+var sql = @"
+    SELECT p.*, c.Name as EmployerCountryName
+    FROM Person p
+    LEFT JOIN Organization o ON p.EmployerId = o.Id
+    LEFT JOIN Address a ON o.HeadquartersAddressId = a.Id
+    LEFT JOIN Country c ON a.CountryId = c.Id
+    WHERE p.Id = @Id";
+
+var person = connection.Query<Person, string, Person>(
+    sql,
+    (person, countryName) => 
+    {
+        person.EmployerCountryName = countryName;
+        return person;
+    },
+    splitOn: "EmployerCountryName",
+    param: new { Id = 1 }
+).FirstOrDefault();
+
+// Downside: Raw SQL maintenance, manual join logic, complex mapping code.
+```
+
+#### 3. FunkyORM
+You define the relationship **once** in your class, and it works automatically everywhere.
+
+```csharp
+// In your class definition:
+[RemoteProperty(typeof(CountryEntity), ..., nameof(CountryEntity.Name))]
+public string EmployerCountryName { get; set; }
+
+// In your code:
+var person = provider.Get<Person>(1); 
+// Done. EmployerCountryName is populated. No extra queries, no DTOs.
+```
+
+---
 
 Happy Coding! 🚀

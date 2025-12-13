@@ -13,6 +13,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		ContinuousIntegration.playlist = ContinuousIntegration.playlist
 		LICENSE.txt = LICENSE.txt
 		README.md = README.md
+		Prompts\RemoteKeyFeatureSpec.md = Prompts\RemoteKeyFeatureSpec.md
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Funcular.Data.Orm.SqlServer.Tests", "Funcular.Data.Orm.SqlServer.Tests\Funcular.Data.Orm.SqlServer.Tests.csproj", "{2B8D19C7-0F03-4BB5-BCD7-659FEEDEBA19}"
@@ -27,6 +28,11 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer.Tests.NetFramework", "Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj", "{C64EEBCD-4EB7-42BA-AF31-E45F6BB94072}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.SqlServer.Tests.DotNet10", "Funcular.Data.Orm.SqlServer.Tests.DotNet10\Funcular.Data.Orm.SqlServer.Tests.DotNet10.csproj", "{A5F78473-8D19-40A7-B43A-5D1929868E86}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Prompts", "Prompts", "{9391CF31-2463-4494-8900-D03F76CA91B2}"
+	ProjectSection(SolutionItems) = preProject
+		Prompts\RemoteKeyFeatureSpec.md = Prompts\RemoteKeyFeatureSpec.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -92,6 +98,7 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{3E341EFF-0A90-44FD-8629-A64E41A71454} = {1B578596-7F17-46CB-AA38-248077A888AE}
+		{9391CF31-2463-4494-8900-D03F76CA91B2} = {1B578596-7F17-46CB-AA38-248077A888AE}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {02328F4E-73AB-4D4A-ABE3-E1886B542F2B}

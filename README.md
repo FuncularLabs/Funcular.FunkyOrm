@@ -28,6 +28,8 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Safe**: All queries are parameterized to prevent SQL injection.
 *   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., blocking `1=1`), though this does not guarantee prevention of all crafty circumventions.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
+*   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
+*   **Explicit Collection Population**: Leverage `RemoteKey` properties to easily populate related collections without the overhead of massive object graphs or N+1 queries.
 *   **Cached Reflection**: Funcular ORM caches reflection results to minimize overhead and maximize performance.
 
     
@@ -114,6 +116,72 @@ var adults = provider.Query<Person>()
     .OrderByDescending(p => p.Age)
     .Take(10)
     .ToList();
+```
+
+### 5. Superpowers: Remote Keys & Properties
+
+This is where FunkyORM shines. You can map properties in your entity to columns in *related* tables without writing joins or loading the entire object graph.
+
+*   **`[RemoteProperty]`**: Fetch a value from a related table (e.g., `Employer.Name`) directly into your `Person` object.
+*   **`[RemoteKey]`**: Fetch the ID of a related entity (e.g., `Employer.CountryId`) directly.
+
+```csharp
+public class Person
+{
+    // ... standard properties ...
+
+    // Link to the Organization table
+    [OrmForeignKey(typeof(Organization))]
+    public int? EmployerId { get; set; }
+
+    // SUPERPOWER 1: Get the Employer's Name without loading the Organization object
+    [RemoteProperty(typeof(Organization), nameof(EmployerId), nameof(Organization.Name))]
+    public string EmployerName { get; set; }
+
+    // SUPERPOWER 2: Get the Employer's Country ID (2 hops away!)
+    // Person -> Organization -> Address -> Country
+    [RemoteKey(typeof(Country), 
+        nameof(EmployerId), 
+        nameof(Organization.HeadquartersAddressId), 
+        nameof(Address.CountryId), 
+        nameof(Country.Id))]
+    public int? EmployerCountryId { get; set; }
+}
+
+// Now you can query and filter by these remote properties as if they were local!
+var usEmployees = provider.Query<Person>()
+    .Where(p => p.EmployerCountryId == 1) // Filters by joined table!
+    .ToList();
+```
+
+### The "Superpower" Advantage
+
+To achieve this **without** FunkyORM, you'd typically have to do this:
+
+**Entity Framework Core**:
+```csharp
+// Requires loading the entire graph or creating a custom DTO
+var person = context.People
+    .Include(p => p.Employer)
+    .ThenInclude(e => e.Address)
+    .ThenInclude(a => a.Country) // Heavy!
+    .FirstOrDefault();
+// Access: person.Employer.Address.Country.Name
+```
+
+**Dapper**:
+```csharp
+// Requires writing raw SQL joins and manual mapping
+var sql = @"SELECT p.*, c.Name as CountryName 
+            FROM Person p 
+            JOIN Organization o ON p.EmployerId = o.Id ..."; // ... and so on
+```
+
+**FunkyORM**:
+```csharp
+// Just add the attribute. We handle the joins.
+[RemoteProperty(typeof(Country), ...)]
+public string EmployerCountryName { get; set; }
 ```
 
 ## Documentation

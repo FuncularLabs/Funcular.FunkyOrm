@@ -29,6 +29,16 @@ namespace Funcular.Data.Orm.SqlServer
         public string WhereClause { get; set; }
 
         /// <summary>
+        /// Gets or sets the SQL JOIN clauses required for remote properties.
+        /// </summary>
+        public string JoinClause { get; set; }
+
+        /// <summary>
+        /// Gets or sets the list of individual SQL JOIN clauses.
+        /// </summary>
+        public List<string> JoinClausesList { get; set; }
+
+        /// <summary>
         /// Gets or sets the SQL ORDER BY clause string.
         /// </summary>
         public string OrderByClause { get; set; }
@@ -44,15 +54,30 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="expression">The original LINQ expression defining the condition for the WHERE clause.</param>
         /// <param name="selectClause">The SQL SELECT clause string.</param>
         /// <param name="whereClause">The translated SQL WHERE clause string.</param>
+        /// <param name="joinClause">The SQL JOIN clauses string.</param>
         /// <param name="orderByClause">The translated SQL ORDER BY clause string.</param>
         /// <param name="parameters">A list of SQL parameters that correspond to the placeholders in the clauses.</param>
-        public SqlQueryComponents(Expression<Func<T, bool>> expression, string selectClause, string whereClause, string orderByClause, List<SqlParameter> parameters)
+        public SqlQueryComponents(Expression<Func<T, bool>> expression, string selectClause, string whereClause, string joinClause, string orderByClause, List<SqlParameter> parameters)
         {
             OriginalExpression = expression;
             SelectClause = selectClause;
             WhereClause = whereClause;
+            JoinClause = joinClause;
             OrderByClause = orderByClause;
             SqlParameters = parameters;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SqlQueryComponents{T}"/> class.
+        /// </summary>
+        /// <param name="expression">The original LINQ expression defining the condition for the WHERE clause.</param>
+        /// <param name="selectClause">The SQL SELECT clause string.</param>
+        /// <param name="whereClause">The translated SQL WHERE clause string.</param>
+        /// <param name="orderByClause">The translated SQL ORDER BY clause string.</param>
+        /// <param name="parameters">A list of SQL parameters that correspond to the placeholders in the clauses.</param>
+        public SqlQueryComponents(Expression<Func<T, bool>> expression, string selectClause, string whereClause, string orderByClause, List<SqlParameter> parameters)
+            : this(expression, selectClause, whereClause, string.Empty, orderByClause, parameters)
+        {
         }
     }
 }
