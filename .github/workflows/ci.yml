@@ -46,7 +46,7 @@ jobs:
   publish:
     runs-on: windows-latest
     needs: test-net8
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development/3.0.0'
+    if: github.ref == 'refs/heads/master'
     steps:
     - uses: actions/checkout@v4
     
