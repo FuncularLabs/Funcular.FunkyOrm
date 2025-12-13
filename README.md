@@ -7,7 +7,7 @@
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
-![Funcular logo](funky-orm-lineart-256x256.png)
+![Funcular logo](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/master/funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
 [![Downloads](https://img.shields.io/nuget/dt/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
