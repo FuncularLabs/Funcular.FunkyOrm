@@ -7,7 +7,7 @@
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
-![Funcular logo](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/master/funky-orm-lineart-256x256.png)
+![Funcular logo](./funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
 [![Downloads](https://img.shields.io/nuget/dt/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
@@ -67,7 +67,7 @@ We also infer table names and primary keys automatically.
 
 ```csharp
 // No attributes needed!
-// Maps to table 'Person', 'Persons', 'PERSON', etc.
+// Maps to table 'Person' or 'PERSON' (case-insensitive)
 public class Person
 {
     // Automatically detected as Primary Key
@@ -131,20 +131,20 @@ public class Person
     // ... standard properties ...
 
     // Link to the Organization table
-    [OrmForeignKey(typeof(Organization))]
+    [RemoteLink(targetType: typeof(Organization))]
     public int? EmployerId { get; set; }
 
     // SUPERPOWER 1: Get the Employer's Name without loading the Organization object
-    [RemoteProperty(typeof(Organization), nameof(EmployerId), nameof(Organization.Name))]
+    [RemoteProperty(remoteEntityType: typeof(Organization), keyPath: new[] { nameof(EmployerId), nameof(Organization.Name) })]
     public string EmployerName { get; set; }
 
     // SUPERPOWER 2: Get the Employer's Country ID (2 hops away!)
     // Person -> Organization -> Address -> Country
-    [RemoteKey(typeof(Country), 
+    [RemoteKey(remoteEntityType: typeof(Country), keyPath: new[] {
         nameof(EmployerId), 
         nameof(Organization.HeadquartersAddressId), 
         nameof(Address.CountryId), 
-        nameof(Country.Id))]
+        nameof(Country.Id) })]
     public int? EmployerCountryId { get; set; }
 }
 
@@ -180,7 +180,7 @@ var sql = @"SELECT p.*, c.Name as CountryName
 **FunkyORM**:
 ```csharp
 // Just add the attribute. We handle the joins.
-[RemoteProperty(typeof(Country), ...)]
+[RemoteProperty(remoteEntityType: typeof(Country), keyPath: new[] { ... })]
 public string EmployerCountryName { get; set; }
 ```
 

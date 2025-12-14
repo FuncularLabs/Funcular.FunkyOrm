@@ -264,14 +264,14 @@ namespace Funcular.Data.Orm.SqlServer
         private bool IsForeignKey(PropertyInfo p)
         {
             if (Attribute.IsDefined(p, typeof(RemoteAttributeBase))) return false;
-            if (p.GetCustomAttribute<OrmForeignKeyAttribute>() != null) return true;
+            if (p.GetCustomAttribute<RemoteLinkAttribute>() != null) return true;
             if (p.Name.EndsWith("Id") && p.Name.Length > 2 && (p.PropertyType == typeof(int) || p.PropertyType == typeof(int?))) return true;
             return false;
         }
 
         private Type GetForeignKeyTarget(PropertyInfo p)
         {
-            var attr = p.GetCustomAttribute<OrmForeignKeyAttribute>();
+            var attr = p.GetCustomAttribute<RemoteLinkAttribute>();
             if (attr != null) return attr.TargetType;
 
             string name = p.Name.Substring(0, p.Name.Length - 2);

@@ -51,7 +51,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             // 2. Fetch the Person
             // The [RemoteKey] EmployerHeadquartersCountryId should be populated automatically
-            var fetchedPerson = _provider.Query<PersonEntity>()
+            var fetchedPerson = _provider.Query<PersonDetailEntity>()
                 .Where(p => p.Id == person.Id)
                 .FirstOrDefault();
 

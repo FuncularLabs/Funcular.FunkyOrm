@@ -12,7 +12,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization
         public string Name { get; set; }
         
         [Column("headquarters_address_id")]
-        [OrmForeignKey(typeof(AddressEntity))]
+        [RemoteLink(typeof(AddressEntity))]
         public int? HeadquartersAddressId { get; set; }
     }
 }

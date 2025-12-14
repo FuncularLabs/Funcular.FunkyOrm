@@ -39,6 +39,28 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DotNet10
             _provider?.Dispose();
         }
 
+        /// <summary>
+        /// Regression note: Starting with C# 14 / .NET 9 there was a change in how
+        /// array/list literal and ReadOnlySpan overload resolution is handled in
+        /// expression trees used by some LINQ providers. In earlier C#/runtime
+        /// versions a local array (e.g. "int[] ids = ...") used inside a
+        /// predicate like "ids.Contains(x.Id)" was translated by the provider to
+        /// an SQL IN-list via detection of the collection's concrete type.
+        ///
+        /// The breaking change affects the compiler/runtime's binding for
+        /// certain collection types in expression trees: the compiler may prefer
+        /// ReadOnlySpan or reinterpret array-slice operations, producing
+        /// expressions the LINQ-to-SQL translator doesn't recognize and thus
+        /// causes a "method not supported" or similar translation error.
+        ///
+        /// To work around this regression the test and calling code must ensure
+        /// the collection is a concrete, reference-type collection (e.g. array,
+        /// List<T>, HashSet<T>) at the point it is captured in the expression
+        /// tree, or otherwise avoid overloads that can be mapped to
+        /// ReadOnlySpan. The Contains test below explicitly uses an
+        /// `int[]` (or HashSet) captured as a local variable so the provider
+        /// sees a supported collection type when inspecting the expression tree.
+        /// </summary>
         [Fact]
         public void Query_Person_WithIdInArray_ReturnsCorrectPersons()
         {

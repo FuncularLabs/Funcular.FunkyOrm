@@ -1901,15 +1901,21 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var properties = typeof(T).GetProperties();
             var explicitlyUnmapped = properties.Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null);
+            
+            // Also treat RemoteAttributeBase properties as unmapped (locally)
+            var remoteUnmapped = properties.Where(p => p.GetCustomAttribute<RemoteAttributeBase>() != null);
+            
+            var knownUnmapped = explicitlyUnmapped.Concat(remoteUnmapped).ToList();
+
             var implicitlyUnmapped = properties.Where(p =>
             {
-                if (explicitlyUnmapped.Any(up => up.Name == p.Name)) return false; // Already handled
+                if (knownUnmapped.Any(up => up.Name == p.Name)) return false; // Already handled
                 var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
                 if (columnAttr != null) return false; // Explicit column mapping
                 var key = p.ToDictionaryKey();
                 return !_columnNames.ContainsKey(key); // No cached column mapping
             });
-            return explicitlyUnmapped.Concat(implicitlyUnmapped).ToArray();
+            return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
 
         /// <summary>

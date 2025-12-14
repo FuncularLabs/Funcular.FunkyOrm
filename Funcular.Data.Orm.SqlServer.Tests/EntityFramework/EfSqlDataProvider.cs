@@ -287,7 +287,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
                 b.Property(propertyExpression: e => e.PostalCode).HasColumnName(name: "postal_code").HasMaxLength(maxLength: 20);
                 b.Property(propertyExpression: e => e.DateUtcCreated).HasColumnName(name: "dateutc_created");
                 b.Property(propertyExpression: e => e.DateUtcModified).HasColumnName(name: "dateutc_modified");
-                b.Property(propertyExpression: e => e.IsPrimary).HasColumnName(name: "is_primary");
             });
 
             // PersonAddress
@@ -298,6 +297,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
                 b.Property(propertyExpression: e => e.Id).HasColumnName(name: "id").ValueGeneratedOnAdd();
                 b.Property(propertyExpression: e => e.PersonId).HasColumnName(name: "person_id");
                 b.Property(propertyExpression: e => e.AddressId).HasColumnName(name: "address_id");
+                b.Property(propertyExpression: e => e.IsPrimary).HasColumnName(name: "is_primary");
                 b.Property(propertyExpression: e => e.DateUtcCreated).HasColumnName(name: "dateutc_created");
                 b.Property(propertyExpression: e => e.DateUtcModified).HasColumnName(name: "dateutc_modified");
             });
@@ -327,7 +327,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
         public string City { get; set; }
         public string StateCode { get; set; }
         public string PostalCode { get; set; }
-        public bool IsPrimary { get; set; }
         public DateTime DateUtcCreated { get; set; }
         public DateTime DateUtcModified { get; set; }
     }
@@ -337,6 +336,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
         public int Id { get; set; }
         public int PersonId { get; set; }
         public int AddressId { get; set; }
+        public bool IsPrimary { get; set; }
         public DateTime DateUtcCreated { get; set; }
         public DateTime DateUtcModified { get; set; }
     }

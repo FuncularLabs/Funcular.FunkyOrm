@@ -11,15 +11,15 @@ The "Remote Foreign Keys" feature allows entities to map properties directly to 
 
 ## Public API
 
-### 1. `OrmForeignKeyAttribute`
+### 1. `RemoteLinkAttribute`
 Explicitly specifies the target entity type for a foreign key property when the naming convention doesn't match.
 
 ```csharp
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
-public class OrmForeignKeyAttribute : Attribute
+public class RemoteLinkAttribute : Attribute
 {
     public Type TargetType { get; }
-    public OrmForeignKeyAttribute(Type targetType) { ... }
+    public RemoteLinkAttribute(Type targetType) { ... }
 }
 ```
 
@@ -51,7 +51,7 @@ public class RemotePropertyAttribute : RemoteAttributeBase
 A service responsible for validating and resolving paths at startup.
 *   **Implicit Mode (Inference)**: Performs a Breadth-First Search (BFS) on the schema graph to find the shortest path from the Source Entity to `TRemoteEntity`.
     *   **Smart Inference**: Automatically detects Foreign Keys based on:
-        *   `[OrmForeignKey]` attribute.
+        *   `[RemoteLink]` attribute.
         *   Naming convention: `[Name]Id` where `[Name]` matches a known Entity type (e.g., `BillingAddressId` -> `AddressEntity`).
     *   If 0 paths found: Throw `PathNotFoundException`.
     *   If 1 path found: Return it.
@@ -103,18 +103,18 @@ public class Person : BaseEntity
 
     // Smart Inference: Infers OrganizationEntity from "EmployerId" if "Employer" was a type, 
     // but here we use attribute because property name doesn't match type name exactly.
-    [OrmForeignKey(typeof(OrganizationEntity))]
+    [RemoteLink(targetType: typeof(OrganizationEntity))]
     public int? EmployerId { get; set; }
 
     // --- Remote Property (Value) ---
     // Path: Person -> Organization -> Address -> Country
     // Target: Country.Name
-    [RemoteProperty(typeof(CountryEntity), nameof(CountryEntity.Name))]
+    [RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Name) })]
     public string EmployerHeadquartersCountryName { get; set; }
 
     // --- Remote Key (ID) ---
     // Target: Country.Id
-    [RemoteKey(typeof(CountryEntity), nameof(CountryEntity.Id))]
+    [RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Id) })]
     public int? EmployerHeadquartersCountryId { get; set; }
 }
 ```

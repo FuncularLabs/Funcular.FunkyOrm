@@ -10,12 +10,17 @@ namespace Funcular.Data.Orm.Attributes
     public class RemotePropertyAttribute : RemoteAttributeBase
     {
         /// <summary>
-        /// Defines a remote property mapping.
+        /// Initializes a new instance of the <see cref="RemotePropertyAttribute"/> class.
         /// </summary>
-        /// <param name="remoteEntityType">The type of the remote entity.</param>
+        /// <param name="remoteEntityType">The type of the remote entity containing the property.</param>
         /// <param name="keyPath">
-        /// If 1 argument: The name of the target property on TRemoteEntity. (Inference Mode)
-        /// If >1 arguments: The ordered chain of Foreign Key properties, ending with the target property. (Explicit Mode)
+        /// The path to the remote property.
+        /// <para>
+        /// If 1 argument is provided, it is treated as the name of the target property on <paramref name="remoteEntityType"/> (Inference Mode).
+        /// </para>
+        /// <para>
+        /// If multiple arguments are provided, they represent the ordered chain of Foreign Key properties to traverse, ending with the target property (Explicit Mode).
+        /// </para>
         /// </param>
         public RemotePropertyAttribute(Type remoteEntityType, params string[] keyPath) : base(remoteEntityType, keyPath)
         {
