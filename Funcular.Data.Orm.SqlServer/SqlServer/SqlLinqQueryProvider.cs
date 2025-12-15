@@ -232,8 +232,8 @@ namespace Funcular.Data.Orm.SqlServer
                                 Expression.Quote(orderByLambda));
 
                             var orderByVisitor = new OrderByClauseVisitor<T>(
-                                SqlServerOrmDataProvider.ColumnNames,
-                                SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                                SqlServerOrmDataProvider.ColumnNamesCache,
+                                SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                                     t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
                             orderByVisitor.Visit(orderByExpression);
                             components.OrderByClause = orderByVisitor.OrderByClause;
@@ -243,8 +243,8 @@ namespace Funcular.Data.Orm.SqlServer
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
                     var orderByVisitor = new OrderByClauseVisitor<T>(
-                        SqlServerOrmDataProvider.ColumnNames,
-                        SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        SqlServerOrmDataProvider.ColumnNamesCache,
+                        SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
@@ -263,12 +263,12 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
                     var selectVisitor = new SelectClauseVisitor<T>(
-                        SqlServerOrmDataProvider.ColumnNames,
-                        SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        SqlServerOrmDataProvider.ColumnNamesCache,
+                        SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableName<T>());
+                        _dataProvider.GetTableNameInternal<T>());
                     selectVisitor.Visit(lambda.Body);
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);
@@ -292,7 +292,7 @@ namespace Funcular.Data.Orm.SqlServer
         {
             string aggregateClause = null;
             var parameters = existingParameters != null ? new List<SqlParameter>(existingParameters) : new List<SqlParameter>();
-            string table = _dataProvider.GetTableName<T>();
+            string table = _dataProvider.GetTableNameInternal<T>();
 
             string methodName = methodCall.Method.Name;
             bool isAny = methodName == "Any";
@@ -314,12 +314,12 @@ namespace Funcular.Data.Orm.SqlServer
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
                     var whereVisitor = new WhereClauseVisitor<T>(
-                        SqlServerOrmDataProvider.ColumnNames,
-                        SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        SqlServerOrmDataProvider.ColumnNamesCache,
+                        SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableName<T>());
+                        _dataProvider.GetTableNameInternal<T>());
                     whereVisitor.Visit(predicateExpression);
 
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
@@ -424,13 +424,13 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 var property = memberExpression?.Member as PropertyInfo;
                 if (property != null &&
-                    SqlServerOrmDataProvider._unmappedPropertiesCache.GetOrAdd(typeof(T),
+                    SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T),
                             t => t.GetProperties()
                                 .Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)
                                 .ToArray())
                         .All(p => p.Name != property.Name))
                 {
-                    columnExpression = SqlServerOrmDataProvider.ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnName(property));
+                    columnExpression = SqlServerOrmDataProvider.ColumnNamesCache.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
                 }
                 else
                 {
@@ -463,7 +463,7 @@ namespace Funcular.Data.Orm.SqlServer
             var parts = baseCommand.Split(new[] { " FROM " }, StringSplitOptions.None);
 
             string selectPart = !string.IsNullOrEmpty(components.SelectClause) ? $"SELECT {components.SelectClause}" : parts[0];
-            string fromPart = parts.Length > 1 ? $"FROM {parts[1]}" : $"FROM {_dataProvider.GetTableName<T>()}";
+            string fromPart = parts.Length > 1 ? $"FROM {parts[1]}" : $"FROM {_dataProvider.GetTableNameInternal<T>()}";
             
             // If the base command has a WHERE clause, we need to be careful not to duplicate it or malform the query
             // For now, we assume the base command from Query<T> does not have a WHERE clause.

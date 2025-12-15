@@ -3,32 +3,20 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
-using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm
 {
-    public interface ISqlDataProvider
+    /// <summary>
+    /// Defines the core contract for an Object-Relational Mapper (ORM) provider.
+    /// This interface is storage-agnostic and focuses on CRUD operations.
+    /// </summary>
+    public interface IOrmDataProvider
     {
         /// <summary>
         /// Gets or sets the log action (e.g., write to console, write to debug).
         /// </summary>
         /// <value>The log.</value>
         Action<string> Log { get; set; }
-        /// <summary>
-        /// Gets or sets the connection.
-        /// </summary>
-        /// <value>The connection.</value>
-        SqlConnection Connection { get; set; }
-        /// <summary>
-        /// Gets or sets the transaction.
-        /// </summary>
-        /// <value>The transaction.</value>
-        SqlTransaction Transaction { get; set; }
-
-        /// <summary>
-        /// Gets or sets the name of the current transaction, if any. This can be used for identifying transactions in complex scenarios.
-        /// </summary>
-        string TransactionName { get; }
 
         /// <summary>
         /// Gets the entity having the specified key, if it exists.
@@ -64,16 +52,15 @@ namespace Funcular.Data.Orm
         ICollection<T> GetList<T>() where T : class, new();
 
         /// <summary>
-        /// Inserts the provided entity into the database. Returns the primary key of the inserted entity.
+        /// Inserts the provided entity into the data store. Returns the primary key of the inserted entity.
         /// </summary>
         /// <typeparam name="T">The type of entity to insert. Must have a parameterless constructor.</typeparam>
         /// <param name="entity">The entity to insert.</param>
         /// <returns>The primary key of the inserted entity.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when the primary key does not have its default value.</exception>
         object Insert<T>(T entity) where T : class, new();
 
         /// <summary>
-        /// Inserts the provided entity into the database. Returns the primary key of the inserted entity cast to TKey.
+        /// Inserts the provided entity into the data store. Returns the primary key of the inserted entity cast to TKey.
         /// </summary>
         /// <typeparam name="T">The type of entity to insert. Must have a parameterless constructor.</typeparam>
         /// <typeparam name="TKey">The type of the primary key.</typeparam>
@@ -82,31 +69,12 @@ namespace Funcular.Data.Orm
         TKey Insert<T, TKey>(T entity) where T : class, new();
 
         /// <summary>
-        /// Updates the provided entity in the database.
+        /// Updates the provided entity in the data store.
         /// </summary>
         /// <typeparam name="T">The type of entity to update. Must have a parameterless constructor.</typeparam>
         /// <param name="entity">The entity to update.</param>
         /// <returns>The updated entity.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when the primary key value is not set.</exception>
         T Update<T>(T entity) where T : class, new();
-
-        /// <summary>
-        /// Begins a new transaction.
-        /// </summary>
-        /// <param name="name">Optional name for the transaction.</param>
-        void BeginTransaction(string name = "");
-
-        /// <summary>
-        /// Rolls back the current transaction if one exists.
-        /// </summary>
-        /// <param name="name">Optional name to match when rolling back.</param>
-        void RollbackTransaction(string name = "");
-
-        /// <summary>
-        /// Commits the current transaction if one exists.
-        /// </summary>
-        /// <param name="name">Optional name to match when committing.</param>
-        void CommitTransaction(string name = "");
 
         /// <summary>
         /// Asynchronously retrieves a single entity of type <typeparamref name="T"/> by the provided key or, if key is null, executes a select that may return the first matching row.
@@ -124,24 +92,22 @@ namespace Funcular.Data.Orm
         Task<ICollection<T>> GetListAsync<T>() where T : class, new();
 
         /// <summary>
-        /// Asynchronously inserts the provided entity into the database and returns the generated primary key.
+        /// Asynchronously inserts the provided entity into the data store and returns the generated primary key.
         /// </summary>
         Task<object> InsertAsync<T>(T entity) where T : class, new();
 
         /// <summary>
-        /// Asynchronously inserts the provided entity into the database and returns the generated primary key cast to TKey.
+        /// Asynchronously inserts the provided entity into the data store and returns the generated primary key cast to TKey.
         /// </summary>
         Task<TKey> InsertAsync<T, TKey>(T entity) where T : class, new();
 
         /// <summary>
-        /// Asynchronously updates the specified entity in the database.
+        /// Asynchronously updates the specified entity in the data store.
         /// </summary>
         Task<T> UpdateAsync<T>(T entity) where T : class, new();
 
         /// <summary>
         /// Asynchronously deletes entities of type <typeparamref name="T"/> matching the given predicate.
-        /// Requires a valid WHERE clause and an active transaction.
-        /// Throws if either condition is not met.
         /// </summary>
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
@@ -150,14 +116,15 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// Deletes entities of type <typeparamref name="T"/> matching the given predicate.
-        /// Requires a valid WHERE clause and an active transaction.
-        /// Throws if either condition is not met.
         /// </summary>
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).</param>
         /// <returns>The number of rows deleted.</returns>
         int Delete<T>(Expression<Func<T, bool>> predicate) where T : class, new();
 
+        /// <summary>
+        /// Deletes the entity of type <typeparamref name="T"/> with the specified ID.
+        /// </summary>
         bool Delete<T>(long id) where T : class, new();
     }
 }

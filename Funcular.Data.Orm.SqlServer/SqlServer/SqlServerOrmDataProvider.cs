@@ -15,6 +15,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Funcular.Data.Orm;
 using Funcular.Data.Orm.Attributes;
+using Funcular.Data.Orm.Interfaces;
 using Funcular.Data.Orm.Visitors;
 using Microsoft.Data.SqlClient;
 
@@ -25,7 +26,7 @@ namespace Funcular.Data.Orm.SqlServer
     /// Provides basic CRUD operations, query generation from expressions,
     /// and simple transaction management for SQL Server using <see cref="SqlConnection"/>.
     /// </summary>
-    public partial class SqlServerOrmDataProvider : ISqlDataProvider, IDisposable
+    public partial class SqlServerOrmDataProvider : OrmDataProvider, ISqlOrmProvider
     {
         #region Fields
 
@@ -35,45 +36,14 @@ namespace Funcular.Data.Orm.SqlServer
         private readonly string _connectionString;
 
         /// <summary>
-        /// The ambient <see cref="SqlTransaction"/> used by the provider when a transaction is in progress.
+        /// The ambient <see cref="IDbTransaction"/> used by the provider when a transaction is in progress.
         /// </summary>
-        private SqlTransaction _transaction;
-
-        /// <summary>
-        /// Cache mapping entity types to their resolved database table names.
-        /// </summary>
-        internal static readonly ConcurrentDictionary<Type, string> _tableNames = new ConcurrentDictionary<Type, string>();
-
-        /// <summary>
-        /// Cache mapping property dictionary keys (type + property) to actual database column names.
-        /// Uses a comparer that ignores underscores and case.
-        /// </summary>
-        internal static readonly ConcurrentDictionary<string, string> _columnNames = new ConcurrentDictionary<string, string>(new IgnoreUnderscoreAndCaseStringComparer());
-
-        /// <summary>
-        /// Cache mapping entity types to their primary key <see cref="PropertyInfo"/>.
-        /// </summary>
-        internal static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new ConcurrentDictionary<Type, PropertyInfo>();
-
-        /// <summary>
-        /// Cache mapping entity types to the reflection <see cref="PropertyInfo"/> collection representing properties.
-        /// </summary>
-        internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _propertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
-
-        /// <summary>
-        /// Cache mapping entity types to properties marked with <see cref="NotMappedAttribute"/>.
-        /// </summary>
-        internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _unmappedPropertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
+        private IDbTransaction _transaction;
 
         /// <summary>
         /// Cache mapping entity types to a mapping of column name -> ordinal index for the most recent reader.
         /// </summary>
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
-
-        /// <summary>
-        /// Tracks which types have had their mappings discovered (to avoid repeated database schema calls).
-        /// </summary>
-        internal static readonly HashSet<Type> _mappedTypes = new HashSet<Type> { };
 
         /// <summary>
         /// Represents a thread-safe collection of entity mappers, where each mapper is identified by a unique string key.    
@@ -82,11 +52,6 @@ namespace Funcular.Data.Orm.SqlServer
         /// types or formats. It ensures thread-safe access and updates, making it suitable for concurrent
         /// operations.</remarks>
         internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
-
-        /// <summary>
-        /// Cache mapping property types to their corresponding value setters.
-        /// </summary>
-        internal static readonly ConcurrentDictionary<PropertyInfo, Action<object, object>> _propertySetters = new ConcurrentDictionary<PropertyInfo, Action<object, object>>();
 
         #endregion
 
@@ -98,22 +63,16 @@ namespace Funcular.Data.Orm.SqlServer
         internal static ConcurrentDictionary<string, string> ColumnNames => _columnNames;
 
         /// <summary>
-        /// Action used to write diagnostic or SQL log messages.
-        /// Can be set by callers to hook logging (e.g. Console.WriteLine).
-        /// </summary>
-        public Action<string> Log { get; set; }
-
-        /// <summary>
-        /// The current <see cref="SqlConnection"/> used by the provider. May be null until required.
+        /// The current <see cref="IDbConnection"/> used by the provider. May be null until required.
         /// The provider will open and create connections as needed using the configured connection string.
         /// </summary>
-        public SqlConnection Connection { get; set; }
+        public IDbConnection Connection { get; set; }
 
         /// <summary>
-        /// Gets or sets the current <see cref="SqlTransaction"/> for this provider.
+        /// Gets or sets the current <see cref="IDbTransaction"/> for this provider.
         /// When non-null, the provider will execute commands in the context of this transaction.
         /// </summary>
-        public SqlTransaction Transaction
+        public IDbTransaction Transaction
         {
             get => _transaction;
             set => _transaction = value;
@@ -124,6 +83,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         public string TransactionName { get; protected set; }
 
+        /// <summary>
+        /// The SQL dialect used for generating SQL statements.
+        /// </summary>
+        public ISqlDialect Dialect { get; }
+
         #endregion
 
         #region Constructors
@@ -132,15 +96,17 @@ namespace Funcular.Data.Orm.SqlServer
         /// Initializes a new instance of <see cref="SqlServerOrmDataProvider"/>.
         /// </summary>
         /// <param name="connectionString">The connection string used to create connections when necessary.</param>
-        /// <param name="connection">Optional externally managed <see cref="SqlConnection"/>. If null, provider creates its own connections.</param>
-        /// <param name="transaction">Optional externally managed <see cref="SqlTransaction"/>. If provided, the provider will use it for commands.</param>
+        /// <param name="connection">Optional externally managed <see cref="IDbConnection"/>. If null, provider creates its own connections.</param>
+        /// <param name="transaction">Optional externally managed <see cref="IDbTransaction"/>. If provided, the provider will use it for commands.</param>
+        /// <param name="dialect">Optional <see cref="ISqlDialect"/> implementation. If null, defaults to <see cref="SqlServerDialect"/>.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="connectionString"/> is null.</exception>
-        public SqlServerOrmDataProvider(string connectionString, SqlConnection connection = null,
-            SqlTransaction transaction = null)
+        public SqlServerOrmDataProvider(string connectionString, IDbConnection connection = null,
+            IDbTransaction transaction = null, ISqlDialect dialect = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             Connection = connection ?? new SqlConnection(_connectionString);
             Transaction = transaction;
+            Dialect = dialect ?? new SqlServerDialect();
         }
 
         #endregion
@@ -150,7 +116,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously retrieves a single entity of type <typeparamref name="T"/> by the provided key or, if key is null, executes a select that may return the first matching row.
         /// </summary>
-        public async Task<T> GetAsync<T>(dynamic key = null) where T : class, new()
+        public override async Task<T> GetAsync<T>(dynamic key = null)
         {
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
@@ -167,7 +133,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously executes a query generated from a LINQ expression and returns the matching entities.
         /// </summary>
-        public async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression) where T : class, new()
+        public override async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression)
         {
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
@@ -191,7 +157,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously retrieves all rows for the specified entity type.
         /// </summary>
-        public async Task<ICollection<T>> GetListAsync<T>() where T : class, new()
+        public override async Task<ICollection<T>> GetListAsync<T>()
         {
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
@@ -207,7 +173,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously inserts the provided entity into the database and returns the generated primary key.
         /// </summary>
-        public async Task<object> InsertAsync<T>(T entity) where T : class, new()
+        public override async Task<object> InsertAsync<T>(T entity)
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -231,7 +197,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously inserts the provided entity into the database and returns the generated primary key cast to TKey.
         /// </summary>
-        public async Task<TKey> InsertAsync<T, TKey>(T entity) where T : class, new()
+        public override async Task<TKey> InsertAsync<T, TKey>(T entity)
         {
             var result = await InsertAsync(entity).ConfigureAwait(false);
             return (TKey)result;
@@ -240,7 +206,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously updates the specified entity in the database.
         /// </summary>
-        public async Task<T> UpdateAsync<T>(T entity) where T : class, new()
+        public override async Task<T> UpdateAsync<T>(T entity)
         {
             DiscoverColumns<T>();
             var primaryKey = GetCachedPrimaryKey<T>();
@@ -284,7 +250,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The number of rows affected by the delete operation.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the predicate
         /// results in an invalid or trivial WHERE clause.</exception>
-        public async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) where T : class, new()
+        public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
@@ -321,7 +287,7 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
 
             var tableName = GetTableName<T>();
-            var commandText = $"DELETE FROM {tableName} WHERE {components.WhereClause}";
+            var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
 
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
             {
@@ -353,7 +319,7 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
 
-            var commandText = $"DELETE FROM {tableName} WHERE {pkColumn} = @id";
+            var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {pkColumn} = @id");
             var param = new SqlParameter("@id", id);
 
             using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
@@ -461,7 +427,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The entity type to retrieve. Must have a parameterless constructor.</typeparam>
         /// <param name="key">An optional primary key value used to construct a WHERE clause. If null, returns the first row returned by the select.</param>
         /// <returns>An instance of <typeparamref name="T"/> if found; otherwise null.</returns>
-        public T Get<T>(dynamic key = null) where T : class, new()
+        public override T Get<T>(dynamic key = null)
         {
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
@@ -487,7 +453,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="expression">Expression used to generate the WHERE clause.</param>
         /// <returns>A collection of matching <typeparamref name="T"/> instances.</returns>
         [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
-        public ICollection<T> Query<T>(Expression<Func<T, bool>> expression) where T : class, new()
+        public override ICollection<T> Query<T>(Expression<Func<T, bool>> expression)
         {
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
@@ -531,7 +497,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">The entity type to retrieve.</typeparam>
         /// <returns>A collection containing all persisted entities of type <typeparamref name="T"/>.</returns>
-        public ICollection<T> GetList<T>() where T : class, new()
+        public override ICollection<T> GetList<T>()
         {
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
@@ -552,7 +518,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="entity">The entity instance to insert. Must not be null.</param>
         /// <returns>The primary key returned by the database.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="entity"/> is null.</exception>
-        public object Insert<T>(T entity) where T : class, new()
+        public override object Insert<T>(T entity)
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -576,7 +542,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Inserts the provided entity into the database and returns the generated primary key cast to TKey.
         /// </summary>
-        public TKey Insert<T, TKey>(T entity) where T : class, new()
+        public override TKey Insert<T, TKey>(T entity)
         {
             return (TKey)Insert(entity);
         }
@@ -588,7 +554,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="entity">The new entity values. The primary key must be set.</param>
         /// <returns>The same entity instance after a successful update.</returns>
         /// <exception cref="InvalidOperationException">Thrown when the entity does not exist in the database or the primary key is not set.</exception>
-        public T Update<T>(T entity) where T : class, new()
+        public override T Update<T>(T entity)
         {
             DiscoverColumns<T>();
             var primaryKey = GetCachedPrimaryKey<T>();
@@ -626,7 +592,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">The entity type for the queryable.</typeparam>
         /// <returns>An <see cref="IQueryable{T}"/> instance that will translate LINQ expressions to SQL when enumerated.</returns>
-        public IQueryable<T> Query<T>() where T : class, new()
+        public override IQueryable<T> Query<T>()
         {
             string selectCommand = CreateGetOneOrSelectCommandText<T>();
             return CreateQueryable<T>(selectCommand);
@@ -641,7 +607,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
         /// The predicate must result in a non-trivial condition. Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
         /// <returns>The number of rows deleted.</returns>
-        public int Delete<T>(Expression<Func<T, bool>> predicate) where T : class, new()
+        public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
@@ -678,7 +644,7 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
 
             var tableName = GetTableName<T>();
-            var commandText = $"DELETE FROM {tableName} WHERE {components.WhereClause}";
+            var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
 
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
             {
@@ -701,7 +667,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="id">The primary key value of the record to delete.</param>
         /// <returns><see langword="true"/> if the record was successfully deleted; otherwise, <see langword="false"/>.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
-        public bool Delete<T>(long id) where T : class, new()
+        public override bool Delete<T>(long id)
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
@@ -710,7 +676,7 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
 
-            var commandText = $"DELETE FROM {tableName} WHERE {pkColumn} = @id";
+            var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {pkColumn} = @id");
             var param = new SqlParameter("@id", id);
 
             using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
@@ -776,7 +742,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// Disposes the provider, closing and disposing the underlying connection and transaction.
         /// Safe to call multiple times.
         /// </summary>
-        public void Dispose()
+        public override void Dispose()
         {
             Connection?.Dispose();
             Transaction?.Dispose();
@@ -788,11 +754,11 @@ namespace Funcular.Data.Orm.SqlServer
         #region Protected Methods - Connection Management
 
         /// <summary>
-        /// Obtains an open <see cref="SqlConnection"/> instance for use by the provider.
+        /// Obtains an open <see cref="IDbConnection"/> instance for use by the provider.
         /// Ensures a connection is open before returning it.
         /// </summary>
-        /// <returns>An open <see cref="SqlConnection"/> instance.</returns>
-        protected SqlConnection GetConnection()
+        /// <returns>An open <see cref="IDbConnection"/> instance.</returns>
+        protected IDbConnection GetConnection()
         {
             EnsureConnectionOpen();
             return Connection;
@@ -862,7 +828,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             // Helper to get table name for non-generic types
             string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
-                EncloseIfReserved(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
+                Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
 
             foreach (var prop in remoteProperties)
             {
@@ -942,6 +908,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             // --- Remote Key Logic ---
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
+            string joinClauses = null;
             
             if (!string.IsNullOrEmpty(remoteInfo.JoinClauses))
             {
@@ -961,10 +928,10 @@ namespace Funcular.Data.Orm.SqlServer
                 }
 
                 columnNames += remoteInfo.ExtraColumns;
-                tableName += remoteInfo.JoinClauses;
+                joinClauses = remoteInfo.JoinClauses;
             }
 
-            return $"SELECT {columnNames} FROM {tableName}{whereClause}";
+            return Dialect.BuildSelectCommand(tableName, columnNames, whereClause, joinClauses);
         }
 
         /// <summary>
@@ -1184,13 +1151,13 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="connection">The connection on which the command will be executed.</param>
         /// <param name="parameters">Optional collection of <see cref="SqlParameter"/> objects to attach to the command.</param>
         /// <returns>A configured <see cref="SqlCommand"/> ready for execution.</returns>
-        protected internal SqlCommand BuildSqlCommandObject(string commandText, SqlConnection connection,
+        protected internal SqlCommand BuildSqlCommandObject(string commandText, IDbConnection connection,
             ICollection<SqlParameter> parameters = null)
         {
-            var command = new SqlCommand(commandText, connection)
+            var command = new SqlCommand(commandText, (SqlConnection)connection)
             {
                 CommandType = CommandType.Text,
-                Transaction = Transaction
+                Transaction = (SqlTransaction)Transaction
             };
             if (parameters?.Any() == true)
             {
@@ -1254,7 +1221,7 @@ namespace Funcular.Data.Orm.SqlServer
                                 if (actualColumnName != null)
                                 {
                                     var key = property.ToDictionaryKey();
-                                    ColumnNames[key] = EncloseIfReserved(actualColumnName);
+                                    ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
                                 }
                             }
 
@@ -1438,45 +1405,18 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
-            
-            // Determine if we should include the primary key in the insert.
-            // If it's an identity column (int/long), we exclude it.
-            // If it's a non-identity column (Guid/String) and has a value, we include it.
-            bool includePrimaryKey = false;
-            if (primaryKey.PropertyType != typeof(int) && primaryKey.PropertyType != typeof(long))
-            {
-                var pkValue = primaryKey.GetValue(entity);
-                var defaultValue = GetDefault(primaryKey.PropertyType);
-                if (!Equals(pkValue, defaultValue))
-                {
-                    includePrimaryKey = true;
-                }
-            }
+            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
+                .Where(p => unmapped.All(up => up.Name != p.Name));
 
-            var includedProperties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name) && (p != primaryKey || includePrimaryKey));
-            
-            // Properties that are not marked with [NotMapped] and are not the primary key (unless it's a non-identity PK)
-            var parameters = new List<SqlParameter>();
-            var columnNames = new List<string>();
-            var parameterNames = new List<string>();
+            var result = Dialect.BuildInsertCommand(
+                entity, 
+                tableName, 
+                primaryKey, 
+                GetCachedColumnName, 
+                GetDefault, 
+                properties);
 
-            foreach (var property in includedProperties)
-            {
-                var columnName = GetCachedColumnName(property);
-                var value = property.GetValue(entity);
-                var parameterName = $"@{property.Name}";
-
-                columnNames.Add(columnName);
-                parameterNames.Add(parameterName);
-                parameters.Add(CreateParameter<object>(parameterName, value, property.PropertyType));
-            }
-
-            var commandText = $@"
-                INSERT INTO {tableName} ({string.Join(", ", columnNames)})
-                OUTPUT INSERTED.{GetCachedColumnName(primaryKey)}
-                VALUES ({string.Join(", ", parameterNames)})";
-            return new CommandParameters(commandText, parameters);
+            return new CommandParameters(result.CommandText, result.Parameters.Cast<SqlParameter>().ToList());
         }
 
         /// <summary>
@@ -1517,33 +1457,19 @@ namespace Funcular.Data.Orm.SqlServer
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var parameters = new List<SqlParameter>();
-            var setClause = new StringBuilder();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => p != primaryKey && unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name));
 
-            foreach (var property in properties)
-            {
-                var newValue = property.GetValue(entity);
-                var oldValue = property.GetValue(existing);
-                if (!Equals(newValue, oldValue))
-                {
-                    var columnName = GetCachedColumnName(property);
-                    setClause.Append($"{columnName} = @{property.Name}, ");
-                    parameters.Add(CreateParameter<object>($"@{property.Name}", newValue, property.PropertyType));
-                }
-            }
+            var result = Dialect.BuildUpdateCommand(
+                entity, 
+                existing, 
+                tableName, 
+                primaryKey, 
+                GetCachedColumnName, 
+                properties);
 
-            if (setClause.Length == 0) return new CommandParameters(string.Empty, parameters);
-
-            setClause.Length -= 2;
-            var pkColumn = GetCachedColumnName(primaryKey);
-            parameters.Add(
-                CreateParameter<object>($"@{primaryKey.Name}", primaryKey.GetValue(entity), primaryKey.PropertyType));
-
-            return new CommandParameters($"UPDATE {tableName} SET {setClause} WHERE {pkColumn} = @{primaryKey.Name}", parameters);
-
+            return new CommandParameters(result.CommandText, result.Parameters.Cast<SqlParameter>().ToList());
         }
 
         /// <summary>
@@ -1642,27 +1568,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The entity type whose primary key is requested.</typeparam>
         /// <returns>The <see cref="PropertyInfo"/> representing the primary key.</returns>
         /// <exception cref="InvalidOperationException">Thrown when no primary key can be found for the type.</exception>
-#if NET8_0_OR_GREATER
-        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-#else
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
-        protected internal PropertyInfo GetCachedPrimaryKey<T>() where T : class
-        {
-            return _primaryKeys.GetOrAdd(typeof(T), t => GetPrimaryKeyProperty<T>() ??
-                                                         throw new InvalidOperationException(
-                                                             $"No primary key found for {typeof(T).FullName}"));
-        }
 
-        /// <summary>
-        /// Gets or adds the cached column name for a property. Uses the property.ToDictionaryKey() as the cache key.
-        /// </summary>
-        /// <param name="property">The property for which to resolve a column name.</param>
-        /// <returns>The resolved database column name.</returns>
-        protected internal string GetCachedColumnName(PropertyInfo property)
-        {
-            return ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => ComputeColumnName(property));
-        }
+
+
 
         /// <summary>
         /// Cleans up the current transaction instance by disposing it, clearing state, and closing connections if appropriate.
@@ -1727,7 +1635,7 @@ namespace Funcular.Data.Orm.SqlServer
             /// <summary>
             /// Gets the active connection for the scope. Ensures the connection is open via the provider.
             /// </summary>
-            public SqlConnection Connection => _provider.GetConnection();
+            public IDbConnection Connection => _provider.GetConnection();
 
             /// <summary>
             /// The provider that owns the connection used by this scope.
@@ -1778,39 +1686,9 @@ namespace Funcular.Data.Orm.SqlServer
                 .Select(p => GetCachedColumnName(p)));
         }
 
-        /// <summary>
-        /// Checks if the provided string is a reserved word in MSSQL.
-        /// </summary>
-        public static bool IsReservedWord(string word)
-        {
-            return _reservedWords.Contains(word?.ToUpperInvariant());
-        }
 
-        /// <summary>
-        /// Encloses the word in brackets if it is a reserved word.
-        /// </summary>
-        public static string EncloseIfReserved(string word)
-        {
-            if (string.IsNullOrWhiteSpace(word)) return word;
-            // If already enclosed, return as is
-            if (word.StartsWith("[") && word.EndsWith("]")) return word;
-            
-            return IsReservedWord(word) ? $"[{word}]" : word;
-        }
 
-        private static readonly HashSet<string> _reservedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUTHORIZATION", "BACKUP", "BEGIN", "BETWEEN", "BREAK", "BROWSE", "BULK", "BY", "CASCADE", "CASE", "CHECK", "CHECKPOINT", "CLOSE", "CLUSTERED", "COALESCE", "COLLATE", "COLUMN", "COMMIT", "COMPUTE", "CONSTRAINT", "CONTAINS", "CONTAINSTABLE", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CURRENT", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR", "DATABASE", "DBCC", "DEALLOCATE", "DECLARE", "DEFAULT", "DELETE", "DENY", "DESC", "DISK", "DISTINCT", "DISTRIBUTED", "DOUBLE", "DROP", "DUMP", "ELSE", "END", "ERRLVL", "ESCAPE", "EXCEPT", "EXEC", "EXECUTE", "EXISTS", "EXIT", "EXTERNAL", "FETCH", "FILE", "FILLFACTOR", "FOR", "FOREIGN", "FREETEXT", "FREETEXTTABLE", "FROM", "FULL", "FUNCTION", "GOTO", "GRANT", "GROUP", "HAVING", "HOLDLOCK", "IDENTITY", "IDENTITY_INSERT", "IDENTITYCOL", "IF", "IN", "INDEX", "INNER", "INSERT", "INTERSECT", "INTO", "IS", "JOIN", "KEY", "KILL", "LEFT", "LIKE", "LINENO", "LOAD", "MERGE", "NATIONAL", "NOCHECK", "NONCLUSTERED", "NOT", "NULL", "NULLIF", "OF", "OFF", "OFFSETS", "ON", "OPEN", "OPENDATASOURCE", "OPENQUERY", "OPENROWSET", "OPENXML", "OPTION", "OR", "ORDER", "OUTER", "OVER", "PERCENT", "PIVOT", "PLAN", "PRECISION", "PRIMARY", "PRINT", "PROC", "PROCEDURE", "PUBLIC", "RAISERROR", "READ", "READTEXT", "RECONFIGURE", "REFERENCES", "REPLICATION", "RESTORE", "RESTRICT", "RETURN", "REVERT", "REVOKE", "RIGHT", "ROLLBACK", "ROWCOUNT", "ROWGUIDCOL", "RULE", "SAVE", "SCHEMA", "SECURITYAUDIT", "SELECT", "SEMANTICKEYPHRASETABLE", "SEMANTICSIMILARITYDETAILSTABLE", "SEMANTICSIMILARITYTABLE", "SESSION_USER", "SET", "SETUSER", "SHUTDOWN", "SOME", "STATISTICS", "SYSTEM_USER", "TABLE", "TABLESAMPLE", "TEXTSIZE", "THEN", "TO", "TOP", "TRAN", "TRANSACTION", "TRIGGER", "TRUNCATE", "TRY_CONVERT", "TSEQUAL", "UNION", "UNIQUE", "UNPIVOT", "UPDATE", "UPDATETEXT", "USE", "USER", "VALUES", "VARYING", "VIEW", "WAITFOR", "WHEN", "WHERE", "WHILE", "WITH", "WITHIN GROUP", "WRITETEXT"
-        };
 
-        /// <summary>
-        /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
-        /// Defaults to the lower-cased CLR type name when no attribute is present.
-        /// </summary>
-        /// <typeparam name="T">The entity type to determine the table name for.</typeparam>
-        /// <returns>The resolved table name.</returns>
-        protected internal string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
-            EncloseIfReserved(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
 
         /// <summary>
         /// Builds a simple WHERE clause for a primary key lookup. The caller is responsible for providing a safe key expression.
@@ -1869,7 +1747,7 @@ namespace Funcular.Data.Orm.SqlServer
                     ordinals[actualColumnName] = ordinal;
 
                     // Populate _columnNames for future GetColumnName calls
-                    _columnNames[property.Name.ToLowerInvariant()] = EncloseIfReserved(actualColumnName);
+                    _columnNames[property.Name.ToLowerInvariant()] = Dialect.EncloseIdentifier(actualColumnName);
                 }
             }
             return ordinals;
@@ -1885,34 +1763,12 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal string ComputeColumnName(PropertyInfo property) =>
             property.GetCustomAttribute<NotMappedAttribute>() != null
                 ? string.Empty
-                : EncloseIfReserved(property.GetCustomAttribute<ColumnAttribute>()?.Name ??
+                : Dialect.EncloseIdentifier(property.GetCustomAttribute<ColumnAttribute>()?.Name ??
                   (_columnNames.TryGetValue(property.Name.ToLowerInvariant(), out var columnName)
                       ? columnName
                       : property.Name.ToLowerInvariant()));
 
-        /// <summary>
-        /// Retrieves an existing property setter delegate for the specified property or creates a new one if it does
-        /// not exist.
-        /// </summary>
-        /// <remarks>This method uses caching to store and reuse compiled property setter delegates for
-        /// improved performance. If the property does not already have a cached setter, a new one is created using
-        /// expression trees and added to the cache.</remarks>
-        /// <param name="property">The <see cref="PropertyInfo"/> representing the property for which the setter delegate is required.</param>
-        /// <returns>An <see cref="Action{T1, T2}"/> delegate that sets the value of the specified property.  The first parameter
-        /// is the object instance, and the second parameter is the value to set.</returns>
-        private static Action<object, object> GetOrCreateSetter(PropertyInfo property)
-        {
-            return _propertySetters.GetOrAdd(property, prop =>
-            {
-                var instance = Expression.Parameter(typeof(object), "instance");
-                var value = Expression.Parameter(typeof(object), "value");
-                var convertInstance = Expression.Convert(instance, prop.DeclaringType);
-                var convertValue = Expression.Convert(value, prop.PropertyType);
-                var body = Expression.Assign(Expression.Property(convertInstance, prop), convertValue);
-                var lambda = Expression.Lambda<Action<object, object>>(body, instance, value);
-                return lambda.Compile();
-            });
-        }
+
 
         /// <summary>
         /// Attempts to find the primary key property for type <typeparamref name="T"/>.
@@ -2055,7 +1911,38 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, t =>
-            EncloseIfReserved(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+            Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+
+        /// <summary>
+        /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
+        /// Defaults to the lower-cased CLR type name when no attribute is present.
+        /// </summary>
+        /// <typeparam name="T">The entity type to determine the table name for.</typeparam>
+        /// <returns>The resolved table name.</returns>
+        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
+            Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+
+        /// <summary>
+        /// Gets or adds the cached column name for a property. Uses the property.ToDictionaryKey() as the cache key.
+        /// </summary>
+        /// <param name="property">The property for which to resolve a column name.</param>
+        /// <returns>The resolved database column name.</returns>
+        protected override string GetCachedColumnName(PropertyInfo property)
+        {
+            return ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => ComputeColumnName(property));
+        }
+
+        #region Internal Accessors for SqlLinqQueryProvider
+
+        internal string GetTableNameInternal<T>() => GetTableName<T>();
+        
+        internal static ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertiesCache => _unmappedPropertiesCache;
+        
+        internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
+
+        internal static ConcurrentDictionary<string, string> ColumnNamesCache => _columnNames;
+
+        #endregion
 
         #endregion
     }

@@ -1,4 +1,5 @@
 > **Recent Changes**
+> * **v3.0.0**: Major Refactoring. Introduced `ISqlDialect` for multi-database support. `SqlServerOrmDataProvider` now delegates SQL generation to `SqlServerDialect`. Breaking changes for custom providers inheriting from `SqlServerOrmDataProvider`.
 > * **v3.0.0-beta3**: Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.

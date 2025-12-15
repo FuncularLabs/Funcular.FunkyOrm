@@ -8,26 +8,26 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 {
     /// <summary>
-    /// A small Entity Framework Core backed reference implementation of ISqlDataProvider
+    /// A small Entity Framework Core backed reference implementation of ISqlOrmProvider
     /// intended for apples-to-apples performance comparisons.  This file contains:
     /// - minimal POCO entity classes (Person, Address, PersonAddress) mapped via Fluent API
     /// - FunkyEfContext : DbContext with explicit column/table mapping (so mapping works even if
     ///   data-annotations are removed)
-    /// - EfSqlDataProvider : ISqlDataProvider implementation using EF Core
+    /// - EfSqlDataProvider : ISqlOrmProvider implementation using EF Core
     /// Notes:
     /// - Add Microsoft.EntityFrameworkCore and Microsoft.EntityFrameworkCore.SqlServer package references
     ///   to consume this provider.
     /// - This implementation is intentionally straightforward and not a full replacement for the
     ///   SqlServerOrmDataProvider — it is a reference implementation used for benchmarking.
     /// </summary>
-    public class EfSqlDataProvider : ISqlDataProvider, IDisposable
+    public class EfSqlDataProvider : ISqlOrmProvider, IDisposable
     {
         private readonly FunkyEfContext _context;
         private IDbContextTransaction _efTransaction;
 
         public Action<string> Log { get; set; }
-        public SqlConnection Connection { get; set; }
-        public SqlTransaction Transaction { get; set; }
+        public IDbConnection Connection { get; set; }
+        public IDbTransaction Transaction { get; set; }
         public string TransactionName { get; private set; }
 
         public EfSqlDataProvider(string connectionString)

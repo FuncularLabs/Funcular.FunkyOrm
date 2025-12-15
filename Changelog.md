@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2025-12-14
+
+### Breaking Changes
+- **Provider Architecture**: Refactored `SqlServerOrmDataProvider` to inherit from `OrmDataProvider` and use `ISqlDialect` for SQL generation.
+- **ISqlDialect**: Introduced `ISqlDialect` interface to support multiple database dialects.
+- **Protected Methods**: Several protected methods in `SqlServerOrmDataProvider` have been updated to use `ISqlDialect`. Custom providers inheriting from this class may need updates.
+
+### Added
+- **SqlServerDialect**: Implementation of `ISqlDialect` for SQL Server.
+
 ## [3.0.0-beta3] - 2025-12-12
 
 ### Added
