@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
+using Funcular.Data.Orm;
 using Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Entities.Address;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Objects.Address 

@@ -15,6 +15,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
     [Serializable]
     public class PersonDetailEntity : PersonEntity
     {
+        [Column("employer_id")]
+        [RemoteLink(typeof(OrganizationDetailEntity))]
+        public new int? EmployerId { get { return base.EmployerId; } set { base.EmployerId = value; } }
+
+        [NotMapped]
+        public new ICollection<PersonAddressDetailEntity> Addresses { get; set; } = new List<PersonAddressDetailEntity>();
+
         // Implicit Mode - Converted to Explicit to avoid ambiguity in subclass Person
         [RemoteProperty(typeof(CountryEntity), 
             nameof(EmployerId), 

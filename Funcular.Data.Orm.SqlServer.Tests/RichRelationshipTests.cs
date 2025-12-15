@@ -136,7 +136,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsTrue(link.Id > 0);
 
             // 4. Query the Link Entity directly to verify Remote Properties
-            var fetchedLinks = _provider.Query<PersonAddressEntity>()
+            var fetchedLinks = _provider.Query<PersonAddressDetailEntity>()
                 .Where(pa => pa.PersonId == person.Id)
                 .ToList();
 
@@ -157,7 +157,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("10001", fetchedLink.PostalCode);
 
             // 5. Verify explicit population of parent entity collection
-            person.Addresses = fetchedLinks;
+            person.Addresses = fetchedLinks.Cast<PersonAddressEntity>().ToList();
             Assert.AreEqual(1, person.Addresses.Count);
             Assert.AreEqual("123 Rich St", person.Addresses.First().Line1);
 

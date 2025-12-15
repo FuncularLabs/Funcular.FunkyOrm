@@ -122,7 +122,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address
 		}
 
         [Column("country_id")]
-        [RemoteLink(typeof(CountryEntity))]
         public int? CountryId { get; set; }
 
         #endregion

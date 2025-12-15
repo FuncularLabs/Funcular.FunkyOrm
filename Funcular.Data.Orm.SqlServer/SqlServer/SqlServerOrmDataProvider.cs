@@ -13,6 +13,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Funcular.Data.Orm;
 using Funcular.Data.Orm.Attributes;
 using Funcular.Data.Orm.Visitors;
 using Microsoft.Data.SqlClient;

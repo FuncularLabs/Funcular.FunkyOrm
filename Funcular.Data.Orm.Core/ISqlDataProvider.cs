@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 
-namespace Funcular.Data.Orm.SqlServer
+namespace Funcular.Data.Orm
 {
     public interface ISqlDataProvider
     {
@@ -36,7 +36,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T"></typeparam>
         /// <param name="key">The key.</param>
         /// <returns>System.Nullable&lt;T&gt;.</returns>
-        T Get<T>(dynamic key = null) where T : class, new();
+        T Get<T>(dynamic key = null!) where T : class, new();
 
         /// <summary>
         /// Queries the specified entity type.
@@ -102,7 +102,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously retrieves a single entity of type <typeparamref name="T"/> by the provided key or, if key is null, executes a select that may return the first matching row.
         /// </summary>
-        Task<T> GetAsync<T>(dynamic key = null) where T : class, new();
+        Task<T> GetAsync<T>(dynamic key = null!) where T : class, new();
 
         /// <summary>
         /// Asynchronously executes a query generated from a LINQ expression and returns the matching entities.

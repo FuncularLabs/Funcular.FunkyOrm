@@ -126,7 +126,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
         public Guid? UniqueId { get; set; }
 
         [Column("employer_id")]
-        [RemoteLink(typeof(OrganizationEntity))]
         public int? EmployerId { get; set; }
 
         [NotMapped]

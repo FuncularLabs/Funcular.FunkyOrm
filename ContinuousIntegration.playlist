@@ -21,7 +21,7 @@
             </Rule>
           </Rule>
         </Rule>
-        <Property Name="Project" Value="Funcular.Data.Orm.SqlServer.Tests.DotNet10" />
+        <Property Name="Project" Value="Funcular.Data.Orm.SqlServer.Tests.DotNet9" />
         <Rule Match="All">
           <Property Name="Project" Value="Funcular.Data.Orm.SqlServer.Tests.NetFramework" />
           <Rule Match="Any">

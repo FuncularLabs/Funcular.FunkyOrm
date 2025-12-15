@@ -54,7 +54,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
         /// Required
         /// </summary>
         [Column("address_id")]
-        [RemoteLink(typeof(AddressEntity))]
         public virtual Int32 AddressId
         {
             get => _addressId;
@@ -84,16 +83,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
             }
         }
 
-        [RemoteProperty(typeof(AddressEntity), nameof(AddressId), nameof(AddressEntity.Line1))]
         public string Line1 { get; set; }
 
-        [RemoteProperty(typeof(AddressEntity), nameof(AddressId), nameof(AddressEntity.City))]
         public string City { get; set; }
 
-        [RemoteProperty(typeof(AddressEntity), nameof(AddressId), nameof(AddressEntity.StateCode))]
         public string StateCode { get; set; }
 
-        [RemoteProperty(typeof(AddressEntity), nameof(AddressId), nameof(AddressEntity.PostalCode))]
         public string PostalCode { get; set; }
 
         /// <summary>

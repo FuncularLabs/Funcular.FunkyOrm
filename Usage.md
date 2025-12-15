@@ -480,6 +480,16 @@ Use this when you have a column in your table that holds the ID of another entit
 public int? EmployerId { get; set; }
 ```
 
+### Path Resolution & Ambiguity
+
+When you use `[RemoteKey]` or `[RemoteProperty]`, FunkyORM attempts to find the shortest path from your current entity to the target remote entity using a Breadth-First Search (BFS).
+
+*   **0 Paths Found**: If the system cannot find a way to connect the tables (via Foreign Keys or `[RemoteLink]` attributes), it throws a `PathNotFoundException`.
+*   **1 Path Found**: If exactly one shortest path is found, it is used automatically.
+*   **> 1 Path Found**: If multiple paths of the same length exist (e.g., a `Person` is linked to `Hospital` via `BirthHospitalId` and `CurrentHospitalId`), the system cannot guess which one you mean. It throws an `AmbiguousMatchException`.
+
+To resolve ambiguity or fix a "Path Not Found" error, use the `[RemoteLink]` attribute on the intermediate properties to explicitly define the relationship.
+
 ### Superpower: Deep Filtering
 
 You can use `[RemoteKey]` AND `[RemoteProperty]` properties directly in your LINQ `.Where()` clauses. The ORM will automatically generate the necessary JOINs (even across multiple tables) and filter the results in the database.

@@ -25,9 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Visitors\Visitors\**" />
-    <EmbeddedResource Remove="Visitors\Visitors\**" />
-    <None Remove="Visitors\Visitors\**" />
+    <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -16,10 +16,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DotNet10
         public int Id { get; set; }
 
         [Column("first_name")]
-        public string FirstName { get; set; }
+        public string FirstName { get; set; } = null!;
 
         [Column("last_name")]
-        public string LastName { get; set; }
+        public string LastName { get; set; } = null!;
     }
     
     public class ContainsTests : IDisposable
