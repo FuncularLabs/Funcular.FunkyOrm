@@ -1,4 +1,5 @@
 > **Recent Changes**
+> * **v3.0.0-beta3**: Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
 > * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
@@ -102,12 +103,12 @@ public class Person
 ### 4. Start Querying
 
 ```csharp
-// Insert a new record
+// Insert a new record and get the ID
 var newPerson = new Person { FirstName = "Jane", LastName = "Doe", Age = 25 };
-provider.Insert(newPerson);
+var newId = provider.Insert<Person, int>(newPerson);
 
 // Get by ID
-var person = provider.Get<Person>(1);
+var person = provider.Get<Person>(newId);
 
 // Complex Querying with LINQ
 var adults = provider.Query<Person>()

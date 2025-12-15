@@ -109,12 +109,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             return _context.Set<T>().AsNoTracking().ToList();
         }
 
-        public long Insert<T>(T entity) where T : class, new()
+        public object Insert<T>(T entity) where T : class, new()
         {
             if (entity == null) throw new ArgumentNullException(nameof(entity));
             _context.Set<T>().Add(entity);
             _context.SaveChanges();
-            return GetPrimaryKeyValueAsLong(entity);
+            return GetPrimaryKeyValue(entity);
         }
 
         public T Update<T>(T entity) where T : class, new()
@@ -182,12 +182,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             return await _context.Set<T>().AsNoTracking().ToListAsync().ConfigureAwait(false);
         }
 
-        public async Task<long> InsertAsync<T>(T entity) where T : class, new()
+        public async Task<object> InsertAsync<T>(T entity) where T : class, new()
         {
             if (entity == null) throw new ArgumentNullException(nameof(entity));
             await _context.Set<T>().AddAsync(entity).ConfigureAwait(false);
             await _context.SaveChangesAsync().ConfigureAwait(false);
-            return GetPrimaryKeyValueAsLong(entity);
+            return GetPrimaryKeyValue(entity);
         }
 
         public async Task<T> UpdateAsync<T>(T entity) where T : class, new()
@@ -196,6 +196,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             _context.Set<T>().Update(entity);
             await _context.SaveChangesAsync().ConfigureAwait(false);
             return entity;
+        }
+
+        public TKey Insert<T, TKey>(T entity) where T : class, new()
+        {
+            return (TKey)Insert(entity);
+        }
+
+        public async Task<TKey> InsertAsync<T, TKey>(T entity) where T : class, new()
+        {
+            var result = await InsertAsync(entity).ConfigureAwait(false);
+            return (TKey)result;
         }
 
         public async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) where T : class, new()
@@ -213,23 +224,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 
         #region Helpers
 
-        private long GetPrimaryKeyValueAsLong<T>(T entity)
+        private object GetPrimaryKeyValue<T>(T entity)
         {
             // attempt common PK names
             var type = entity.GetType();
             var pk = type.GetProperty("Id", BindingFlags.Public | BindingFlags.Instance)
                      ?? type.GetProperties().FirstOrDefault(p => p.GetCustomAttribute<System.ComponentModel.DataAnnotations.KeyAttribute>() != null);
-            if (pk == null) return 0;
-            var val = pk.GetValue(entity);
-            if (val == null) return 0;
-            try
-            {
-                return Convert.ToInt64(val);
-            }
-            catch
-            {
-                return 0;
-            }
+            if (pk == null) return null;
+            return pk.GetValue(entity);
         }
 
         #endregion

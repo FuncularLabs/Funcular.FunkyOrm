@@ -78,6 +78,22 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                         );
                     END
 
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'non_identity_guid_entity')
+                    BEGIN
+                        CREATE TABLE non_identity_guid_entity (
+                            id UNIQUEIDENTIFIER PRIMARY KEY,
+                            name NVARCHAR(100) NOT NULL
+                        );
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'non_identity_string_entity')
+                    BEGIN
+                        CREATE TABLE non_identity_string_entity (
+                            id NVARCHAR(50) PRIMARY KEY,
+                            name NVARCHAR(100) NOT NULL
+                        );
+                    END
+
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[person]') AND name = 'employer_id') 
                     BEGIN 
                         ALTER TABLE person ADD employer_id INT NULL; 
@@ -195,6 +211,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.Insert(newPerson);
             var updatedCount = _provider.Query<Person>().Count();
             Assert.AreEqual(initialCount + 1, updatedCount);
+        }
+
+        [TestMethod]
+        public void Insert_ReturnsPrimaryKey()
+        {
+            OutputTestMethodName();
+            var guid = Guid.NewGuid().ToString();
+            var newPerson = new Person
+            {
+                FirstName = guid,
+                LastName = guid,
+                Birthdate = DateTime.Today.Subtract(TimeSpan.FromDays(Random.Shared.Next(10, 30))),
+                DateUtcCreated = DateTime.UtcNow,
+                DateUtcModified = DateTime.UtcNow,
+                UniqueId = Guid.NewGuid()
+            };
+            var result = _provider.Insert(newPerson);
+            Assert.IsNotNull(result);
+            Assert.IsInstanceOfType(result, typeof(int));
+            Assert.AreEqual(newPerson.Id, (int)result);
+            Assert.IsTrue((int)result > 0);
         }
 
         [TestMethod]
@@ -1591,6 +1628,60 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("Smith", results[1].LastName.Replace(uniqueId, ""));
             Assert.AreEqual("Bob", results[2].FirstName.Replace(uniqueId, ""));
             Assert.AreEqual("Smith", results[2].LastName.Replace(uniqueId, ""));
+        }
+
+        [TestMethod]
+        public void Insert_NonIdentityGuidEntity_ReturnsGuid()
+        {
+            OutputTestMethodName();
+            var id = Guid.NewGuid();
+            var entity = new Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityGuidEntity
+            {
+                Id = id,
+                Name = "Test Guid Entity"
+            };
+
+            // First insert (will succeed)
+            var result = _provider.Insert(entity);
+
+            Assert.IsNotNull(result);
+            Assert.IsInstanceOfType(result, typeof(Guid));
+            Assert.AreEqual(id, (Guid)result);
+
+            // Verify generic overload (delete first to avoid PK violation)
+            _provider.BeginTransaction();
+            _provider.Delete<Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityGuidEntity>(x => x.Id == id);
+            _provider.CommitTransaction();
+            
+            var genericResult = _provider.Insert<Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityGuidEntity, Guid>(entity);
+            Assert.AreEqual(id, genericResult);
+        }
+
+        [TestMethod]
+        public void Insert_NonIdentityStringEntity_ReturnsString()
+        {
+            OutputTestMethodName();
+            var id = "test-id-" + Guid.NewGuid().ToString();
+            var entity = new Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityStringEntity
+            {
+                Id = id,
+                Name = "Test String Entity"
+            };
+
+            // First insert
+            var result = _provider.Insert(entity);
+
+            Assert.IsNotNull(result);
+            Assert.IsInstanceOfType(result, typeof(string));
+            Assert.AreEqual(id, (string)result);
+
+            // Verify generic overload (delete first)
+            _provider.BeginTransaction();
+            _provider.Delete<Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityStringEntity>(x => x.Id == id);
+            _provider.CommitTransaction();
+
+            var genericResult = _provider.Insert<Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityStringEntity, string>(entity);
+            Assert.AreEqual(id, genericResult);
         }
     }
     public class MissingTable

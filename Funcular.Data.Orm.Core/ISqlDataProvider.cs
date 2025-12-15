@@ -64,13 +64,22 @@ namespace Funcular.Data.Orm
         ICollection<T> GetList<T>() where T : class, new();
 
         /// <summary>
-        /// Inserts the provided entity into the database. TODO: update to return dynamic PK of inserted
+        /// Inserts the provided entity into the database. Returns the primary key of the inserted entity.
         /// </summary>
         /// <typeparam name="T">The type of entity to insert. Must have a parameterless constructor.</typeparam>
         /// <param name="entity">The entity to insert.</param>
-        /// <returns>The number of rows affected by the insert operation.</returns>
+        /// <returns>The primary key of the inserted entity.</returns>
         /// <exception cref="InvalidOperationException">Thrown when the primary key does not have its default value.</exception>
-        long Insert<T>(T entity) where T : class, new();
+        object Insert<T>(T entity) where T : class, new();
+
+        /// <summary>
+        /// Inserts the provided entity into the database. Returns the primary key of the inserted entity cast to TKey.
+        /// </summary>
+        /// <typeparam name="T">The type of entity to insert. Must have a parameterless constructor.</typeparam>
+        /// <typeparam name="TKey">The type of the primary key.</typeparam>
+        /// <param name="entity">The entity to insert.</param>
+        /// <returns>The primary key of the inserted entity.</returns>
+        TKey Insert<T, TKey>(T entity) where T : class, new();
 
         /// <summary>
         /// Updates the provided entity in the database.
@@ -117,7 +126,12 @@ namespace Funcular.Data.Orm
         /// <summary>
         /// Asynchronously inserts the provided entity into the database and returns the generated primary key.
         /// </summary>
-        Task<long> InsertAsync<T>(T entity) where T : class, new();
+        Task<object> InsertAsync<T>(T entity) where T : class, new();
+
+        /// <summary>
+        /// Asynchronously inserts the provided entity into the database and returns the generated primary key cast to TKey.
+        /// </summary>
+        Task<TKey> InsertAsync<T, TKey>(T entity) where T : class, new();
 
         /// <summary>
         /// Asynchronously updates the specified entity in the database.

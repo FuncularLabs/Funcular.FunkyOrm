@@ -207,7 +207,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Asynchronously inserts the provided entity into the database and returns the generated primary key.
         /// </summary>
-        public async Task<long> InsertAsync<T>(T entity) where T : class, new()
+        public async Task<object> InsertAsync<T>(T entity) where T : class, new()
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -226,6 +226,15 @@ namespace Funcular.Data.Orm.SqlServer
                     return insertedId;
                 }
             }
+        }
+
+        /// <summary>
+        /// Asynchronously inserts the provided entity into the database and returns the generated primary key cast to TKey.
+        /// </summary>
+        public async Task<TKey> InsertAsync<T, TKey>(T entity) where T : class, new()
+        {
+            var result = await InsertAsync(entity).ConfigureAwait(false);
+            return (TKey)result;
         }
 
         /// <summary>
@@ -418,19 +427,16 @@ namespace Funcular.Data.Orm.SqlServer
             }
         }
 
-        protected internal async Task<long> ExecuteInsertAsync<T>(SqlCommand command, T entity, PropertyInfo primaryKey)
+        protected internal async Task<object> ExecuteInsertAsync<T>(SqlCommand command, T entity, PropertyInfo primaryKey)
             where T : class, new()
         {
             InvokeLogAction(command);
             var executeScalar = await command.ExecuteScalarAsync().ConfigureAwait(false);
-            if (executeScalar != null)
+            if (executeScalar != null && executeScalar != DBNull.Value)
             {
-                var result = Convert.ToInt64(executeScalar);
-                if (result != 0)
-                    if (primaryKey.PropertyType == typeof(int))
-                        primaryKey.SetValue(entity, (int)result);
-                    else
-                        primaryKey.SetValue(entity, result);
+                var targetType = Nullable.GetUnderlyingType(primaryKey.PropertyType) ?? primaryKey.PropertyType;
+                var result = Convert.ChangeType(executeScalar, targetType);
+                primaryKey.SetValue(entity, result);
                 return result;
             }
             throw new InvalidOperationException("Insert failed: No ID returned.");
@@ -544,9 +550,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">The entity type to insert.</typeparam>
         /// <param name="entity">The entity instance to insert. Must not be null.</param>
-        /// <returns>The integer primary key returned by the database.</returns>
+        /// <returns>The primary key returned by the database.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="entity"/> is null.</exception>
-        public long Insert<T>(T entity) where T : class, new()
+        public object Insert<T>(T entity) where T : class, new()
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -565,6 +571,14 @@ namespace Funcular.Data.Orm.SqlServer
                     return insertedId;
                 }
             }
+        }
+
+        /// <summary>
+        /// Inserts the provided entity into the database and returns the generated primary key cast to TKey.
+        /// </summary>
+        public TKey Insert<T, TKey>(T entity) where T : class, new()
+        {
+            return (TKey)Insert(entity);
         }
 
         /// <summary>
@@ -1424,9 +1438,25 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            
+            // Determine if we should include the primary key in the insert.
+            // If it's an identity column (int/long), we exclude it.
+            // If it's a non-identity column (Guid/String) and has a value, we include it.
+            bool includePrimaryKey = false;
+            if (primaryKey.PropertyType != typeof(int) && primaryKey.PropertyType != typeof(long))
+            {
+                var pkValue = primaryKey.GetValue(entity);
+                var defaultValue = GetDefault(primaryKey.PropertyType);
+                if (!Equals(pkValue, defaultValue))
+                {
+                    includePrimaryKey = true;
+                }
+            }
+
             var includedProperties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name) && p != primaryKey);
-            // Properties that are not marked with [NotMapped] and are not the primary key
+                .Where(p => unmapped.All(up => up.Name != p.Name) && (p != primaryKey || includePrimaryKey));
+            
+            // Properties that are not marked with [NotMapped] and are not the primary key (unless it's a non-identity PK)
             var parameters = new List<SqlParameter>();
             var columnNames = new List<string>();
             var parameterNames = new List<string>();
@@ -1457,18 +1487,18 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="command">A configured insert <see cref="SqlCommand"/> that will return the inserted id.</param>
         /// <param name="entity">The entity instance to update with the generated id.</param>
         /// <param name="primaryKey">Primary key property to set on the entity.</param>
-        /// <returns>The integer id returned by the database.</returns>
+        /// <returns>The primary key returned by the database.</returns>
         /// <exception cref="InvalidOperationException">Thrown when no scalar value is returned by the insert command.</exception>
-        protected internal int ExecuteInsert<T>(SqlCommand command, T entity, PropertyInfo primaryKey)
+        protected internal object ExecuteInsert<T>(SqlCommand command, T entity, PropertyInfo primaryKey)
             where T : class, new()
         {
             InvokeLogAction(command);
             var executeScalar = command.ExecuteScalar();
-            if (executeScalar != null)
+            if (executeScalar != null && executeScalar != DBNull.Value)
             {
-                var result = (int)executeScalar;
-                if (result != 0)
-                    primaryKey.SetValue(entity, result);
+                var targetType = Nullable.GetUnderlyingType(primaryKey.PropertyType) ?? primaryKey.PropertyType;
+                var result = Convert.ChangeType(executeScalar, targetType);
+                primaryKey.SetValue(entity, result);
                 return result;
             }
             throw new InvalidOperationException("Insert failed: No ID returned.");
@@ -1542,10 +1572,18 @@ namespace Funcular.Data.Orm.SqlServer
         /// <exception cref="InvalidOperationException">Thrown when the primary key is not the default value.</exception>
         protected internal void ValidateInsertPrimaryKey<T>(T entity, PropertyInfo primaryKey)
         {
-            var defaultValue = GetDefault(primaryKey.PropertyType);
-            if (!Equals(primaryKey.GetValue(entity), defaultValue))
-                throw new InvalidOperationException(
-                    $"Primary key must be default value for insert: {primaryKey.GetValue(entity)}");
+            // For identity columns (int/long), we expect default value (0).
+            // For non-identity columns (Guid/String), we allow non-default values if the user is supplying the ID.
+            // However, we can't easily know if the column is IDENTITY or not without checking schema metadata.
+            // For now, we'll relax this check for non-numeric types, assuming the user might be providing the ID.
+            
+            if (primaryKey.PropertyType == typeof(int) || primaryKey.PropertyType == typeof(long))
+            {
+                var defaultValue = GetDefault(primaryKey.PropertyType);
+                if (!Equals(primaryKey.GetValue(entity), defaultValue))
+                    throw new InvalidOperationException(
+                        $"Primary key must be default value for insert: {primaryKey.GetValue(entity)}");
+            }
         }
 
         /// <summary>

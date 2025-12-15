@@ -156,13 +156,43 @@ public class Employee
 ## CRUD Operations
 
 ### Insert
+
+FunkyORM supports inserting entities with various primary key types (Identity `int`/`long`, `Guid`, `string`).
+
+#### Basic Insert (Identity Column)
+
+When inserting an entity with an Identity column (auto-incrementing integer), the ORM automatically retrieves the new ID and populates the entity.
+
 ```csharp
 var person = new Person { FirstName = "Jane", LastName = "Doe" };
-provider.Insert(person);
-// person.Id is automatically updated with the new identity value!
+
+// Option 1: Basic Insert (returns object)
+var idObj = provider.Insert(person); 
+
+// Option 2: Generic Insert (returns typed ID)
+int newId = provider.Insert<Person, int>(person);
+
+// The entity is also updated automatically:
+Console.WriteLine(person.Id); // Outputs the new ID (e.g., 42)
 ```
 
-For related entities, insert separately and link via junction tables:
+#### Guid and String Primary Keys
+
+FunkyORM supports non-identity primary keys, such as client-generated `Guid`s or `string` IDs.
+
+```csharp
+// Guid Primary Key
+var log = new Log { Id = Guid.NewGuid(), Message = "System started" };
+var logId = provider.Insert<Log, Guid>(log); // Returns the Guid
+
+// String Primary Key
+var config = new Config { Key = "Theme", Value = "Dark" };
+var key = provider.Insert<Config, string>(config); // Returns "Theme"
+```
+
+#### Related Entities
+
+For related entities, insert them separately and link them via foreign keys or junction tables:
 
 ```csharp
 var address = new Address
@@ -390,8 +420,11 @@ var people = await provider.GetListAsync<Person>();
 // Async Query
 var adults = await provider.QueryAsync<Person>(p => p.Age >= 18);
 
-// Async Insert
-await provider.InsertAsync(newPerson);
+// Async Insert (returns Task<object>)
+var idObj = await provider.InsertAsync(newPerson);
+
+// Async Generic Insert (returns Task<TKey>)
+int newId = await provider.InsertAsync<Person, int>(newPerson);
 
 // Async Update
 await provider.UpdateAsync(existingPerson);
