@@ -1,4 +1,5 @@
 > **Recent Changes**
+> * **v3.0.0-beta4**: Documentation fix. Updated package icon URL to render correctly on NuGet.org.
 > * **v3.0.0-beta3**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
@@ -7,7 +8,7 @@
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
-![Funcular logo](./funky-orm-lineart-256x256.png)
+![Funcular logo](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/master/funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
 [![Downloads](https://img.shields.io/nuget/dt/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
