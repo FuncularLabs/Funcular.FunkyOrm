@@ -456,94 +456,54 @@ Instead, create a derived class (e.g., `PersonDetail`) specifically for these ri
 
 We provide three attributes to control this behavior:
 
-### 1. `[RemoteKey]` — The Distant ID
-**"I want the ID of a related record, possibly far away."**
+### 1. `[RemoteKey]` & `[RemoteProperty]` — Flattening the Graph
+**"I want data from a related table without loading the whole object."**
 
-Use this when you want to grab the **Primary Key** (ID) of a related entity without loading the entire object. This is useful for foreign keys that don't exist in your table but exist in a related table (e.g., your Employer's Country ID).
+Instead of loading a full object graph (e.g., `Person.Employer.Address.Country`), you can project specific fields directly onto your main entity. This is faster and simpler.
 
-*   **Purpose:** Projects a **Key** (ID) from a distant table into your current entity.
-*   **Target:** A property that will hold the distant ID.
-*   **Result:** The ORM performs the necessary JOINs to find that specific ID and populates this property.
-
-**Example:**
-```csharp
-// "I don't have a CountryId column. My Employer has an Address, 
-// and that Address has a Country. Get me that Country's ID."
-// Defined in PersonDetail (inherits from Person)
-[RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Id) })]
-public int? EmployerHeadquartersCountryId { get; set; }
-```
-
-### 2. `[RemoteProperty]` — The Distant Value
-**"I want a specific value (like a Name or Date) from a related record."**
-
-Use this when you want to display a piece of information (like a name, description, or date) from a related entity directly on your object, flattening the data structure.
-
-*   **Purpose:** Projects a **Value** (non-key) from a distant table into your current entity.
-*   **Target:** A property that will hold the distant value (string, date, etc.).
-*   **Result:** The ORM performs the necessary JOINs to find that specific column and populates this property.
+*   **`[RemoteKey]`**: Grabs the **ID** of a distant record (e.g., `EmployerHeadquartersCountryId`).
+*   **`[RemoteProperty]`**: Grabs a **Value** (e.g., `EmployerHeadquartersCountryName`).
 
 **Example:**
 ```csharp
-// "I don't want the whole Country object. Just get me the Name 
-// of the Country where my Employer is located."
-// Defined in PersonDetail (inherits from Person)
-[RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Name) })]
-public string EmployerHeadquartersCountryName { get; set; }
+public class PersonDetail : Person
+{
+    // "Get me the ID of the Country where my Employer is located."
+    // Path: Person -> Employer -> Address -> Country
+    [RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Id) })]
+    public int? EmployerHeadquartersCountryId { get; set; }
+
+    // "Get me the Name of that Country."
+    [RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Name) })]
+    public string EmployerHeadquartersCountryName { get; set; }
+}
 ```
 
-### 3. `[RemoteLink]` — The Link Builder
+### 2. `[RemoteLink]` — Defining Relationships
 **"This property connects me to another table."**
 
-> **⚠️ BREAKING CHANGE NOTICE (v3.0.0-beta3)**
-> In versions prior to 3.0.0-beta3 (including beta1 and beta2), this attribute was named `[OrmForeignKey]`. It has been renamed to `[RemoteLink]` to better align with the `RemoteKey` and `RemoteProperty` naming convention. If you are upgrading from an earlier beta, please update your code to use `[RemoteLink]`.
+> **⚠️ BREAKING CHANGE NOTICE (v3.0.0-beta3)**: Renamed from `[OrmForeignKey]`.
 
-Use this when you have a column in your table that holds the ID of another entity, but the property name doesn't follow the standard `[EntityName]Id` convention. This attribute tells the ORM how to "walk" from one table to another.
+Use this when a foreign key property name doesn't follow the standard `[EntityName]Id` convention. It tells the ORM how to "walk" from one table to another.
 
-*   **Purpose:** Defines the relationship structure (the "edges" of the graph).
-*   **Target:** A local column (usually an `int` or `Guid`).
-*   **Result:** Does not fetch new data itself; it enables *other* properties to fetch data through it.
-
-**Example:**
 ```csharp
-// Defined in the base Person class (inherited by PersonDetail)
-// The property name is just "EmployerId", but it points to the "OrganizationEntity".
-// Without this (or the new Smart Inference), the ORM wouldn't know where "EmployerId" goes.
+// The property is "EmployerId", but it points to "OrganizationEntity".
 [RemoteLink(targetType: typeof(OrganizationEntity))]
 public int? EmployerId { get; set; }
 ```
 
-### Path Resolution & Ambiguity
+### Path Resolution & Deep Filtering
+FunkyORM automatically finds the shortest path between entities using BFS. You can then use these remote properties directly in LINQ queries. The ORM generates the necessary JOINs for you.
 
-When you use `[RemoteKey]` or `[RemoteProperty]`, FunkyORM attempts to find the shortest path from your current entity to the target remote entity using a Breadth-First Search (BFS).
-
-*   **0 Paths Found**: If the system cannot find a way to connect the tables (via Foreign Keys or `[RemoteLink]` attributes), it throws a `PathNotFoundException`.
-*   **1 Path Found**: If exactly one shortest path is found, it is used automatically.
-*   **> 1 Path Found**: If multiple paths of the same length exist (e.g., a `Person` is linked to `Hospital` via `BirthHospitalId` and `CurrentHospitalId`), the system cannot guess which one you mean. It throws an `AmbiguousMatchException`.
-
-To resolve ambiguity or fix a "Path Not Found" error, use the `[RemoteLink]` attribute on the intermediate properties to explicitly define the relationship.
-
-### Superpower: Deep Filtering
-
-You can use `[RemoteKey]` AND `[RemoteProperty]` properties directly in your LINQ `.Where()` clauses. The ORM will automatically generate the necessary JOINs (even across multiple tables) and filter the results in the database.
-
-**Example:**
 ```csharp
-// Find all people whose employer is headquartered in the country with ID 5.
-// The ORM automatically joins Person -> Organization -> Address -> Country.
-// Note: We query PersonDetail to access the remote properties.
-var people = provider.Query<PersonDetail>()
-    .Where(p => p.EmployerHeadquartersCountryId == 5)
-    .ToList();
-
-// Find all people whose employer is in "USA".
-// This works too!
+// Find people whose employer is in "USA".
+// Automatically joins Person -> Organization -> Address -> Country.
 var americans = provider.Query<PersonDetail>()
     .Where(p => p.EmployerHeadquartersCountryName == "USA")
     .ToList();
 ```
 
-**Generated SQL (The Magic):**
+**Generated SQL:**
 ```sql
 SELECT 
     [person].[Id], [person].[FirstName], ..., 
@@ -555,48 +515,33 @@ LEFT JOIN [country] [country_1] ON [address_0].[country_id] = [country_1].[id]
 WHERE [country_1].[Name] = @p0
 ```
 
-*   **Note**: This allows you to filter by properties that don't even exist on your main table, without writing a single JOIN manually.
-
 ### Populating Related Collections (The "Explicit" Way)
+FunkyORM does not support Lazy Loading or automatic collection population. Instead, use `[RemoteKey]` to fetch related data efficiently.
 
-Unlike Entity Framework's `.Include()` or Lazy Loading, FunkyORM does not automatically populate collection properties. We believe in **Explicit Intent**: you should know exactly when and how you are fetching data.
+**Scenario**: Populate `Person.AssociatedCountries` (Many-to-Many via `PersonAddress`).
 
-However, the `[RemoteKey]` feature makes this incredibly simple. By flattening the graph to get the IDs you need, you can populate complex collections with simple, efficient lookups.
-
-**Scenario**: You want to populate a `Countries` collection on `Person` with every country they have an address in. This involves traversing a many-to-many relationship (`Person` ↔ `PersonAddress` ↔ `Address` ↔ `Country`).
-
-Normally, this would require fetching the intermediate IDs and performing a `Contains()` query (generating a SQL `IN` clause). With `[RemoteKey]`, we can do it in one smart query.
-
-**Step 1: Define the Entities**
+**Step 1: Define a Back-Reference**
+Create a derived class for the *child* entity that points back to the *parent*.
 ```csharp
-// 1. The Main Entity
-public class PersonDetail : Person
-{
-    [NotMapped]
-    public List<Country> AssociatedCountries { get; set; } = new List<Country>();
-}
-
-// 2. The Related Entity (with a back-reference)
 public class CountryDetail : Country
 {
-    // "Which Person is this Country associated with?"
-    // The ORM automatically finds the path: Country <- Address <- PersonAddress -> Person
+    // "Which Person is this Country linked to?"
+    // Path: Country <- Address <- PersonAddress -> Person
     [RemoteKey(remoteEntityType: typeof(Person), keyPath: new[] { nameof(Person.Id) })]
     public int PersonId { get; set; }
 }
 ```
 
-**Step 2: Fetch and Populate**
+**Step 2: Query by Parent ID**
 ```csharp
-var personId = 123;
-var person = provider.Get<PersonDetail>(personId);
+var person = provider.Get<Person>(123);
 
-// Fetch all countries associated with this person in one query.
-// We query the *Country* (via CountryDetail), but filter by the *Person's ID*.
-// The ORM handles the complex JOINs automatically.
+// Fetch all countries for this person in one query
 var countries = provider.Query<CountryDetail>()
     .Where(c => c.PersonId == person.Id)
     .ToList();
+
+person.AssociatedCountries.AddRange(countries);
 
 person.AssociatedCountries.AddRange(countries);
 ```
@@ -632,10 +577,8 @@ public class PersonAddressDetail
     // 1. Local columns in the join table
     public int PersonId { get; set; }
     
-    [Column("is_primary")]
     public bool IsPrimary { get; set; }
 
-    [Column("address_type_value")]
     public int? AddressTypeValue { get; set; }
 
     // 2. Computed property for the Enum Label
@@ -650,8 +593,8 @@ public class PersonAddressDetail
     }
 
     // 3. The Link to the Address Table
-    // This property holds the FK to the Address table
-    [RemoteLink(targetType: typeof(AddressEntity))]
+    // This property holds the FK to the Address table.
+    // Because it follows the convention "AddressId", the ORM knows it points to "AddressEntity".
     public int AddressId { get; set; }
 
     // 4. Remote Properties: Pulling actual address data from the Address table

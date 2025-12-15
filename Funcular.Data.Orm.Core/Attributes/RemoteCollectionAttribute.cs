@@ -7,6 +7,7 @@ namespace Funcular.Data.Orm.Attributes
     /// The relationship path is resolved automatically or explicitly.
     /// </summary>
     [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    [Obsolete("Automatic collection population is disabled in v3.0. Use explicit loading with [RemoteKey] instead.")]
     public class RemoteCollectionAttribute : RemoteAttributeBase
     {
         /// <summary>

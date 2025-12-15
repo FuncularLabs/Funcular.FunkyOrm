@@ -150,22 +150,31 @@ namespace Funcular.Data.Orm.SqlServer
                     throw new Funcular.Data.Orm.Exceptions.AmbiguousMatchException($"Multiple paths found from {sourceType.Name} to {remoteType.Name}: {string.Join(", ", distinctPaths)}");
                 }
 
-                // Prefer paths where intermediate types have [Table] attribute
-                return validPaths.OrderByDescending(p => CountMappedTypes(p)).First();
+                // Prefer paths based on:
+                // 1. Presence of [Table] attribute (Strongest signal of an ORM entity)
+                // 2. Namespace locality (Prefer entities in the same namespace as source/target)
+                return validPaths.OrderByDescending(p => CalculatePathScore(p, sourceType, remoteType)).First();
             }
 
             return validPaths[0];
         }
 
-        private int CountMappedTypes(ResolvedRemotePath path)
+        private int CalculatePathScore(ResolvedRemotePath path, Type sourceType, Type remoteType)
         {
-            int count = 0;
+            int score = 0;
+            var targetNamespaces = new HashSet<string> { sourceType.Namespace, remoteType.Namespace };
+
             foreach (var join in path.Joins)
             {
-                if (join.SourceTableType.GetCustomAttribute<TableAttribute>() != null) count++;
-                if (join.TargetTableType.GetCustomAttribute<TableAttribute>() != null) count++;
+                // Weight [Table] attribute heavily (it's definitely an entity)
+                if (join.SourceTableType.GetCustomAttribute<TableAttribute>() != null) score += 10;
+                if (join.TargetTableType.GetCustomAttribute<TableAttribute>() != null) score += 10;
+
+                // Weight namespace match lightly (tie-breaker)
+                if (targetNamespaces.Contains(join.SourceTableType.Namespace)) score += 1;
+                if (targetNamespaces.Contains(join.TargetTableType.Namespace)) score += 1;
             }
-            return count;
+            return score;
         }
 
         private ResolvedRemotePath ResolveExplicit(Type sourceType, Type remoteType, string[] keyPath)

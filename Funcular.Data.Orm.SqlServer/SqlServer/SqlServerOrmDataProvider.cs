@@ -1102,7 +1102,7 @@ namespace Funcular.Data.Orm.SqlServer
                     var entity = reader.Read() ? MapEntity<T>(reader) : null;
                     if (entity != null)
                     {
-                        PopulateRemoteCollections(entity);
+                        // PopulateRemoteCollections(entity); // Disabled in v3.0
                     }
                     return entity;
                 }
@@ -1131,7 +1131,7 @@ namespace Funcular.Data.Orm.SqlServer
                     while (reader.Read())
                     {
                         var entity = MapEntity<T>(reader);
-                        PopulateRemoteCollections(entity);
+                        // PopulateRemoteCollections(entity); // Disabled in v3.0
                         results.Add(entity);
                     }
                 }
