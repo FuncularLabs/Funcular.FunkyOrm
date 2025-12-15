@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0-beta4] - 2025-12-15
+
+### Fixed
+- **Documentation**: Updated package icon URL in README to ensure correct rendering on NuGet.org.
+
 ## [3.0.0-beta3] - 2025-12-15
 
 ### Breaking Changes
