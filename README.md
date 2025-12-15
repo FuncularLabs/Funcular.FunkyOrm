@@ -1,13 +1,13 @@
 > **Recent Changes**
+> * **v3.0.0-beta3**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
 > * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
 > * **v2.0.0**: Major release. Breaking change to `Query<T>(predicate)`, safety enhancements for Deletes, chained `Where` clauses.
-> * **v1.6.0**: Fix for closure predicates, added CI/CD.
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
-![Funcular logo](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/master/funky-orm-lineart-256x256.png)
+![Funcular logo](./funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
 [![Downloads](https://img.shields.io/nuget/dt/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
@@ -67,7 +67,7 @@ We also infer table names and primary keys automatically.
 
 ```csharp
 // No attributes needed!
-// Maps to table 'Person', 'Persons', 'PERSON', etc.
+// Maps to table 'Person' or 'PERSON' (case-insensitive)
 public class Person
 {
     // Automatically detected as Primary Key
@@ -102,12 +102,12 @@ public class Person
 ### 4. Start Querying
 
 ```csharp
-// Insert a new record
+// Insert a new record and get the ID
 var newPerson = new Person { FirstName = "Jane", LastName = "Doe", Age = 25 };
-provider.Insert(newPerson);
+var newId = provider.Insert<Person, int>(newPerson);
 
 // Get by ID
-var person = provider.Get<Person>(1);
+var person = provider.Get<Person>(newId);
 
 // Complex Querying with LINQ
 var adults = provider.Query<Person>()
@@ -131,20 +131,20 @@ public class Person
     // ... standard properties ...
 
     // Link to the Organization table
-    [OrmForeignKey(typeof(Organization))]
+    [RemoteLink(targetType: typeof(Organization))]
     public int? EmployerId { get; set; }
 
     // SUPERPOWER 1: Get the Employer's Name without loading the Organization object
-    [RemoteProperty(typeof(Organization), nameof(EmployerId), nameof(Organization.Name))]
+    [RemoteProperty(remoteEntityType: typeof(Organization), keyPath: new[] { nameof(EmployerId), nameof(Organization.Name) })]
     public string EmployerName { get; set; }
 
     // SUPERPOWER 2: Get the Employer's Country ID (2 hops away!)
     // Person -> Organization -> Address -> Country
-    [RemoteKey(typeof(Country), 
+    [RemoteKey(remoteEntityType: typeof(Country), keyPath: new[] {
         nameof(EmployerId), 
         nameof(Organization.HeadquartersAddressId), 
         nameof(Address.CountryId), 
-        nameof(Country.Id))]
+        nameof(Country.Id) })]
     public int? EmployerCountryId { get; set; }
 }
 
@@ -180,7 +180,7 @@ var sql = @"SELECT p.*, c.Name as CountryName
 **FunkyORM**:
 ```csharp
 // Just add the attribute. We handle the joins.
-[RemoteProperty(typeof(Country), ...)]
+[RemoteProperty(remoteEntityType: typeof(Country), keyPath: new[] { ... })]
 public string EmployerCountryName { get; set; }
 ```
 

@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0-beta3] - 2025-12-15
+
+### Breaking Changes
+- **Provider Architecture**: Refactored `SqlServerOrmDataProvider` to inherit from `OrmDataProvider` and use `ISqlDialect` for SQL generation.
+- **ISqlDialect**: Introduced `ISqlDialect` interface to support multiple database dialects.
+- **Protected Methods**: Several protected methods in `SqlServerOrmDataProvider` have been updated to use `ISqlDialect`. Custom providers inheriting from this class may need updates.
+
+### Added
+- **Remote Attributes**: Introduced `[RemoteKey]` and `[RemoteProperty]` attributes to simplify working with related data.
+  - **RemoteKey**: Maps a property to a column in a related table (e.g., `Person.EmployerName` maps to `Employer.Name`).
+  - **RemoteProperty**: Similar to `RemoteKey` but for non-key properties.
+- **SqlServerDialect**: Implementation of `ISqlDialect` for SQL Server.
+- **Guid and String Primary Key Support**: Added full support for `Guid` and `String` primary keys.
+- **Non-Identity Key Handling**: The ORM now correctly handles `INSERT` statements for tables with non-identity primary keys (e.g., client-generated Guids), automatically including the PK column in the `INSERT` statement when a value is provided.
+
+## [3.0.0-beta2] - 2025-12-11
+
+### Added
+- **Generic Insert Overloads**: Added `Insert<T, TKey>(T entity)` and `InsertAsync<T, TKey>(T entity)` to allow type-safe retrieval of the primary key.
+  ```csharp
+  var id = provider.Insert<Person, int>(person); // Returns int
+  var guid = provider.Insert<Log, Guid>(log);    // Returns Guid
+  ```
+
+## [3.0.0-beta1] - 2025-12-10
+
+### Changed
+- **Insert Return Type**: The `Insert` method now returns `object` instead of `long`. This is a **breaking change** for code expecting a `long` directly, but enables support for non-integer primary keys.
+  - **Migration**: Cast the result to the expected type, or use the new generic overloads (introduced in beta2).
+
 ## [2.3.1] - 2025-12-08
 
 ### Fixed

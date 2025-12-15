@@ -52,7 +52,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             await _provider.InsertAsync(person);
             
             // Act
-            var fetchedPerson = await _provider.GetAsync<PersonEntity>(person.Id);
+            var fetchedPerson = await _provider.GetAsync<PersonDetailEntity>(person.Id);
             
             // Assert
             Assert.IsNotNull(fetchedPerson);
@@ -84,7 +84,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             await _provider.InsertAsync(person);
             
             // Act
-            var fetchedPerson = await _provider.GetAsync<PersonEntity>(person.Id);
+            var fetchedPerson = await _provider.GetAsync<PersonDetailEntity>(person.Id);
             
             // Assert
             Assert.IsNotNull(fetchedPerson);

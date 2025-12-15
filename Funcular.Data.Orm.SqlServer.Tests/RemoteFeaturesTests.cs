@@ -15,7 +15,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // We rely on existing test data.
             
             // Act
-            var person = _provider.Query<PersonEntity>()
+            var person = _provider.Query<PersonDetailEntity>()
                 .FirstOrDefault(p => p.EmployerHeadquartersCountryName != null);
 
             // Assert
@@ -34,7 +34,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Arrange
             
             // Act
-            var person = _provider.Query<PersonEntity>()
+            var person = _provider.Query<PersonDetailEntity>()
                 .FirstOrDefault(p => p.EmployerHeadquartersCountryId != null);
 
             // Assert
@@ -51,12 +51,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void CanFilterBy_RemoteProperty()
         {
             // Arrange
-            var person = _provider.Query<PersonEntity>().FirstOrDefault(p => p.EmployerHeadquartersCountryName != null);
+            var person = _provider.Query<PersonDetailEntity>().FirstOrDefault(p => p.EmployerHeadquartersCountryName != null);
             if (person == null) Assert.Inconclusive("No test data.");
             var targetName = person.EmployerHeadquartersCountryName;
 
             // Act
-            var results = _provider.Query<PersonEntity>()
+            var results = _provider.Query<PersonDetailEntity>()
                 .Where(p => p.EmployerHeadquartersCountryName == targetName)
                 .ToList();
 

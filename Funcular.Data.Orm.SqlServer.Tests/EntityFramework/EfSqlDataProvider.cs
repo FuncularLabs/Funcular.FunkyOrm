@@ -8,26 +8,26 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 {
     /// <summary>
-    /// A small Entity Framework Core backed reference implementation of ISqlDataProvider
+    /// A small Entity Framework Core backed reference implementation of ISqlOrmProvider
     /// intended for apples-to-apples performance comparisons.  This file contains:
     /// - minimal POCO entity classes (Person, Address, PersonAddress) mapped via Fluent API
     /// - FunkyEfContext : DbContext with explicit column/table mapping (so mapping works even if
     ///   data-annotations are removed)
-    /// - EfSqlDataProvider : ISqlDataProvider implementation using EF Core
+    /// - EfSqlDataProvider : ISqlOrmProvider implementation using EF Core
     /// Notes:
     /// - Add Microsoft.EntityFrameworkCore and Microsoft.EntityFrameworkCore.SqlServer package references
     ///   to consume this provider.
     /// - This implementation is intentionally straightforward and not a full replacement for the
     ///   SqlServerOrmDataProvider — it is a reference implementation used for benchmarking.
     /// </summary>
-    public class EfSqlDataProvider : ISqlDataProvider, IDisposable
+    public class EfSqlDataProvider : ISqlOrmProvider, IDisposable
     {
         private readonly FunkyEfContext _context;
         private IDbContextTransaction _efTransaction;
 
         public Action<string> Log { get; set; }
-        public SqlConnection Connection { get; set; }
-        public SqlTransaction Transaction { get; set; }
+        public IDbConnection Connection { get; set; }
+        public IDbTransaction Transaction { get; set; }
         public string TransactionName { get; private set; }
 
         public EfSqlDataProvider(string connectionString)
@@ -109,12 +109,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             return _context.Set<T>().AsNoTracking().ToList();
         }
 
-        public long Insert<T>(T entity) where T : class, new()
+        public object Insert<T>(T entity) where T : class, new()
         {
             if (entity == null) throw new ArgumentNullException(nameof(entity));
             _context.Set<T>().Add(entity);
             _context.SaveChanges();
-            return GetPrimaryKeyValueAsLong(entity);
+            return GetPrimaryKeyValue(entity);
         }
 
         public T Update<T>(T entity) where T : class, new()
@@ -182,12 +182,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             return await _context.Set<T>().AsNoTracking().ToListAsync().ConfigureAwait(false);
         }
 
-        public async Task<long> InsertAsync<T>(T entity) where T : class, new()
+        public async Task<object> InsertAsync<T>(T entity) where T : class, new()
         {
             if (entity == null) throw new ArgumentNullException(nameof(entity));
             await _context.Set<T>().AddAsync(entity).ConfigureAwait(false);
             await _context.SaveChangesAsync().ConfigureAwait(false);
-            return GetPrimaryKeyValueAsLong(entity);
+            return GetPrimaryKeyValue(entity);
         }
 
         public async Task<T> UpdateAsync<T>(T entity) where T : class, new()
@@ -196,6 +196,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
             _context.Set<T>().Update(entity);
             await _context.SaveChangesAsync().ConfigureAwait(false);
             return entity;
+        }
+
+        public TKey Insert<T, TKey>(T entity) where T : class, new()
+        {
+            return (TKey)Insert(entity);
+        }
+
+        public async Task<TKey> InsertAsync<T, TKey>(T entity) where T : class, new()
+        {
+            var result = await InsertAsync(entity).ConfigureAwait(false);
+            return (TKey)result;
         }
 
         public async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) where T : class, new()
@@ -213,23 +224,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 
         #region Helpers
 
-        private long GetPrimaryKeyValueAsLong<T>(T entity)
+        private object GetPrimaryKeyValue<T>(T entity)
         {
             // attempt common PK names
             var type = entity.GetType();
             var pk = type.GetProperty("Id", BindingFlags.Public | BindingFlags.Instance)
                      ?? type.GetProperties().FirstOrDefault(p => p.GetCustomAttribute<System.ComponentModel.DataAnnotations.KeyAttribute>() != null);
-            if (pk == null) return 0;
-            var val = pk.GetValue(entity);
-            if (val == null) return 0;
-            try
-            {
-                return Convert.ToInt64(val);
-            }
-            catch
-            {
-                return 0;
-            }
+            if (pk == null) return null;
+            return pk.GetValue(entity);
         }
 
         #endregion
@@ -287,7 +289,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
                 b.Property(propertyExpression: e => e.PostalCode).HasColumnName(name: "postal_code").HasMaxLength(maxLength: 20);
                 b.Property(propertyExpression: e => e.DateUtcCreated).HasColumnName(name: "dateutc_created");
                 b.Property(propertyExpression: e => e.DateUtcModified).HasColumnName(name: "dateutc_modified");
-                b.Property(propertyExpression: e => e.IsPrimary).HasColumnName(name: "is_primary");
             });
 
             // PersonAddress
@@ -298,6 +299,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
                 b.Property(propertyExpression: e => e.Id).HasColumnName(name: "id").ValueGeneratedOnAdd();
                 b.Property(propertyExpression: e => e.PersonId).HasColumnName(name: "person_id");
                 b.Property(propertyExpression: e => e.AddressId).HasColumnName(name: "address_id");
+                b.Property(propertyExpression: e => e.IsPrimary).HasColumnName(name: "is_primary");
                 b.Property(propertyExpression: e => e.DateUtcCreated).HasColumnName(name: "dateutc_created");
                 b.Property(propertyExpression: e => e.DateUtcModified).HasColumnName(name: "dateutc_modified");
             });
@@ -327,7 +329,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
         public string City { get; set; }
         public string StateCode { get; set; }
         public string PostalCode { get; set; }
-        public bool IsPrimary { get; set; }
         public DateTime DateUtcCreated { get; set; }
         public DateTime DateUtcModified { get; set; }
     }
@@ -337,6 +338,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
         public int Id { get; set; }
         public int PersonId { get; set; }
         public int AddressId { get; set; }
+        public bool IsPrimary { get; set; }
         public DateTime DateUtcCreated { get; set; }
         public DateTime DateUtcModified { get; set; }
     }

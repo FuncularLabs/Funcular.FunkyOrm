@@ -1,5 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Funcular.Data.Orm.Attributes;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Enums;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 {
@@ -16,6 +19,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
         private Int32 _id;
         private Int32 _personId;
         private Int32 _addressId;
+        private bool _isPrimary;
+        private int? _addressTypeValue = 0;
         private DateTime _dateUtcCreated = DateTime.UtcNow;
         private DateTime _dateUtcModified = DateTime.UtcNow;
         #endregion
@@ -54,6 +59,38 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
             get => _addressId;
             set => SetProperty(ref _addressId, value);
         }
+
+        [Column("is_primary")]
+        public bool IsPrimary
+        {
+            get => _isPrimary;
+            set => SetProperty(ref _isPrimary, value);
+        }
+
+        [Column("address_type_value")]
+        public int? AddressTypeValue
+        {
+            get => _addressTypeValue;
+            set => SetProperty(ref _addressTypeValue, value);
+        }
+
+        public string AddressTypeLabel 
+        {
+            get 
+            {
+                var type = (AddressType)(AddressTypeValue ?? 0);
+                return type.ToString().Replace(", ", ","); 
+            }
+        }
+
+        public string Line1 { get; set; }
+
+        public string City { get; set; }
+
+        public string StateCode { get; set; }
+
+        public string PostalCode { get; set; }
+
         /// <summary>
         /// DateUtc Created - DateTime
         /// Required

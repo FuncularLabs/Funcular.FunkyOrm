@@ -30,7 +30,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person
         /// Never null, not required.
         /// </summary>
         [NotMapped]
-        public IList<PersonAddress> Addresses
+        public new IList<PersonAddress> Addresses
         {
             get => _personAddressJoins;
             set

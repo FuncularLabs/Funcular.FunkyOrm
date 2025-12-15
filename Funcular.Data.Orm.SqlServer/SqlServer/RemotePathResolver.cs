@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Reflection;
 using Funcular.Data.Orm.Attributes;
@@ -148,9 +149,32 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     throw new Funcular.Data.Orm.Exceptions.AmbiguousMatchException($"Multiple paths found from {sourceType.Name} to {remoteType.Name}: {string.Join(", ", distinctPaths)}");
                 }
+
+                // Prefer paths based on:
+                // 1. Presence of [Table] attribute (Strongest signal of an ORM entity)
+                // 2. Namespace locality (Prefer entities in the same namespace as source/target)
+                return validPaths.OrderByDescending(p => CalculatePathScore(p, sourceType, remoteType)).First();
             }
 
             return validPaths[0];
+        }
+
+        private int CalculatePathScore(ResolvedRemotePath path, Type sourceType, Type remoteType)
+        {
+            int score = 0;
+            var targetNamespaces = new HashSet<string> { sourceType.Namespace, remoteType.Namespace };
+
+            foreach (var join in path.Joins)
+            {
+                // Weight [Table] attribute heavily (it's definitely an entity)
+                if (join.SourceTableType.GetCustomAttribute<TableAttribute>() != null) score += 10;
+                if (join.TargetTableType.GetCustomAttribute<TableAttribute>() != null) score += 10;
+
+                // Weight namespace match lightly (tie-breaker)
+                if (targetNamespaces.Contains(join.SourceTableType.Namespace)) score += 1;
+                if (targetNamespaces.Contains(join.TargetTableType.Namespace)) score += 1;
+            }
+            return score;
         }
 
         private ResolvedRemotePath ResolveExplicit(Type sourceType, Type remoteType, string[] keyPath)
@@ -241,7 +265,8 @@ namespace Funcular.Data.Orm.SqlServer
                     var fks = GetForeignKeys(type);
                     foreach (var fk in fks)
                     {
-                        if (GetForeignKeyTarget(fk) == t)
+                        var target = GetForeignKeyTarget(fk);
+                        if (target != null && (target == t || target.IsAssignableFrom(t)))
                         {
                             incoming.Add(Tuple.Create(type, fk));
                         }
@@ -264,14 +289,14 @@ namespace Funcular.Data.Orm.SqlServer
         private bool IsForeignKey(PropertyInfo p)
         {
             if (Attribute.IsDefined(p, typeof(RemoteAttributeBase))) return false;
-            if (p.GetCustomAttribute<OrmForeignKeyAttribute>() != null) return true;
+            if (p.GetCustomAttribute<RemoteLinkAttribute>() != null) return true;
             if (p.Name.EndsWith("Id") && p.Name.Length > 2 && (p.PropertyType == typeof(int) || p.PropertyType == typeof(int?))) return true;
             return false;
         }
 
         private Type GetForeignKeyTarget(PropertyInfo p)
         {
-            var attr = p.GetCustomAttribute<OrmForeignKeyAttribute>();
+            var attr = p.GetCustomAttribute<RemoteLinkAttribute>();
             if (attr != null) return attr.TargetType;
 
             string name = p.Name.Substring(0, p.Name.Length - 2);

@@ -22,7 +22,7 @@
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
   <PropertyGroup>
-    <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
+    <NoWarn>MSB3277;MSB3247;MSB3268;NU1701;CS0618</NoWarn>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
@@ -110,6 +110,7 @@
       <Project>{b7d82b6f-1cd9-48b7-86b7-33b9ac37a13f}</Project>
       <Name>Funcular.Data.Orm</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj" />
   </ItemGroup>
   <Import Project="$(VSToolsPath)\TeamTest\Microsoft.TestTools.targets" Condition="Exists('$(VSToolsPath)\TeamTest\Microsoft.TestTools.targets')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

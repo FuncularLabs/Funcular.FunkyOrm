@@ -156,13 +156,43 @@ public class Employee
 ## CRUD Operations
 
 ### Insert
+
+FunkyORM supports inserting entities with various primary key types (Identity `int`/`long`, `Guid`, `string`).
+
+#### Basic Insert (Identity Column)
+
+When inserting an entity with an Identity column (auto-incrementing integer), the ORM automatically retrieves the new ID and populates the entity.
+
 ```csharp
 var person = new Person { FirstName = "Jane", LastName = "Doe" };
-provider.Insert(person);
-// person.Id is automatically updated with the new identity value!
+
+// Option 1: Basic Insert (returns object)
+var idObj = provider.Insert(person); 
+
+// Option 2: Generic Insert (returns typed ID)
+int newId = provider.Insert<Person, int>(person);
+
+// The entity is also updated automatically:
+Console.WriteLine(person.Id); // Outputs the new ID (e.g., 42)
 ```
 
-For related entities, insert separately and link via junction tables:
+#### Guid and String Primary Keys
+
+FunkyORM supports non-identity primary keys, such as client-generated `Guid`s or `string` IDs.
+
+```csharp
+// Guid Primary Key
+var log = new Log { Id = Guid.NewGuid(), Message = "System started" };
+var logId = provider.Insert<Log, Guid>(log); // Returns the Guid
+
+// String Primary Key
+var config = new Config { Key = "Theme", Value = "Dark" };
+var key = provider.Insert<Config, string>(config); // Returns "Theme"
+```
+
+#### Related Entities
+
+For related entities, insert them separately and link them via foreign keys or junction tables:
 
 ```csharp
 var address = new Address
@@ -245,6 +275,12 @@ var adults = provider.Query<Person>()
 var maleAdults = provider.Query<Person>()
     .Where(p => p.Birthdate < DateTime.Now.AddYears(-18))
     .Where(p => p.Gender == "Male")
+    .ToList();
+
+// Complex Expressions (AND / OR logic)
+// You aren't limited to chaining! You can use standard C# operators.
+var potentialRisks = provider.Query<Person>()
+    .Where(p => p.LastName == "MobBoss" || p.Birthdate > DateTime.Now.AddYears(-18))
     .ToList();
 ```
 
@@ -384,8 +420,11 @@ var people = await provider.GetListAsync<Person>();
 // Async Query
 var adults = await provider.QueryAsync<Person>(p => p.Age >= 18);
 
-// Async Insert
-await provider.InsertAsync(newPerson);
+// Async Insert (returns Task<object>)
+var idObj = await provider.InsertAsync(newPerson);
+
+// Async Generic Insert (returns Task<TKey>)
+int newId = await provider.InsertAsync<Person, int>(newPerson);
 
 // Async Update
 await provider.UpdateAsync(existingPerson);
@@ -396,122 +435,75 @@ await provider.DeleteAsync<Person>(p => p.Id == 1);
 
 ---
 
-## Troubleshooting & Error Handling
-
-We try to give you helpful error messages. Here are some you might see and what they mean.
-
-### 1. "The table or view for entity 'MyClass' was not found..." (Error 208)
-**New in v1.7.0**: If you see this, it means we couldn't find a table that matches your class name.
-*   **The Fix**: 
-    *   Check your spelling.
-    *   Check if the table is in a different schema (e.g., `sales.Person`).
-    *   Use the `[Table("ActualTableName")]` attribute on your class.
-    *   We automatically check for `MyClass` and `my_class`.
-
-### 2. "The expression ... is not supported in a Where clause"
-You tried to do something too fancy in your LINQ query that we can't translate to SQL.
-*   **Example**: `Where(p => p.FirstName.GetHashCode() == 123)`
-*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`). If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
-
-### 3. "Delete operations must be performed within an active transaction"
-You tried to call `.Delete()` without starting a transaction.
-*   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
-
-### 4. "A WHERE clause (predicate) is required for deletes"
-You tried to delete everything, or used a trivial predicate like `x => true` or `x => 1 == 1`. We stopped you.
-*   **The Fix**: Provide a valid, non-trivial predicate that references at least one column. We explicitly block "delete all" operations to prevent catastrophic data loss.
-    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, execute a raw SQL command.
-
----
-
-## Deprecations (v1.7.0)
-
-We've cleaned up the API a bit.
-
-*   **Obsolete**: `provider.Query<T>(predicate)`
-    *   **Why?** It encouraged immediate execution (pulling data into memory) which is often a performance trap.
-    *   **Use Instead**: `provider.Query<T>().Where(predicate)`
-    *   **Benefit**: This returns an `IQueryable`-like object, allowing you to chain `OrderBy`, `Select`, or `Count` *before* the SQL is executed.
-
----
-
 ## Advanced Features: Remote Keys & Properties
 
 FunkyORM allows you to flatten your object graph by mapping properties directly to columns in related tables, even if they are several hops away. This eliminates the "N+1 query problem" for simple lookups and makes your code cleaner.
 
+### The "Detail" Entity Pattern (Important!)
+
+Before diving into the attributes, it is crucial to understand **where** to put them.
+
+**Do not put remote attributes on your main entity (e.g., `Person`).**
+
+If you add `[RemoteProperty]` to your main `Person` class, FunkyORM will generate `LEFT JOIN`s for *every single query* involving `Person`, even if you just wanted the ID and Name. This kills performance.
+
+Instead, create a derived class (e.g., `PersonDetail`) specifically for these rich queries.
+
+*   **`Person` (Base)**: Maps to the `person` table. Contains only physical columns. Fast, lightweight, no joins.
+*   **`PersonDetail` (Derived)**: Inherits from `Person`. Adds `[RemoteProperty]` and `[RemoteKey]` fields. Used only when you need the extra data.
+
+**All examples below assume you are using this `PersonDetail` pattern.**
+
 We provide three attributes to control this behavior:
 
-### 1. `[OrmForeignKey]` — The Link Builder
-**"This property connects me to another table."**
+### 1. `[RemoteKey]` & `[RemoteProperty]` — Flattening the Graph
+**"I want data from a related table without loading the whole object."**
 
-Use this when you have a column in your table that holds the ID of another entity, but the property name doesn't follow the standard `[EntityName]Id` convention. This attribute tells the ORM how to "walk" from one table to another.
+Instead of loading a full object graph (e.g., `Person.Employer.Address.Country`), you can project specific fields directly onto your main entity. This is faster and simpler.
 
-*   **Purpose:** Defines the relationship structure (the "edges" of the graph).
-*   **Target:** A local column (usually an `int` or `Guid`).
-*   **Result:** Does not fetch new data itself; it enables *other* properties to fetch data through it.
+*   **`[RemoteKey]`**: Grabs the **ID** of a distant record (e.g., `EmployerHeadquartersCountryId`).
+*   **`[RemoteProperty]`**: Grabs a **Value** (e.g., `EmployerHeadquartersCountryName`).
 
 **Example:**
 ```csharp
-// The property name is just "EmployerId", but it points to the "OrganizationEntity".
-// Without this (or the new Smart Inference), the ORM wouldn't know where "EmployerId" goes.
-[OrmForeignKey(typeof(OrganizationEntity))]
+public class PersonDetail : Person
+{
+    // "Get me the ID of the Country where my Employer is located."
+    // Path: Person -> Employer -> Address -> Country
+    [RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Id) })]
+    public int? EmployerHeadquartersCountryId { get; set; }
+
+    // "Get me the Name of that Country."
+    [RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Name) })]
+    public string EmployerHeadquartersCountryName { get; set; }
+}
+```
+
+### 2. `[RemoteLink]` — Defining Relationships
+**"This property connects me to another table."**
+
+> **⚠️ BREAKING CHANGE NOTICE (v3.0.0-beta3)**: Renamed from `[OrmForeignKey]`.
+
+Use this when a foreign key property name doesn't follow the standard `[EntityName]Id` convention. It tells the ORM how to "walk" from one table to another.
+
+```csharp
+// The property is "EmployerId", but it points to "OrganizationEntity".
+[RemoteLink(targetType: typeof(OrganizationEntity))]
 public int? EmployerId { get; set; }
 ```
 
-### 2. `[RemoteKey]` — The Distant ID
-**"I want the ID of a related record, possibly far away."**
+### Path Resolution & Deep Filtering
+FunkyORM automatically finds the shortest path between entities using BFS. You can then use these remote properties directly in LINQ queries. The ORM generates the necessary JOINs for you.
 
-Use this when you want to grab the **Primary Key** (ID) of a related entity without loading the entire object. This is useful for foreign keys that don't exist in your table but exist in a related table (e.g., your Employer's Country ID).
-
-*   **Purpose:** Projects a **Key** (ID) from a distant table into your current entity.
-*   **Target:** A property that will hold the distant ID.
-*   **Result:** The ORM performs the necessary JOINs to find that specific ID and populates this property.
-
-**Example:**
 ```csharp
-// "I don't have a CountryId column. My Employer has an Address, 
-// and that Address has a Country. Get me that Country's ID."
-[RemoteKey(typeof(CountryEntity), nameof(CountryEntity.Id))]
-public int? EmployerHeadquartersCountryId { get; set; }
-```
-
-### 3. `[RemoteProperty]` — The Distant Value
-**"I want a specific value (like a Name or Date) from a related record."**
-
-Use this when you want to display a piece of information (like a name, description, or date) from a related entity directly on your object, flattening the data structure.
-
-*   **Purpose:** Projects a **Value** (non-key) from a distant table into your current entity.
-*   **Target:** A property that will hold the distant value (string, date, etc.).
-*   **Result:** The ORM performs the necessary JOINs to find that specific column and populates this property.
-
-**Example:**
-```csharp
-// "I don't want the whole Country object. Just get me the Name 
-// of the Country where my Employer is located."
-[RemoteProperty(typeof(CountryEntity), nameof(CountryEntity.Name))]
-public string EmployerHeadquartersCountryName { get; set; }
-```
-
-### Superpower: Deep Filtering
-
-You can use `[RemoteKey]` AND `[RemoteProperty]` properties directly in your LINQ `.Where()` clauses. The ORM will automatically generate the necessary JOINs (even across multiple tables) and filter the results in the database.
-
-**Example:**
-```csharp
-// Find all people whose employer is headquartered in the country with ID 5.
-// The ORM automatically joins Person -> Organization -> Address -> Country.
-var people = provider.Query<PersonEntity>()
-    .Where(p => p.EmployerHeadquartersCountryId == 5)
-    .ToList();
-
-// Find all people whose employer is in "USA".
-// This works too!
-var americans = provider.Query<PersonEntity>()
+// Find people whose employer is in "USA".
+// Automatically joins Person -> Organization -> Address -> Country.
+var americans = provider.Query<PersonDetail>()
     .Where(p => p.EmployerHeadquartersCountryName == "USA")
     .ToList();
 ```
 
-**Generated SQL (The Magic):**
+**Generated SQL:**
 ```sql
 SELECT 
     [person].[Id], [person].[FirstName], ..., 
@@ -523,46 +515,35 @@ LEFT JOIN [country] [country_1] ON [address_0].[country_id] = [country_1].[id]
 WHERE [country_1].[Name] = @p0
 ```
 
-*   **Note**: This allows you to filter by properties that don't even exist on your main table, without writing a single JOIN manually.
-
 ### Populating Related Collections (The "Explicit" Way)
+FunkyORM does not support Lazy Loading or automatic collection population. Instead, use `[RemoteKey]` to fetch related data efficiently.
 
-Unlike Entity Framework's `.Include()` or Lazy Loading, FunkyORM does not automatically populate collection properties. We believe in **Explicit Intent**: you should know exactly when and how you are fetching data.
+**Scenario**: Populate `Person.AssociatedCountries` (Many-to-Many via `PersonAddress`).
 
-However, the `[RemoteKey]` feature makes this incredibly simple. By flattening the graph to get the IDs you need, you can populate complex collections with simple, efficient lookups.
-
-**Scenario**: You want to populate a `Countries` collection on `Person` with every country they are associated with (e.g., via their Employer).
-
-**Step 1: Define the Entity**
+**Step 1: Define a Back-Reference**
+Create a derived class for the *child* entity that points back to the *parent*.
 ```csharp
-public class PersonEntity
+public class CountryDetail : Country
 {
-    // The Remote Key gets us the ID automatically
-    [RemoteKey(typeof(CountryEntity), nameof(CountryEntity.Id))]
-    public int? EmployerHeadquartersCountryId { get; set; }
-
-    // The collection is NOT mapped to the database
-    [NotMapped]
-    public ICollection<CountryEntity> AssociatedCountries { get; set; } = new List<CountryEntity>();
+    // "Which Person is this Country linked to?"
+    // Path: Country <- Address <- PersonAddress -> Person
+    [RemoteKey(remoteEntityType: typeof(Person), keyPath: new[] { nameof(Person.Id) })]
+    public int PersonId { get; set; }
 }
 ```
 
-**Step 2: Fetch and Populate**
+**Step 2: Query by Parent ID**
 ```csharp
-// 1. Fetch the person (Remote Key is populated automatically)
-var person = provider.Query<PersonEntity>().First(p => p.Id == 123);
+var person = provider.Get<Person>(123);
 
-// 2. Explicitly fetch the related country using the ID we already have
-if (person.EmployerHeadquartersCountryId.HasValue)
-{
-    var country = provider.Query<CountryEntity>()
-        .FirstOrDefault(c => c.Id == person.EmployerHeadquartersCountryId.Value);
-    
-    if (country != null)
-    {
-        person.AssociatedCountries.Add(country);
-    }
-}
+// Fetch all countries for this person in one query
+var countries = provider.Query<CountryDetail>()
+    .Where(c => c.PersonId == person.Id)
+    .ToList();
+
+person.AssociatedCountries.AddRange(countries);
+
+person.AssociatedCountries.AddRange(countries);
 ```
 
 **Why is this better?**
@@ -570,11 +551,107 @@ if (person.EmployerHeadquartersCountryId.HasValue)
 *   **No N+1 on the Graph**: You aren't pulling down `Organization` and `Address` objects just to get to `Country`. You jump straight to the data you need.
 *   **Flexibility**: You can easily combine multiple sources (e.g., `HomeCountryId`, `BillingCountryId`) into a single collection without complex `Union` queries or massive object graphs.
 
+### Advanced Scenario: Many-to-Many with Rich Relationship Data
+
+Sometimes, the relationship itself has data (e.g., "Is this the Primary address?", "Is this a Home or Work address?"). In FunkyORM, you can map the **Join Table** as an entity and pull data from the related table into it.
+
+**Scenario**: A `Person` has many `Addresses`. The link table `person_address` contains `is_primary` and `address_type_value`. We want to load all addresses for a person, including these details, without manually joining tables.
+
+**Step 1: Define the Enum and Relationship Entity**
+
+```csharp
+[Flags]
+public enum AddressType
+{
+    Unspecified = 0,
+    Billing = 1,
+    Shipping = 2,
+    Home = 4,
+    Work = 8
+}
+
+// Maps to the join table "person_address"
+[Table("person_address")]
+public class PersonAddressDetail
+{
+    // 1. Local columns in the join table
+    public int PersonId { get; set; }
+    
+    public bool IsPrimary { get; set; }
+
+    public int? AddressTypeValue { get; set; }
+
+    // 2. Computed property for the Enum Label
+    // Projects the numeric value to a comma-separated list of names
+    public string AddressTypeLabel 
+    {
+        get 
+        {
+            var type = (AddressType)(AddressTypeValue ?? 0);
+            return type.ToString().Replace(", ", ","); 
+        }
+    }
+
+    // 3. The Link to the Address Table
+    // This property holds the FK to the Address table.
+    // Because it follows the convention "AddressId", the ORM knows it points to "AddressEntity".
+    public int AddressId { get; set; }
+
+    // 4. Remote Properties: Pulling actual address data from the Address table
+    // We use the AddressId property above to "jump" to the AddressEntity
+    
+    [RemoteProperty(remoteEntityType: typeof(AddressEntity), keyPath: new[] { nameof(AddressId), nameof(AddressEntity.Line1) })]
+    public string Line1 { get; set; }
+
+    [RemoteProperty(remoteEntityType: typeof(AddressEntity), keyPath: new[] { nameof(AddressId), nameof(AddressEntity.City) })]
+    public string City { get; set; }
+
+    [RemoteProperty(remoteEntityType: typeof(AddressEntity), keyPath: new[] { nameof(AddressId), nameof(AddressEntity.StateCode) })]
+    public string StateCode { get; set; }
+
+    [RemoteProperty(remoteEntityType: typeof(AddressEntity), keyPath: new[] { nameof(AddressId), nameof(AddressEntity.PostalCode) })]
+    public string PostalCode { get; set; }
+}
+```
+
+**Step 2: Define the Parent Entity**
+
+```csharp
+public class PersonEntity
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+
+    // The collection holds the "Detail" objects, which contain both 
+    // the relationship data (IsPrimary) and the address data (Line1, City).
+    [NotMapped]
+    public ICollection<PersonAddressDetail> Addresses { get; set; } = new List<PersonAddressDetail>();
+}
+```
+
+**Step 3: Query and Populate**
+
+```csharp
+var personId = 123;
+var person = provider.Get<PersonEntity>(personId);
+
+// Fetch all address details for this person in ONE query.
+// The ORM automatically joins person_address -> Address to fill the Remote Properties.
+person.Addresses = provider.Query<PersonAddressDetail>()
+    .Where(pa => pa.PersonId == personId)
+    .ToList();
+
+// Result:
+// person.Addresses[0].Line1        -> "123 Main St" (from Address table)
+// person.Addresses[0].IsPrimary    -> true          (from person_address table)
+// person.Addresses[0].AddressTypeLabel -> "Home,Billing" (Computed from person_address table)
+```
+
 ### Summary Cheat Sheet
 
 | Attribute | Role | Analogy | Returns |
 | :--- | :--- | :--- | :--- |
-| **`[OrmForeignKey]`** | **The Bridge** | "The road to the City starts here." | Nothing (It *is* the link) |
+| **`[RemoteLink]`** | **The Bridge** | "The road to the City starts here." | Nothing (It *is* the link) |
 | **`[RemoteKey]`** | **The Coordinates** | "What is the Zip Code of that City?" | An ID (`int`/`Guid`) |
 | **`[RemoteProperty]`** | **The View** | "What is the Name of that City?" | A Value (`string`/`date`) |
 
@@ -583,7 +660,7 @@ if (person.EmployerHeadquartersCountryId.HasValue)
 Here is a complete example showing how to handle multiple remote keys to the same target table (e.g., a Person has an Employer in one Country, and a Home Address in another).
 
 ```csharp
-public class PersonEntity
+public class PersonDetail : Person
 {
     // ============================================================
     // SCENARIO 1: Employer Location (Long Path)
@@ -591,24 +668,24 @@ public class PersonEntity
     // ============================================================
 
     // 1. The Link: Defines the relationship to Organization
-    [OrmForeignKey(typeof(OrganizationEntity))]
-    public int? EmployerId { get; set; }
+    // (Inherited from Person: [RemoteLink(targetType: typeof(OrganizationEntity))])
+    // public int? EmployerId { get; set; }
 
     // 2. The Distant ID: Uses the link above to get the Employer's Country ID
     // We specify the full path of properties to traverse to avoid ambiguity
-    [RemoteKey(typeof(CountryEntity), 
+    [RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] {
         nameof(EmployerId), 
         nameof(OrganizationEntity.HeadquartersAddressId), 
         nameof(AddressEntity.CountryId), 
-        nameof(CountryEntity.Id))]
+        nameof(CountryEntity.Id) })]
     public int? EmployerCountryId { get; set; }
 
     // 3. The Distant Value: Uses the link above to get the Employer's Country Name
-    [RemoteProperty(typeof(CountryEntity), 
+    [RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] {
         nameof(EmployerId), 
         nameof(OrganizationEntity.HeadquartersAddressId), 
         nameof(AddressEntity.CountryId), 
-        nameof(CountryEntity.Name))]
+        nameof(CountryEntity.Name) })]
     public string EmployerCountryName { get; set; }
 
 
@@ -618,22 +695,22 @@ public class PersonEntity
     // ============================================================
 
     // 1. The Link: Defines the relationship to Address
-    [OrmForeignKey(typeof(AddressEntity))]
+    [RemoteLink(targetType: typeof(AddressEntity))]
     public int? HomeAddressId { get; set; }
 
     // 2. The Distant ID: Uses the link above to get the Home Country ID
     // We specify the path here too, ensuring we use HomeAddressId, not EmployerId
-    [RemoteKey(typeof(CountryEntity), 
+    [RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] {
         nameof(HomeAddressId), 
         nameof(AddressEntity.CountryId), 
-        nameof(CountryEntity.Id))]
+        nameof(CountryEntity.Id) })]
     public int? HomeCountryId { get; set; }
 
     // 3. The Distant Value: Home Country Name
-    [RemoteProperty(typeof(CountryEntity), 
+    [RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] {
         nameof(HomeAddressId), 
         nameof(AddressEntity.CountryId), 
-        nameof(CountryEntity.Name))]
+        nameof(CountryEntity.Name) })]
     public string HomeCountryName { get; set; }
 }
 ```
@@ -707,13 +784,103 @@ You define the relationship **once** in your class, and it works automatically e
 
 ```csharp
 // In your class definition:
-[RemoteProperty(typeof(CountryEntity), ..., nameof(CountryEntity.Name))]
+[RemoteProperty(remoteEntityType: typeof(CountryEntity), keyPath: new[] { ..., nameof(CountryEntity.Name) })]
 public string EmployerCountryName { get; set; }
 
 // In your code:
-var person = provider.Get<Person>(1); 
+var person = provider.Get<PersonDetail>(1); 
 // Done. EmployerCountryName is populated. No extra queries, no DTOs.
 ```
+
+### Performance Considerations: The "Light vs. Heavy" Pattern
+
+While `[RemoteKey]` and `[RemoteProperty]` are powerful, they come with a cost: **Every time you query the entity, the ORM generates the necessary LEFT JOINs.**
+
+If you put these attributes on your main `Person` entity, *every* query for a person will join to `Organization`, `Address`, and `Country`. If you just wanted to check the person's name, this is unnecessary overhead.
+
+**The Solution: Inheritance**
+
+We recommend separating your "Physical" entity (matching the table exactly) from your "Logical" or "Detail" entity (containing the rich remote properties).
+
+1.  **Base Entity (`Person`)**: Contains only the columns physically present in the `person` table. Fast, lightweight, no joins.
+2.  **Detail Entity (`PersonDetail`)**: Inherits from `Person` and adds the `[RemoteProperty]` fields.
+
+**Step 1: Define the Base Entity**
+```csharp
+[Table("person")]
+public class Person
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+    
+    // Just the link, no remote properties here
+    [RemoteLink(targetType: typeof(Organization))]
+    public int? EmployerId { get; set; }
+}
+```
+
+**Step 2: Define the Detail Entity**
+```csharp
+// Maps to the SAME table
+[Table("person")]
+public class PersonDetail : Person
+{
+    // Add the expensive remote properties here
+    [RemoteProperty(remoteEntityType: typeof(Country), keyPath: new[] { nameof(Country.Name) })]
+    public string EmployerCountryName { get; set; }
+}
+```
+
+**Step 3: Choose Your Weapon**
+
+```csharp
+// Fast: No joins, just reads the person table
+var simplePerson = provider.Get<Person>(1);
+
+// Rich: Joins to Organization -> Address -> Country automatically
+var richPerson = provider.Get<PersonDetail>(1);
+```
+
+This pattern acts like a **SQL View** defined entirely in code. You get the performance of a raw table read when you need it, and the convenience of a rich object graph when you need that, without duplicating code or managing database views.
+
+---
+
+## Troubleshooting & Error Handling
+
+We try to give you helpful error messages. Here are some you might see and what they mean.
+
+### 1. "The table or view for entity 'MyClass' was not found..." (Error 208)
+**New in v1.7.0**: If you see this, it means we couldn't find a table that matches your class name.
+*   **The Fix**: 
+    *   Check your spelling.
+    *   Check if the table is in a different schema (e.g., `sales.Person`).
+    *   Use the `[Table("ActualTableName")]` attribute on your class.
+    *   We automatically check for `MyClass` and `my_class`.
+
+### 2. "The expression ... is not supported in a Where clause"
+You tried to do something too fancy in your LINQ query that we can't translate to SQL.
+*   **Example**: `Where(p => p.FirstName.GetHashCode() == 123)`
+*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`). If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+
+### 3. "Delete operations must be performed within an active transaction"
+You tried to call `.Delete()` without starting a transaction.
+*   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
+
+### 4. "A WHERE clause (predicate) is required for deletes"
+You tried to delete everything, or used a trivial predicate like `x => true` or `x => 1 == 1`. We stopped you.
+*   **The Fix**: Provide a valid, non-trivial predicate that references at least one column. We explicitly block "delete all" operations to prevent catastrophic data loss.
+    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, execute a raw SQL command.
+
+---
+
+## Deprecations (v1.7.0)
+
+We've cleaned up the API a bit.
+
+*   **Obsolete**: `provider.Query<T>(predicate)`
+    *   **Why?** It encouraged immediate execution (pulling data into memory) which is often a performance trap.
+    *   **Use Instead**: `provider.Query<T>().Where(predicate)`
+    *   **Benefit**: This returns an `IQueryable`-like object, allowing you to chain `OrderBy`, `Select`, or `Count` *before* the SQL is executed.
 
 ---
 

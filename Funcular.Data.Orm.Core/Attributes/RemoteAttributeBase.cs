@@ -9,15 +9,20 @@ namespace Funcular.Data.Orm.Attributes
     public abstract class RemoteAttributeBase : Attribute
     {
         /// <summary>
-        /// The type of the remote entity.
+        /// Gets the type of the remote entity.
         /// </summary>
         public Type RemoteEntityType { get; }
 
         /// <summary>
-        /// The path to the remote key.
+        /// Gets the path to the remote key or property.
         /// </summary>
         public string[] KeyPath { get; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="RemoteAttributeBase"/> class.
+        /// </summary>
+        /// <param name="remoteEntityType">The type of the remote entity.</param>
+        /// <param name="keyPath">The path to the remote key or property.</param>
         protected RemoteAttributeBase(Type remoteEntityType, params string[] keyPath)
         {
             RemoteEntityType = remoteEntityType;

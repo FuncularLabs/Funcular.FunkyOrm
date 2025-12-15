@@ -138,7 +138,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            var initialCount = (await _provider.GetListAsync<Person>()).Count;
+            var initialCount = _provider.Query<Person>().Count();
             var newPerson = new Person
             {
                 FirstName = guid,
@@ -149,7 +149,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 UniqueId = Guid.NewGuid()
             };
             await _provider.InsertAsync(newPerson);
-            var updatedCount = (await _provider.GetListAsync<Person>()).Count;
+            var updatedCount = _provider.Query<Person>().Count();
             Assert.AreEqual(initialCount + 1, updatedCount);
         }
 

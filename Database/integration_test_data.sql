@@ -163,13 +163,13 @@ INSERT INTO @assignments (person_id, addr_num, is_primary)
 SELECT person_id, 2, 0 FROM @shuffled_persons WHERE rn <= 1667;
 
 -- Insert addresses and capture IDs using MERGE to allow outputting source columns
-DECLARE @inserted TABLE (address_id INT, person_id INT);
+DECLARE @inserted TABLE (address_id INT, person_id INT, is_primary BIT);
 MERGE INTO address AS target
 USING (SELECT *, ABS(CHECKSUM(NEWID()) % 10) AS rand_cs FROM @assignments
 ) AS source
 ON 1 = 0 -- Always insert, no matching
 WHEN NOT MATCHED THEN
-    INSERT (line_1, line_2, city, state_code, postal_code, is_primary)
+    INSERT (line_1, line_2, city, state_code, postal_code)
     VALUES (
         CAST(ABS(CHECKSUM(NEWID()) % 9900) + 100 AS NVARCHAR(5)) + N' ' +
         CASE ABS(CHECKSUM(NEWID()) % 20)
@@ -219,12 +219,19 @@ WHEN NOT MATCHED THEN
             WHEN 8 THEN N'CA'
             ELSE N'FL'
         END,
-        CAST(10000 + (ABS(CHECKSUM(NEWID()) % 90000)) AS NVARCHAR(5)),
-        source.is_primary
+        CAST(10000 + (ABS(CHECKSUM(NEWID()) % 90000)) AS NVARCHAR(5))
     )
-OUTPUT inserted.id, source.person_id INTO @inserted;
+OUTPUT inserted.id, source.person_id, source.is_primary INTO @inserted;
 
 
 -- Insert links
-INSERT INTO person_address (person_id, address_id)
-SELECT person_id, address_id FROM @inserted;
+INSERT INTO person_address (person_id, address_id, is_primary, address_type_value)
+SELECT 
+    person_id, 
+    address_id, 
+    is_primary,
+    CASE 
+        WHEN is_primary = 1 THEN 4 -- Home
+        ELSE 2 -- Shipping
+    END
+FROM @inserted;
