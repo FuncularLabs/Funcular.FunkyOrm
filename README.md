@@ -1,11 +1,9 @@
 > **Recent Changes**
-> * **v3.0.0**: Major Refactoring. Introduced `ISqlDialect` for multi-database support. `SqlServerOrmDataProvider` now delegates SQL generation to `SqlServerDialect`. Breaking changes for custom providers inheriting from `SqlServerOrmDataProvider`.
-> * **v3.0.0-beta3**: Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
+> * **v3.0.0-beta3**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]`, `[RemoteProperty]`, and `[RemoteCollection]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
 > * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
 > * **v2.0.0**: Major release. Breaking change to `Query<T>(predicate)`, safety enhancements for Deletes, chained `Where` clauses.
-> * **v1.6.0**: Fix for closure predicates, added CI/CD.
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL

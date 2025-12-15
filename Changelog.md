@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.0.0] - 2025-12-14
+## [3.0.0-beta3] - 2025-12-15
 
 ### Breaking Changes
 - **Provider Architecture**: Refactored `SqlServerOrmDataProvider` to inherit from `OrmDataProvider` and use `ISqlDialect` for SQL generation.
@@ -10,11 +10,11 @@ All notable changes to this project will be documented in this file.
 - **Protected Methods**: Several protected methods in `SqlServerOrmDataProvider` have been updated to use `ISqlDialect`. Custom providers inheriting from this class may need updates.
 
 ### Added
+- **Remote Attributes**: Introduced `[RemoteKey]`, `[RemoteProperty]`, and `[RemoteCollection]` attributes to simplify working with related data.
+  - **RemoteKey**: Maps a property to a column in a related table (e.g., `Person.EmployerName` maps to `Employer.Name`).
+  - **RemoteProperty**: Similar to `RemoteKey` but for non-key properties.
+  - **RemoteCollection**: Automatically populates a collection of related entities (e.g., `Employer.Employees`).
 - **SqlServerDialect**: Implementation of `ISqlDialect` for SQL Server.
-
-## [3.0.0-beta3] - 2025-12-12
-
-### Added
 - **Guid and String Primary Key Support**: Added full support for `Guid` and `String` primary keys.
 - **Non-Identity Key Handling**: The ORM now correctly handles `INSERT` statements for tables with non-identity primary keys (e.g., client-generated Guids), automatically including the PK column in the `INSERT` statement when a value is provided.
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Reflection;
 using Funcular.Data.Orm.Attributes;
@@ -148,9 +149,23 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     throw new Funcular.Data.Orm.Exceptions.AmbiguousMatchException($"Multiple paths found from {sourceType.Name} to {remoteType.Name}: {string.Join(", ", distinctPaths)}");
                 }
+
+                // Prefer paths where intermediate types have [Table] attribute
+                return validPaths.OrderByDescending(p => CountMappedTypes(p)).First();
             }
 
             return validPaths[0];
+        }
+
+        private int CountMappedTypes(ResolvedRemotePath path)
+        {
+            int count = 0;
+            foreach (var join in path.Joins)
+            {
+                if (join.SourceTableType.GetCustomAttribute<TableAttribute>() != null) count++;
+                if (join.TargetTableType.GetCustomAttribute<TableAttribute>() != null) count++;
+            }
+            return count;
         }
 
         private ResolvedRemotePath ResolveExplicit(Type sourceType, Type remoteType, string[] keyPath)
@@ -241,7 +256,8 @@ namespace Funcular.Data.Orm.SqlServer
                     var fks = GetForeignKeys(type);
                     foreach (var fk in fks)
                     {
-                        if (GetForeignKeyTarget(fk) == t)
+                        var target = GetForeignKeyTarget(fk);
+                        if (target != null && (target == t || target.IsAssignableFrom(t)))
                         {
                             incoming.Add(Tuple.Create(type, fk));
                         }

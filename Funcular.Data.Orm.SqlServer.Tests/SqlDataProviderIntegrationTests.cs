@@ -1612,7 +1612,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var query = _provider.Query<Person>();
             query = query.Where(x => selectedFirstNames.Contains(x.FirstName));
             query = query.Where(x => selectedLastNames.Contains(x.LastName));
-            query = query.OrderBy(x => x.LastName);
+            query = query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName);
             query = query.Skip(2);
             query = query.Take(3);
             var results = query.ToList();
@@ -1625,6 +1625,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual("Charlie", results[0].FirstName.Replace(uniqueId, ""));
             Assert.AreEqual("Johnson", results[0].LastName.Replace(uniqueId, ""));
             Assert.AreEqual("Alice", results[1].FirstName.Replace(uniqueId, ""));
+
             Assert.AreEqual("Smith", results[1].LastName.Replace(uniqueId, ""));
             Assert.AreEqual("Bob", results[2].FirstName.Replace(uniqueId, ""));
             Assert.AreEqual("Smith", results[2].LastName.Replace(uniqueId, ""));

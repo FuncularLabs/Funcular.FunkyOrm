@@ -563,39 +563,42 @@ Unlike Entity Framework's `.Include()` or Lazy Loading, FunkyORM does not automa
 
 However, the `[RemoteKey]` feature makes this incredibly simple. By flattening the graph to get the IDs you need, you can populate complex collections with simple, efficient lookups.
 
-**Scenario**: You want to populate a `Countries` collection on `Person` with every country they are associated with (e.g., via their Employer).
+**Scenario**: You want to populate a `Countries` collection on `Person` with every country they have an address in. This involves traversing a many-to-many relationship (`Person` ↔ `PersonAddress` ↔ `Address` ↔ `Country`).
 
-**Step 1: Define the Entity**
+Normally, this would require fetching the intermediate IDs and performing a `Contains()` query (generating a SQL `IN` clause). With `[RemoteKey]`, we can do it in one smart query.
+
+**Step 1: Define the Entities**
 ```csharp
-// We use the Detail entity because we need the RemoteKey to fetch the ID
+// 1. The Main Entity
 public class PersonDetail : Person
 {
-    // The Remote Key gets us the ID automatically
-    [RemoteKey(remoteEntityType: typeof(CountryEntity), keyPath: new[] { nameof(CountryEntity.Id) })]
-    public int? EmployerHeadquartersCountryId { get; set; }
-
-    // The collection is NOT mapped to the database
     [NotMapped]
-    public ICollection<CountryEntity> AssociatedCountries { get; set; } = new List<CountryEntity>();
+    public List<Country> AssociatedCountries { get; set; } = new List<Country>();
+}
+
+// 2. The Related Entity (with a back-reference)
+public class CountryDetail : Country
+{
+    // "Which Person is this Country associated with?"
+    // The ORM automatically finds the path: Country <- Address <- PersonAddress -> Person
+    [RemoteKey(remoteEntityType: typeof(Person), keyPath: new[] { nameof(Person.Id) })]
+    public int PersonId { get; set; }
 }
 ```
 
 **Step 2: Fetch and Populate**
 ```csharp
-// 1. Fetch the person (Remote Key is populated automatically)
-var person = provider.Query<PersonDetail>().First(p => p.Id == 123);
+var personId = 123;
+var person = provider.Get<PersonDetail>(personId);
 
-// 2. Explicitly fetch the related country using the ID we already have
-if (person.EmployerHeadquartersCountryId.HasValue)
-{
-    var country = provider.Query<CountryEntity>()
-        .FirstOrDefault(c => c.Id == person.EmployerHeadquartersCountryId.Value);
-    
-    if (country != null)
-    {
-        person.AssociatedCountries.Add(country);
-    }
-}
+// Fetch all countries associated with this person in one query.
+// We query the *Country* (via CountryDetail), but filter by the *Person's ID*.
+// The ORM handles the complex JOINs automatically.
+var countries = provider.Query<CountryDetail>()
+    .Where(c => c.PersonId == person.Id)
+    .ToList();
+
+person.AssociatedCountries.AddRange(countries);
 ```
 
 **Why is this better?**
