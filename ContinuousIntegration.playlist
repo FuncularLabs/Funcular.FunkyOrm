@@ -10,7 +10,6 @@
               <Property Name="Namespace" Value="Funcular.Data.Orm.SqlServer.Tests" />
               <Rule Match="Any">
                 <Property Name="Class" Value="DocumentationGapTests" />
-                <Property Name="Class" Value="RemoteCollectionTests" />
                 <Property Name="Class" Value="RemoteFeaturesTests" />
                 <Property Name="Class" Value="RemoteKeyIntegrationTests" />
                 <Property Name="Class" Value="RemoteKeyWhereTests" />

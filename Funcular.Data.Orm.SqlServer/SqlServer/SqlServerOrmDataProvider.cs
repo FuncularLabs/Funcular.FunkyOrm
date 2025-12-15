@@ -1102,7 +1102,6 @@ namespace Funcular.Data.Orm.SqlServer
                     var entity = reader.Read() ? MapEntity<T>(reader) : null;
                     if (entity != null)
                     {
-                        // PopulateRemoteCollections(entity); // Disabled in v3.0
                     }
                     return entity;
                 }
@@ -1131,7 +1130,6 @@ namespace Funcular.Data.Orm.SqlServer
                     while (reader.Read())
                     {
                         var entity = MapEntity<T>(reader);
-                        // PopulateRemoteCollections(entity); // Disabled in v3.0
                         results.Add(entity);
                     }
                 }
@@ -1826,89 +1824,6 @@ namespace Funcular.Data.Orm.SqlServer
             return new SqlQueryable<T>(provider);
         }
 
-        private void PopulateRemoteCollections<T>(T entity) where T : class, new()
-        {
-            var props = typeof(T).GetProperties()
-                .Where(p => Attribute.IsDefined(p, typeof(RemoteCollectionAttribute)));
-
-            foreach (var prop in props)
-            {
-                var attr = prop.GetCustomAttribute<RemoteCollectionAttribute>();
-                var remoteType = attr.RemoteEntityType;
-
-                // Resolve path from T to RemoteType
-                var resolver = new RemotePathResolver();
-                // We want path from T (Source) to RemoteType (Target).
-                // Implicit resolution should find it (Person -> PersonAddress -> Address -> Country).
-                var path = resolver.Resolve(typeof(T), remoteType, attr.KeyPath ?? new string[] { "Id" }); // "Id" is dummy target prop
-
-                // Build Query
-                // We want to select RemoteType.*
-                // FROM RemoteType
-                // JOIN ... back to T
-                // WHERE T.Id = entity.Id
-
-                var sb = new StringBuilder();
-                var remoteTableName = GetTableNameByType(remoteType);
-                sb.Append($"SELECT {remoteTableName}.* FROM {remoteTableName}");
-
-                var currentAlias = remoteTableName;
-                var joins = path.Joins.ToList();
-                joins.Reverse();
-
-                // joins is now: RemoteType -> TN, TN -> ... -> T
-                
-                foreach (var step in joins)
-                {
-                    // Step: Source -> Target (Original)
-                    // We are traversing Target -> Source (Reverse)
-                    
-                    var targetTable = GetTableNameByType(step.SourceTableType); // We are joining the 'Source' of the step
-                    var targetAlias = targetTable; 
-                    
-                    var sourceTable = GetTableNameByType(step.TargetTableType); // Where we are coming from (Target of step)
-                    var sourceAlias = sourceTable; 
-                    
-                    string joinCondition;
-                    if (!step.IsReverse) // Original was Fwd: Source.FK = Target.PK
-                    {
-                        // We are at Target. Joining Source.
-                        // ON Source.FK = Target.PK
-                        joinCondition = $"{targetAlias}.{GetCachedColumnName(step.SourceTableType.GetProperty(step.ForeignKeyProperty))} = {sourceAlias}.{GetCachedColumnName(step.TargetTableType.GetProperty(step.TargetKeyProperty))}";
-                    }
-                    else // Original was Rev: Source.PK = Target.FK
-                    {
-                        // We are at Target. Joining Source.
-                        // ON Source.PK = Target.FK
-                        joinCondition = $"{targetAlias}.{GetCachedColumnName(step.SourceTableType.GetProperty(step.ForeignKeyProperty))} = {sourceAlias}.{GetCachedColumnName(step.TargetTableType.GetProperty(step.TargetKeyProperty))}";
-                    }
-                    
-                    sb.Append($" JOIN {targetTable} ON {joinCondition}");
-                }
-
-                // WHERE T.Id = entity.Id
-                var pkProp = GetPrimaryKeyProperty<T>();
-                var pkVal = pkProp.GetValue(entity);
-                sb.Append($" WHERE {GetTableNameByType(typeof(T))}.{GetCachedColumnName(pkProp)} = @Id");
-
-                var parameters = new List<SqlParameter> { new SqlParameter("@Id", pkVal) };
-                
-                // Execute
-                // We need to invoke ExecuteReaderList<TRemote> dynamically because TRemote is known at runtime
-                var method = typeof(SqlServerOrmDataProvider).GetMethod("ExecuteReaderList", BindingFlags.Instance | BindingFlags.NonPublic)
-                    .MakeGenericMethod(remoteType);
-                
-                using (var command = BuildSqlCommandObject(sb.ToString(), Connection, parameters))
-                {
-                    var result = method.Invoke(this, new object[] { command });
-                    
-                    // Set property
-                    // Property type is ICollection<TRemote> or List<TRemote>
-                    // result is ICollection<TRemote> (actually List<TRemote>)
-                    prop.SetValue(entity, result);
-                }
-            }
-        }
 
         private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, t =>
             Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));

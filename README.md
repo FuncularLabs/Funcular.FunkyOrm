@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v3.0.0-beta3**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]`, `[RemoteProperty]`, and `[RemoteCollection]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
+> * **v3.0.0-beta3**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
 > * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
