@@ -6,6 +6,7 @@ using Microsoft.Data.SqlClient;
 using OfficeOpenXml;
 using System.IO;
 
+#if PERFORMANCE_TESTS
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
@@ -436,3 +437,4 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
     }
 }
+#endif

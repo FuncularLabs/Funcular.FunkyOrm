@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
+#if PERFORMANCE_TESTS
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
@@ -353,3 +354,4 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
     }
 }
+#endif

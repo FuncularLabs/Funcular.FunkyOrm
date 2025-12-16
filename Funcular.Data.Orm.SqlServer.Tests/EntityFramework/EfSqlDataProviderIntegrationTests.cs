@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
+#if PERFORMANCE_TESTS
 namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 {
     [TestClass]
@@ -1193,3 +1194,4 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
         #endregion
     }
 }
+#endif

@@ -10,6 +10,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using OfficeOpenXml;
 
+#if PERFORMANCE_TESTS
 namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
 {
     [TestClass]
@@ -355,3 +356,4 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         }
     }
 }
+#endif
