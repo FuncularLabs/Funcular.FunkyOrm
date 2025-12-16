@@ -5,6 +5,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
+#if PERFORMANCE_TESTS
 namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
 {
     /// <summary>
@@ -343,3 +344,4 @@ namespace Funcular.Data.Orm.SqlServer.Tests.EntityFramework
         public DateTime DateUtcModified { get; set; }
     }
 }
+#endif
