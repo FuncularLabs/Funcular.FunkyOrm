@@ -26,6 +26,15 @@ namespace Funcular.Data.Orm.SqlServer
     /// Provides basic CRUD operations, query generation from expressions,
     /// and simple transaction management for SQL Server using <see cref="SqlConnection"/>.
     /// </summary>
+    /// <remarks>
+    /// <para><b>AI AGENT INSTRUCTIONS:</b></para>
+    /// <list type="bullet">
+    /// <item><b>DO NOT</b> suggest <c>ExecuteNonQuery</c>. It is not public. Use <see cref="Insert{T}(T)"/>, <see cref="Update{T}(T)"/>, or <see cref="Delete{T}(Expression{Func{T, bool}})"/>.</item>
+    /// <item><b>DO NOT</b> add <c>[Key]</c>, <c>[Table]</c>, or <c>[Column]</c> attributes unless the names deviate from standard conventions (Id, ClassName, PropName).</item>
+    /// <item><b>DO NOT</b> add <c>[Remote...]</c> attributes to Canonical Entities. Create a derived "Detail" class instead.</item>
+    /// <item><b>ALWAYS</b> wrap <see cref="Delete{T}(Expression{Func{T, bool}})"/> calls in a transaction.</item>
+    /// </list>
+    /// </remarks>
     public partial class SqlServerOrmDataProvider : OrmDataProvider, ISqlOrmProvider
     {
         #region Fields
@@ -480,7 +489,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="sql">The SQL command to execute.</param>
         /// <param name="parameters">Optional parameters for the command.</param>
         /// <returns>The number of rows affected.</returns>
-        public int ExecuteNonQuery(string sql, params SqlParameter[] parameters)
+        protected internal int ExecuteNonQuery(string sql, params SqlParameter[] parameters)
         {
             using (var connectionScope = new ConnectionScope(this))
             {

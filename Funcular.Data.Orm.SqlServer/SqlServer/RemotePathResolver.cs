@@ -237,7 +237,22 @@ namespace Funcular.Data.Orm.SqlServer
             }
 
             if (currentType != remoteType)
-                throw new PathNotFoundException($"Explicit path ended at {currentType.Name}, expected {remoteType.Name}");
+            {
+                // Check for duplicate class names in different namespaces/assemblies to provide a helpful hint
+                var currentName = currentType.Name;
+                var remoteName = remoteType.Name;
+                string hint = "";
+
+                if (currentName == remoteName && currentType != remoteType)
+                {
+                    hint = $"\n\nHINT: You have two different classes named '{currentName}'.\n" +
+                           $"1. {currentType.FullName} (in {currentType.Assembly.GetName().Name})\n" +
+                           $"2. {remoteType.FullName} (in {remoteType.Assembly.GetName().Name})\n" +
+                           $"FunkyORM strongly recommends using unique names for DTOs and ViewModels (e.g., '{currentName}Dto', '{currentName}View') to avoid this ambiguity.";
+                }
+
+                throw new PathNotFoundException($"Explicit path ended at {currentType.FullName} ({currentType.Assembly.GetName().Name}), expected {remoteType.FullName} ({remoteType.Assembly.GetName().Name}).{hint}");
+            }
 
             var targetPropName = keyPath.Last();
             var targetProp = remoteType.GetProperty(targetPropName);
@@ -304,7 +319,19 @@ namespace Funcular.Data.Orm.SqlServer
             var types = GetAssemblyTypes(p.DeclaringType.Assembly);
 
             // Try exact match
-            var type = types.FirstOrDefault(t => t.Name == name);
+            var exactMatches = types.Where(t => t.Name == name).ToList();
+            Type type = null;
+
+            if (exactMatches.Count == 1)
+            {
+                type = exactMatches[0];
+            }
+            else if (exactMatches.Count > 1)
+            {
+                // Prefer same namespace
+                // Fallback to first if no namespace match
+                type = exactMatches.FirstOrDefault(t => t.Namespace == p.DeclaringType.Namespace) ?? exactMatches[0];
+            }
             
             // Try suffix match (e.g. EmployerOrganizationId -> Organization)
             if (type == null)

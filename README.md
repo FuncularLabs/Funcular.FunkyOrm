@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v3.0.1-beta1**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling. Performance tests are now separated from the main test suite.
+> * **v3.0.1**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling. Performance tests are now separated from the main test suite.
 > * **v2.3.2**: Published package icon update.
 > * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
 > * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
@@ -14,6 +14,11 @@
 [![CI status](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=CI)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
+
+> **🤖 For AI Agents**: Please refer to [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is also included in the NuGet package.
+>
+> **💡 Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `COPILOT_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder.
+
 ## Overview
 
 Welcome to **Funcular ORM** (aka FunkyORM), the micro-ORM designed for developers who want the **speed** of a micro-ORM with the **simplicity** and **type safety** of LINQ.

@@ -15,8 +15,20 @@ Look, we get it. You've got choices.
 *   **Auto-Inference**: Name your table `Person` and your class `Person`. We'll figure it out. Name your column `first_name` and your property `FirstName`. We'll figure that out too.
 *   **Forgiving Mapping**: Got a property in your class that isn't in the database? We ignore it. Got a column in the database that isn't in your class? We ignore that too. No more crashing because you added a helper property to your view model.
 
-### Naming Conventions
+### Modeling Data: The Funcular Way
+We have strong opinions on how to model your data for maximum performance and minimal code.
+
+1.  **Canonical Entities**: Create one "source of truth" class for each table (e.g., `Person`). Keep it clean. **Do not** add `[Remote...]` attributes to this class, as that forces JOINs on every query.
+2.  **Inheritance for Extensions**: If you need the full `Person` record *plus* some related data (e.g., `EmployerName`), create a derived class (e.g., `PersonDetail : Person`) and add the attributes there.
+3.  **DTOs for "Wide" Tables**: If you have a table with 50 columns but only need 3 for a dropdown list, **do not inherit**. Create a small DTO (e.g., `PersonSummary`), add `[Table("Person")]`, and include only the 3 properties you need. This keeps your queries lean.
+4.  **Minimize Attributes**: Don't clutter your code with `[Column]` or `[Key]` unless our conventions fail you. If you do add them, please comment *why*.
+
+### Naming Conventions & Canonical Entities
 We strongly encourage following standard naming conventions. If you do, FunkyORM works with zero configuration.
+
+**Crucial Rule**: Avoid reusing class names for different purposes (e.g., a `Department` entity and a `Department` DTO). This confuses the relationship inference engine.
+*   **Canonical Entities**: Have one "source of truth" class for each table (e.g., `Department`).
+*   **Suffixes**: For other models, use suffixes like `Dto`, `View`, `ViewModel`, `Summary` (e.g., `DepartmentDto`, `DepartmentView`).
 
 *   **Tables**: We automatically match your class name to a table name.
     *   **Class**: `Person` -> **Table**: `Person`, `person`, `PERSON`
@@ -68,20 +80,11 @@ Funcular ORM is designed to be fast. In our benchmarks, it performed significant
 
 While FunkyORM is designed to be forgiving, there are a few things to watch out for:
 
-1.  **Reserved Words in Raw SQL**: While we handle reserved words in our generated queries, if you write raw SQL using `ExecuteNonQuery` or similar methods, you are responsible for escaping reserved words yourself.
-    ```csharp
-    // BAD: 'User' is a reserved word
-    provider.ExecuteNonQuery("DELETE FROM User WHERE Id = @Id", new { Id = 1 });
+1.  **Case Sensitivity in Manual Mapping**: If you use `[Column("Name")]` attributes, ensure the name matches the database column exactly if your database collation is case-sensitive. While our auto-discovery is case-insensitive, explicit attributes are taken literally in some contexts.
 
-    // GOOD: Enclose it in brackets
-    provider.ExecuteNonQuery("DELETE FROM [User] WHERE Id = @Id", new { Id = 1 });
-    ```
+2.  **Schema Changes**: If you change your database schema (e.g., rename a column), remember to restart your application. FunkyORM caches schema information at startup for performance. It won't know about schema changes until the application restarts or you manually clear the cache.
 
-2.  **Case Sensitivity in Manual Mapping**: If you use `[Column("Name")]` attributes, ensure the name matches the database column exactly if your database collation is case-sensitive. While our auto-discovery is case-insensitive, explicit attributes are taken literally in some contexts.
-
-3.  **Schema Changes**: If you change your database schema (e.g., rename a column), remember to restart your application. FunkyORM caches schema information at startup for performance. It won't know about schema changes until the application restarts or you manually clear the cache.
-
-4.  **Complex LINQ Queries**: We support a subset of LINQ optimized for SQL generation. Highly complex in-memory operations (like custom method calls inside a `.Where()` clause) may not translate to SQL. Keep your predicates simple and focused on data filtering.
+3.  **Complex LINQ Queries**: We support a subset of LINQ optimized for SQL generation. Highly complex in-memory operations (like custom method calls inside a `.Where()` clause) may not translate to SQL. Keep your predicates simple and focused on data filtering.
 
 ---
 
@@ -114,6 +117,7 @@ Just plain old C# classes (POCOs).
 public class Person
 {
     // Maps to "Id", "id", "PersonId", "person_id", etc.
+    // No [Key] attribute needed - "Id" is standard convention.
     public int Id { get; set; } 
     
     // Maps to "FirstName", "first_name", "FIRST_NAME"
@@ -142,9 +146,15 @@ public class UserRole
 
 If your names don't match our conventions, use attributes:
 ```csharp
+/// <summary>
+/// Table name 'tbl_Employees' does not match class name 'Employee'.
+/// </summary>
 [Table("tbl_Employees")]
 public class Employee
 {
+    /// <summary>
+    /// Column 'emp_id' does not match property 'EmployeeId' or standard conventions.
+    /// </summary>
     [Column("emp_id")]
     [Key] // Explicitly mark the primary key if we can't guess it
     public int EmployeeId { get; set; }
@@ -263,7 +273,7 @@ catch
 This is where FunkyORM shines. You write C#, we write SQL.
 
 ### Basic Filtering (`Where`)
-**New in v1.7.0**: You can now chain `.Where()` calls!
+**New in v2.0.0**: You can now chain `.Where()` calls!
 
 ```csharp
 // Simple
@@ -429,8 +439,18 @@ int newId = await provider.InsertAsync<Person, int>(newPerson);
 // Async Update
 await provider.UpdateAsync(existingPerson);
 
-// Async Delete
-await provider.DeleteAsync<Person>(p => p.Id == 1);
+// Async Delete (transaction required!)
+provider.BeginTransaction();
+try
+{
+    await provider.DeleteAsync<Person>(p => p.Id == 1);
+    provider.CommitTransaction();
+}
+catch
+{
+    provider.RollbackTransaction();
+    throw;
+}
 ```
 
 ---
@@ -482,7 +502,7 @@ public class PersonDetail : Person
 ### 2. `[RemoteLink]` — Defining Relationships
 **"This property connects me to another table."**
 
-> **⚠️ BREAKING CHANGE NOTICE (v3.0.0-beta3)**: Renamed from `[OrmForeignKey]`.
+> **Note**: This attribute was introduced in v3.0.1 as `[RemoteLink]`.
 
 Use this when a foreign key property name doesn't follow the standard `[EntityName]Id` convention. It tells the ORM how to "walk" from one table to another.
 
@@ -869,7 +889,8 @@ You tried to call `.Delete()` without starting a transaction.
 ### 4. "A WHERE clause (predicate) is required for deletes"
 You tried to delete everything, or used a trivial predicate like `x => true` or `x => 1 == 1`. We stopped you.
 *   **The Fix**: Provide a valid, non-trivial predicate that references at least one column. We explicitly block "delete all" operations to prevent catastrophic data loss.
-    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, execute a raw SQL command.
+    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
+    *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.
 
 ---
 
