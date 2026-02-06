@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.1] - 2025-02-05
+
+Official release of v3.0.1. No changes from beta1.
+
 ## [3.0.1-beta1] - 2025-12-15
 
 ### Breaking Changes
