@@ -36,6 +36,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
 *   **Explicit Collection Population**: Leverage `RemoteKey` properties to easily populate related collections without the overhead of massive object graphs or N+1 queries.
 *   **Cached Reflection**: Funcular ORM caches reflection results to minimize overhead and maximize performance.
+*   **Nullable-Friendly**: Nullable properties work seamlessly in LINQ queries—no need for `.Value` or `.HasValue`. The ORM handles the unwrapping for you.
 
     
 ## Getting Started

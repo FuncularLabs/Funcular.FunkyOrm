@@ -69,6 +69,12 @@ A "Canonical Entity" (e.g., `Person`) represents the table structure exactly.
 *   **Strategy**: We automatically detect and bracket reserved words (e.g., `[User]`, `[Order]`) in the SQL generation layer.
 *   **Agent Instruction**: Do not manually escape table or column names in code or documentation unless writing raw SQL (which you shouldn't be doing).
 
+### 7. Nullable Property Handling
+*   **Behavior**: The ORM automatically unwraps nullable types during SQL translation. It treats `int?` the same as `int` in generated SQL.
+*   **Rule**: Do NOT use `.Value` or `.HasValue` on nullable properties in LINQ expressions. They are translated literally as SQL column names (e.g., `HospitalId.Value`), producing invalid SQL.
+*   **Rule**: When using `List<T>.Contains()` with a nullable entity property, cast the list to `List<T?>` rather than unwrapping the property with `.Value`.
+*   **Agent Instruction**: Always use nullable properties directly in predicates (e.g., `p => p.HospitalId == 5`, not `p => p.HospitalId.Value == 5`).
+
 ## Code Generation Rules for Agents
 
 1.  **Comments are Mandatory**: When applying attributes, you must explain *why*.

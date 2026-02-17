@@ -27,6 +27,19 @@ You are assisting a developer using **Funcular.FunkyOrm**. This framework follow
 4.  **NO `[Remote...]` on Canonical Entities**: Adding remote attributes to base entities forces JOINs on every query.
     *   *Correct*: Use inheritance (`PersonDetail : Person`) for rich data.
 
+5.  **NO `.Value` or `.HasValue` on Nullable Properties in LINQ**: The ORM automatically unwraps nullable types. Using `.Value` or `.HasValue` generates invalid SQL (e.g., column name `HospitalId.Value`).
+    *   *Correct*: Use the nullable property directly: `p => p.HospitalId == 5`
+    *   *Wrong*: `p => p.HospitalId.Value == 5` or `p => p.HospitalId.HasValue`
+    *   *Contains with nullable*: Cast the list to match the nullable type, not the property:
+        ```csharp
+        var hospitalIds = new List<int> { 1, 2, 3 };
+        // Correct: Cast the list to match the nullable property type
+        var nullable = hospitalIds.Cast<int?>().ToList();
+        provider.Query<Rep>().Where(r => nullable.Contains(r.HospitalId)).ToList();
+        // Wrong: Unwrapping the property to match the list
+        provider.Query<Rep>().Where(r => hospitalIds.Contains(r.HospitalId.Value)).ToList();
+        ```
+
 ---
 
 ## ?? Code Generation Requirements
@@ -148,6 +161,8 @@ catch
     var ids = new[] { 1, 2, 3 };
     var results = provider.Query<Person>().Where(p => ids.Contains(p.Id)).ToList();
     ```
+
+*   **Nullable Properties in Queries**: The ORM automatically unwraps nullables. Do NOT use `.Value` or `.HasValue`—use the property directly. When using `list.Contains()` with a nullable entity property, cast the list to the nullable type (see Critical Rule #5 above).
 
 *   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on strings.
 

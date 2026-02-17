@@ -142,7 +142,25 @@ namespace Funcular.Data.Orm.Visitors
                         }
 
                         var itemArgumentIndex = node.Object != null ? 0 : 1;
-                        if (node.Arguments[itemArgumentIndex] is MemberExpression memberExpression)
+                        var itemArgument = node.Arguments[itemArgumentIndex];
+
+                        // Detect .Value unwrap inside Contains (e.g., list.Contains(p.HospitalId.Value))
+                        if (itemArgument is MemberExpression valueUnwrap &&
+                            valueUnwrap.Member.Name == "Value" &&
+                            valueUnwrap.Expression is MemberExpression innerProp &&
+                            innerProp.Expression is ParameterExpression &&
+                            Nullable.GetUnderlyingType(innerProp.Type) != null)
+                        {
+                            var propName = innerProp.Member.Name;
+                            var underlyingType = Nullable.GetUnderlyingType(innerProp.Type).Name;
+                            throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(
+                                $"Do not use '.Value' to unwrap nullable property '{propName}' inside Contains(). " +
+                                $"FunkyORM automatically unwraps nullable types. " +
+                                $"Instead, cast your collection to match the nullable type: " +
+                                $"myList.Cast<{underlyingType}?>().ToList().Contains(p.{propName})");
+                        }
+
+                        if (itemArgument is MemberExpression memberExpression)
                         {
                             var propertyInfo = memberExpression.Member as PropertyInfo;
                             if (propertyInfo == null)

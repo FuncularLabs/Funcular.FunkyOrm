@@ -86,6 +86,37 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
 
 3.  **Complex LINQ Queries**: We support a subset of LINQ optimized for SQL generation. Highly complex in-memory operations (like custom method calls inside a `.Where()` clause) may not translate to SQL. Keep your predicates simple and focused on data filtering.
 
+4.  **Nullable Properties in LINQ Expressions**: FunkyORM automatically unwraps nullable types during SQL translation. Do **not** use `.Value` or `.HasValue` in your LINQ expressions—the ORM translates them literally as SQL column names (e.g., `HospitalId.Value`), which produces invalid SQL. Use the nullable property directly instead.
+
+    ```csharp
+    // GOOD: Use the nullable property directly
+    var results = provider.Query<Person>()
+        .Where(p => p.HospitalId == 5)
+        .ToList();
+
+    // BAD: .Value generates invalid SQL column name "HospitalId.Value"
+    var results = provider.Query<Person>()
+        .Where(p => p.HospitalId.Value == 5)
+        .ToList();
+    ```
+
+    When using `List<int>.Contains()` with a nullable entity property, cast the list to match the nullable type rather than unwrapping the property:
+
+    ```csharp
+    var hospitalIds = new List<int> { 1, 2, 3 };
+
+    // GOOD: Cast the list to match the nullable property type
+    var nullableIds = hospitalIds.Cast<int?>().ToList();
+    var results = provider.Query<Person>()
+        .Where(p => nullableIds.Contains(p.HospitalId))
+        .ToList();
+
+    // BAD: Unwrapping the property to match the list
+    var results = provider.Query<Person>()
+        .Where(p => hospitalIds.Contains(p.HospitalId.Value))
+        .ToList();
+    ```
+
 ---
 
 ## Getting Started

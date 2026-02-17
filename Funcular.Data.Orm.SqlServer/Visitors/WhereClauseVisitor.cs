@@ -161,6 +161,36 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         private void VisitMember(MemberExpression node)
         {
+            // Detect .HasValue on nullable entity properties (e.g., p.HospitalId.HasValue)
+            // This always produces invalid SQL; guide the developer to use "p.Prop != null" or "p.Prop == null".
+            if (node.Member.Name == "HasValue" &&
+                node.Expression is MemberExpression hasValueInner &&
+                hasValueInner.Expression is ParameterExpression &&
+                Nullable.GetUnderlyingType(hasValueInner.Type) != null)
+            {
+                var propName = hasValueInner.Member.Name;
+                throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(
+                    $"Do not use '.HasValue' on nullable property '{propName}' in LINQ expressions. " +
+                    $"FunkyORM automatically unwraps nullable types. " +
+                    $"Use '{propName} != null' (IS NOT NULL) or '{propName} == null' (IS NULL) instead.");
+            }
+
+            // Detect .Value on nullable entity properties used directly in comparisons
+            // (e.g., p.HospitalId.Value == 5). Allow .Value only as an intermediate for date
+            // member chains (e.g., p.Birthdate.Value.Year), which are handled below.
+            if (node.Member.Name == "Value" &&
+                node.Expression is MemberExpression valueInner &&
+                valueInner.Expression is ParameterExpression &&
+                Nullable.GetUnderlyingType(valueInner.Type) != null)
+            {
+                var propName = valueInner.Member.Name;
+                throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(
+                    $"Do not use '.Value' on nullable property '{propName}' in LINQ expressions. " +
+                    $"FunkyORM automatically unwraps nullable types. " +
+                    $"Use '{propName}' directly (e.g., p.{propName} == 5 instead of p.{propName}.Value == 5). " +
+                    $"For date parts, use p.{propName}.Value.Year / .Month / .Day which are translated to SQL YEAR()/MONTH()/DAY().");
+            }
+
             // Column mapping for parameter-member (e.g., x.RepId)
             if (node.Expression is ParameterExpression)
             {
