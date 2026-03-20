@@ -1,0 +1,709 @@
+# SQLite Provider Implementation Plan
+
+> **Goal**: Create a `Funcular.Data.Orm.Sqlite` provider with feature parity to `Funcular.Data.Orm.SqlServer`, including a complete test suite.
+
+---
+
+## 1. Architecture Overview
+
+The SQLite provider will follow the same architecture as the SQL Server provider:
+
+```
+Funcular.Data.Orm.Core          (existing, shared)
+    ??? IOrmDataProvider         - Core CRUD contract
+    ??? ISqlOrmProvider          - ADO.NET connection/transaction contract
+    ??? ISqlDialect              - Dialect-specific SQL generation
+    ??? OrmDataProvider          - Abstract base with reflection caching
+
+Funcular.Data.Orm.Sqlite        (NEW project)
+    ??? Sqlite/
+    ?   ??? SqliteOrmDataProvider.cs       - Main provider (mirrors SqlServerOrmDataProvider)
+    ?   ??? SqliteDialect.cs               - ISqlDialect for SQLite syntax
+    ?   ??? SqliteQueryComponents.cs       - Query component container (SQLite parameters)
+    ?   ??? SqliteQueryComponents.cs       - Internal query components (paging, aggregates)
+    ?   ??? SqliteLinqQueryProvider.cs      - IQueryProvider for LINQ-to-SQL translation
+    ?   ??? SqliteQueryable.cs             - IOrderedQueryable<T> wrapper
+    ?   ??? RemotePathResolver.cs          - Reuse from SqlServer or shared (no changes)
+    ??? Visitors/
+    ?   ??? SqliteWhereClauseVisitor.cs    - Adapted for SQLite parameter types
+    ?   ??? SqliteExpressionTranslator.cs  - Adapted for SQLite syntax differences
+    ?   ??? SqliteParameterGenerator.cs    - Uses SqliteParameter instead of SqlParameter
+    ?   ??? SqliteOrderByClauseVisitor.cs  - Likely minimal changes
+    ?   ??? SqliteSelectClauseVisitor.cs   - Adapted for SQLite CASE/aggregate syntax
+    ??? Exceptions/
+    ?   ??? RemoteKeyExceptions.cs         - Reuse or share from Core
+    ??? ExtensionMethods.cs
+
+Funcular.Data.Orm.Sqlite.Tests  (NEW test project)
+    ??? Domain/                             - Mirror SqlServer test entities
+    ?   ??? Entities/
+    ?   ?   ??? Person/
+    ?   ?   ?   ??? PersonEntity.cs
+    ?   ?   ?   ??? PersonDetailEntity.cs
+    ?   ?   ?   ??? PersonAddressEntity.cs
+    ?   ?   ?   ??? PersonAddressDetailEntity.cs
+    ?   ?   ??? Address/
+    ?   ?   ?   ??? AddressEntity.cs
+    ?   ?   ?   ??? AddressDetailEntity.cs
+    ?   ?   ??? Organization/
+    ?   ?   ?   ??? OrganizationEntity.cs
+    ?   ?   ?   ??? OrganizationDetailEntity.cs
+    ?   ?   ??? Country/
+    ?   ?   ?   ??? CountryEntity.cs
+    ?   ?   ??? PersistenceStateEntity.cs
+    ?   ??? Objects/
+    ?   ?   ??? Person/Person.cs
+    ?   ?   ??? Address/Address.cs
+    ?   ?   ??? User/User.cs
+    ?   ?   ??? NonIdentityGuidEntity.cs
+    ?   ?   ??? NonIdentityStringEntity.cs
+    ?   ??? Enums/
+    ?       ??? AddressType.cs
+    ??? TestDataSeeder.cs                   - C# helper to seed realistic test data via provider Insert<T>()
+    ??? SqliteDataProviderIntegrationTests.cs
+    ??? SqliteDataProviderIntegrationAsyncTests.cs
+    ??? SqliteDataProviderPerformanceTests.cs
+    ??? RemoteFeaturesTests.cs
+    ??? RemoteKeyIntegrationTests.cs
+    ??? RemoteKeyWhereTests.cs
+    ??? RemoteKeyReverseTests.cs
+    ??? RichRelationshipTests.cs
+    ??? DocumentationGapTests.cs
+
+Database/                               (REORGANIZED - see Section 11)
+    ??? README.md                         - Updated instructions for both providers
+    ??? SqlServer/
+    ?   ??? integration_test_db.sql       - Existing DDL (moved from Database/)
+    ?   ??? integration_test_data.sql     - Existing seed data (moved from Database/)
+    ??? Sqlite/
+        ??? integration_test_db.sql       - NEW: SQLite-compatible DDL
+        ??? integration_test_data.sql     - NEW: Small representative seed dataset (flat INSERTs)
+```
+
+---
+
+## 2. SQL Dialect Differences (SQL Server vs SQLite)
+
+### 2.1 Identifier Quoting
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Identifier delimiters | `[name]` | `"name"` or `` `name` `` |
+| Reserved word handling | `[Order]` | `"Order"` |
+
+**Action**: `SqliteDialect.EncloseIdentifier()` must use double-quote (`"name"`) instead of square brackets.
+
+### 2.2 INSERT with Identity Return
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Identity return | `OUTPUT INSERTED.Id` | `RETURNING id` (SQLite 3.35+) or `SELECT last_insert_rowid()` |
+| Auto-increment | `IDENTITY(1,1)` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
+
+**Action**: `SqliteDialect.BuildInsertCommand()` must use `RETURNING` clause instead of `OUTPUT INSERTED`.
+
+**Fallback**: For SQLite versions < 3.35, use `SELECT last_insert_rowid()` as a secondary execute after the insert. Prefer `RETURNING` as `Microsoft.Data.Sqlite` supports it (>= SQLite 3.35 bundled).
+
+### 2.3 UPDATE Command
+
+No significant differences. Standard `UPDATE ... SET ... WHERE ...` syntax works in both.
+
+### 2.4 DELETE Command
+
+No significant differences. Standard `DELETE FROM ... WHERE ...` syntax works in both.
+
+### 2.5 SELECT / Paging
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Top N | `SELECT TOP N` | `LIMIT N` (at end) |
+| Paging | `OFFSET x ROWS FETCH NEXT y ROWS ONLY` | `LIMIT y OFFSET x` |
+
+**Action**: `SqliteLinqQueryProvider` must generate `LIMIT`/`OFFSET` at the end of the query instead of SQL Server's `TOP`/`OFFSET...FETCH` syntax.
+
+### 2.6 Data Types
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| GUID storage | `UNIQUEIDENTIFIER` | `TEXT` (stored as string) |
+| Boolean | `BIT` | `INTEGER` (0/1) |
+| DateTime | `DATETIME`/`DATETIME2` | `TEXT` (ISO8601) or `REAL` (Julian) or `INTEGER` (Unix) |
+| String types | `NVARCHAR(N)` | `TEXT` |
+
+**Action**: The entity mapper (`MapEntity<T>`) in `SqliteOrmDataProvider` must handle SQLite's type affinity. Specifically:
+- GUIDs stored as TEXT must be parsed via `Guid.Parse()`
+- Booleans stored as INTEGER must be converted (`0` = false, non-zero = true)
+- DateTimes stored as TEXT must be parsed
+
+### 2.7 Parameters
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Parameter type | `SqlParameter` with `SqlDbType` | `SqliteParameter` with `SqliteType` |
+| Null handling | `DBNull.Value` | `DBNull.Value` (same) |
+
+**Action**: All visitor classes and `ParameterGenerator` must use `Microsoft.Data.Sqlite.SqliteParameter` and `Microsoft.Data.Sqlite.SqliteType`.
+
+### 2.8 Aggregates
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| `CASE WHEN EXISTS` | Supported | Supported |
+| `COUNT(*)` | Supported | Supported |
+| `AVG`, `MIN`, `MAX`, `SUM` | Supported | Supported |
+
+No significant differences for aggregate query generation.
+
+### 2.9 Schema Discovery
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Schema query | `SELECT * FROM table` with `SchemaOnly` | `PRAGMA table_info(table)` or `SELECT * FROM table` with `SchemaOnly` |
+| Column schema API | `reader.GetColumnSchema()` (.NET 8+) | `reader.GetSchemaTable()` |
+
+**Action**: `DiscoverColumns<T>()` should use `PRAGMA table_info(tablename)` or `SELECT * FROM tablename LIMIT 0` with `reader.GetSchemaTable()`.
+
+### 2.10 Transaction Isolation
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Default isolation | `ReadCommitted` | `Serializable` (default) or `ReadUncommitted` (with WAL) |
+
+**Action**: SQLite uses `BEGIN TRANSACTION` (Serializable by default). The `BeginTransaction` method can use `IsolationLevel.Serializable` or accept whatever the caller specifies. `Microsoft.Data.Sqlite` supports `IsolationLevel.ReadUncommitted` and `Serializable`.
+
+### 2.11 Error Handling
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Exception type | `SqlException` with error numbers (e.g., 208 = table not found) | `SqliteException` with SQLite error codes |
+| Table not found | Error number 208 | SQLite error code 1 (`SQLITE_ERROR`) with message containing "no such table" |
+
+**Action**: `HandleSqlException<T>` equivalent must catch `SqliteException` and check for "no such table" in the message.
+
+### 2.12 Reserved Words
+
+SQLite has a different (smaller) set of reserved words. Key overlapping ones: `ORDER`, `GROUP`, `SELECT`, `TABLE`, `INDEX`, `KEY`, etc.
+
+**Action**: Populate `SqliteDialect._reservedWords` with SQLite-specific reserved keywords.
+
+### 2.13 String Comparisons
+
+| Feature | SQL Server | SQLite |
+|---------|-----------|--------|
+| Default collation | Case-insensitive (depends on collation) | Case-sensitive for `=`, case-insensitive for `LIKE` |
+
+**Note**: This may cause test behavior differences. Tests that rely on case-insensitive `=` comparisons may need `COLLATE NOCASE` in SQLite.
+
+---
+
+## 3. Shared vs Provider-Specific Code
+
+### 3.1 Code That Can Be Reused Directly
+
+| Component | Notes |
+|-----------|-------|
+| `Funcular.Data.Orm.Core` (entire project) | All interfaces, base class, attributes - no changes needed |
+| `RemotePathResolver.cs` | BFS resolution is database-agnostic; copy or share |
+| `RemoteKeyExceptions.cs` | Exception types are database-agnostic; copy or share |
+| `BaseExpressionVisitor<T>` | Base class is parameter-type-agnostic |
+| `SqlQueryable<T>` | Generic `IOrderedQueryable<T>` wrapper - copy with namespace change |
+
+### 3.2 Code That Requires Adaptation
+
+| Component | SQL Server Dependency | SQLite Change Required |
+|-----------|----------------------|----------------------|
+| `SqlServerOrmDataProvider` | `SqlConnection`, `SqlCommand`, `SqlDataReader`, `SqlParameter` | Replace with `SqliteConnection`, `SqliteCommand`, `SqliteDataReader`, `SqliteParameter` |
+| `SqlServerDialect` | `SqlParameter`, `[bracket]` quoting, `OUTPUT INSERTED` | Replace with `SqliteParameter`, `"double-quote"` quoting, `RETURNING` |
+| `WhereClauseVisitor<T>` | `List<SqlParameter>`, `SqlParameter` | Replace with `SqliteParameter` |
+| `SqlExpressionTranslator` | `SqlParameter` | Replace with `SqliteParameter` |
+| `ParameterGenerator` | `SqlParameter`, `SqlDbType` | Replace with `SqliteParameter`, `SqliteType` |
+| `OrderByClauseVisitor<T>` | No SQL Server types used directly | May work as-is, review |
+| `SelectClauseVisitor<T>` | `SqlParameter` | Replace with `SqliteParameter` |
+| `SqlQueryComponents<T>` | `List<SqlParameter>` | Replace with `List<SqliteParameter>` |
+| `QueryComponents` | `List<SqlParameter>` | Replace with `List<SqliteParameter>` |
+| `SqlLinqQueryProvider<T>` | `SqlServerOrmDataProvider`, `SqlParameter`, `TOP`/`OFFSET...FETCH` | Replace with `SqliteOrmDataProvider`, `SqliteParameter`, `LIMIT`/`OFFSET` |
+| `ExtensionMethods` | `SqlParameterCollection` | Replace with `SqliteParameterCollection` (if exists) or omit |
+| `ConnectionScope` | `SqlServerOrmDataProvider` reference | Replace with `SqliteOrmDataProvider` reference |
+
+### 3.3 Refactoring Opportunity (Future)
+
+Consider extracting shared abstractions to `Funcular.Data.Orm.Core`:
+- Generic `IParameterGenerator` interface
+- Generic visitor base classes that take `IDbDataParameter` instead of `SqlParameter`
+- This would allow future providers (PostgreSQL, MySQL) to share even more code
+
+**NOTE**: This refactoring is **out of scope** for this plan. The SQLite provider will be a parallel implementation (copy + adapt), consistent with the current SQL Server approach.
+
+---
+
+## 4. Implementation Steps
+
+### Phase 1: Project Setup
+
+#### Step 1.1: Create `Funcular.Data.Orm.Sqlite` Project
+- Target frameworks: `net8.0;netstandard2.0` (match SqlServer project minus `net48` since `Microsoft.Data.Sqlite` doesn't target net48 well)
+- NuGet dependency: `Microsoft.Data.Sqlite` (latest stable, ~9.x)
+- Project reference: `Funcular.Data.Orm.Core`
+- Add `InternalsVisibleTo` for `Funcular.Data.Orm.Sqlite.Tests`
+- Namespace: `Funcular.Data.Orm.Sqlite`
+
+#### Step 1.2: Create `Funcular.Data.Orm.Sqlite.Tests` Project
+- Target framework: `net8.0`
+- NuGet dependencies: `Microsoft.NET.Test.Sdk`, `MSTest.TestAdapter`, `MSTest.TestFramework`
+- Project references: `Funcular.Data.Orm.Sqlite`, `Funcular.Data.Orm.Core`
+- Tests will use in-memory SQLite (`:memory:`) or file-based SQLite, making them self-contained with no external DB dependency
+- Include `TestDataSeeder.cs` — C# class that programmatically seeds test data using the provider's own `Insert<T>()` (see Section 11)
+
+#### Step 1.3: Reorganize `Database/` Folder
+- Move `Database/integration_test_db.sql` ? `Database/SqlServer/integration_test_db.sql`
+- Move `Database/integration_test_data.sql` ? `Database/SqlServer/integration_test_data.sql`
+- Create `Database/Sqlite/integration_test_db.sql` (SQLite-compatible DDL)
+- Create `Database/Sqlite/integration_test_data.sql` (small representative seed dataset as flat INSERTs)
+- Update `Database/README.txt` ? `Database/README.md` with per-provider instructions
+- See Section 11 for full details on script translation differences
+
+### Phase 2: Core Provider Implementation
+
+#### Step 2.1: Implement `SqliteDialect : ISqlDialect`
+- `EncloseIdentifier()`: Use `"double-quote"` delimiters
+- `IsReservedWord()`: SQLite-specific reserved word list
+- `BuildInsertCommand()`: Use `RETURNING` clause instead of `OUTPUT INSERTED`
+- `BuildUpdateCommand()`: Standard SQL (nearly identical to SqlServer)
+- `BuildDeleteCommand()`: Standard SQL (identical to SqlServer)
+- `BuildSelectCommand()`: Standard SQL (identical to SqlServer)
+- Parameter creation: Use `SqliteParameter` instead of `SqlParameter`
+
+#### Step 2.2: Implement `SqliteParameterGenerator`
+- Mirrors `ParameterGenerator` but creates `SqliteParameter` instances
+- Maps CLR types to `SqliteType` enum values:
+  - `int`, `long` ? `SqliteType.Integer`
+  - `string` ? `SqliteType.Text`
+  - `double`, `float`, `decimal` ? `SqliteType.Real`
+  - `byte[]` ? `SqliteType.Blob`
+  - `DateTime` ? `SqliteType.Text` (ISO8601 format)
+  - `Guid` ? `SqliteType.Text`
+  - `bool` ? `SqliteType.Integer`
+
+#### Step 2.3: Implement `SqliteExpressionTranslator`
+- Mirrors `SqlExpressionTranslator` but uses `SqliteParameter`
+- String `LIKE` operations work the same
+- Collection `Contains` ? `IN (...)` works the same
+- `ToString()` no-op works the same
+
+#### Step 2.4: Implement Visitor Classes
+- `SqliteWhereClauseVisitor<T>`: Mirrors `WhereClauseVisitor<T>` with `SqliteParameter`
+- `SqliteOrderByClauseVisitor<T>`: Likely identical (no parameter types used), may share
+- `SqliteSelectClauseVisitor<T>`: Mirrors `SelectClauseVisitor<T>` with `SqliteParameter`
+
+#### Step 2.5: Implement Query Components
+- `SqliteQueryComponents<T>`: Mirrors `SqlQueryComponents<T>` with `List<SqliteParameter>`
+- `SqliteQueryComponents` (internal): Mirrors `QueryComponents` with `List<SqliteParameter>`
+
+#### Step 2.6: Implement `SqliteQueryable<T>`
+- Exact copy of `SqlQueryable<T>` with namespace change (no provider-specific types)
+
+#### Step 2.7: Implement `SqliteLinqQueryProvider<T>`
+- Mirrors `SqlLinqQueryProvider<T>` but references `SqliteOrmDataProvider`
+- Paging: Replace `TOP`/`OFFSET...FETCH` with `LIMIT`/`OFFSET`
+- Uses SQLite visitor and parameter types
+
+#### Step 2.8: Implement `SqliteOrmDataProvider : OrmDataProvider, ISqlOrmProvider`
+Major implementation with these sections:
+
+**Constructor**:
+- Accept `connectionString` (or `:memory:` for in-memory)
+- Accept optional `IDbConnection`, `IDbTransaction`, `ISqlDialect`
+- Default dialect: `SqliteDialect`
+
+**Connection Management**:
+- `EnsureConnectionOpen()`: Create `SqliteConnection` instead of `SqlConnection`
+- `CloseConnectionIfNoTransaction()`: Same pattern
+- `ConnectionScope`: Same pattern but references `SqliteOrmDataProvider`
+
+**Column Discovery** (`DiscoverColumns<T>`):
+- Use `SELECT * FROM tablename LIMIT 0` with `CommandBehavior.SchemaOnly`
+- Or use `PRAGMA table_info(tablename)` to discover columns
+- Map column names using `IgnoreUnderscoreAndCaseStringComparer`
+
+**CRUD Operations**:
+- `Get<T>()`, `GetAsync<T>()`: Same pattern with `SqliteCommand`/`SqliteDataReader`
+- `Query<T>(expression)`, `QueryAsync<T>()`: Same pattern
+- `GetList<T>()`, `GetListAsync<T>()`: Same pattern
+- `Insert<T>()`, `InsertAsync<T>()`: Use `RETURNING` or `last_insert_rowid()`
+- `Update<T>()`, `UpdateAsync<T>()`: Same pattern
+- `Delete<T>(predicate)`, `DeleteAsync<T>()`: Same safety validation, same pattern
+
+**Entity Mapping** (`MapEntity<T>`):
+- Same cached mapper approach with `BuildDataReaderMapper<T>`
+- Handle SQLite type affinity:
+  - `GetInt32`/`GetInt64` for integers
+  - `GetString` for strings  
+  - `GetBoolean` ? may need `GetInt64` ? convert (SQLite stores bools as 0/1)
+  - `GetGuid` ? may need `GetString` ? `Guid.Parse`
+  - `GetDateTime` ? may need `GetString` ? `DateTime.Parse`
+  - `GetDecimal`/`GetDouble`/`GetFloat` for numeric types
+
+**Transaction Management**:
+- `BeginTransaction()`: `Connection.BeginTransaction()` (no isolation level parameter in SQLite typically, or use `Deferred`/`Immediate`)
+- `CommitTransaction()`, `RollbackTransaction()`: Same pattern
+
+**Error Handling**:
+- Catch `SqliteException` instead of `SqlException`
+- Check for `SqliteException` where message contains "no such table" (equivalent to SQL Server error 208)
+
+**Remote Property Support**:
+- Copy `RemotePathResolver` (or reference shared version)
+- `ResolveRemoteJoins<T>()`: Same logic, generates `LEFT JOIN` clauses
+- Remote key/property population works the same since it's SQL-standard
+
+### Phase 3: Test Implementation
+
+#### Step 3.1: Create Test Infrastructure
+- Base test class with SQLite in-memory or file-based database
+- Schema creation using `CREATE TABLE IF NOT EXISTS` (derived from `Database/Sqlite/integration_test_db.sql`; see Section 11)
+- `TestDataSeeder` class seeds data via `Insert<T>()` for realistic test coverage (see Section 11.4)
+- Must include `PRAGMA foreign_keys = ON;` before any operations
+- Reserved-word `"User"` table must be included for identifier-quoting tests
+- SQLite schema for test tables:
+
+```sql
+CREATE TABLE IF NOT EXISTS person (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name TEXT NOT NULL,
+    middle_initial TEXT,
+    last_name TEXT NOT NULL,
+    birthdate TEXT,
+    gender TEXT,
+    unique_id TEXT,
+    date_utc_created TEXT NOT NULL,
+    date_utc_modified TEXT NOT NULL,
+    employer_id INTEGER,
+    FOREIGN KEY (employer_id) REFERENCES organization(id)
+);
+
+CREATE TABLE IF NOT EXISTS address (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    line1 TEXT NOT NULL,
+    line2 TEXT,
+    city TEXT NOT NULL,
+    state_code TEXT,
+    postal_code TEXT,
+    country_id INTEGER,
+    FOREIGN KEY (country_id) REFERENCES country(id)
+);
+
+CREATE TABLE IF NOT EXISTS person_address (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL,
+    address_id INTEGER NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    address_type_value INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (person_id) REFERENCES person(id),
+    FOREIGN KEY (address_id) REFERENCES address(id)
+);
+
+CREATE TABLE IF NOT EXISTS country (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS organization (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    headquarters_address_id INTEGER,
+    FOREIGN KEY (headquarters_address_id) REFERENCES address(id)
+);
+
+CREATE TABLE IF NOT EXISTS non_identity_guid_entity (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS non_identity_string_entity (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+);
+```
+
+#### Step 3.2: Mirror Test Classes
+Each SQL Server test class should have a SQLite equivalent:
+
+| SQL Server Test | SQLite Test | Notes |
+|----------------|-------------|-------|
+| `SqlDataProviderIntegrationTests` | `SqliteDataProviderIntegrationTests` | Core CRUD tests |
+| `SqlDataProviderIntegrationAsyncTests` | `SqliteDataProviderIntegrationAsyncTests` | Async CRUD tests |
+| `RemoteFeaturesTests` | `SqliteRemoteFeaturesTests` | Remote property/key population |
+| `RemoteKeyIntegrationTests` | `SqliteRemoteKeyIntegrationTests` | Full chain remote key tests |
+| `RemoteKeyWhereTests` | `SqliteRemoteKeyWhereTests` | Filtering by remote keys |
+| `RemoteKeyReverseTests` | `SqliteRemoteKeyReverseTests` | Reverse remote key resolution |
+| `RichRelationshipTests` | `SqliteRichRelationshipTests` | Many-to-many, link table tests |
+| `DocumentationGapTests` | `SqliteDocumentationGapTests` | Verify documentation examples work |
+| `SqlDataProviderPerformanceTests` | `SqliteDataProviderPerformanceTests` | Performance benchmarks (conditional) |
+
+#### Step 3.3: Test-Specific Differences
+- **No `(localdb)`**: Tests use `:memory:` or temp file SQLite database
+- **Schema setup**: `CREATE TABLE IF NOT EXISTS` instead of `IF NOT EXISTS (SELECT * FROM sys.tables ...)`
+- **Connection sharing for in-memory**: SQLite in-memory databases are per-connection; the same connection must be reused for the entire test. Consider using a file-based temp database or passing the connection to the provider.
+- **Auto-increment**: `INTEGER PRIMARY KEY AUTOINCREMENT` instead of `INT IDENTITY(1,1)`
+- **Foreign keys**: Must explicitly enable with `PRAGMA foreign_keys = ON` (off by default in SQLite)
+
+### Phase 4: Integration & Validation
+
+#### Step 4.1: Add Projects to Solution
+- Add `Funcular.Data.Orm.Sqlite.csproj` to solution
+- Add `Funcular.Data.Orm.Sqlite.Tests.csproj` to solution
+
+#### Step 4.2: Build & Test
+- Ensure full solution builds
+- Run SQLite tests independently (no SQL Server required)
+- Verify all tests pass
+
+#### Step 4.3: Cross-Validate
+- Ensure the SQLite provider adheres to the same `IOrmDataProvider` / `ISqlOrmProvider` contracts
+- Verify that entity classes from the SqlServer test domain can be reused with the SQLite provider without modification (same attributes, same conventions)
+
+---
+
+## 5. Key Design Decisions
+
+### 5.1 In-Memory vs File-Based Testing
+**Decision**: Use **file-based temp databases** for integration tests (with cleanup), since SQLite in-memory databases are scoped to a single connection and don't survive connection close/reopen. The provider's `ConnectionScope` pattern opens/closes connections, which would destroy in-memory data.
+
+**Alternative**: Pass a pre-opened `SqliteConnection` to the provider constructor and keep it open for the test duration. This is simpler and matches the SQL Server pattern where a connection can be externally managed.
+
+**Recommendation**: Support both patterns:
+1. Tests pass a persistent `SqliteConnection` (kept open) for in-memory testing
+2. Production users pass a connection string for file-based SQLite
+
+### 5.2 NuGet Package Structure
+**Decision**: The SQLite provider will be a separate NuGet package (`Funcular.Data.Orm.Sqlite`) parallel to the SqlServer package, sharing only `Funcular.Data.Orm.Core`.
+
+### 5.3 `RemotePathResolver` Location
+**Decision**: Copy `RemotePathResolver` into the SQLite project (since it's currently in the SqlServer project and not in Core). A future refactoring could move it to Core.
+
+### 5.4 Visitor Code Duplication
+**Decision**: The visitor classes will be duplicated with adapted parameter types. This is consistent with the current approach and avoids breaking changes to the SqlServer project. A future refactoring could introduce generic visitors in Core.
+
+### 5.5 `RETURNING` vs `last_insert_rowid()`
+**Decision**: Use `RETURNING` clause for `INSERT` statements. `Microsoft.Data.Sqlite` bundles SQLite 3.35+ which supports `RETURNING`. This is cleaner and matches the SQL Server `OUTPUT INSERTED` pattern (single statement, single roundtrip).
+
+---
+
+## 6. Risk Assessment
+
+| Risk | Impact | Mitigation |
+|------|--------|-----------|
+| SQLite type affinity causing mapping errors (e.g., GUID as string) | High | Explicit type conversion in `MapEntity<T>` with comprehensive tests |
+| In-memory database connection lifecycle | Medium | Use file-based temp DB or persistent connection pattern |
+| SQLite lacks some SQL Server features (e.g., schemas, true booleans) | Low | Adapter pattern in dialect; most SQL is standard |
+| `RETURNING` not supported in older SQLite versions | Low | `Microsoft.Data.Sqlite` bundles >= 3.35; add fallback if needed |
+| `PRAGMA foreign_keys` must be explicitly enabled | Medium | Enable in `EnsureConnectionOpen()` or connection string |
+| Performance characteristics differ (file-based locking model) | Low | Benchmarks will naturally differ; SQLite is not a server DB |
+| Case sensitivity differences in string comparisons | Medium | Document in tests; consider `COLLATE NOCASE` for specific columns |
+| Seed data generation performance for in-memory tests | Low | Use small dataset for unit tests (~100 rows); larger dataset only for perf tests |
+| SQL Server scripts moved to subfolder may break existing CI/CD references | Low | Update README and any CI pipeline references; Git history preserved via `git mv` |
+
+---
+
+## 7. Estimated Scope
+
+| Component | Files | Complexity |
+|-----------|-------|-----------|
+| `Funcular.Data.Orm.Sqlite` project | ~15 files | Medium-High |
+| `Funcular.Data.Orm.Sqlite.Tests` project | ~21 files | Medium |
+| `Database/` reorganization + SQLite scripts | ~4 files (2 moved, 2 new) | Low |
+| **Total** | **~40 files** | **Medium-High** |
+
+### Approximate Lines of Code (New)
+- Provider: ~1,500 LOC (adapted from ~1,700 LOC SqlServer provider)
+- Dialect: ~150 LOC (adapted from ~150 LOC SqlServer dialect)
+- Visitors: ~600 LOC (adapted from SqlServer visitors)
+- Query components: ~200 LOC
+- Tests: ~1,500 LOC (adapted from SqlServer tests, plus schema setup)
+- TestDataSeeder: ~200 LOC (C# seed data generator)
+- Database scripts (SQLite): ~200 lines SQL (DDL + small seed dataset)
+- **Total**: ~4,350 LOC
+
+---
+
+## 8. Dependencies
+
+### NuGet Packages Required
+
+| Package | Project | Version |
+|---------|---------|---------|
+| `Microsoft.Data.Sqlite` | `Funcular.Data.Orm.Sqlite` | Latest stable (9.x) |
+| `Microsoft.NET.Test.Sdk` | `Funcular.Data.Orm.Sqlite.Tests` | 17.8.0+ |
+| `MSTest.TestAdapter` | `Funcular.Data.Orm.Sqlite.Tests` | 3.1.1+ |
+| `MSTest.TestFramework` | `Funcular.Data.Orm.Sqlite.Tests` | 3.1.1+ |
+
+### Project References
+
+| From | To |
+|------|----|
+| `Funcular.Data.Orm.Sqlite` | `Funcular.Data.Orm.Core` |
+| `Funcular.Data.Orm.Sqlite.Tests` | `Funcular.Data.Orm.Sqlite` |
+| `Funcular.Data.Orm.Sqlite.Tests` | `Funcular.Data.Orm.Core` |
+
+---
+
+## 9. Success Criteria
+
+1. **Build**: Both projects compile without errors targeting `net8.0` and `netstandard2.0`
+2. **Feature Parity**: All CRUD operations (Get, Query, Insert, Update, Delete) work identically to SQL Server
+3. **LINQ Translation**: WHERE, ORDER BY, paging, aggregates (Count, Any, All, Min, Max, Average, Sum) translate correctly
+4. **Remote Properties**: `[RemoteKey]`, `[RemoteProperty]`, `[RemoteLink]` attributes generate correct LEFT JOINs
+5. **Safety**: Delete transaction mandate and predicate guard work identically
+6. **Test Coverage**: All test classes from SQL Server have SQLite equivalents that pass
+7. **Self-Contained Tests**: SQLite tests require no external database setup (use in-memory or temp file)
+8. **Convention Compliance**: Entity conventions (Id detection, table name detection, column mapping) work identically
+
+---
+
+## 10. Implementation Order (Recommended)
+
+1. Reorganize `Database/` folder into `SqlServer/` and `Sqlite/` subfolders (move existing scripts)
+2. Create `Database/Sqlite/integration_test_db.sql` (SQLite-compatible DDL)
+3. Create `Database/Sqlite/integration_test_data.sql` (small representative seed dataset)
+4. Update `Database/README.txt` ? `Database/README.md` with per-provider instructions
+5. Create project files and solution structure
+6. Implement `SqliteDialect` (foundation for all SQL generation)
+7. Implement `SqliteParameterGenerator` (foundation for parameterized queries)
+8. Implement `SqliteExpressionTranslator` and visitor classes
+9. Implement `SqliteQueryComponents` and `SqliteQueryable`
+10. Implement `SqliteOrmDataProvider` (main provider - largest piece)
+11. Implement `SqliteLinqQueryProvider`
+12. Create test domain entities (copy from SqlServer tests)
+13. Create `TestDataSeeder.cs` (C# seed data generator using provider Insert)
+14. Create test base class with schema setup (referencing SQLite DDL script)
+15. Implement integration tests (CRUD)
+16. Implement async tests
+17. Implement remote feature tests
+18. Implement remaining test classes
+19. Build and validate all tests pass14. Build and validate all tests pass
+
+---
+
+## 11. Database Scripts: Reorganization & SQLite Equivalents
+
+### 11.1 Current State
+
+The repository has a top-level `Database\` folder containing SQL Server-specific scripts:
+
+```
+Database/
+??? README.txt                       (placeholder description)
+??? integration_test_db.sql          (DDL: CREATE DATABASE, tables, triggers, indexes, [User] reserved-word table)
+??? integration_test_data.sql        (DML: 5,000 persons, 5,000 addresses, 5,000 person-address links with randomized realistic data)
+```
+
+The SQL Server integration tests depend on **two layers** of data setup:
+1. **`integration_test_db.sql`** — Run manually once to create the `funky_db` database, all tables (person, address, person_address, country, organization, non_identity_guid_entity, non_identity_string_entity, `[User]`), triggers (`trg_person_update`, `trg_address_update`, `trg_person_address_update`), and indexes.
+2. **`integration_test_data.sql`** — Run manually once to seed 5,000 persons, 5,000 addresses, and 5,000 person-address links using procedural T-SQL (`WHILE` loops, `CHECKSUM(NEWID())`, `MERGE...OUTPUT`).
+3. **In-test `EnsureSchema()`** — Test classes contain inline `IF NOT EXISTS` DDL to add supplementary schema (country, organization, non_identity_* tables, plus columns like `employer_id` and `country_id` added after the initial schema).
+
+### 11.2 Proposed Reorganization
+
+Reorganize `Database\` into provider-specific subfolders:
+
+```
+Database/
+??? README.md                         (updated: explains folder structure and per-provider instructions)
+??? SqlServer/
+?   ??? integration_test_db.sql       (existing file, moved from Database/)
+?   ??? integration_test_data.sql     (existing file, moved from Database/)
+??? Sqlite/
+    ??? integration_test_db.sql       (NEW: SQLite-compatible DDL)
+    ??? integration_test_data.sql     (NEW: SQLite-compatible seed data)
+```
+
+### 11.3 SQLite Script Differences
+
+#### 11.3.1 DDL Script (`Sqlite/integration_test_db.sql`)
+
+Key translations from SQL Server DDL:
+
+| SQL Server | SQLite | Notes |
+|-----------|--------|-------|
+| `CREATE DATABASE funky_db; GO; USE funky_db;` | *(omit entirely)* | SQLite is file-based; no database creation command |
+| `INT IDENTITY(1,1) PRIMARY KEY` | `INTEGER PRIMARY KEY AUTOINCREMENT` | SQLite auto-increment syntax |
+| `NVARCHAR(N)` | `TEXT` | SQLite has no length-limited text |
+| `DATETIME2` | `TEXT` | Store as ISO8601 strings |
+| `UNIQUEIDENTIFIER` | `TEXT` | GUIDs stored as strings |
+| `BIT` | `INTEGER` | 0/1 representation |
+| `CHAR(N)` | `TEXT` | No fixed-width char in SQLite |
+| `GO` batch separators | *(omit)* | SQLite doesn't use batch separators |
+| `[User]` (bracket-quoted reserved word table) | `"User"` | Double-quote quoting in SQLite |
+| `[Key]`, `[Name]`, `[Order]`, `[Select]` columns | `"Key"`, `"Name"`, `"Order"`, `"Select"` | Double-quote quoting |
+| `DEFAULT GETUTCDATE()` | `DEFAULT (datetime('now'))` | SQLite date function |
+
+**Triggers**: SQLite triggers use `NEW.column` instead of the `INSERTED` pseudo-table and `INNER JOIN` pattern:
+
+```sql
+-- SQL Server:
+CREATE TRIGGER trg_person_update ON person AFTER UPDATE AS
+BEGIN
+    UPDATE p SET dateutc_modified = GETUTCDATE()
+    FROM person p INNER JOIN inserted i ON p.id = i.id;
+END;
+
+-- SQLite equivalent:
+CREATE TRIGGER IF NOT EXISTS trg_person_update
+AFTER UPDATE ON person
+BEGIN
+    UPDATE person SET date_utc_modified = datetime('now')
+    WHERE id = NEW.id;
+END;
+```
+
+**Foreign keys**: The script must include `PRAGMA foreign_keys = ON;` at the top (off by default in SQLite).
+
+**Table creation order**: Must respect foreign key dependencies (same as SQL Server): `country` ? `address` ? `organization` ? `person` ? `person_address`.
+
+#### 11.3.2 Seed Data Script (`Sqlite/integration_test_data.sql`)
+
+This is the most challenging translation because **SQLite has no procedural SQL** — no `WHILE` loops, no `DECLARE` variables, no `MERGE...OUTPUT`, no `CHECKSUM(NEWID())`.
+
+**Options** (choose one):
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **A. Pre-generated flat INSERT statements** | Simple, portable, deterministic | Large file (~5,000+ INSERT statements), not randomized per run |
+| **B. C# test helper that generates and inserts seed data** | Flexible, randomized, reuses provider's own `Insert<T>()` | Slower test startup, couples seed logic to C# |
+| **C. Python/CLI script that generates the .sql file** | One-time generation, keeps scripts as .sql | Extra tooling dependency |
+
+**Recommendation**: **Option B** — Create a C# `TestDataSeeder` class in the test project that uses the `SqliteOrmDataProvider.Insert<T>()` method to seed data. This:
+- Validates the provider's own insert logic as a side effect
+- Keeps seed data generation portable and provider-aware
+- Avoids a 5,000-line SQL file
+- Can be conditionally skipped if data already exists (for file-based DBs)
+- Matches how several SQL Server tests already inline-create test data via `InsertTestPerson()` helpers
+
+For the standalone `.sql` file, generate a **smaller representative dataset** (e.g., 100 persons, 100 addresses, 100 links) as flat `INSERT INTO ... VALUES ...` statements. This serves as documentation and allows manual SQLite testing outside of C#.
+
+### 11.4 Impact on Test Infrastructure
+
+The SQLite test base class (`SqliteDataProviderIntegrationTests`) should:
+1. In `[TestInitialize]` / `Setup()`: Create schema using `CREATE TABLE IF NOT EXISTS` (equivalent to the in-test `EnsureSchema()` pattern)
+2. Call `TestDataSeeder.SeedIfEmpty(provider)` to populate data if tables are empty
+3. Include `PRAGMA foreign_keys = ON;` before any operations
+4. For in-memory databases: All of the above runs every test since data doesn't persist
+5. For file-based databases: Schema and seed run once, subsequent tests reuse the file
+
+### 11.5 Reserved Word Test Table (`[User]` / `"User"`)
+
+The `[User]` table in `integration_test_db.sql` tests reserved-word handling. The SQLite equivalent must:
+- Create the table with double-quoted identifiers: `"User"`, `"Key"`, `"Name"`, `"Order"`, `"Select"`
+- Be included in both the standalone script and the in-test `EnsureSchema()` method
+- Have corresponding seed data (a few rows of test data)
+
+### 11.6 What This Changes in the Plan
+
+| Section | Change |
+|---------|--------|
+| Phase 1 (Step 1.2) | Add `TestDataSeeder.cs` to the test project file list |
+| Phase 3 (Step 3.1) | Reference `Database/Sqlite/integration_test_db.sql` for canonical schema; implement `EnsureSchema()` from it |
+| Architecture Overview (test project tree) | Add `Database/Sqlite/` scripts and `TestDataSeeder.cs` |
+| Estimated Scope | Add ~2 SQL files and 1 C# seeder class (~200 LOC) |
+| Implementation Order | Insert new step between current steps 8 and 9: "Create database scripts and test data seeder" |
+| Risk Assessment | Add: "Seed data generation performance for in-memory tests" (mitigated by small dataset for unit tests, larger for perf tests) |
