@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: funky_db
+      POSTGRES_USER: funky_user
+      POSTGRES_PASSWORD: funky_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./integration_test_db.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./integration_test_data.sql:/docker-entrypoint-initdb.d/02-data.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U funky_user -d funky_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

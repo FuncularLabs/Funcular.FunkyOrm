@@ -1,0 +1,69 @@
+# GitHub Actions CI for PostgreSQL integration tests
+name: PostgreSQL Integration Tests
+
+on:
+  push:
+    branches: [main, 'development/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-postgresql:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: funky_db
+          POSTGRES_USER: funky_user
+          POSTGRES_PASSWORD: funky_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      FUNKY_PG_CONNECTION: "Host=localhost;Port=5432;Database=funky_db;Username=funky_user;Password=funky_password"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Create PostgreSQL schema
+        run: |
+          PGPASSWORD=funky_password psql -h localhost -U funky_user -d funky_db \
+            -f Database/PostgreSql/integration_test_db.sql
+
+      - name: Seed PostgreSQL test data
+        run: |
+          PGPASSWORD=funky_password psql -h localhost -U funky_user -d funky_db \
+            -f Database/PostgreSql/integration_test_data.sql
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run PostgreSQL integration tests
+        run: >
+          dotnet test
+          Funcular.Data.Orm.PostgreSql.Tests/Funcular.Data.Orm.PostgreSql.Tests.csproj
+          --no-build --configuration Release --verbosity normal
+          --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-test-results
+          path: '**/test-results.trx'
