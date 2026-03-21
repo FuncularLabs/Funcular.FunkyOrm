@@ -11,7 +11,7 @@ Look, we get it. You've got choices.
 **Funcular.FunkyOrm** sits in the sweet spot. You get the **speed** of a micro-ORM with the **type safety** and **developer joy** of LINQ.
 
 ### The "It Just Works" Philosophy
-*   **One Instance Per Connection**: You create a `SqlServerOrmDataProvider` with a connection string. That's it. No `DbContext` ceremony, no dependency injection containers required (though you can use them if you want).
+*   **One Instance Per Connection**: You create a provider (`SqlServerOrmDataProvider` or `PostgreSqlOrmDataProvider`) with a connection string. That's it. No `DbContext` ceremony, no dependency injection containers required (though you can use them if you want).
 *   **Auto-Inference**: Name your table `Person` and your class `Person`. We'll figure it out. Name your column `first_name` and your property `FirstName`. We'll figure that out too.
 *   **Forgiving Mapping**: Got a property in your class that isn't in the database? We ignore it. Got a column in the database that isn't in your class? We ignore that too. No more crashing because you added a helper property to your view model.
 
@@ -45,19 +45,27 @@ We strongly encourage following standard naming conventions. If you do, FunkyORM
 If your database schema deviates from these conventions (e.g., legacy databases), you can easily override them using standard Data Annotations (`[Table]`, `[Column]`, `[Key]`).
 
 ### Reserved Words
-FunkyORM automatically handles MSSQL reserved words for you. If you have a table named `User` or a column named `Order`, we will automatically enclose them in brackets (e.g., `[User]`, `[Order]`) in the generated SQL. You don't need to do anything special in your code.
+FunkyORM automatically handles reserved words for both SQL Server and PostgreSQL. If you have a table named `User` or a column named `Order`, the ORM automatically encloses them in the appropriate syntax for your database. You don't need to do anything special in your code.
 
 ```csharp
-// This works even if 'User' is a reserved word in SQL
+// This works even if 'User' is a reserved word
 var user = new User { Name = "Paul", Order = 1 };
 provider.Insert(user);
 ```
 
-**Generated SQL:**
+**Generated SQL (SQL Server):**
 ```sql
 INSERT INTO [User] ([Name], [Order]) VALUES (@p0, @p1);
 SELECT SCOPE_IDENTITY();
 ```
+
+**Generated SQL (PostgreSQL):**
+```sql
+INSERT INTO "User" (name, "Order") VALUES (@Name, @Order)
+RETURNING "Key"
+```
+
+> **Note:** PostgreSQL is case-sensitive with quoted identifiers. Only reserved words are quoted; non-reserved column names remain unquoted (and are folded to lowercase by PostgreSQL). SQL Server uses `[brackets]`, PostgreSQL uses `"double-quotes"`.
 
 ### Comparison: FunkyORM vs. The World
 
@@ -122,23 +130,31 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
 ## Getting Started
 
 ### 1. Setup
-Install the NuGet package `Funcular.Data.Orm`. Then, instantiate the provider.
+Install the NuGet package for your database provider, then instantiate it.
 
+**SQL Server:**
 ```csharp
 using Funcular.Data.Orm.SqlServer;
 
-// Connection string (standard SQL Server format)
 var connectionString = "Data Source=localhost;Initial Catalog=funky_db;Integrated Security=True;TrustServerCertificate=True;";
-
-// Create the provider instance
-// PRO TIP: You usually only need one of these per connection string. Singleton it!
 var provider = new SqlServerOrmDataProvider(connectionString)
 {
-    // Optional: Hook up logging to see the SQL we generate.
-    // Great for debugging or just admiring our handywork.
     Log = s => Console.WriteLine(s) 
 };
 ```
+
+**PostgreSQL:**
+```csharp
+using Funcular.Data.Orm.PostgreSql;
+
+var connectionString = "Host=localhost;Port=5432;Database=funky_db;Username=myuser;Password=mypassword";
+var provider = new PostgreSqlOrmDataProvider(connectionString)
+{
+    Log = s => Console.WriteLine(s) 
+};
+```
+
+> **Tip:** Both providers support the same LINQ query API. Your entity classes and query code are portable between them.
 
 ### 2. Your Entities
 Just plain old C# classes (POCOs).
@@ -342,13 +358,21 @@ var page2 = provider.Query<Person>()
     .ToList();
 ```
 
-**Generated SQL:**
+**Generated SQL (SQL Server):**
 ```sql
 SELECT [Id], [FirstName], [LastName], [Birthdate] 
 FROM [Person]
 ORDER BY [Id]
 OFFSET 10 ROWS
 FETCH NEXT 10 ROWS ONLY
+```
+
+**Generated SQL (PostgreSQL):**
+```sql
+SELECT id, first_name, last_name, birthdate 
+FROM person
+ORDER BY id
+LIMIT 10 OFFSET 10
 ```
 
 ### Projections (`Select`)

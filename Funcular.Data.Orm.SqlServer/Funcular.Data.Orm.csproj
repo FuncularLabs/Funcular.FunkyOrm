@@ -5,7 +5,7 @@
     <Nullable>disable</Nullable>
     <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
     <Copyright>Funcular Labs, Inc.</Copyright>
-    <Description>Discover FunkyORM, a lightweight micro-ORM designed for simplicity and speed. It enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Supports .NET 8 and .NET Standard 2.0.</Description>
+    <Description>SQL Server provider for FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Supports .NET 8, .NET Standard 2.0, and .NET Framework 4.8. For PostgreSQL support, see the companion package Funcular.Data.Orm.PostgreSql.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -14,10 +14,10 @@
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
     <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>3.0.1</Version>
-    <AssemblyVersion>3.0.1.0</AssemblyVersion>
-    <FileVersion>3.0.1.0</FileVersion>
-    <InformationalVersion>3.0.1</InformationalVersion>
+    <Version>3.1.0-alpha1</Version>
+    <AssemblyVersion>3.1.0.0</AssemblyVersion>
+    <FileVersion>3.1.0.0</FileVersion>
+    <InformationalVersion>3.1.0-alpha1</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -54,10 +54,6 @@
 
   <ItemGroup>
     <None Include="..\README.md">
-      <Pack>True</Pack>
-      <PackagePath>\</PackagePath>
-    </None>
-    <None Include="COPILOT_INSTRUCTIONS.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>

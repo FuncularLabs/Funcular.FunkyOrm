@@ -1,12 +1,9 @@
 > **Recent Changes**
-> * **v3.0.1**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling. Performance tests are now separated from the main test suite.
-> * **v2.3.2**: Published package icon update.
-> * **v2.3.1**: Fixed parameter naming in chained `Where` clauses to prevent SQL errors.
-> * **v2.1.0**: Added support for MSSQL reserved words in table/column names (e.g., `[User]`, `[Order]`).
-> * **v2.0.0**: Major release. Breaking change to `Query<T>(predicate)`, safety enhancements for Deletes, chained `Where` clauses.
+> * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL via the new `Funcular.Data.Orm.PostgreSql` NuGet package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
+> * **v3.0.1**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
 
-# Funcular / Funky ORM: a speedy, lambda-powered .NET ORM designed for MSSQL
+# Funcular / Funky ORM: a speedy, lambda-powered .NET micro-ORM for MSSQL & PostgreSQL
 ![Funcular logo](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/master/funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
@@ -15,9 +12,9 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-> **🤖 For AI Agents**: Please refer to [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is also included in the NuGet package.
+> **For AI Agents**: Please refer to [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in both NuGet packages. A PostgreSQL-specific supplement is at [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.PostgreSql/COPILOT_INSTRUCTIONS.md).
 >
-> **💡 Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `COPILOT_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder.
+> **Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `COPILOT_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder.
 
 ## Overview
 
@@ -43,23 +40,39 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 
 ### 1. Installation
 
-Add the package to your project via the .NET CLI:
+Add the provider package for your database:
 
+**SQL Server:**
 ```bash
 dotnet add package Funcular.Data.Orm
 ```
 
+**PostgreSQL:**
+```bash
+dotnet add package Funcular.Data.Orm.PostgreSql
+```
+
 ### 2. Initialization
 
-Create an instance of `SqlServerOrmDataProvider`. You can do this once and register it as a singleton in your DI container, or create it as needed.
+Create a provider instance. You can register it as a singleton in your DI container, or create it as needed.
 
+**SQL Server:**
 ```csharp
 using Funcular.Data.Orm.SqlServer;
 
-// Initialize with your connection string
 var connectionString = "Server=.;Database=MyDb;Integrated Security=True;TrustServerCertificate=True;";
 var provider = new SqlServerOrmDataProvider(connectionString);
 ```
+
+**PostgreSQL:**
+```csharp
+using Funcular.Data.Orm.PostgreSql;
+
+var connectionString = "Host=localhost;Port=5432;Database=mydb;Username=myuser;Password=mypassword";
+var provider = new PostgreSqlOrmDataProvider(connectionString);
+```
+
+> **Note:** Both providers implement the same base class and support the same LINQ query API, CRUD operations, remote keys/properties, and transactions. Your entity classes and query code are fully portable between providers.
 
 ### 3. Define Your Data Models
 
@@ -189,6 +202,29 @@ var sql = @"SELECT p.*, c.Name as CountryName
 [RemoteProperty(remoteEntityType: typeof(Country), keyPath: new[] { ... })]
 public string EmployerCountryName { get; set; }
 ```
+
+## Database Provider Differences
+
+FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. Your entity classes and LINQ queries are portable, but the generated SQL differs to match each platform's conventions.
+
+| Feature | SQL Server (`Funcular.Data.Orm`) | PostgreSQL (`Funcular.Data.Orm.PostgreSql`) |
+| :--- | :--- | :--- |
+| **NuGet Package** | `Funcular.Data.Orm` | `Funcular.Data.Orm.PostgreSql` |
+| **Provider Class** | `SqlServerOrmDataProvider` | `PostgreSqlOrmDataProvider` |
+| **Identifier Quoting** | `[brackets]` | `"double-quotes"` |
+| **Insert Return** | `OUTPUT INSERTED.id` | `RETURNING id` |
+| **Paging** | `OFFSET…FETCH NEXT` | `LIMIT…OFFSET` |
+| **String Concat** | `+` | `‖` |
+| **Date Parts** | `YEAR()`, `MONTH()`, `DAY()` | `EXTRACT(YEAR FROM …)` |
+| **Boolean Type** | `BIT` (0/1) | Native `BOOLEAN` |
+| **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` |
+| **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` |
+
+### PostgreSQL-Specific Notes
+
+- **Naming convention**: PostgreSQL is case-sensitive for quoted identifiers. Unquoted identifiers are folded to lowercase. FunkyORM quotes reserved words automatically (e.g., `"User"`, `"Order"`), and leaves non-reserved names unquoted (matching PostgreSQL's lowercase convention).
+- **Npgsql versions**: The PostgreSQL provider uses Npgsql 9.x for `net8.0` and Npgsql 8.x for `netstandard2.0` (last version with netstandard support).
+- **Timestamps**: The provider sets `AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true)` to ensure `DateTime` values are handled consistently without requiring `timestamptz` conversions.
 
 ## Documentation
 

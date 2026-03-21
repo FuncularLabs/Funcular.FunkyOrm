@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.0-alpha1] - 2025-03-21
+
+### Added
+- **?? PostgreSQL Support**: New `Funcular.Data.Orm.PostgreSql` NuGet package providing a full PostgreSQL provider (`PostgreSqlOrmDataProvider`) with feature parity to the SQL Server provider.
+  - Full LINQ-to-SQL translation with PostgreSQL syntax (`LIMIT`/`OFFSET`, `RETURNING`, `EXTRACT()`, `||` string concat, `"double-quote"` identifier quoting).
+  - Complete `[RemoteKey]`, `[RemoteProperty]`, and `[RemoteLink]` attribute support with BFS path resolution and automatic `LEFT JOIN` generation.
+  - Npgsql 9.x for `net8.0`, Npgsql 8.x for `netstandard2.0`.
+  - Reserved word quoting for PostgreSQL keywords (tables and columns).
+  - 232 integration tests covering all CRUD, query, aggregate, transaction, remote property, and reserved word scenarios.
+  - Docker Compose setup and CI workflow for PostgreSQL integration tests.
+
+### Changed
+- **Multi-Provider Architecture**: Both SQL Server and PostgreSQL providers now inherit from the shared `OrmDataProvider` base class via `Funcular.Data.Orm.Core`. Entity classes and LINQ query code are fully portable between providers.
+- **Documentation**: README.md and Usage.md updated to reference both SQL Server and PostgreSQL where previously only MSSQL was documented.
+
+### Fixed
+- **Column Name Cache Key Mismatch**: Fixed a bug where `DiscoverColumns` and `GetCachedColumnName` used different dictionary key formats (`TypeName.Property` vs `FullTypeName.Property`), causing discovered column names (including reserved word quoting) to be ignored in favor of raw attribute values.
+- **GetTableName Quoting**: The PostgreSQL provider now overrides `GetTableName<T>()` to apply `EncloseIdentifier` for reserved word table names.
+
 ## [3.0.1] - 2025-02-05
 
 Official release of v3.0.1. No changes from beta1.
@@ -43,35 +62,6 @@ Official release of v3.0.1. No changes from beta1.
 
 ### Fixed
 - **Span<T>.Contains Support**: Fixed an issue where `array.Contains(item)` in LINQ queries would fail due to C# 12's preference for `Span<T>.Contains` over `IEnumerable<T>.Contains`. The ORM now properly handles implicit conversions to `Span<T>` and supports both instance and extension method calls.
-
-## [2.1.0] - 2025-12-03
-
-### Added
-- **Reserved Word Support**: Added automatic handling for MSSQL reserved words (e.g., `User`, `Key`, `Order`, `Select`).
-  - Table and column names that match reserved words are now automatically enclosed in brackets (e.g., `[User]`, `[Order]`) in generated SQL.
-  - This applies to `Insert`, `Update`, `Delete`, and `Query` operations.
-  - This ensures that legacy databases or schemas using reserved words can be used seamlessly without manual configuration.
-
-## [2.0.0] - 2025-12-02
-
-### Added
-- **Chained Where Clauses**: You can now chain multiple `.Where()` calls on a query. They will be combined with `AND`.
-  ```csharp
-  // Now works!
-  provider.Query<Person>().Where(p => p.Age > 18).Where(p => p.Active).ToList();
-  ```
-- **Enhanced Error Messaging**:
-  - **Missing Tables**: If you try to query a table that doesn't exist, we now throw a helpful exception suggesting the expected table name (PascalCase or snake_case) or advising to use the `[Table]` attribute.
-  - **Unsupported Expressions**: clearer error messages when using unsupported methods or properties in `Where` and `OrderBy` clauses.
-
-### Changed
-- **Deprecation**: The `Query<T>(Expression<Func<T, bool>> predicate)` overload is now marked as `[Obsolete]`.
-  - **Reason**: This method caused immediate execution, which often led to performance issues (loading all data into memory before filtering).
-  - **Migration**: Change `provider.Query<Person>(p => p.Id == 1)` to `provider.Query<Person>().Where(p => p.Id == 1)`.
-
-### Fixed
-- **Parameter Reuse Bug**: Fixed an issue where chaining multiple `.Where()` clauses would reuse parameter names (e.g., `@p0`), causing SQL errors.
-- **Performance**: Optimized query generation for predicates involving closures.
 
 ---
 
