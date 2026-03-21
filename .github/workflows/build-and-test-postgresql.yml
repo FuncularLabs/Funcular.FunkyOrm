@@ -49,10 +49,10 @@ jobs:
             -f Database/PostgreSql/integration_test_data.sql
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore Funcular.Data.Orm.PostgreSql.Tests/Funcular.Data.Orm.PostgreSql.Tests.csproj
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build Funcular.Data.Orm.PostgreSql.Tests/Funcular.Data.Orm.PostgreSql.Tests.csproj --no-restore --configuration Release
 
       - name: Run PostgreSQL integration tests
         run: >

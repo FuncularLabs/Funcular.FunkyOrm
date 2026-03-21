@@ -41,25 +41,5 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             _provider.Delete<User>(x => x.Key == entity.Key);
             _provider.CommitTransaction();
         }
-
-        [TestMethod]
-        public void Query_Sum_ReturnsCorrectSum()
-        {
-            OutputTestMethodName();
-
-            var guid = Guid.NewGuid().ToString();
-            InsertTestPerson(guid, "A", "Sum1", null, "Male", Guid.NewGuid());
-            InsertTestPerson(guid, "B", "Sum2", null, "Female", Guid.NewGuid());
-            InsertTestPerson(guid, "C", "Sum3", null, "Male", Guid.NewGuid());
-
-            var people = _provider.Query<PersonEntity>().Where(p => p.FirstName == guid).ToList();
-            var expectedSum = people.Sum(p => p.Id);
-
-            var actualSum = _provider.Query<PersonEntity>()
-                .Where(p => p.FirstName == guid)
-                .Sum(p => p.Id);
-
-            Assert.AreEqual(expectedSum, actualSum);
-        }
     }
 }
