@@ -199,7 +199,12 @@ var sql = @"SELECT p.*, c.Name as CountryName
 **FunkyORM**:
 ```csharp
 // Just add the attribute. We handle the joins.
-[RemoteProperty(remoteEntityType: typeof(Country), keyPath: new[] { ... })]
+// Path: Person -> Organization (via EmployerId) -> Address -> Country
+[RemoteProperty(remoteEntityType: typeof(Country), keyPath: new[] {
+    nameof(EmployerId),
+    nameof(Organization.HeadquartersAddressId),
+    nameof(Address.CountryId),
+    nameof(Country.Name) })]
 public string EmployerCountryName { get; set; }
 ```
 
