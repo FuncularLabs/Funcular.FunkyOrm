@@ -2,7 +2,7 @@
 
 > **Target Audience**: AI Agents (GitHub Copilot, Cursor, Gemini, GPT, Claude, etc.) assisting developers who use FunkyORM.
 >
-> **Packages**: `Funcular.Data.Orm` (SQL Server) | `Funcular.Data.Orm.PostgreSql` (PostgreSQL)
+> **Package**: `Funcular.Data.Orm` (includes SQL Server and PostgreSQL providers)
 
 ---
 

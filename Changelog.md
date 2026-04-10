@@ -1,11 +1,11 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 
-## [3.1.0-alpha1] - 2025-03-21
+## [3.1.0] - 2026-04-09
 
 ### Added
-- **?? PostgreSQL Support**: New `Funcular.Data.Orm.PostgreSql` NuGet package providing a full PostgreSQL provider (`PostgreSqlOrmDataProvider`) with feature parity to the SQL Server provider.
+- **🐘 PostgreSQL Support**: New `PostgreSqlOrmDataProvider` providing a full PostgreSQL provider with feature parity to the SQL Server provider. Both providers are included in the `Funcular.Data.Orm` package.
   - Full LINQ-to-SQL translation with PostgreSQL syntax (`LIMIT`/`OFFSET`, `RETURNING`, `EXTRACT()`, `||` string concat, `"double-quote"` identifier quoting).
   - Complete `[RemoteKey]`, `[RemoteProperty]`, and `[RemoteLink]` attribute support with BFS path resolution and automatic `LEFT JOIN` generation.
   - Npgsql 9.x for `net8.0`, Npgsql 8.x for `netstandard2.0`.
@@ -15,13 +15,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Multi-Provider Architecture**: Both SQL Server and PostgreSQL providers now inherit from the shared `OrmDataProvider` base class via `Funcular.Data.Orm.Core`. Entity classes and LINQ query code are fully portable between providers.
-- **Documentation**: README.md and Usage.md updated to reference both SQL Server and PostgreSQL where previously only MSSQL was documented.
+- **Documentation**: README.md, Usage.md, and COPILOT_INSTRUCTIONS updated to cover both SQL Server and PostgreSQL providers.
 
 ### Fixed
 - **Column Name Cache Key Mismatch**: Fixed a bug where `DiscoverColumns` and `GetCachedColumnName` used different dictionary key formats (`TypeName.Property` vs `FullTypeName.Property`), causing discovered column names (including reserved word quoting) to be ignored in favor of raw attribute values.
 - **GetTableName Quoting**: The PostgreSQL provider now overrides `GetTableName<T>()` to apply `EncloseIdentifier` for reserved word table names.
 
-## [3.0.1] - 2025-02-05
+## [3.0.1] - 2026-02-05
 
 Official release of v3.0.1. No changes from beta1.
 

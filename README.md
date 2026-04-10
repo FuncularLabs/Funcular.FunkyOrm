@@ -1,6 +1,6 @@
 > **Recent Changes**
-> * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL via the new `Funcular.Data.Orm.PostgreSql` NuGet package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
-> * **v3.0.1**: Major Refactoring & New Features. Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes for easy relationship mapping. Added support for `Guid` and `String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
+> * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
+> * **v3.0.1**: Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes, `Guid`/`String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET micro-ORM for MSSQL & PostgreSQL
@@ -12,7 +12,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-> **For AI Agents**: Please refer to [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in both NuGet packages. A PostgreSQL-specific supplement is at [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.PostgreSql/COPILOT_INSTRUCTIONS.md).
+> **For AI Agents**: Please refer to [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.PostgreSql/COPILOT_INSTRUCTIONS.md).
 >
 > **Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `COPILOT_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder.
 
@@ -40,16 +40,10 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 
 ### 1. Installation
 
-Add the provider package for your database:
+Install the FunkyORM package — both SQL Server and PostgreSQL providers are included:
 
-**SQL Server:**
 ```bash
 dotnet add package Funcular.Data.Orm
-```
-
-**PostgreSQL:**
-```bash
-dotnet add package Funcular.Data.Orm.PostgreSql
 ```
 
 ### 2. Initialization
@@ -212,9 +206,8 @@ public string EmployerCountryName { get; set; }
 
 FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. Your entity classes and LINQ queries are portable, but the generated SQL differs to match each platform's conventions.
 
-| Feature | SQL Server (`Funcular.Data.Orm`) | PostgreSQL (`Funcular.Data.Orm.PostgreSql`) |
+| Feature | SQL Server | PostgreSQL |
 | :--- | :--- | :--- |
-| **NuGet Package** | `Funcular.Data.Orm` | `Funcular.Data.Orm.PostgreSql` |
 | **Provider Class** | `SqlServerOrmDataProvider` | `PostgreSqlOrmDataProvider` |
 | **Identifier Quoting** | `[brackets]` | `"double-quotes"` |
 | **Insert Return** | `OUTPUT INSERTED.id` | `RETURNING id` |

@@ -130,7 +130,7 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
 ## Getting Started
 
 ### 1. Setup
-Install the NuGet package for your database provider, then instantiate it.
+Install the `Funcular.Data.Orm` NuGet package (both SQL Server and PostgreSQL providers are included), then instantiate the provider for your database.
 
 **SQL Server:**
 ```csharp

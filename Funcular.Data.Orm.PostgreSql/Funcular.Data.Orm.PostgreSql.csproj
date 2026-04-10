@@ -6,7 +6,7 @@
     <LangVersion>latest</LangVersion>
     <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
     <Copyright>Funcular Labs, Inc.</Copyright>
-    <Description>PostgreSQL provider for FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling. Entity classes and query code are portable between providers. Powered by Npgsql. Supports .NET 8 and .NET Standard 2.0. For SQL Server support, see the companion package Funcular.Data.Orm.</Description>
+    <Description>PostgreSQL provider for FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling. Entity classes and query code are portable between providers. Powered by Npgsql. Supports .NET 8 and .NET Standard 2.0. Included in the Funcular.Data.Orm package.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
     <RepositoryUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm.git</RepositoryUrl>
@@ -15,10 +15,10 @@
     <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <Title>Funcular.FunkyORM.PostgreSql</Title>
-    <Version>3.1.0-alpha1</Version>
+    <Version>3.1.0</Version>
     <AssemblyVersion>3.1.0.0</AssemblyVersion>
     <FileVersion>3.1.0.0</FileVersion>
-    <InformationalVersion>3.1.0-alpha1</InformationalVersion>
+    <InformationalVersion>3.1.0</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>

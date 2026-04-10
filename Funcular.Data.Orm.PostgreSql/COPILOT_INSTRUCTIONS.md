@@ -1,8 +1,8 @@
 # FunkyORM AI Agent Instructions (PostgreSQL)
 
-> **Target Audience**: AI Agents (GitHub Copilot, Cursor, Gemini, GPT, Claude, etc.) assisting developers who use the `Funcular.Data.Orm.PostgreSql` NuGet package.
+> **Target Audience**: AI Agents (GitHub Copilot, Cursor, Gemini, GPT, Claude, etc.) assisting developers who use the PostgreSQL provider in the `Funcular.Data.Orm` package.
 >
-> **Package**: `Funcular.Data.Orm.PostgreSql` | **Namespace**: `Funcular.Data.Orm.PostgreSql`
+> **Package**: `Funcular.Data.Orm` | **Namespace**: `Funcular.Data.Orm.PostgreSql`
 >
 > This file supplements the shared [COPILOT_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
 
