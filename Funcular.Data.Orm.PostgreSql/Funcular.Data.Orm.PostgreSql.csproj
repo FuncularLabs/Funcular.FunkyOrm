@@ -54,7 +54,7 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
-    <None Include="COPILOT_INSTRUCTIONS.md">
+    <None Include="FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>

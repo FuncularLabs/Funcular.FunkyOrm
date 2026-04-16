@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v3.2.0-beta1**: 🧩 **JSON Column Querying!** New `[JsonPath]` attribute extracts scalar values from JSON columns — no SQL views required. Filter on JSON values using standard LINQ. Works on both SQL Server (`JSON_VALUE`) and PostgreSQL (`#>>`). See [JSON Column Querying](#6-json-column-querying-new-in-v32).
+> * **v3.2.0-beta1** *(prerelease)*: 🧩 **JSON Column Querying!** New `[JsonPath]` attribute extracts scalar values from JSON columns — no SQL views required. Filter on JSON values using standard LINQ. Works on both SQL Server (`JSON_VALUE`) and PostgreSQL (`#>>`). See [JSON Column Querying](#6-json-column-querying-beta).
 > * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
 > * **v3.0.1**: Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes, `Guid`/`String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
@@ -13,9 +13,9 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-> **For AI Agents**: Please refer to [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [COPILOT_INSTRUCTIONS.md](Funcular.Data.Orm.PostgreSql/COPILOT_INSTRUCTIONS.md).
+> **For AI Agents**: Please refer to [FUNKYORM_AI_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md](Funcular.Data.Orm.PostgreSql/FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md).
 >
-> **Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `COPILOT_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder.
+> **Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `FUNKYORM_AI_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder. The product-specific filename avoids collisions with instructions from other packages.
 
 ## Overview
 
@@ -32,7 +32,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., blocking `1=1`), though this does not guarantee prevention of all crafty circumventions.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
-*   **JSON Column Querying**: Extract and filter on values inside JSON columns using the `[JsonPath]` attribute — no SQL views needed. Works on both SQL Server and PostgreSQL.
+*   **JSON Column Querying** *(beta)*: Extract and filter on values inside JSON columns using the `[JsonPath]` attribute — no SQL views needed. Works on both SQL Server and PostgreSQL.
 *   **Explicit Collection Population**: Leverage `RemoteKey` properties to easily populate related collections without the overhead of massive object graphs or N+1 queries.
 *   **Cached Reflection**: Funcular ORM caches reflection results to minimize overhead and maximize performance.
 *   **Nullable-Friendly**: Nullable properties work seamlessly in LINQ queries—no need for `.Value` or `.HasValue`. The ORM handles the unwrapping for you.
@@ -204,7 +204,9 @@ var sql = @"SELECT p.*, c.Name as CountryName
 public string EmployerCountryName { get; set; }
 ```
 
-### 6. JSON Column Querying (New in v3.2)
+### 6. JSON Column Querying *(Beta)*
+
+> ⚠️ **Beta Feature (v3.2.0-beta1)**: The `[JsonPath]` attribute API is functional and tested, but is considered a prerelease feature. The attribute surface and generated SQL are subject to change before the stable v3.2.0 release. Feedback is welcome.
 
 Many modern databases store semi-structured data in JSON columns. FunkyORM's `[JsonPath]` attribute lets you extract and query these values without creating SQL views.
 

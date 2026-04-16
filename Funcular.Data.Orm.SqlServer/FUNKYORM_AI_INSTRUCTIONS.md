@@ -4,7 +4,7 @@
 >
 > **Package**: `Funcular.Data.Orm` (includes SQL Server and PostgreSQL providers)
 
----
+----
 
 ## AI Agent Instructions: READ THIS FIRST
 

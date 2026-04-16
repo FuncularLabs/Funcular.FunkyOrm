@@ -4,7 +4,7 @@
 >
 > **Package**: `Funcular.Data.Orm` | **Namespace**: `Funcular.Data.Orm.PostgreSql`
 >
-> This file supplements the shared [COPILOT_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
+> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
 
 ---
 
@@ -118,4 +118,4 @@ All shared rules apply without modification:
 - JSON column querying (see shared instructions for full attribute reference)
 - The "Duplicate Class Name" problem
 
-See the shared [COPILOT_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for complete details.
+See the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for complete details.
