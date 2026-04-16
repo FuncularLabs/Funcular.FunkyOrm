@@ -60,6 +60,15 @@ A "Canonical Entity" (e.g., `Person`) represents the table structure exactly.
 *   **Ambiguity**: If multiple paths exist, the resolver throws `AmbiguousMatchException`. Agents must then specify the full path using `nameof()` chains.
 *   **Cross-Assembly**: The resolver defaults to the same assembly. Use `[RemoteLink]` to bridge assembly boundaries (e.g., DTO -> Domain Entity).
 
+### 5. JSON Column Querying Philosophy
+*   **Purpose**: To query into semi-structured JSON columns without creating SQL views or raw SQL.
+*   **Mechanism**: The `[JsonPath]` attribute generates `JSON_VALUE` (SQL Server) or `#>>` (PostgreSQL) expressions via `ISqlDialect.BuildJsonValueExpression()`.
+*   **Architecture**: JSON extraction is resolved in `ResolveRemoteJoins<T>` alongside remote properties. Extracted expressions are added to `ExtraColumns` and `PropertyToColumnMap` so they work in both SELECT and WHERE clauses.
+*   **Typing**: By default, JSON extraction returns strings. The optional `SqlType` parameter wraps the expression in `CAST()` (SQL Server) or `::type` (PostgreSQL) for typed comparisons.
+*   **Same-Table Only**: Unlike `[RemoteProperty]` which JOINs to other tables, `[JsonPath]` operates on a column of the *same* table. It adds no JOINs.
+*   **Detail Pattern Rule**: Like all enrichment attributes, `[JsonPath]` must be placed on Detail classes, never on Canonical Entities. A `[JsonPath]` on a Canonical Entity forces JSON extraction on every query of that type.
+*   **Agent Instruction**: When a user asks to "query a JSON column" or "extract from JSON," use `[JsonPath]` on a Detail class. Do NOT suggest raw `JSON_VALUE` SQL or create SQL views.
+
 ### 5. Connection Management
 *   **Pattern**: One instance per connection string.
 *   **Lifecycle**: Singleton or Transient. No `DbContext` state tracking.

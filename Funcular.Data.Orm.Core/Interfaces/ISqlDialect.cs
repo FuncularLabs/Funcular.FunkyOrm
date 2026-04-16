@@ -52,5 +52,17 @@ namespace Funcular.Data.Orm.Interfaces
         /// Builds a SELECT command text.
         /// </summary>
         string BuildSelectCommand(string tableName, string columnNames, string whereClause, string joinClauses = null);
+
+        /// <summary>
+        /// Builds a SQL expression that extracts a scalar value from a JSON column using a JSON path.
+        /// For SQL Server this produces <c>JSON_VALUE(column, '$.path')</c>.
+        /// For PostgreSQL this produces <c>column #&gt;&gt; '{path}'</c>.
+        /// When <paramref name="castType"/> is specified, the result is wrapped in a CAST or <c>::type</c>.
+        /// </summary>
+        /// <param name="qualifiedColumn">The fully qualified column expression (e.g., <c>[project].[metadata]</c>).</param>
+        /// <param name="jsonPath">The JSON path expression (e.g., <c>$.client.name</c>).</param>
+        /// <param name="castType">Optional SQL type to cast the result to (e.g., <c>"int"</c>). Null for no cast.</param>
+        /// <returns>A SQL expression string that extracts the JSON value.</returns>
+        string BuildJsonValueExpression(string qualifiedColumn, string jsonPath, string castType = null);
     }
 }

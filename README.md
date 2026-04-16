@@ -1,4 +1,5 @@
 > **Recent Changes**
+> * **v3.2.0-beta1**: 🧩 **JSON Column Querying!** New `[JsonPath]` attribute extracts scalar values from JSON columns — no SQL views required. Filter on JSON values using standard LINQ. Works on both SQL Server (`JSON_VALUE`) and PostgreSQL (`#>>`). See [JSON Column Querying](#6-json-column-querying-new-in-v32).
 > * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
 > * **v3.0.1**: Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes, `Guid`/`String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
@@ -31,6 +32,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., blocking `1=1`), though this does not guarantee prevention of all crafty circumventions.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
+*   **JSON Column Querying**: Extract and filter on values inside JSON columns using the `[JsonPath]` attribute — no SQL views needed. Works on both SQL Server and PostgreSQL.
 *   **Explicit Collection Population**: Leverage `RemoteKey` properties to easily populate related collections without the overhead of massive object graphs or N+1 queries.
 *   **Cached Reflection**: Funcular ORM caches reflection results to minimize overhead and maximize performance.
 *   **Nullable-Friendly**: Nullable properties work seamlessly in LINQ queries—no need for `.Value` or `.HasValue`. The ORM handles the unwrapping for you.
@@ -202,6 +204,47 @@ var sql = @"SELECT p.*, c.Name as CountryName
 public string EmployerCountryName { get; set; }
 ```
 
+### 6. JSON Column Querying (New in v3.2)
+
+Many modern databases store semi-structured data in JSON columns. FunkyORM's `[JsonPath]` attribute lets you extract and query these values without creating SQL views.
+
+```csharp
+// Your table has a JSON column: metadata NVARCHAR(MAX)
+// Example value: {"priority":"high","client":{"name":"Acme Corp","region":"NA"},"risk_level":3}
+
+// Canonical entity — no JSON attributes here
+[Table("project")]
+public class Project
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+    public string Metadata { get; set; }  // Raw JSON column
+}
+
+// Detail class — extracts JSON scalars into typed properties
+[Table("project")]
+public class ProjectScorecard : Project
+{
+    [JsonPath("metadata", "$.priority")]
+    public string Priority { get; set; }
+
+    [JsonPath("metadata", "$.client.name")]
+    public string ClientName { get; set; }
+
+    [JsonPath("metadata", "$.risk_level", SqlType = "int")]
+    public int? RiskLevel { get; set; }
+}
+
+// Query and filter on JSON values with standard LINQ!
+var highPriority = provider.Query<ProjectScorecard>()
+    .Where(p => p.Priority == "high")
+    .ToList();
+// Generated SQL (MSSQL): WHERE JSON_VALUE(project.metadata, '$.priority') = @p0
+// Generated SQL (Postgres): WHERE project.metadata #>> '{priority}' = @p0
+```
+
+Like remote properties, `[JsonPath]` attributes belong on **Detail classes**, not canonical entities.
+
 ## Database Provider Differences
 
 FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. Your entity classes and LINQ queries are portable, but the generated SQL differs to match each platform's conventions.
@@ -217,6 +260,7 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 | **Boolean Type** | `BIT` (0/1) | Native `BOOLEAN` |
 | **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` |
 | **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` |
+| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` |
 
 ### PostgreSQL-Specific Notes
 

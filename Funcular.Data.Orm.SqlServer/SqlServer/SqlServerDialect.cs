@@ -137,6 +137,18 @@ namespace Funcular.Data.Orm.SqlServer
             return sql;
         }
 
+        /// <inheritdoc />
+        public string BuildJsonValueExpression(string qualifiedColumn, string jsonPath, string castType = null)
+        {
+            // SQL Server: JSON_VALUE(column, '$.path')
+            var expr = $"JSON_VALUE({qualifiedColumn}, '{jsonPath}')";
+            if (!string.IsNullOrEmpty(castType))
+            {
+                expr = $"CAST({expr} AS {castType})";
+            }
+            return expr;
+        }
+
         private SqlParameter CreateParameter(string name, object value, Type type)
         {
             var param = new SqlParameter(name, value ?? DBNull.Value);

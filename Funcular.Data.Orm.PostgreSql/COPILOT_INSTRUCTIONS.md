@@ -81,15 +81,41 @@ public class User
 
 ---
 
+## JSON Column Querying (PostgreSQL)
+
+The `[JsonPath]` attribute (v3.2+) works identically on PostgreSQL. The generated SQL uses PostgreSQL's native JSON operators instead of SQL Server's `JSON_VALUE`:
+
+| Feature | SQL Server | PostgreSQL |
+|:---|:---|:---|
+| **String extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` |
+| **Nested path** | `JSON_VALUE(col, '$.client.name')` | `col #>> '{client,name}'` |
+| **Typed extraction** | `CAST(JSON_VALUE(col, '$.path') AS int)` | `(col #>> '{path}')::int` |
+
+The path syntax conversion (`$.client.name` ? `{client,name}`) is handled automatically by the PostgreSQL dialect. You use the same `$.dot.notation` in your C# attribute regardless of provider.
+
+```csharp
+// Same C# code for both SQL Server and PostgreSQL
+[JsonPath("metadata", "$.client.name")]
+public string ClientName { get; set; }
+
+[JsonPath("metadata", "$.risk_level", SqlType = "int")]
+public int? RiskLevel { get; set; }
+```
+
+> **Note:** PostgreSQL `jsonb` columns offer better performance for JSON operations than `text`/`json` columns. If you plan to filter frequently on JSON values, consider using `jsonb` column type in your PostgreSQL schema.
+
+---
+
 ## All Other Rules
 
 All shared rules apply without modification:
 
-- The "Detail" entity pattern for remote attributes
+- The "Detail" entity pattern for remote attributes and `[JsonPath]`
 - Safe delete transaction mandate
 - No `.Value`/`.HasValue` in LINQ
 - Naming conventions and auto-mapping
 - Remote attribute path resolution
+- JSON column querying (see shared instructions for full attribute reference)
 - The "Duplicate Class Name" problem
 
 See the shared [COPILOT_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/COPILOT_INSTRUCTIONS.md) for complete details.

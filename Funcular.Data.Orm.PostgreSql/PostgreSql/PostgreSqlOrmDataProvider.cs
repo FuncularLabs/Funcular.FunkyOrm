@@ -460,11 +460,15 @@ namespace Funcular.Data.Orm.PostgreSql
                 PropertyToColumnMap = new Dictionary<string, string>()
             };
 
-            var remoteProperties = typeof(T).GetProperties()
+            var allProperties = typeof(T).GetProperties();
+            var remoteProperties = allProperties
                 .Where(p => Attribute.IsDefined(p, typeof(RemoteAttributeBase)))
                 .ToList();
+            var jsonPathProperties = allProperties
+                .Where(p => Attribute.IsDefined(p, typeof(JsonPathAttribute)))
+                .ToList();
 
-            if (!remoteProperties.Any()) return info;
+            if (!remoteProperties.Any() && !jsonPathProperties.Any()) return info;
 
             var resolver = new RemotePathResolver();
             var joinClauses = new StringBuilder();
@@ -526,6 +530,19 @@ namespace Funcular.Data.Orm.PostgreSql
                 extraColumns.Append($", {currentAlias}.{finalColumn} AS \"{prop.Name}\"");
             }
 
+            // --- JsonPath attribute processing ---
+            foreach (var prop in jsonPathProperties)
+            {
+                var attr = prop.GetCustomAttribute<JsonPathAttribute>();
+                if (attr == null) continue;
+
+                string jsonColumn = $"{tableName}.{Dialect.EncloseIdentifier(attr.ColumnName)}";
+                string jsonExpr = Dialect.BuildJsonValueExpression(jsonColumn, attr.Path, attr.SqlType);
+
+                info.PropertyToColumnMap[prop.Name] = jsonExpr;
+                extraColumns.Append($", {jsonExpr} AS \"{prop.Name}\"");
+            }
+
             info.JoinClauses = joinClauses.ToString();
             info.ExtraColumns = extraColumns.ToString();
             return info;
@@ -540,7 +557,10 @@ namespace Funcular.Data.Orm.PostgreSql
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
             string joinClauses = null;
 
-            if (!string.IsNullOrEmpty(remoteInfo.JoinClauses))
+            bool hasJoins = !string.IsNullOrEmpty(remoteInfo.JoinClauses);
+            bool hasExtraColumns = !string.IsNullOrEmpty(remoteInfo.ExtraColumns);
+
+            if (hasJoins || hasExtraColumns)
             {
                 var columns = columnNames.Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries);
                 for (int i = 0; i < columns.Length; i++)
@@ -554,7 +574,7 @@ namespace Funcular.Data.Orm.PostgreSql
                     whereClause = whereClause.Replace(pkCol, $"{tableName}.{pkCol}");
                 }
                 columnNames += remoteInfo.ExtraColumns;
-                joinClauses = remoteInfo.JoinClauses;
+                joinClauses = hasJoins ? remoteInfo.JoinClauses : null;
             }
 
             return Dialect.BuildSelectCommand(tableName, columnNames, whereClause, joinClauses);

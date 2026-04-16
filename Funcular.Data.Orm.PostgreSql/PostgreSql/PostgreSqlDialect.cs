@@ -151,6 +151,29 @@ namespace Funcular.Data.Orm.PostgreSql
             return sql;
         }
 
+        /// <inheritdoc />
+        public string BuildJsonValueExpression(string qualifiedColumn, string jsonPath, string castType = null)
+        {
+            // Convert JSON path from SQL Server syntax ($.client.name) to PostgreSQL array syntax ({client,name})
+            // Strip leading "$." and split on "."
+            var path = jsonPath;
+            if (path.StartsWith("$."))
+                path = path.Substring(2);
+            else if (path.StartsWith("$"))
+                path = path.Substring(1);
+
+            var segments = path.Split('.');
+            var pgPath = "{" + string.Join(",", segments) + "}";
+
+            // PostgreSQL: column #>> '{path}' extracts as text
+            var expr = $"{qualifiedColumn} #>> '{pgPath}'";
+            if (!string.IsNullOrEmpty(castType))
+            {
+                expr = $"({expr})::{castType}";
+            }
+            return expr;
+        }
+
         private NpgsqlParameter CreateParameter(string name, object value, Type type)
         {
             var param = new NpgsqlParameter(name, value ?? DBNull.Value);

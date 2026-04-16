@@ -235,3 +235,206 @@ SELECT
         ELSE 2 -- Shipping
     END
 FROM @inserted;
+
+-- =========================================================================
+-- PROJECT / JSON ATTRIBUTE TEST DATA
+-- Populates project_category, project (with JSON metadata), 
+-- project_milestone, and project_note with realistic, varied data.
+-- =========================================================================
+
+-- PROJECT_CATEGORY (6 categories)
+SET IDENTITY_INSERT project_category ON;
+INSERT INTO project_category (id, name, code) VALUES
+    (1, 'Internal Tooling',   'internal'),
+    (2, 'Client Deliverable', 'client'),
+    (3, 'Research & Development', 'rnd'),
+    (4, 'Infrastructure',     'infra'),
+    (5, 'Data Migration',     'migration'),
+    (6, 'Proof of Concept',   'poc');
+SET IDENTITY_INSERT project_category OFF;
+
+-- PROJECT (50 rows with varied JSON metadata)
+-- Uses a loop to generate realistic metadata combinations.
+DECLARE @ProjectCounter INT = 0;
+DECLARE @OrgCount INT = (SELECT COUNT(*) FROM organization);
+DECLARE @PersonCount INT = (SELECT COUNT(*) FROM person);
+
+WHILE @ProjectCounter < 50
+BEGIN
+    DECLARE @projRand INT = ABS(CHECKSUM(NEWID()));
+    DECLARE @catId INT = (@projRand % 6) + 1;
+    DECLARE @orgId INT;
+    DECLARE @leadId INT;
+
+    -- Pick a random organization (fall back to 1 if none exist yet)
+    SELECT TOP 1 @orgId = id FROM organization ORDER BY NEWID();
+    IF @orgId IS NULL SET @orgId = 1;
+
+    -- ~80% of projects have a lead; 20% are NULL
+    IF @projRand % 5 <> 0
+        SELECT TOP 1 @leadId = id FROM person ORDER BY NEWID();
+    ELSE
+        SET @leadId = NULL;
+
+    DECLARE @priority NVARCHAR(10) = CASE @projRand % 3
+        WHEN 0 THEN 'high' WHEN 1 THEN 'medium' ELSE 'low' END;
+
+    DECLARE @riskLevel INT = (@projRand % 5) + 1;  -- 1-5
+
+    DECLARE @clientName NVARCHAR(50) = CASE @projRand % 8
+        WHEN 0 THEN 'Acme Corp'     WHEN 1 THEN 'Globex Inc'
+        WHEN 2 THEN 'Initech'       WHEN 3 THEN 'Umbrella LLC'
+        WHEN 4 THEN 'Stark Industries' WHEN 5 THEN 'Wayne Enterprises'
+        WHEN 6 THEN 'Cyberdyne Systems' ELSE 'Soylent Corp' END;
+
+    DECLARE @region NVARCHAR(10) = CASE @projRand % 4
+        WHEN 0 THEN 'NA' WHEN 1 THEN 'EMEA' WHEN 2 THEN 'APAC' ELSE 'LATAM' END;
+
+    DECLARE @tag1 NVARCHAR(20) = CASE @projRand % 6
+        WHEN 0 THEN 'api'     WHEN 1 THEN 'frontend' WHEN 2 THEN 'backend'
+        WHEN 3 THEN 'devops'  WHEN 4 THEN 'database' ELSE 'security' END;
+
+    DECLARE @tag2 NVARCHAR(20) = CASE (@projRand / 6) % 5
+        WHEN 0 THEN 'urgent'  WHEN 1 THEN 'legacy' WHEN 2 THEN 'greenfield'
+        WHEN 3 THEN 'mobile'  ELSE 'cloud' END;
+
+    DECLARE @projName NVARCHAR(200) = CASE @projRand % 10
+        WHEN 0 THEN 'Platform API Redesign'
+        WHEN 1 THEN 'Customer Portal v2'
+        WHEN 2 THEN 'Data Warehouse Migration'
+        WHEN 3 THEN 'Mobile App Refresh'
+        WHEN 4 THEN 'CI/CD Pipeline Overhaul'
+        WHEN 5 THEN 'Security Audit Remediation'
+        WHEN 6 THEN 'Analytics Dashboard'
+        WHEN 7 THEN 'Legacy System Replacement'
+        WHEN 8 THEN 'Cloud Infrastructure Setup'
+        ELSE 'Internal Knowledge Base'
+    END + ' (' + CAST(@ProjectCounter + 1 AS NVARCHAR(3)) + ')';
+
+    DECLARE @budget DECIMAL(12,2) = CAST((@projRand % 500 + 10) * 1000 AS DECIMAL(12,2));
+
+    -- ~70% of projects have a pre-set score; 30% are NULL (rely on computed)
+    DECLARE @score INT = CASE WHEN @projRand % 10 < 3 THEN NULL
+        ELSE (@projRand % 100) + 1 END;
+
+    -- Build the JSON metadata string
+    DECLARE @metadata NVARCHAR(MAX) = 
+        '{"priority":"' + @priority + '",'
+      + '"tags":["' + @tag1 + '","' + @tag2 + '"],'
+      + '"client":{"name":"' + @clientName + '","region":"' + @region + '"},'
+      + '"risk_level":' + CAST(@riskLevel AS NVARCHAR(2)) + '}';
+
+    INSERT INTO project (name, organization_id, lead_id, category_id, budget, score, metadata)
+    VALUES (@projName, @orgId, @leadId, @catId, @budget, @score, @metadata);
+
+    SET @ProjectCounter = @ProjectCounter + 1;
+END;
+
+-- PROJECT_MILESTONE (3-6 milestones per project)
+DECLARE @MilestoneProjectId INT;
+DECLARE milestone_cursor CURSOR LOCAL FAST_FORWARD FOR
+    SELECT id FROM project;
+OPEN milestone_cursor;
+FETCH NEXT FROM milestone_cursor INTO @MilestoneProjectId;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DECLARE @msCount INT = (ABS(CHECKSUM(NEWID())) % 4) + 3; -- 3 to 6
+    DECLARE @msIdx INT = 0;
+    WHILE @msIdx < @msCount
+    BEGIN
+        DECLARE @msRand INT = ABS(CHECKSUM(NEWID()));
+        DECLARE @msTitle NVARCHAR(200) = CASE @msIdx
+            WHEN 0 THEN 'Requirements Gathering'
+            WHEN 1 THEN 'Design Review'
+            WHEN 2 THEN 'Development Sprint'
+            WHEN 3 THEN 'QA & Testing'
+            WHEN 4 THEN 'Deployment'
+            ELSE 'Post-Launch Review'
+        END;
+
+        DECLARE @msStatus NVARCHAR(50) = CASE @msRand % 10
+            WHEN 0 THEN 'overdue'
+            WHEN 1 THEN 'overdue'
+            WHEN 2 THEN 'pending'
+            WHEN 3 THEN 'pending'
+            WHEN 4 THEN 'pending'
+            WHEN 5 THEN 'in_progress'
+            WHEN 6 THEN 'in_progress'
+            ELSE 'completed'
+        END;
+
+        DECLARE @dueDate DATE = DATEADD(DAY, (@msIdx + 1) * 14 + (@msRand % 10), GETDATE());
+        DECLARE @completedDate DATE = CASE
+            WHEN @msStatus = 'completed' THEN DATEADD(DAY, -(@msRand % 30), GETDATE())
+            ELSE NULL
+        END;
+
+        INSERT INTO project_milestone (project_id, title, status, due_date, completed_date)
+        VALUES (@MilestoneProjectId, @msTitle, @msStatus, @dueDate, @completedDate);
+
+        SET @msIdx = @msIdx + 1;
+    END;
+
+    FETCH NEXT FROM milestone_cursor INTO @MilestoneProjectId;
+END;
+CLOSE milestone_cursor;
+DEALLOCATE milestone_cursor;
+
+-- PROJECT_NOTE (2-5 notes per project)
+DECLARE @NoteProjectId INT;
+DECLARE note_cursor CURSOR LOCAL FAST_FORWARD FOR
+    SELECT id FROM project;
+OPEN note_cursor;
+FETCH NEXT FROM note_cursor INTO @NoteProjectId;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DECLARE @noteCount INT = (ABS(CHECKSUM(NEWID())) % 4) + 2; -- 2 to 5
+    DECLARE @noteIdx INT = 0;
+    WHILE @noteIdx < @noteCount
+    BEGIN
+        DECLARE @noteRand INT = ABS(CHECKSUM(NEWID()));
+
+        DECLARE @noteCat NVARCHAR(50) = CASE @noteRand % 8
+            WHEN 0 THEN 'risk'
+            WHEN 1 THEN 'risk'
+            WHEN 2 THEN 'decision'
+            WHEN 3 THEN 'blocker'
+            ELSE 'general'
+        END;
+
+        DECLARE @noteContent NVARCHAR(MAX) = CASE @noteRand % 12
+            WHEN 0  THEN 'Dependency on external API may delay timeline.'
+            WHEN 1  THEN 'Team agreed to use event-driven architecture.'
+            WHEN 2  THEN 'Budget approved for additional cloud resources.'
+            WHEN 3  THEN 'Blocked on vendor providing updated SDK.'
+            WHEN 4  THEN 'Performance benchmarks look promising — 40% improvement.'
+            WHEN 5  THEN 'Security review flagged two medium-severity findings.'
+            WHEN 6  THEN 'Stakeholder demo scheduled for next Friday.'
+            WHEN 7  THEN 'Scope reduced to core features for MVP release.'
+            WHEN 8  THEN 'Database migration scripts tested successfully in staging.'
+            WHEN 9  THEN 'Need to evaluate alternative caching strategies.'
+            WHEN 10 THEN 'Compliance team requested additional audit logging.'
+            ELSE         'Sprint retrospective: velocity improved by 15%.'
+        END;
+
+        DECLARE @authorId INT;
+        SELECT TOP 1 @authorId = id FROM person ORDER BY NEWID();
+
+        INSERT INTO project_note (project_id, author_id, content, category, dateutc_created)
+        VALUES (
+            @NoteProjectId,
+            @authorId,
+            @noteContent,
+            @noteCat,
+            DATEADD(HOUR, -(@noteRand % 720), GETUTCDATE())  -- random time in last 30 days
+        );
+
+        SET @noteIdx = @noteIdx + 1;
+    END;
+
+    FETCH NEXT FROM note_cursor INTO @NoteProjectId;
+END;
+CLOSE note_cursor;
+DEALLOCATE note_cursor;

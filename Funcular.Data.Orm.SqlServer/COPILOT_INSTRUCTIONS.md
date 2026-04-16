@@ -296,6 +296,102 @@ Map the Join Table as an entity to access its columns (e.g., `IsPrimary`, `DateA
 
 ---
 
+## JSON Column Querying (v3.2+)
+
+FunkyORM can extract scalar values from JSON columns without SQL views, using the `[JsonPath]` attribute.
+
+### Attribute Reference
+
+| Attribute | Purpose | Signature |
+|-----------|---------|-----------|
+| `[JsonPath]` | Extracts a scalar value from a JSON column on the **same** table | `[JsonPath("column", "$.path", SqlType = "type")]` |
+
+### Parameters
+
+| Parameter | Required | Description |
+|:---|:---|:---|
+| `columnName` | Yes | The JSON column name (e.g., `"metadata"`) |
+| `path` | Yes | JSON path expression (e.g., `"$.client.name"`) |
+| `SqlType` | No | SQL type to cast the result to (e.g., `"int"`, `"decimal(10,2)"`) |
+
+### Generated SQL
+
+| Provider | Without Cast | With Cast (`SqlType = "int"`) |
+|:---|:---|:---|
+| **SQL Server** | `JSON_VALUE(table.col, '$.path')` | `CAST(JSON_VALUE(table.col, '$.path') AS int)` |
+| **PostgreSQL** | `table.col #>> '{path}'` | `(table.col #>> '{path}')::int` |
+
+### Usage Pattern
+
+Follow the same "Detail" entity pattern as `[RemoteProperty]`:
+
+```csharp
+// Canonical entity — NO [JsonPath] here
+[Table("project")]
+public class Project
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+    public string Metadata { get; set; }  // JSON column
+}
+
+// Detail class — add [JsonPath] for rich queries
+[Table("project")]
+public class ProjectScorecard : Project
+{
+    [JsonPath("metadata", "$.priority")]
+    public string Priority { get; set; }
+
+    [JsonPath("metadata", "$.client.name")]
+    public string ClientName { get; set; }
+
+    [JsonPath("metadata", "$.risk_level", SqlType = "int")]
+    public int? RiskLevel { get; set; }
+}
+```
+
+### Querying & Filtering
+
+`[JsonPath]` properties work in `Get<T>`, `Query<T>`, `GetList<T>`, and **WHERE clauses**:
+
+```csharp
+// Get by ID — JSON values extracted
+var project = provider.Get<ProjectScorecard>(42);
+
+// Filter on JSON values using standard LINQ
+var results = provider.Query<ProjectScorecard>()
+    .Where(p => p.Priority == "high")
+    .Where(p => p.RiskLevel >= 3)
+    .ToList();
+```
+
+### Combining with `[RemoteProperty]`
+
+Both attributes work together on the same Detail class:
+
+```csharp
+[Table("project")]
+public class ProjectScorecard : Project
+{
+    // JOIN to organization table
+    [RemoteProperty(typeof(Organization), nameof(OrganizationId), nameof(Organization.Name))]
+    public string OrganizationName { get; set; }
+
+    // Extract from JSON column on same table
+    [JsonPath("metadata", "$.priority")]
+    public string Priority { get; set; }
+}
+```
+
+### Key Rules for AI Agents
+
+1.  **Do NOT add `[JsonPath]` to canonical entities** — same rule as `[RemoteProperty]`.
+2.  **Use `SqlType` for non-string comparisons** — without it, `JSON_VALUE` returns `nvarchar` and numeric comparisons may fail.
+3.  **Null metadata is safe** — when the JSON column is NULL, extracted properties resolve to null.
+4.  **No `.Value` on `[JsonPath]` nullable properties** — same rule as all nullable properties in LINQ.
+
+---
+
 ## Common Errors & Fixes
 
 ### PathNotFoundException (Type Mismatch)

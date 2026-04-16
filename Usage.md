@@ -920,6 +920,177 @@ This pattern acts like a **SQL View** defined entirely in code. You get the perf
 
 ---
 
+## JSON Column Querying (New in v3.2)
+
+Many modern schemas store semi-structured data in JSON columns (e.g., `NVARCHAR(MAX)` in SQL Server, `jsonb`/`text` in PostgreSQL). Traditionally, querying into these columns required creating SQL views with `JSON_VALUE` or `#>>` expressions. FunkyORM's `[JsonPath]` attribute eliminates this by extracting JSON scalars directly into entity properties — with full LINQ filtering support.
+
+### The `[JsonPath]` Attribute
+
+```csharp
+[JsonPath("columnName", "$.json.path")]
+public string PropertyName { get; set; }
+
+// With typed extraction:
+[JsonPath("columnName", "$.json.path", SqlType = "int")]
+public int? PropertyName { get; set; }
+```
+
+| Parameter | Description |
+|:---|:---|
+| `columnName` | The name of the JSON column on the entity's table (e.g., `"metadata"`). |
+| `path` | A JSON path expression (e.g., `"$.client.name"`, `"$.risk_level"`). |
+| `SqlType` | *(Optional)* SQL type to cast the extracted value to (e.g., `"int"`, `"decimal(10,2)"`). |
+
+### Example: A Project with JSON Metadata
+
+Suppose you have a `project` table with a `metadata` column containing JSON like this:
+
+```json
+{
+  "priority": "high",
+  "tags": ["api", "backend"],
+  "client": {
+    "name": "Acme Corp",
+    "region": "NA"
+  },
+  "risk_level": 3
+}
+```
+
+**Step 1: Define the Canonical Entity**
+
+```csharp
+[Table("project")]
+public class Project
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+    public int OrganizationId { get; set; }
+    public decimal? Budget { get; set; }
+    public int? Score { get; set; }
+    public string Metadata { get; set; }  // Raw JSON column
+}
+```
+
+**Step 2: Define the Detail Class with `[JsonPath]`**
+
+Follow the same "Detail" pattern used for `[RemoteProperty]` — add JSON extraction to an inherited class, not the canonical entity.
+
+```csharp
+[Table("project")]
+public class ProjectScorecard : Project
+{
+    /// <summary>Extract priority from metadata JSON.</summary>
+    [JsonPath("metadata", "$.priority")]
+    public string Priority { get; set; }
+
+    /// <summary>Extract client name from nested JSON object.</summary>
+    [JsonPath("metadata", "$.client.name")]
+    public string ClientName { get; set; }
+
+    /// <summary>Extract client region from nested JSON object.</summary>
+    [JsonPath("metadata", "$.client.region")]
+    public string ClientRegion { get; set; }
+
+    /// <summary>Extract risk level as an integer (typed extraction).</summary>
+    [JsonPath("metadata", "$.risk_level", SqlType = "int")]
+    public int? RiskLevel { get; set; }
+}
+```
+
+**Step 3: Query and Filter**
+
+```csharp
+// Get by ID — JSON values are extracted automatically
+var project = provider.Get<ProjectScorecard>(42);
+Console.WriteLine(project.Priority);    // "high"
+Console.WriteLine(project.ClientName);  // "Acme Corp"
+Console.WriteLine(project.RiskLevel);   // 3
+
+// Filter on JSON values using standard LINQ
+var highPriority = provider.Query<ProjectScorecard>()
+    .Where(p => p.Priority == "high")
+    .ToList();
+
+// Filter on nested JSON values
+var emeaProjects = provider.Query<ProjectScorecard>()
+    .Where(p => p.ClientRegion == "EMEA")
+    .ToList();
+
+// Combine JSON filters with regular column filters
+var bigRiskyProjects = provider.Query<ProjectScorecard>()
+    .Where(p => p.RiskLevel >= 3)
+    .Where(p => p.Budget > 100000)
+    .ToList();
+```
+
+### Generated SQL
+
+**SQL Server:**
+```sql
+SELECT project.id, project.name, project.budget, ...,
+       JSON_VALUE(project.metadata, '$.priority') AS [Priority],
+       JSON_VALUE(project.metadata, '$.client.name') AS [ClientName],
+       CAST(JSON_VALUE(project.metadata, '$.risk_level') AS int) AS [RiskLevel]
+FROM project
+WHERE JSON_VALUE(project.metadata, '$.priority') = @p0
+```
+
+**PostgreSQL:**
+```sql
+SELECT project.id, project.name, project.budget, ...,
+       project.metadata #>> '{priority}' AS "Priority",
+       project.metadata #>> '{client,name}' AS "ClientName",
+       (project.metadata #>> '{risk_level}')::int AS "RiskLevel"
+FROM project
+WHERE project.metadata #>> '{priority}' = @p0
+```
+
+### Combining `[JsonPath]` with `[RemoteProperty]`
+
+Both attribute types work together on the same Detail class. `[RemoteProperty]` generates JOINs to related tables, while `[JsonPath]` extracts values from JSON columns on the *same* table:
+
+```csharp
+[Table("project")]
+public class ProjectScorecard : Project
+{
+    // Remote property — joins to the organization table
+    [RemoteProperty(typeof(Organization), nameof(OrganizationId), nameof(Organization.Name))]
+    public string OrganizationName { get; set; }
+
+    // JSON path — extracts from the metadata column on the project table
+    [JsonPath("metadata", "$.priority")]
+    public string Priority { get; set; }
+
+    [JsonPath("metadata", "$.client.name")]
+    public string ClientName { get; set; }
+}
+
+// Both work simultaneously in queries:
+var results = provider.Query<ProjectScorecard>()
+    .Where(p => p.OrganizationName == "Acme Corp")  // Filter on joined column
+    .Where(p => p.Priority == "high")                // Filter on JSON value
+    .ToList();
+```
+
+### Null Metadata Handling
+
+When the JSON column is `NULL`, all `[JsonPath]` properties on that row resolve to `null` (or `default` for value types). No errors are thrown:
+
+```csharp
+var project = provider.Get<ProjectScorecard>(99); // metadata is NULL
+Console.WriteLine(project.Priority);   // null
+Console.WriteLine(project.RiskLevel);  // null (int? → null)
+```
+
+### Performance Considerations
+
+- `[JsonPath]` adds SQL expressions to the SELECT list but does **not** add JOINs — extraction happens on the same table.
+- For SQL Server, consider adding computed columns or indexes on frequently filtered JSON paths for performance at scale.
+- Like `[RemoteProperty]`, place `[JsonPath]` on Detail classes to avoid unnecessary JSON extraction on every query of the base entity.
+
+---
+
 ## Troubleshooting & Error Handling
 
 We try to give you helpful error messages. Here are some you might see and what they mean.

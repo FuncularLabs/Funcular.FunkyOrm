@@ -98,6 +98,59 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                     BEGIN 
                         ALTER TABLE person ADD employer_id INT NULL; 
                         ALTER TABLE person ADD CONSTRAINT FK_person_organization FOREIGN KEY (employer_id) REFERENCES organization(id);
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'project_category')
+                    BEGIN
+                        CREATE TABLE project_category (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            name NVARCHAR(100) NOT NULL,
+                            code NVARCHAR(50) NOT NULL
+                        );
+                        INSERT INTO project_category (name, code) VALUES
+                            ('Internal Tooling', 'internal'),
+                            ('Client Deliverable', 'client'),
+                            ('Research & Development', 'rnd');
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'project')
+                    BEGIN
+                        CREATE TABLE project (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            name NVARCHAR(200) NOT NULL,
+                            organization_id INT NOT NULL,
+                            lead_id INT NULL,
+                            category_id INT NULL,
+                            budget DECIMAL(12,2) NULL,
+                            score INT NULL,
+                            metadata NVARCHAR(MAX) NULL,
+                            dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+                            dateutc_modified DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+                        );
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'project_milestone')
+                    BEGIN
+                        CREATE TABLE project_milestone (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            project_id INT NOT NULL,
+                            title NVARCHAR(200) NOT NULL,
+                            status NVARCHAR(50) NOT NULL DEFAULT 'pending',
+                            due_date DATE NULL,
+                            completed_date DATE NULL
+                        );
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'project_note')
+                    BEGIN
+                        CREATE TABLE project_note (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            project_id INT NOT NULL,
+                            author_id INT NULL,
+                            content NVARCHAR(MAX) NOT NULL,
+                            category NVARCHAR(50) NOT NULL DEFAULT 'general',
+                            dateutc_created DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+                        );
                     END";
                 cmd.ExecuteNonQuery();
             }

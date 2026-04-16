@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.0-beta1] - 2026-06-20
+
+### Added
+- **JSON Column Querying**: New `[JsonPath]` attribute enables extracting scalar values from JSON columns without SQL views.
+  - Decorate a property with `[JsonPath("column", "$.path")]` to extract a value from a JSON column on the same table.
+  - Supports nested paths (e.g., `$.client.name`) and typed extraction via optional `SqlType` property (e.g., `SqlType = "int"`).
+  - Extracted values work in `Get<T>`, `Query<T>`, `GetList<T>`, and **WHERE clauses** — filter on JSON values using standard LINQ.
+  - Full SQL Server and PostgreSQL support via `ISqlDialect.BuildJsonValueExpression()`:
+    - **SQL Server**: `JSON_VALUE(column, '$.path')` with `CAST()` for typed extraction.
+    - **PostgreSQL**: `column #>> '{path}' ` with `::type` casting.
+  - Follows the established "Detail" entity pattern — add `[JsonPath]` to inherited Detail classes, not canonical entities.
+- **Integration Test Schema**: Added `project`, `project_category`, `project_milestone`, and `project_note` tables with JSON metadata column for integration testing.
+- **`vw_project_scorecard`**: Demonstration SQL view exercising all planned JSON capability categories.
+
+### Changed
+- **Version**: All projects bumped to `3.2.0-beta1`.
+- **`ISqlDialect`**: Added `BuildJsonValueExpression(qualifiedColumn, jsonPath, castType)` method.
+- **`ResolveRemoteJoins<T>`**: Now detects `[JsonPath]` attributes alongside `[RemoteProperty]`/`[RemoteKey]`, appending JSON extraction expressions to `ExtraColumns` and `PropertyToColumnMap`.
+- **`CreateGetOneOrSelectCommandText<T>`**: Updated to handle extra columns (from JSON extraction) even when no JOINs are present.
+
 ## [3.1.0] - 2026-04-09
 
 ### Added
