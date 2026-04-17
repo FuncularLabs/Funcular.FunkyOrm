@@ -460,20 +460,31 @@ namespace Funcular.Data.Orm.SqlServer
         private string BuildQueryComponents(QueryComponents components)
         {
             var baseCommand = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
-            var parts = baseCommand.Split(new[] { " FROM " }, StringSplitOptions.None);
-
-            string selectPart = !string.IsNullOrEmpty(components.SelectClause) ? $"SELECT {components.SelectClause}" : parts[0];
-            string fromPart = parts.Length > 1 ? $"FROM {parts[1]}" : $"FROM {_dataProvider.GetTableNameInternal<T>()}";
-            
-            // If the base command has a WHERE clause, we need to be careful not to duplicate it or malform the query
-            // For now, we assume the base command from Query<T> does not have a WHERE clause.
-            // If parts[1] contains WHERE, we might need to split it out.
-            if (parts.Length > 1 && parts[1].Contains(" WHERE "))
+            // Find the outer " FROM " — the one not nested inside parentheses (subqueries).
+            var outerFromIdx = FindOuterFromIndex(baseCommand);
+            string selectPart, fromPart;
+            if (outerFromIdx >= 0)
             {
-                var fromAndWhere = parts[1].Split(new[] { " WHERE " }, StringSplitOptions.None);
-                fromPart = $"FROM {fromAndWhere[0]}";
-                // We are ignoring the base WHERE clause here, which might be correct for Query<T>() but risky if reused.
-                // Given the usage in Query<T>(), it should be fine.
+                selectPart = baseCommand.Substring(0, outerFromIdx);
+                fromPart = "FROM " + baseCommand.Substring(outerFromIdx + 6);
+            }
+            else
+            {
+                selectPart = baseCommand;
+                fromPart = $"FROM {_dataProvider.GetTableNameInternal<T>()}";
+            }
+
+            if (!string.IsNullOrEmpty(components.SelectClause))
+            {
+                selectPart = $"SELECT {components.SelectClause}";
+            }
+            
+            // If fromPart contains a WHERE clause from the base command, strip it
+            // (only the outer WHERE, not one inside subqueries)
+            var whereInFromIdx = FindOuterKeywordIndex(fromPart, " WHERE ");
+            if (whereInFromIdx >= 0)
+            {
+                fromPart = fromPart.Substring(0, whereInFromIdx);
             }
 
             string commandText = $"{selectPart}\r\n{fromPart}";
@@ -675,6 +686,35 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 throw new NotSupportedException("Unsupported selector expression type.");
             }
+        }
+
+        /// <summary>
+        /// Finds the index of the outer (non-parenthesized) " FROM " keyword in a SQL string.
+        /// Subqueries like <c>(SELECT COUNT(*) FROM child WHERE ...)</c> contain nested FROM keywords
+        /// that must be skipped.
+        /// </summary>
+        private static int FindOuterFromIndex(string sql)
+        {
+            return FindOuterKeywordIndex(sql, " FROM ");
+        }
+
+        /// <summary>
+        /// Finds the index of a keyword in a SQL string that is not nested inside parentheses.
+        /// </summary>
+        private static int FindOuterKeywordIndex(string sql, string keyword)
+        {
+            int depth = 0;
+            for (int i = 0; i <= sql.Length - keyword.Length; i++)
+            {
+                char c = sql[i];
+                if (c == '(') depth++;
+                else if (c == ')') depth--;
+                else if (depth == 0 && string.Compare(sql, i, keyword, 0, keyword.Length, StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    return i;
+                }
+            }
+            return -1;
         }
     }
 }

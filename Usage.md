@@ -1091,6 +1091,123 @@ Console.WriteLine(project.RiskLevel);  // null (int? → null)
 
 ---
 
+## Additional Computed Column Attributes (v3.2)
+
+FunkyORM provides three additional attribute types (alongside `[JsonPath]`) designed to eliminate the need for SQL views. All four are implemented as of v3.2.0-beta2.
+
+### `[SqlExpression]` — Computed/Expression Columns
+
+Declares a raw SQL expression for a property. Handles `COALESCE`, `CONCAT`, `CASE`, and any other SQL expression. Uses `{PropertyName}` tokens that the framework resolves to fully qualified column references at query time.
+
+```csharp
+[Table("project")]
+public class ProjectScorecard : ProjectEntity
+{
+    /// <summary>Falls back to stored score when computed milestone score is null.</summary>
+    [SqlExpression("COALESCE({ComputedScore}, {Score})")]
+    public int? EffectiveScore { get; set; }
+
+    /// <summary>Lead person full name — provider-specific overrides for string concatenation.</summary>
+    [SqlExpression(
+        mssql: "CONCAT({LeadFirstName}, CASE WHEN {LeadLastName} IS NOT NULL THEN ' ' + {LeadLastName} ELSE '' END)",
+        postgresql: "{LeadFirstName} || COALESCE(' ' || {LeadLastName}, '')")]
+    public string LeadName { get; set; }
+}
+```
+
+**How `{Braces}` work:** The developer writes PascalCase C# property names inside `{}`. The framework resolves them to the correct database column names (snake_case, quoted, aliased) at query time. Text *outside* braces is emitted as-is, so SQL functions (`COALESCE`, `CASE`) and operators (`+`, `||`) work naturally.
+
+**Generated SQL (MSSQL):**
+```sql
+COALESCE([project].[computed_score], [project].[score]) AS [EffectiveScore]
+```
+
+### `[SubqueryAggregate]` — Correlated Scalar Subqueries
+
+Replaces `OUTER APPLY` with attribute-driven correlated subqueries. Generates a scalar subquery in the SELECT list.
+
+```csharp
+[Table("project")]
+public class ProjectScorecard : ProjectEntity
+{
+    /// <summary>Total milestones for this project.</summary>
+    [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        AggregateFunction.Count)]
+    public int MilestoneCount { get; set; }
+
+    /// <summary>Completed milestone count (conditional).</summary>
+    [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        AggregateFunction.ConditionalCount,
+        conditionColumn: nameof(ProjectMilestoneEntity.Status),
+        conditionValue: "completed")]
+    public int MilestonesCompleted { get; set; }
+
+    /// <summary>Overdue milestone count.</summary>
+    [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        AggregateFunction.ConditionalCount,
+        conditionColumn: nameof(ProjectMilestoneEntity.Status),
+        conditionValue: "overdue")]
+    public int MilestonesOverdue { get; set; }
+}
+```
+
+**Generated SQL (MSSQL):**
+```sql
+SELECT project.*,
+  (SELECT COUNT(*) FROM project_milestone ms
+   WHERE ms.project_id = project.id) AS [MilestoneCount],
+  (SELECT COUNT(*) FROM project_milestone ms
+   WHERE ms.project_id = project.id AND ms.status = 'completed') AS [MilestonesCompleted],
+  (SELECT COUNT(*) FROM project_milestone ms
+   WHERE ms.project_id = project.id AND ms.status = 'overdue') AS [MilestonesOverdue]
+FROM project
+```
+
+### `[JsonCollection]` — JSON Array Projection
+
+Projects child records into a JSON array column, replacing `FOR JSON PATH` (MSSQL) or `json_agg` (PostgreSQL) subqueries.
+
+```csharp
+[Table("project")]
+public class ProjectScorecard : ProjectEntity
+{
+    /// <summary>Milestones projected as a JSON array.</summary>
+    [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        columns: new[] { "Title", "Status", "DueDate", "CompletedDate" },
+        orderBy: "DueDate")]
+    public string MilestonesJson { get; set; }
+
+    /// <summary>Notes with joined author name as a JSON array.</summary>
+    [JsonCollection(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
+        columns: new[] { "Content", "Category", "AuthorName", "DateUtcCreated" },
+        joins: new[] { typeof(PersonEntity) },
+        orderBy: "DateUtcCreated")]
+    public string NotesJson { get; set; }
+}
+```
+
+**Example output for `MilestonesJson`:**
+```json
+[
+  { "title": "Requirements Gathering", "status": "completed", "due_date": "2025-07-01" },
+  { "title": "Design Review", "status": "completed", "due_date": "2025-07-15" },
+  { "title": "Development Sprint", "status": "in_progress", "due_date": "2025-08-01" }
+]
+```
+
+### Attribute Roadmap Summary
+
+| Attribute | Purpose | Status |
+|:---|:---|:---|
+| `[JsonPath]` | Extract scalar from JSON column | ✅ Implemented (v3.2.0-beta1) |
+| `[SqlExpression]` | Computed column via raw SQL expression | ✅ Implemented (v3.2.0-beta2) |
+| `[SubqueryAggregate]` | Correlated aggregate subquery (COUNT, SUM, conditional) | ✅ Implemented (v3.2.0-beta2) |
+| `[JsonCollection]` | Project child records as JSON array | ✅ Implemented (v3.2.0-beta2) |
+
+All four follow the "Detail class" pattern. Combined with the existing `[RemoteProperty]` and `[RemoteKey]`, they can replace most SQL views entirely in code.
+
+---
+
 ## Troubleshooting & Error Handling
 
 We try to give you helpful error messages. Here are some you might see and what they mean.

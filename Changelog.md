@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.0-beta2] - 2026-04-16
+
+### Added
+- **`[SqlExpression]` Attribute (Phase 2)**: Declare raw SQL expressions for computed properties using `{PropertyName}` tokens.
+  - Tokens are resolved to fully qualified column references at query time, respecting naming conventions, `[Column]` overrides, and table aliases.
+  - Supports provider-specific overrides via dual-expression constructor (`mssql:`, `postgresql:`).
+  - Works in `Get<T>`, `Query<T>`, `GetList<T>`, and WHERE clauses.
+- **`[SubqueryAggregate]` Attribute (Phase 3)**: Generates correlated scalar subqueries in the SELECT list.
+  - Supports `AggregateFunction.Count`, `.Sum`, `.Avg`, and `.ConditionalCount`.
+  - Conditional aggregates accept `ConditionColumn` and `ConditionValue` for `WHERE column = 'value'` filters within the subquery.
+  - Portable across SQL Server and PostgreSQL (same correlated subquery syntax).
+- **`[JsonCollection]` Attribute (Phase 4)**: Projects child records as JSON arrays.
+  - **SQL Server**: `(SELECT ... FOR JSON PATH)`.
+  - **PostgreSQL**: `(SELECT json_agg(row_to_json(sub)) FROM (...) sub)`.
+  - Accepts `Columns` (property names to include), `OrderBy`, and resolves all names to database column names.
+- **`AggregateFunction` Enum**: `Count`, `Sum`, `Avg`, `ConditionalCount` — used by `[SubqueryAggregate]`.
+- **15 new integration tests** covering `[SqlExpression]`, `[SubqueryAggregate]` (6 aggregate variants + zero-count edge cases), `[JsonCollection]` (JSON array validation, null for empty), and a combined test verifying all 4 attribute types on a single Detail class.
+
+### Changed
+- **Version**: All projects bumped to `3.2.0-beta2`.
+- **`ISqlDialect`**: Added `ProviderName` property, `BuildScalarSubquery()`, and `BuildJsonCollectionSubquery()` methods.
+- **`ResolveRemoteJoins<T>`**: Now detects `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` attributes in addition to `[JsonPath]` and `[RemoteProperty]`/`[RemoteKey]`.
+- **`SqlLinqQueryProvider.BuildQueryComponents`**: Fixed SQL corruption when SELECT list contains subqueries (e.g., `(SELECT COUNT(*) FROM ...)`). The `FROM`/`WHERE` keyword splitting now uses parenthesis-depth tracking to find only outer-level keywords, preventing subquery expressions from being incorrectly split.
+
 ## [3.2.0-beta1] - 2026-04-15
 
 ### Added
@@ -15,6 +39,11 @@ All notable changes to this project will be documented in this file.
   - Follows the established "Detail" entity pattern — add `[JsonPath]` to inherited Detail classes, not canonical entities.
 - **Integration Test Schema**: Added `project`, `project_category`, `project_milestone`, and `project_note` tables with JSON metadata column for integration testing.
 - **`vw_project_scorecard`**: Demonstration SQL view exercising all planned JSON capability categories.
+- **Attribute Roadmap Documented**: Full design and examples for three additional planned attributes:
+  - `[SqlExpression]` — computed/expression columns (`COALESCE`, `CONCAT`, `CASE`) with `{PropertyName}` token resolution.
+  - `[SubqueryAggregate]` — correlated scalar subqueries (`COUNT`, `SUM`, conditional aggregates) replacing `OUTER APPLY`.
+  - `[JsonCollection]` — project child records as JSON arrays (`FOR JSON PATH` / `json_agg`).
+  - All four attributes documented in FUNKYORM_AI_INSTRUCTIONS.md, Usage.md, README.md, and AI_ARCHITECTURE_AND_DESIGN.md.
 
 ### Changed
 - **Version**: All projects bumped to `3.2.0-beta1`.

@@ -4,6 +4,7 @@ using System.Data;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using Funcular.Data.Orm.Attributes;
 using Funcular.Data.Orm.Interfaces;
 using Microsoft.Data.SqlClient;
 
@@ -14,6 +15,8 @@ namespace Funcular.Data.Orm.SqlServer
     /// </summary>
     public class SqlServerDialect : ISqlDialect
     {
+        /// <inheritdoc />
+        public string ProviderName => "mssql";
         private static readonly HashSet<string> _reservedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUTHORIZATION", "BACKUP", "BEGIN", "BETWEEN", "BREAK", "BROWSE", "BULK", "BY", "CASCADE", "CASE", "CHECK", "CHECKPOINT", "CLOSE", "CLUSTERED", "COALESCE", "COLLATE", "COLUMN", "COMMIT", "COMPUTE", "CONSTRAINT", "CONTAINS", "CONTAINSTABLE", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CURRENT", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR", "DATABASE", "DBCC", "DEALLOCATE", "DECLARE", "DEFAULT", "DELETE", "DENY", "DESC", "DISK", "DISTINCT", "DISTRIBUTED", "DOUBLE", "DROP", "DUMP", "ELSE", "END", "ERRLVL", "ESCAPE", "EXCEPT", "EXEC", "EXECUTE", "EXISTS", "EXIT", "EXTERNAL", "FETCH", "FILE", "FILLFACTOR", "FOR", "FOREIGN", "FREETEXT", "FREETEXTTABLE", "FROM", "FULL", "FUNCTION", "GOTO", "GRANT", "GROUP", "HAVING", "HOLDLOCK", "IDENTITY", "IDENTITY_INSERT", "IDENTITYCOL", "IF", "IN", "INDEX", "INNER", "INSERT", "INTERSECT", "INTO", "IS", "JOIN", "KEY", "KILL", "LEFT", "LIKE", "LINENO", "LOAD", "MERGE", "NATIONAL", "NOCHECK", "NONCLUSTERED", "NOT", "NULL", "NULLIF", "OF", "OFF", "OFFSETS", "ON", "OPEN", "OPENDATASOURCE", "OPENQUERY", "OPENROWSET", "OPENXML", "OPTION", "OR", "ORDER", "OUTER", "OVER", "PERCENT", "PIVOT", "PLAN", "PRECISION", "PRIMARY", "PRINT", "PROC", "PROCEDURE", "PUBLIC", "RAISERROR", "READ", "READTEXT", "RECONFIGURE", "REFERENCES", "REPLICATION", "RESTORE", "RESTRICT", "RETURN", "REVERT", "REVOKE", "RIGHT", "ROLLBACK", "ROWCOUNT", "ROWGUIDCOL", "RULE", "SAVE", "SCHEMA", "SECURITYAUDIT", "SELECT", "SEMANTICKEYPHRASETABLE", "SEMANTICSIMILARITYDETAILSTABLE", "SEMANTICSIMILARITYTABLE", "SESSION_USER", "SET", "SETUSER", "SHUTDOWN", "SOME", "STATISTICS", "SYSTEM_USER", "TABLE", "TABLESAMPLE", "TEXTSIZE", "THEN", "TO", "TOP", "TRAN", "TRANSACTION", "TRIGGER", "TRUNCATE", "TRY_CONVERT", "TSEQUAL", "UNION", "UNIQUE", "UNPIVOT", "UPDATE", "UPDATETEXT", "USE", "USER", "VALUES", "VARYING", "VIEW", "WAITFOR", "WHEN", "WHERE", "WHILE", "WITH", "WITHIN GROUP", "WRITETEXT"
@@ -147,6 +150,56 @@ namespace Funcular.Data.Orm.SqlServer
                 expr = $"CAST({expr} AS {castType})";
             }
             return expr;
+        }
+
+        /// <inheritdoc />
+        public string BuildScalarSubquery(string childTableName, string childFkColumn, string parentPkExpression,
+            AggregateFunction function, string aggregateColumn = null,
+            string conditionColumn = null, string conditionValue = null)
+        {
+            string aggExpr;
+            switch (function)
+            {
+                case AggregateFunction.Count:
+                case AggregateFunction.ConditionalCount:
+                    aggExpr = "COUNT(*)";
+                    break;
+                case AggregateFunction.Sum:
+                    aggExpr = $"SUM({aggregateColumn})";
+                    break;
+                case AggregateFunction.Avg:
+                    aggExpr = $"AVG({aggregateColumn})";
+                    break;
+                default:
+                    aggExpr = "COUNT(*)";
+                    break;
+            }
+
+            var sb = new StringBuilder();
+            sb.Append($"(SELECT {aggExpr} FROM {childTableName} WHERE {childFkColumn} = {parentPkExpression}");
+
+            if (function == AggregateFunction.ConditionalCount && !string.IsNullOrEmpty(conditionColumn) && conditionValue != null)
+            {
+                sb.Append($" AND {conditionColumn} = '{conditionValue}'");
+            }
+
+            sb.Append(")");
+            return sb.ToString();
+        }
+
+        /// <inheritdoc />
+        public string BuildJsonCollectionSubquery(string childTableName, string childFkColumn, string parentPkExpression,
+            IList<string> columnExpressions, string orderByColumn = null)
+        {
+            var columns = string.Join(", ", columnExpressions);
+            var sb = new StringBuilder();
+            sb.Append($"(SELECT {columns} FROM {childTableName} WHERE {childFkColumn} = {parentPkExpression}");
+            if (!string.IsNullOrEmpty(orderByColumn))
+            {
+                sb.Append($" ORDER BY {orderByColumn}");
+            }
+            sb.Append(" FOR JSON PATH)");
+            return sb.ToString();
         }
 
         private SqlParameter CreateParameter(string name, object value, Type type)
