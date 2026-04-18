@@ -10,5 +10,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Organization
 
         [Column("headquarters_address_id")]
         public int? HeadquartersAddressId { get; set; }
+
+        [DatabaseGenerated(DatabaseGeneratedOption.Computed)]
+        [Column("name_length")]
+        public int? NameLength { get; set; }
     }
 }

@@ -298,7 +298,7 @@ Map the Join Table as an entity to access its columns (e.g., `IsPrimary`, `DateA
 
 ## JSON & Computed Column Attributes (v3.2+)
 
-FunkyORM provides a family of attributes that eliminate the need for SQL views in the most common scenarios: JSON extraction, computed expressions, subquery aggregates, and JSON collection projections. All four are implemented as of v3.2.0-beta2.
+FunkyORM provides a family of attributes that eliminate the need for SQL views in the most common scenarios: JSON extraction, computed expressions, subquery aggregates, and JSON collection projections. All four are implemented as of v3.2.1-beta1.
 
 ### Attribute Taxonomy
 
@@ -328,7 +328,7 @@ All four follow the same "Detail class" pattern — they belong on inherited Det
 
 ### Phase 1: `[JsonPath]` — JSON Scalar Extraction ?
 
-**Status: Implemented in v3.2.0-beta1.**
+**Status: Implemented in v3.2.1-beta1.**
 
 Extracts a single value from a JSON column on the same table using a JSON path expression.
 
@@ -483,7 +483,7 @@ var project = provider.Get<ProjectScorecard>(99); // metadata is NULL
 
 ### Phase 2: `[SqlExpression]` — Computed/Expression Columns ?
 
-**Status: Implemented in v3.2.0-beta2.**
+**Status: Implemented in v3.2.1-beta1.**
 
 Declares a raw SQL expression for a property, enabling `COALESCE`, `CONCAT`, `CASE`, and any other SQL expression. Uses `{PropertyName}` tokens that the framework resolves to fully qualified column references at query time.
 
@@ -559,7 +559,7 @@ LEFT JOIN person [lead_0] ON project.lead_id = [lead_0].id
 
 ### Phase 3: `[SubqueryAggregate]` — Correlated Scalar Subqueries ?
 
-**Status: Implemented in v3.2.0-beta2.**
+**Status: Implemented in v3.2.1-beta1.**
 
 Replaces `OUTER APPLY` / correlated subqueries with an attribute-driven approach. Generates a correlated scalar subquery in the SELECT list.
 
@@ -670,7 +670,7 @@ FROM project
 
 ### Phase 4: `[JsonCollection]` — JSON Array Projection ?
 
-**Status: Implemented in v3.2.0-beta2.**
+**Status: Implemented in v3.2.1-beta1.**
 
 Projects child records into a JSON array in a single column, replacing `FOR JSON PATH` (MSSQL) or `json_agg` (PostgreSQL) subqueries.
 

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
@@ -74,8 +75,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                             id INT IDENTITY(1,1) PRIMARY KEY,
                             name NVARCHAR(100) NOT NULL,
                             headquarters_address_id INT NULL,
+                            row_version ROWVERSION NOT NULL,
                             CONSTRAINT FK_organization_address FOREIGN KEY (headquarters_address_id) REFERENCES address(id)
                         );
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[organization]') AND name = 'row_version')
+                    BEGIN
+                        ALTER TABLE organization ADD row_version ROWVERSION NOT NULL;
                     END
 
                     IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'non_identity_guid_entity')
@@ -1737,6 +1744,77 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var genericResult = _provider.Insert<Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.NonIdentityStringEntity, string>(entity);
             Assert.AreEqual(id, genericResult);
         }
+
+        #region Timestamp / RowVersion Tests
+
+        [TestMethod]
+        public void Insert_EntityWithTimestamp_Succeeds()
+        {
+            OutputTestMethodName();
+            var org = new OrganizationEntity
+            {
+                Name = $"TimestampTest-{Guid.NewGuid():N}"
+            };
+
+            var result = _provider.Insert(org);
+
+            Assert.IsNotNull(result);
+            Assert.IsTrue((int)result > 0);
+
+            var reloaded = _provider.Get<OrganizationEntity>((int)result);
+            Assert.IsNotNull(reloaded);
+            Assert.AreEqual(org.Name, reloaded.Name);
+            Assert.IsNotNull(reloaded.RowVersion, "RowVersion should be populated by the database.");
+            Assert.IsTrue(reloaded.RowVersion.Length > 0);
+        }
+
+        [TestMethod]
+        public void Update_EntityWithTimestamp_Succeeds()
+        {
+            OutputTestMethodName();
+            var org = new OrganizationEntity
+            {
+                Name = $"TimestampUpdate-{Guid.NewGuid():N}"
+            };
+            var insertedId = (int)_provider.Insert(org);
+
+            var loaded = _provider.Get<OrganizationEntity>(insertedId);
+            Assert.IsNotNull(loaded);
+            var originalRowVersion = loaded.RowVersion;
+
+            loaded.Name = $"TimestampUpdated-{Guid.NewGuid():N}";
+            var updated = _provider.Update(loaded);
+
+            Assert.IsNotNull(updated);
+            Assert.AreEqual(loaded.Name, updated.Name);
+
+            var reloaded = _provider.Get<OrganizationEntity>(insertedId);
+            Assert.IsNotNull(reloaded);
+            Assert.AreEqual(loaded.Name, reloaded.Name);
+            CollectionAssert.AreNotEqual(originalRowVersion, reloaded.RowVersion, "RowVersion should change after update.");
+        }
+
+        [TestMethod]
+        public async Task InsertAsync_EntityWithTimestamp_Succeeds()
+        {
+            OutputTestMethodName();
+            var org = new OrganizationEntity
+            {
+                Name = $"TimestampAsyncTest-{Guid.NewGuid():N}"
+            };
+
+            var result = await _provider.InsertAsync(org);
+
+            Assert.IsNotNull(result);
+            Assert.IsTrue((int)result > 0);
+
+            var reloaded = await _provider.GetAsync<OrganizationEntity>((int)result);
+            Assert.IsNotNull(reloaded);
+            Assert.AreEqual(org.Name, reloaded.Name);
+            Assert.IsNotNull(reloaded.RowVersion);
+        }
+
+        #endregion
     }
     public class MissingTable
     {

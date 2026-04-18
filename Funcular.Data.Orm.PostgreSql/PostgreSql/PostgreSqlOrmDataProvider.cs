@@ -973,7 +973,8 @@ namespace Funcular.Data.Orm.PostgreSql
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Where(p => !IsDatabaseGenerated(p));
             var result = Dialect.BuildInsertCommand(entity, tableName, primaryKey, GetCachedColumnName, GetDefault, properties);
             return new CommandParameters(result.CommandText, result.Parameters.Cast<NpgsqlParameter>().ToList());
         }
@@ -997,7 +998,8 @@ namespace Funcular.Data.Orm.PostgreSql
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Where(p => !IsDatabaseGenerated(p));
             var result = Dialect.BuildUpdateCommand(entity, existing, tableName, primaryKey, GetCachedColumnName, properties);
             return new CommandParameters(result.CommandText, result.Parameters.Cast<NpgsqlParameter>().ToList());
         }

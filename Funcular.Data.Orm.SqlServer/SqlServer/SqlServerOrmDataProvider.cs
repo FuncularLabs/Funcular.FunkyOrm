@@ -1572,7 +1572,8 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Where(p => !IsDatabaseGenerated(p));
 
             var result = Dialect.BuildInsertCommand(
                 entity, 
@@ -1625,7 +1626,8 @@ namespace Funcular.Data.Orm.SqlServer
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Where(p => !IsDatabaseGenerated(p));
 
             var result = Dialect.BuildUpdateCommand(
                 entity, 

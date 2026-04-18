@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v3.2.0-beta2** *(prerelease)*: 🧩 **All 4 view-replacing attributes implemented!** `[JsonPath]` (JSON scalars), `[SqlExpression]` (COALESCE/CONCAT/CASE), `[SubqueryAggregate]` (COUNT/SUM), and `[JsonCollection]` (child records as JSON arrays). Eliminate SQL views entirely in code. See [JSON & Computed Column Attributes](#6-json--computed-column-attributes-beta).
+> * **v3.2.1-beta1** *(prerelease)*: 🧩 **All 4 view-replacing attributes implemented!** `[JsonPath]` (JSON scalars), `[SqlExpression]` (COALESCE/CONCAT/CASE), `[SubqueryAggregate]` (COUNT/SUM), and `[JsonCollection]` (child records as JSON arrays). Eliminate SQL views entirely in code. See [JSON & Computed Column Attributes](#6-json--computed-column-attributes-beta).
 > * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
 > * **v3.0.1**: Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes, `Guid`/`String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
@@ -206,7 +206,7 @@ public string EmployerCountryName { get; set; }
 
 ### 6. JSON & Computed Column Attributes *(Beta)*
 
-> ⚠️ **Beta Feature (v3.2.0-beta2)**: All four attribute types below are implemented and tested, but are considered prerelease features. The attribute surface and generated SQL are subject to change before the stable v3.2.0 release. Feedback is welcome.
+> ⚠️ **Beta Feature (v3.2.1-beta1)**: All four attribute types below are implemented and tested, but are considered prerelease features. The attribute surface and generated SQL are subject to change before the stable v3.2.1 release. Feedback is welcome.
 
 Many modern databases store semi-structured data in JSON columns. FunkyORM's `[JsonPath]` attribute lets you extract and query these values without creating SQL views.
 

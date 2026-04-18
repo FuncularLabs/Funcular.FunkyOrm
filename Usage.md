@@ -44,6 +44,27 @@ We strongly encourage following standard naming conventions. If you do, FunkyORM
 
 If your database schema deviates from these conventions (e.g., legacy databases), you can easily override them using standard Data Annotations (`[Table]`, `[Column]`, `[Key]`).
 
+> **Important**: All mapping attributes (`[Key]`, `[Table]`, `[Column]`, `[NotMapped]`, `[Timestamp]`, `[DatabaseGenerated]`) **must** come from `System.ComponentModel.DataAnnotations` or `System.ComponentModel.DataAnnotations.Schema`. Attributes with the same name from other frameworks (e.g., Entity Framework Core) are **not** recognized.
+
+### Timestamp / RowVersion Columns
+Properties decorated with `[Timestamp]` or `[DatabaseGenerated(DatabaseGeneratedOption.Computed)]` are automatically excluded from INSERT and UPDATE statements. This means SQL Server `rowversion`/`timestamp` columns work out of the box:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+[Table("MyEntity")]
+public class MyEntity
+{
+    [Key]
+    public long Id { get; set; }
+    public string Name { get; set; }
+
+    [Timestamp]
+    public byte[] RowVersion { get; set; }
+}
+```
+
 ### Reserved Words
 FunkyORM automatically handles reserved words for both SQL Server and PostgreSQL. If you have a table named `User` or a column named `Order`, the ORM automatically encloses them in the appropriate syntax for your database. You don't need to do anything special in your code.
 
@@ -1093,7 +1114,7 @@ Console.WriteLine(project.RiskLevel);  // null (int? → null)
 
 ## Additional Computed Column Attributes (v3.2)
 
-FunkyORM provides three additional attribute types (alongside `[JsonPath]`) designed to eliminate the need for SQL views. All four are implemented as of v3.2.0-beta2.
+FunkyORM provides three additional attribute types (alongside `[JsonPath]`) designed to eliminate the need for SQL views. All four are implemented as of v3.2.1-beta1.
 
 ### `[SqlExpression]` — Computed/Expression Columns
 
@@ -1199,10 +1220,10 @@ public class ProjectScorecard : ProjectEntity
 
 | Attribute | Purpose | Status |
 |:---|:---|:---|
-| `[JsonPath]` | Extract scalar from JSON column | ✅ Implemented (v3.2.0-beta1) |
-| `[SqlExpression]` | Computed column via raw SQL expression | ✅ Implemented (v3.2.0-beta2) |
-| `[SubqueryAggregate]` | Correlated aggregate subquery (COUNT, SUM, conditional) | ✅ Implemented (v3.2.0-beta2) |
-| `[JsonCollection]` | Project child records as JSON array | ✅ Implemented (v3.2.0-beta2) |
+| `[JsonPath]` | Extract scalar from JSON column | ✅ Implemented (v3.2.1-beta1) |
+| `[SqlExpression]` | Computed column via raw SQL expression | ✅ Implemented (v3.2.1-beta1) |
+| `[SubqueryAggregate]` | Correlated aggregate subquery (COUNT, SUM, conditional) | ✅ Implemented (v3.2.1-beta1) |
+| `[JsonCollection]` | Project child records as JSON array | ✅ Implemented (v3.2.1-beta1) |
 
 All four follow the "Detail class" pattern. Combined with the existing `[RemoteProperty]` and `[RemoteKey]`, they can replace most SQL views entirely in code.
 
