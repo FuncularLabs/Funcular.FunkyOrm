@@ -30,6 +30,7 @@ CREATE TABLE organization (
     id INT IDENTITY(1,1) PRIMARY KEY,
     name NVARCHAR(100) NOT NULL,
     headquarters_address_id INT NULL,
+    row_version ROWVERSION NOT NULL,
     CONSTRAINT FK_organization_address FOREIGN KEY (headquarters_address_id) REFERENCES address(id)
 );
 

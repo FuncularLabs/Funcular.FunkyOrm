@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v3.2.0-beta1** *(prerelease)*: 🧩 **JSON Column Querying!** New `[JsonPath]` attribute extracts scalar values from JSON columns — no SQL views required. Filter on JSON values using standard LINQ. Works on both SQL Server (`JSON_VALUE`) and PostgreSQL (`#>>`). See [JSON Column Querying](#6-json-column-querying-beta).
+> * **v3.2.1-beta1** *(prerelease)*: 🧩 **All 4 view-replacing attributes implemented!** `[JsonPath]` (JSON scalars), `[SqlExpression]` (COALESCE/CONCAT/CASE), `[SubqueryAggregate]` (COUNT/SUM), and `[JsonCollection]` (child records as JSON arrays). Eliminate SQL views entirely in code. See [JSON & Computed Column Attributes](#6-json--computed-column-attributes-beta).
 > * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
 > * **v3.0.1**: Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes, `Guid`/`String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
@@ -32,7 +32,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., blocking `1=1`), though this does not guarantee prevention of all crafty circumventions.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
-*   **JSON Column Querying** *(beta)*: Extract and filter on values inside JSON columns using the `[JsonPath]` attribute — no SQL views needed. Works on both SQL Server and PostgreSQL.
+*   **JSON & Computed Column Attributes** *(beta)*: Four attribute types that eliminate SQL views entirely in code — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]`. Works on both SQL Server and PostgreSQL.
 *   **Explicit Collection Population**: Leverage `RemoteKey` properties to easily populate related collections without the overhead of massive object graphs or N+1 queries.
 *   **Cached Reflection**: Funcular ORM caches reflection results to minimize overhead and maximize performance.
 *   **Nullable-Friendly**: Nullable properties work seamlessly in LINQ queries—no need for `.Value` or `.HasValue`. The ORM handles the unwrapping for you.
@@ -204,9 +204,9 @@ var sql = @"SELECT p.*, c.Name as CountryName
 public string EmployerCountryName { get; set; }
 ```
 
-### 6. JSON Column Querying *(Beta)*
+### 6. JSON & Computed Column Attributes *(Beta)*
 
-> ⚠️ **Beta Feature (v3.2.0-beta1)**: The `[JsonPath]` attribute API is functional and tested, but is considered a prerelease feature. The attribute surface and generated SQL are subject to change before the stable v3.2.0 release. Feedback is welcome.
+> ⚠️ **Beta Feature (v3.2.1-beta1)**: All four attribute types below are implemented and tested, but are considered prerelease features. The attribute surface and generated SQL are subject to change before the stable v3.2.1 release. Feedback is welcome.
 
 Many modern databases store semi-structured data in JSON columns. FunkyORM's `[JsonPath]` attribute lets you extract and query these values without creating SQL views.
 
@@ -246,6 +246,50 @@ var highPriority = provider.Query<ProjectScorecard>()
 ```
 
 Like remote properties, `[JsonPath]` attributes belong on **Detail classes**, not canonical entities.
+
+#### View-Replacing Attribute Family
+
+FunkyORM provides four attribute types designed to eliminate SQL views entirely in code:
+
+| Attribute | What It Does | Status |
+|:---|:---|:---|
+| `[JsonPath]` | Extract scalars from JSON columns | ✅ Implemented |
+| `[SqlExpression]` | Computed columns — `COALESCE`, `CONCAT`, `CASE` | ✅ Implemented |
+| `[SubqueryAggregate]` | Correlated counts/sums — replaces `OUTER APPLY` | ✅ Implemented |
+| `[JsonCollection]` | Project child records as JSON arrays | ✅ Implemented |
+
+```csharp
+// A complete Detail class using all four attribute types
+[Table("project")]
+public class ProjectScorecard : ProjectEntity
+{
+    // Phase 1: JSON scalar extraction
+    [JsonPath("metadata", "$.priority")]
+    public string Priority { get; set; }
+
+    // Phase 2: Computed expression
+    [SqlExpression("COALESCE({Score}, 0)")]
+    public int EffectiveScore { get; set; }
+
+    // Phase 3: Subquery aggregate
+    [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        AggregateFunction.Count)]
+    public int MilestoneCount { get; set; }
+
+    // Phase 3: Conditional subquery aggregate
+    [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        AggregateFunction.ConditionalCount,
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status), ConditionValue = "completed")]
+    public int MilestonesCompleted { get; set; }
+
+    // Phase 4: JSON collection projection
+    [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
+        Columns = new[] { "Title", "Status", "DueDate" }, OrderBy = "DueDate")]
+    public string MilestonesJson { get; set; }
+}
+```
+
+All four work in `Get<T>`, `Query<T>`, `GetList<T>`, and **WHERE clauses**. See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
 
 ## Database Provider Differences
 

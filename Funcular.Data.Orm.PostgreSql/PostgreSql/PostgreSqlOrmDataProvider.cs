@@ -467,8 +467,19 @@ namespace Funcular.Data.Orm.PostgreSql
             var jsonPathProperties = allProperties
                 .Where(p => Attribute.IsDefined(p, typeof(JsonPathAttribute)))
                 .ToList();
+            var sqlExprProperties = allProperties
+                .Where(p => Attribute.IsDefined(p, typeof(SqlExpressionAttribute)))
+                .ToList();
+            var subqueryAggProperties = allProperties
+                .Where(p => Attribute.IsDefined(p, typeof(SubqueryAggregateAttribute)))
+                .ToList();
+            var jsonCollectionProperties = allProperties
+                .Where(p => Attribute.IsDefined(p, typeof(JsonCollectionAttribute)))
+                .ToList();
 
-            if (!remoteProperties.Any() && !jsonPathProperties.Any()) return info;
+            if (!remoteProperties.Any() && !jsonPathProperties.Any()
+                && !sqlExprProperties.Any() && !subqueryAggProperties.Any()
+                && !jsonCollectionProperties.Any()) return info;
 
             var resolver = new RemotePathResolver();
             var joinClauses = new StringBuilder();
@@ -543,9 +554,129 @@ namespace Funcular.Data.Orm.PostgreSql
                 extraColumns.Append($", {jsonExpr} AS \"{prop.Name}\"");
             }
 
+            // --- SqlExpression attribute processing ---
+            foreach (var prop in sqlExprProperties)
+            {
+                var attr = prop.GetCustomAttribute<SqlExpressionAttribute>();
+                if (attr == null) continue;
+
+                string rawExpr = attr.GetExpression(Dialect.ProviderName);
+                string resolvedExpr = ResolveExpressionTokens(rawExpr, typeof(T), tableName, info.PropertyToColumnMap);
+
+                info.PropertyToColumnMap[prop.Name] = resolvedExpr;
+                extraColumns.Append($", {resolvedExpr} AS \"{prop.Name}\"");
+            }
+
+            // --- SubqueryAggregate attribute processing ---
+            foreach (var prop in subqueryAggProperties)
+            {
+                var attr = prop.GetCustomAttribute<SubqueryAggregateAttribute>();
+                if (attr == null) continue;
+
+                string childTable = GetTableNameForType(attr.SourceType);
+                var childFkPropInfo = attr.SourceType.GetProperty(attr.ForeignKey);
+                string childFkCol = childFkPropInfo != null
+                    ? GetCachedColumnName(childFkPropInfo)
+                    : Dialect.EncloseIdentifier(attr.ForeignKey.ToLower());
+                var pk = GetCachedPrimaryKey<T>();
+                string parentPk = $"{tableName}.{GetCachedColumnName(pk)}";
+
+                string aggCol = null;
+                if (!string.IsNullOrEmpty(attr.AggregateColumn))
+                {
+                    var aggProp = attr.SourceType.GetProperty(attr.AggregateColumn);
+                    aggCol = aggProp != null ? GetCachedColumnName(aggProp) : Dialect.EncloseIdentifier(attr.AggregateColumn.ToLower());
+                }
+
+                string condCol = null;
+                if (!string.IsNullOrEmpty(attr.ConditionColumn))
+                {
+                    var condProp = attr.SourceType.GetProperty(attr.ConditionColumn);
+                    condCol = condProp != null ? GetCachedColumnName(condProp) : Dialect.EncloseIdentifier(attr.ConditionColumn.ToLower());
+                }
+
+                string subquery = Dialect.BuildScalarSubquery(childTable, childFkCol, parentPk,
+                    attr.Function, aggCol, condCol, attr.ConditionValue);
+
+                info.PropertyToColumnMap[prop.Name] = subquery;
+                extraColumns.Append($", {subquery} AS \"{prop.Name}\"");
+            }
+
+            // --- JsonCollection attribute processing ---
+            foreach (var prop in jsonCollectionProperties)
+            {
+                var attr = prop.GetCustomAttribute<JsonCollectionAttribute>();
+                if (attr == null) continue;
+
+                string childTable = GetTableNameForType(attr.SourceType);
+                var childFkPropInfo = attr.SourceType.GetProperty(attr.ForeignKey);
+                string childFkCol = childFkPropInfo != null
+                    ? GetCachedColumnName(childFkPropInfo)
+                    : Dialect.EncloseIdentifier(attr.ForeignKey.ToLower());
+                var pk = GetCachedPrimaryKey<T>();
+                string parentPk = $"{tableName}.{GetCachedColumnName(pk)}";
+
+                var colExprs = new List<string>();
+                if (attr.Columns != null)
+                {
+                    foreach (var colName in attr.Columns)
+                    {
+                        var colProp = attr.SourceType.GetProperty(colName);
+                        string resolved = colProp != null ? GetCachedColumnName(colProp) : Dialect.EncloseIdentifier(colName.ToLower());
+                        colExprs.Add(resolved);
+                    }
+                }
+                else
+                {
+                    colExprs.Add("*");
+                }
+
+                string orderByCol = null;
+                if (!string.IsNullOrEmpty(attr.OrderBy))
+                {
+                    var orderProp = attr.SourceType.GetProperty(attr.OrderBy);
+                    orderByCol = orderProp != null ? GetCachedColumnName(orderProp) : Dialect.EncloseIdentifier(attr.OrderBy.ToLower());
+                }
+
+                string subquery = Dialect.BuildJsonCollectionSubquery(childTable, childFkCol, parentPk, colExprs, orderByCol);
+
+                info.PropertyToColumnMap[prop.Name] = subquery;
+                extraColumns.Append($", {subquery} AS \"{prop.Name}\"");
+            }
+
             info.JoinClauses = joinClauses.ToString();
             info.ExtraColumns = extraColumns.ToString();
             return info;
+        }
+
+        /// <summary>
+        /// Resolves <c>{PropertyName}</c> tokens in an SQL expression to fully qualified column references.
+        /// </summary>
+        private string ResolveExpressionTokens(string expression, Type entityType, string tableName, Dictionary<string, string> existingMap)
+        {
+            return System.Text.RegularExpressions.Regex.Replace(expression, @"\{(\w+)\}", match =>
+            {
+                var propName = match.Groups[1].Value;
+                if (existingMap.TryGetValue(propName, out string existing))
+                    return existing;
+
+                var prop = entityType.GetProperty(propName);
+                if (prop != null)
+                {
+                    string col = GetCachedColumnName(prop);
+                    return $"{tableName}.{col}";
+                }
+                return match.Value;
+            });
+        }
+
+        /// <summary>
+        /// Gets the resolved table name for a type.
+        /// </summary>
+        private string GetTableNameForType(Type t)
+        {
+            return _tableNames.GetOrAdd(t, type =>
+                Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
         }
 
         protected internal string CreateGetOneOrSelectCommandText<T>(dynamic key = null) where T : class, new()
@@ -842,7 +973,8 @@ namespace Funcular.Data.Orm.PostgreSql
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Where(p => !IsDatabaseGenerated(p));
             var result = Dialect.BuildInsertCommand(entity, tableName, primaryKey, GetCachedColumnName, GetDefault, properties);
             return new CommandParameters(result.CommandText, result.Parameters.Cast<NpgsqlParameter>().ToList());
         }
@@ -866,7 +998,8 @@ namespace Funcular.Data.Orm.PostgreSql
             var tableName = GetTableName<T>();
             var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
-                .Where(p => unmapped.All(up => up.Name != p.Name));
+                .Where(p => unmapped.All(up => up.Name != p.Name))
+                .Where(p => !IsDatabaseGenerated(p));
             var result = Dialect.BuildUpdateCommand(entity, existing, tableName, primaryKey, GetCachedColumnName, properties);
             return new CommandParameters(result.CommandText, result.Parameters.Cast<NpgsqlParameter>().ToList());
         }

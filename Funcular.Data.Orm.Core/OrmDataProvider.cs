@@ -120,7 +120,10 @@ namespace Funcular.Data.Orm
                           ?? props.FirstOrDefault(p => p.Name.Equals($"{t.Name}Id", StringComparison.OrdinalIgnoreCase));
                 
                 if (key == null)
-                    throw new InvalidOperationException($"No primary key found for type {t.Name}");
+                    throw new InvalidOperationException(
+                        $"No primary key found for type '{t.Name}'. " +
+                        $"Apply [Key] from System.ComponentModel.DataAnnotations to your primary key property, " +
+                        $"or name it 'Id' or '{t.Name}Id'.");
                 
                 return key;
             });
@@ -139,6 +142,25 @@ namespace Funcular.Data.Orm
                 var columnAttribute = property.GetCustomAttribute<ColumnAttribute>();
                 return columnAttribute != null ? columnAttribute.Name : property.Name;
             });
+        }
+
+        /// <summary>
+        /// Returns true if the property is database-generated and should be excluded from INSERT and UPDATE statements.
+        /// Matches properties decorated with <see cref="TimestampAttribute"/> or 
+        /// <see cref="DatabaseGeneratedAttribute"/> with <see cref="DatabaseGeneratedOption.Computed"/> or <see cref="DatabaseGeneratedOption.Identity"/>.
+        /// </summary>
+        protected internal static bool IsDatabaseGenerated(PropertyInfo property)
+        {
+            if (property.GetCustomAttribute<TimestampAttribute>() != null)
+                return true;
+
+            var dbGenerated = property.GetCustomAttribute<DatabaseGeneratedAttribute>();
+            if (dbGenerated != null && 
+                (dbGenerated.DatabaseGeneratedOption == DatabaseGeneratedOption.Computed ||
+                 dbGenerated.DatabaseGeneratedOption == DatabaseGeneratedOption.Identity))
+                return true;
+
+            return false;
         }
 
         /// <summary>

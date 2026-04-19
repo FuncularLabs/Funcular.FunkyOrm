@@ -310,15 +310,31 @@ namespace Funcular.Data.Orm.PostgreSql
         private string BuildQueryComponents(QueryComponents components)
         {
             var baseCommand = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
-            var parts = baseCommand.Split(new[] { " FROM " }, StringSplitOptions.None);
-
-            string selectPart = !string.IsNullOrEmpty(components.SelectClause) ? $"SELECT {components.SelectClause}" : parts[0];
-            string fromPart = parts.Length > 1 ? $"FROM {parts[1]}" : $"FROM {_dataProvider.GetTableNameInternal<T>()}";
-
-            if (parts.Length > 1 && parts[1].Contains(" WHERE "))
+            // Find the outer " FROM " — the one not nested inside parentheses (subqueries).
+            var outerFromIdx = FindOuterKeywordIndex(baseCommand, " FROM ");
+            string selectPart, fromPart;
+            if (outerFromIdx >= 0)
             {
-                var fromAndWhere = parts[1].Split(new[] { " WHERE " }, StringSplitOptions.None);
-                fromPart = $"FROM {fromAndWhere[0]}";
+                selectPart = baseCommand.Substring(0, outerFromIdx);
+                fromPart = "FROM " + baseCommand.Substring(outerFromIdx + 6);
+            }
+            else
+            {
+                selectPart = baseCommand;
+                fromPart = $"FROM {_dataProvider.GetTableNameInternal<T>()}";
+            }
+
+            if (!string.IsNullOrEmpty(components.SelectClause))
+            {
+                selectPart = $"SELECT {components.SelectClause}";
+            }
+
+            // If fromPart contains a WHERE clause from the base command, strip it
+            // (only the outer WHERE, not one inside subqueries)
+            var whereInFromIdx = FindOuterKeywordIndex(fromPart, " WHERE ");
+            if (whereInFromIdx >= 0)
+            {
+                fromPart = fromPart.Substring(0, whereInFromIdx);
             }
 
             string commandText = $"{selectPart}\r\n{fromPart}";
@@ -417,6 +433,27 @@ namespace Funcular.Data.Orm.PostgreSql
         {
             if (body is UnaryExpression unary) return Nullable.GetUnderlyingType(unary.Operand.Type) ?? unary.Operand.Type;
             return Nullable.GetUnderlyingType(body.Type) ?? body.Type;
+        }
+
+        /// <summary>
+        /// Finds the index of a keyword in a SQL string that is not nested inside parentheses.
+        /// Subqueries like <c>(SELECT COUNT(*) FROM child WHERE ...)</c> contain nested keywords
+        /// that must be skipped.
+        /// </summary>
+        private static int FindOuterKeywordIndex(string sql, string keyword)
+        {
+            int depth = 0;
+            for (int i = 0; i <= sql.Length - keyword.Length; i++)
+            {
+                char c = sql[i];
+                if (c == '(') depth++;
+                else if (c == ')') depth--;
+                else if (depth == 0 && string.Compare(sql, i, keyword, 0, keyword.Length, StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    return i;
+                }
+            }
+            return -1;
         }
     }
 }
