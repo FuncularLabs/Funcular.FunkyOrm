@@ -1114,7 +1114,7 @@ Console.WriteLine(project.RiskLevel);  // null (int? → null)
 
 ## Additional Computed Column Attributes (v3.2)
 
-FunkyORM provides three additional attribute types (alongside `[JsonPath]`) designed to eliminate the need for SQL views. All four are implemented as of v3.2.1-beta1.
+FunkyORM provides three additional attribute types (alongside `[JsonPath]`) designed to eliminate the need for SQL views. All four are implemented as of v3.2.1.
 
 ### `[SqlExpression]` — Computed/Expression Columns
 
@@ -1220,10 +1220,10 @@ public class ProjectScorecard : ProjectEntity
 
 | Attribute | Purpose | Status |
 |:---|:---|:---|
-| `[JsonPath]` | Extract scalar from JSON column | ✅ Implemented (v3.2.1-beta1) |
-| `[SqlExpression]` | Computed column via raw SQL expression | ✅ Implemented (v3.2.1-beta1) |
-| `[SubqueryAggregate]` | Correlated aggregate subquery (COUNT, SUM, conditional) | ✅ Implemented (v3.2.1-beta1) |
-| `[JsonCollection]` | Project child records as JSON array | ✅ Implemented (v3.2.1-beta1) |
+| `[JsonPath]` | Extract scalar from JSON column | ✅ Stable (v3.2.1) |
+| `[SqlExpression]` | Computed column via raw SQL expression | ✅ Stable (v3.2.1) |
+| `[SubqueryAggregate]` | Correlated aggregate subquery (COUNT, SUM, conditional) | ✅ Stable (v3.2.1) |
+| `[JsonCollection]` | Project child records as JSON array | ✅ Stable (v3.2.1) |
 
 All four follow the "Detail class" pattern. Combined with the existing `[RemoteProperty]` and `[RemoteKey]`, they can replace most SQL views entirely in code.
 
