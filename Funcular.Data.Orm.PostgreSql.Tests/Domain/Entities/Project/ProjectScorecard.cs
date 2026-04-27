@@ -4,10 +4,13 @@ using Funcular.Data.Orm.Attributes;
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Project
 {
     /// <summary>
-    /// Detail class demonstrating [JsonPath] attribute usage on PostgreSQL.
-    /// Extracts scalar values from the project.metadata JSON column.
+    /// Detail class demonstrating <c>[JsonPath]</c> attribute usage on PostgreSQL.
+    /// Extracts scalar values from the <c>project.metadata</c> JSON column.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed. This class inherits
+    /// <c>[Table("project")]</c> from <see cref="ProjectEntity"/> via <c>inherit: true</c>.
+    /// </para>
     /// </summary>
-    [Table("project")]
     public class ProjectScorecard : ProjectEntity
     {
         [JsonPath("metadata", "$.priority")]

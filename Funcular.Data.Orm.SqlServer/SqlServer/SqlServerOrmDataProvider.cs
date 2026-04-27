@@ -1995,17 +1995,72 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, t =>
-            Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
 
         /// <summary>
         /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
-        /// Defaults to the lower-cased CLR type name when no attribute is present.
+        /// When no attribute is present, queries the database schema for table names and uses
+        /// <see cref="IgnoreUnderscoreAndCaseStringComparer"/> to match the CLR type name to the
+        /// actual table name (e.g., PersonAddress matches person_address).
         /// </summary>
         /// <typeparam name="T">The entity type to determine the table name for.</typeparam>
         /// <returns>The resolved table name.</returns>
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
-            Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
+
+        /// <summary>
+        /// Resolves the table name for a CLR type. Resolution order:
+        /// <list type="number">
+        ///   <item>[Table] attribute (on the class itself, a base class, or an interface) — <c>inherit: true</c></item>
+        ///   <item>Exact case-insensitive match of the CLR type name to a database table name</item>
+        ///   <item>Case- and underscore-ignoring match via <see cref="IgnoreUnderscoreAndCaseStringComparer"/>
+        ///         (e.g., PersonAddress matches person_address)</item>
+        /// </list>
+        /// </summary>
+        private string ResolveTableName(Type t)
+        {
+            var tableAttribute = t.GetCustomAttribute<TableAttribute>(inherit: true);
+            if (tableAttribute != null)
+                return Dialect.EncloseIdentifier(tableAttribute.Name);
+
+            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+            string exactMatch = null;
+            string fuzzyMatch = null;
+
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";
+                using (var cmd = new SqlCommand(sql, (SqlConnection)connectionScope.Connection))
+                {
+                    if (Transaction != null)
+                        cmd.Transaction = (SqlTransaction)Transaction;
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var dbTableName = reader.GetString(0);
+
+                            if (exactMatch == null
+                                && string.Equals(dbTableName, t.Name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                exactMatch = dbTableName;
+                            }
+                            else if (fuzzyMatch == null
+                                     && comparer.Equals(dbTableName, t.Name))
+                            {
+                                fuzzyMatch = dbTableName;
+                            }
+
+                            if (exactMatch != null)
+                                break;
+                        }
+                    }
+                }
+            }
+
+            var resolved = exactMatch ?? fuzzyMatch ?? t.Name.ToLower();
+            return Dialect.EncloseIdentifier(resolved);
+        }
 
         /// <summary>
         /// Gets or adds the cached column name for a property. Uses the property.ToDictionaryKey() as the cache key.

@@ -3,6 +3,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Address
 {
+    /// <summary>
+    /// Canonical entity for the <c>address</c> table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> Requires <c>[Table]</c> because <c>AddressEntity</c> normalizes to
+    /// <c>addressentity</c>, which does not match <c>address</c>.
+    /// </para>
+    /// </summary>
     [Table("address")]
     [Serializable]
     public class AddressEntity : PersistenceStateEntity

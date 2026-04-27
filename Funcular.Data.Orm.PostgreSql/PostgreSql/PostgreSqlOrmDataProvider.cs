@@ -1147,11 +1147,64 @@ namespace Funcular.Data.Orm.PostgreSql
             p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
             p.Name.Equals($"{typeof(T).Name}Id", StringComparison.OrdinalIgnoreCase));
 
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), t =>
-            Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, t =>
-            Dialect.EncloseIdentifier(t.GetCustomAttribute<TableAttribute>()?.Name ?? t.Name.ToLower()));
+        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
+
+        /// <summary>
+        /// Resolves the table name for a CLR type. Resolution order:
+        /// <list type="number">
+        ///   <item>[Table] attribute (on the class itself, a base class, or an interface) — <c>inherit: true</c></item>
+        ///   <item>Exact case-insensitive match of the CLR type name to a database table name</item>
+        ///   <item>Case- and underscore-ignoring match via <see cref="IgnoreUnderscoreAndCaseStringComparer"/>
+        ///         (e.g., PersonAddress matches person_address)</item>
+        /// </list>
+        /// </summary>
+        private string ResolveTableName(Type t)
+        {
+            var tableAttribute = t.GetCustomAttribute<TableAttribute>(inherit: true);
+            if (tableAttribute != null)
+                return Dialect.EncloseIdentifier(tableAttribute.Name);
+
+            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+            string exactMatch = null;
+            string fuzzyMatch = null;
+
+            using (var connectionScope = new ConnectionScope(this))
+            {
+                var sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'";
+                using (var cmd = new NpgsqlCommand(sql, (NpgsqlConnection)connectionScope.Connection))
+                {
+                    if (Transaction != null)
+                        cmd.Transaction = (NpgsqlTransaction)Transaction;
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var dbTableName = reader.GetString(0);
+
+                            if (exactMatch == null
+                                && string.Equals(dbTableName, t.Name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                exactMatch = dbTableName;
+                            }
+                            else if (fuzzyMatch == null
+                                     && comparer.Equals(dbTableName, t.Name))
+                            {
+                                fuzzyMatch = dbTableName;
+                            }
+
+                            if (exactMatch != null)
+                                break;
+                        }
+                    }
+                }
+            }
+
+            var resolved = exactMatch ?? fuzzyMatch ?? t.Name.ToLower();
+            return Dialect.EncloseIdentifier(resolved);
+        }
 
         /// <summary>
         /// Overrides the base column name resolution to use the same dictionary key

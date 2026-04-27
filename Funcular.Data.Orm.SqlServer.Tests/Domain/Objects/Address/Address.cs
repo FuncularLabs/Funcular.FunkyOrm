@@ -3,7 +3,12 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address 
 {
-	///<inheritdoc cref="AddressEntity"/>
+	/// <inheritdoc cref="AddressEntity"/>
+	/// <remarks>
+	/// <b>Table Name Resolution:</b> This class inherits <c>[Table("address")]</c> from
+	/// <see cref="AddressEntity"/> (resolved via <c>inherit: true</c>). Even without the
+	/// inherited attribute, <c>Address</c> would match <c>address</c> by exact convention.
+	/// </remarks>
 	[Serializable]
 	public class Address : AddressEntity
 	{

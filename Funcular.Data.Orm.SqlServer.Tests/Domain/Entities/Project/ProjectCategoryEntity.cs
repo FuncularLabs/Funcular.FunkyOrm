@@ -4,7 +4,11 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project
 {
     /// <summary>
-    /// Canonical entity for the project_category lookup table.
+    /// Canonical entity for the <c>dbo.project_category</c> lookup table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> Requires <c>[Table]</c> because <c>ProjectCategoryEntity</c> normalizes
+    /// to <c>projectcategoryentity</c>, which does not match <c>projectcategory</c>.
+    /// </para>
     /// </summary>
     [Table("project_category")]
     public class ProjectCategoryEntity

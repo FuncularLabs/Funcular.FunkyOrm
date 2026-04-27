@@ -6,10 +6,21 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address 
 {
 	/// <summary>
-	/// The Address Entity
-	/// Maps to dbo.address table
+	/// The Address Entity — maps to the <c>dbo.address</c> table.
+	/// <para>
+	/// <b>Table Name Resolution:</b> This class requires a <c>[Table]</c> attribute because
+	/// <c>AddressEntity</c> normalizes to <c>addressentity</c>, which does not match <c>address</c>.
+	/// </para>
+	/// <para>
+	/// The subclass <see cref="Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address.Address"/> matches
+	/// by convention (<c>Address</c> → <c>address</c>) and inherits this attribute via
+	/// <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>, so it needs no <c>[Table]</c> of its own.
+	/// </para>
+	/// <para>
+	/// Subclasses like <see cref="AddressDetailEntity"/> also inherit this attribute and do not need
+	/// to redeclare it.
+	/// </para>
 	/// </summary>
-	//The data annotation is unnecessary because 
 	[Table("address")]
 	[Serializable]
 	public class AddressEntity : PersistenceStateEntity

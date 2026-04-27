@@ -6,6 +6,7 @@ using Funcular.Data.Orm.Attributes;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PersonObject = Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person.Person;
 
@@ -50,8 +51,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             };
             _provider.Insert(address);
 
-            // Link Person to Address
-            var personAddress = new PersonAddressEntity
+            // Link Person to Address — using PersonAddress to test convention-based table name resolution
+            var personAddress = new PersonAddress
             {
                 PersonId = person.Id,
                 AddressId = address.Id,

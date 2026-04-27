@@ -4,6 +4,7 @@ using System.Text;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Enums;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -122,8 +123,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.Insert(address);
             Assert.IsTrue(address.Id > 0);
 
-            // 3. Create Link (PersonAddress) with Rich Data
-            var link = new PersonAddressEntity
+            // 3. Create Link (PersonAddress) with Rich Data — using PersonAddress (not PersonAddressEntity)
+            // to test convention-based table name resolution (PersonAddress → person_address)
+            var link = new PersonAddress
             {
                 PersonId = person.Id,
                 AddressId = address.Id,
@@ -165,7 +167,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.BeginTransaction();
             try
             {
-                _provider.Delete<PersonAddressEntity>(link.Id);
+                _provider.Delete<PersonAddress>(link.Id);
                 _provider.Delete<AddressEntity>(address.Id);
                 _provider.Delete<PersonEntity>(person.Id);
                 _provider.CommitTransaction();
@@ -205,7 +207,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.Insert(address);
 
             // 3. Create Link with Multiple Flags (Home | Billing = 5)
-            var link = new PersonAddressEntity
+            // Using PersonAddress to test convention-based table name resolution
+            var link = new PersonAddress
             {
                 PersonId = person.Id,
                 AddressId = address.Id,
@@ -217,7 +220,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.Insert(link);
 
             // 4. Query
-            var fetchedLink = _provider.Query<PersonAddressEntity>()
+            var fetchedLink = _provider.Query<PersonAddress>()
                 .First(pa => pa.Id == link.Id);
 
             // Verify BitFlag Label
@@ -234,7 +237,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.BeginTransaction();
             try
             {
-                _provider.Delete<PersonAddressEntity>(link.Id);
+                _provider.Delete<PersonAddress>(link.Id);
                 _provider.Delete<AddressEntity>(address.Id);
                 _provider.Delete<PersonEntity>(person.Id);
                 _provider.CommitTransaction();

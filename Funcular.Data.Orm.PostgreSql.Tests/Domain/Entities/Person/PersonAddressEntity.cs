@@ -4,6 +4,13 @@ using Funcular.Data.Orm.PostgreSql.Tests.Domain.Enums;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person
 {
+    /// <summary>
+    /// Canonical entity for the <c>person_address</c> table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> Requires <c>[Table]</c> because <c>PersonAddressEntity</c> normalizes
+    /// to <c>personaddressentity</c>, which does not match <c>personaddress</c>.
+    /// </para>
+    /// </summary>
     [Table("person_address")]
     [Serializable]
     public class PersonAddressEntity : PersistenceStateEntity
