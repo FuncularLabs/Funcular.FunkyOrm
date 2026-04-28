@@ -7,6 +7,7 @@ using System.Data;
 #if NETSTANDARD20
 using System.Data.Common;
 #endif
+using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Linq.Expressions;
@@ -48,6 +49,12 @@ namespace Funcular.Data.Orm.SqlServer
         /// The ambient <see cref="IDbTransaction"/> used by the provider when a transaction is in progress.
         /// </summary>
         private IDbTransaction _transaction;
+
+        /// <summary>
+        /// Tracks the number of <see cref="ConnectionScope"/> instances currently using the provider's
+        /// shared transactional connection. Used to detect invalid concurrent usage during a transaction.
+        /// </summary>
+        private int _activeTransactionalScopes;
 
         /// <summary>
         /// Cache mapping entity types to a mapping of column name -> ordinal index for the most recent reader.
@@ -707,6 +714,18 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <param name="name">Optional name used to identify the transaction. Use the same name on Commit/Rollback to ensure the correct transaction is affected.</param>
         /// <exception cref="InvalidOperationException">Thrown if a transaction is already in progress.</exception>
+        /// <remarks>
+        /// <b>Concurrency Warning:</b> All operations within a transaction share a single underlying
+        /// <see cref="IDbConnection"/>. This is an ADO.NET requirement — commands that participate in a
+        /// transaction must use the same connection. As a result, operations within a transaction
+        /// <b>must be awaited sequentially</b> (e.g., <c>await A(); await B();</c>). Do <b>not</b> use
+        /// <c>Task.WhenAll</c> or similar concurrent patterns within a transaction scope, as this will
+        /// result in "there is already an open DataReader associated with this Connection" errors.
+        /// <para>
+        /// Outside of a transaction, each operation automatically receives its own pooled connection,
+        /// so concurrent operations are fully supported.
+        /// </para>
+        /// </remarks>
         public void BeginTransaction(string name = null)
         {
             EnsureConnectionOpen();
@@ -1785,8 +1804,13 @@ namespace Funcular.Data.Orm.SqlServer
 
         /// <summary>
         /// Helper type that manages a connection scope for a single operation.
-        /// If the provider did not have a connection when the scope was created, the scope
-        /// will dispose the created connection on Dispose (unless a transaction is active).
+        /// When a transaction is active, the scope uses the provider's shared connection (required for
+        /// transaction semantics). Otherwise, each scope creates its own dedicated <see cref="SqlConnection"/>
+        /// from the connection string, ensuring concurrent operations do not share a reader/connection and
+        /// avoiding "there is already an open DataReader associated with this Connection" errors in
+        /// environments like Blazor Server where multiple operations may execute concurrently on the same
+        /// provider instance. Dedicated connections are returned to the ADO.NET connection pool on dispose,
+        /// so there is no material performance penalty.
         /// </summary>
         internal class ConnectionScope : IDisposable
         {
@@ -1797,33 +1821,71 @@ namespace Funcular.Data.Orm.SqlServer
             public ConnectionScope(SqlServerOrmDataProvider provider)
             {
                 _provider = provider;
-                _createdConnection = provider.Connection == null;
+
+                if (provider.Transaction != null)
+                {
+                    // Transaction in progress – must reuse the provider's connection.
+                    _ownedConnection = null;
+                    _isTransactional = true;
+
+                    // Guard: detect concurrent transactional usage which ADO.NET cannot support.
+                    if (Interlocked.Increment(ref provider._activeTransactionalScopes) > 1)
+                    {
+                        Interlocked.Decrement(ref provider._activeTransactionalScopes);
+                        throw new InvalidOperationException(
+                            "A concurrent operation is already using the transactional connection. " +
+                            "Operations within a transaction must be awaited sequentially " +
+                            "(e.g., 'await A(); await B();'). Do not use Task.WhenAll or " +
+                            "fire-and-forget patterns within a transaction scope.");
+                    }
+                }
+                else
+                {
+                    // No transaction – create a dedicated connection for this scope to
+                    // prevent concurrent reader/command conflicts.
+                    var conn = new SqlConnection(provider._connectionString);
+                    conn.Open();
+                    _ownedConnection = conn;
+                    _isTransactional = false;
+                }
             }
 
             /// <summary>
-            /// Gets the active connection for the scope. Ensures the connection is open via the provider.
+            /// Gets the active connection for the scope. Returns the scope-owned connection when
+            /// available, otherwise falls back to the provider's shared (transactional) connection.
             /// </summary>
-            public IDbConnection Connection => _provider.GetConnection();
+            public IDbConnection Connection => _ownedConnection ?? _provider.GetConnection();
 
             /// <summary>
-            /// The provider that owns the connection used by this scope.
+            /// The provider that owns the transaction/connection context.
             /// </summary>
             protected internal readonly SqlServerOrmDataProvider _provider;
 
             /// <summary>
-            /// True when the scope created the connection (provider.Connection was null at construction).
+            /// A dedicated connection created and owned by this scope, or null when a transaction
+            /// requires the provider's shared connection.
             /// </summary>
-            protected internal readonly bool _createdConnection;
+            private readonly SqlConnection _ownedConnection;
 
             /// <summary>
-            /// Disposes the scope, disposing the underlying connection if the scope created it and there is no active transaction.
+            /// Whether this scope is using the provider's shared transactional connection.
+            /// </summary>
+            private readonly bool _isTransactional;
+
+            /// <summary>
+            /// Disposes the scope, closing and disposing the scope-owned connection (if any).
+            /// When reusing the provider's transactional connection, decrements the active scope counter.
             /// </summary>
             public void Dispose()
             {
-                if (_provider.Transaction == null && _createdConnection && _provider.Connection != null)
+                if (_ownedConnection != null)
                 {
-                    _provider.Connection.Dispose();
-                    _provider.Connection = null;
+                    _ownedConnection.Close();
+                    _ownedConnection.Dispose();
+                }
+                else if (_isTransactional)
+                {
+                    Interlocked.Decrement(ref _provider._activeTransactionalScopes);
                 }
             }
         }

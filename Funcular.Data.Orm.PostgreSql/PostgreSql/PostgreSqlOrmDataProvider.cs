@@ -7,6 +7,7 @@ using System.Data;
 #if NETSTANDARD2_0
 using System.Data.Common;
 #endif
+using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Linq.Expressions;
@@ -40,6 +41,12 @@ namespace Funcular.Data.Orm.PostgreSql
 
         private readonly string _connectionString;
         private IDbTransaction _transaction;
+
+        /// <summary>
+        /// Tracks the number of <see cref="ConnectionScope"/> instances currently using the provider's
+        /// shared transactional connection. Used to detect invalid concurrent usage during a transaction.
+        /// </summary>
+        private int _activeTransactionalScopes;
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
         internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
 
@@ -372,6 +379,23 @@ namespace Funcular.Data.Orm.PostgreSql
 
         #region Transaction Management
 
+        /// <summary>
+        /// Begins a new database transaction. The provider will create and open a connection if necessary.
+        /// </summary>
+        /// <param name="name">Optional name used to identify the transaction. Use the same name on Commit/Rollback to ensure the correct transaction is affected.</param>
+        /// <exception cref="InvalidOperationException">Thrown if a transaction is already in progress.</exception>
+        /// <remarks>
+        /// <b>Concurrency Warning:</b> All operations within a transaction share a single underlying
+        /// <see cref="IDbConnection"/>. This is an ADO.NET requirement — commands that participate in a
+        /// transaction must use the same connection. As a result, operations within a transaction
+        /// <b>must be awaited sequentially</b> (e.g., <c>await A(); await B();</c>). Do <b>not</b> use
+        /// <c>Task.WhenAll</c> or similar concurrent patterns within a transaction scope, as this will
+        /// result in "there is already an open DataReader associated with this Connection" errors.
+        /// <para>
+        /// Outside of a transaction, each operation automatically receives its own pooled connection,
+        /// so concurrent operations are fully supported.
+        /// </para>
+        /// </remarks>
         public void BeginTransaction(string name = null)
         {
             EnsureConnectionOpen();
@@ -1076,24 +1100,58 @@ namespace Funcular.Data.Orm.PostgreSql
             public List<NpgsqlParameter> Parameters = new List<NpgsqlParameter>();
         }
 
+        /// <summary>
+        /// Helper type that manages a connection scope for a single operation.
+        /// When a transaction is active, the scope uses the provider's shared connection (required for
+        /// transaction semantics). Otherwise, each scope creates its own dedicated <see cref="NpgsqlConnection"/>
+        /// from the connection string, ensuring concurrent operations do not share a reader/connection.
+        /// </summary>
         internal class ConnectionScope : IDisposable
         {
             public ConnectionScope(PostgreSqlOrmDataProvider provider)
             {
                 _provider = provider;
-                _createdConnection = provider.Connection == null;
+
+                if (provider.Transaction != null)
+                {
+                    _ownedConnection = null;
+                    _isTransactional = true;
+
+                    // Guard: detect concurrent transactional usage which ADO.NET cannot support.
+                    if (Interlocked.Increment(ref provider._activeTransactionalScopes) > 1)
+                    {
+                        Interlocked.Decrement(ref provider._activeTransactionalScopes);
+                        throw new InvalidOperationException(
+                            "A concurrent operation is already using the transactional connection. " +
+                            "Operations within a transaction must be awaited sequentially " +
+                            "(e.g., 'await A(); await B();'). Do not use Task.WhenAll or " +
+                            "fire-and-forget patterns within a transaction scope.");
+                    }
+                }
+                else
+                {
+                    var conn = new NpgsqlConnection(provider._connectionString);
+                    conn.Open();
+                    _ownedConnection = conn;
+                    _isTransactional = false;
+                }
             }
 
-            public IDbConnection Connection => _provider.GetConnection();
+            public IDbConnection Connection => _ownedConnection ?? _provider.GetConnection();
             protected internal readonly PostgreSqlOrmDataProvider _provider;
-            protected internal readonly bool _createdConnection;
+            private readonly NpgsqlConnection _ownedConnection;
+            private readonly bool _isTransactional;
 
             public void Dispose()
             {
-                if (_provider.Transaction == null && _createdConnection && _provider.Connection != null)
+                if (_ownedConnection != null)
                 {
-                    _provider.Connection.Dispose();
-                    _provider.Connection = null;
+                    _ownedConnection.Close();
+                    _ownedConnection.Dispose();
+                }
+                else if (_isTransactional)
+                {
+                    Interlocked.Decrement(ref _provider._activeTransactionalScopes);
                 }
             }
         }

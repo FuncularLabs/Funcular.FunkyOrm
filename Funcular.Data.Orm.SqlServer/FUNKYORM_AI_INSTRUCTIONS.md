@@ -183,7 +183,37 @@ catch
 }
 ```
 
-### 3. Querying
+### 3. Concurrency & Connection Safety
+
+*   **Non-transactional operations** are fully concurrent-safe. Each operation gets its own dedicated connection from the ADO.NET connection pool.
+*   **Transactional operations** share a single connection and **MUST be awaited sequentially**.
+    *   *Anti-Pattern*: Do NOT use `Task.WhenAll` or fire-and-forget patterns inside a `BeginTransaction`/`CommitTransaction` block.
+    *   *Correct*: `await A(); await B();` — sequential awaits.
+*   **Provider Lifetime**: In Blazor Server, register the provider as **Scoped** (per-circuit). In ASP.NET Core controllers, Scoped or Transient. Singleton is fine for single-threaded console apps.
+*   **Error**: If concurrent transactional usage is attempted, an `InvalidOperationException` is thrown with a clear message directing the developer to use sequential awaits.
+
+```csharp
+// ✅ Correct: sequential awaits in transaction
+provider.BeginTransaction();
+await provider.DeleteAsync<Person>(p => p.Id == 1);
+await provider.InsertAsync<Person, int>(newPerson);
+provider.CommitTransaction();
+
+// ✅ Correct: concurrent ops without transaction
+var results = await Task.WhenAll(
+    provider.GetAsync<Person>(1),
+    provider.GetAsync<Person>(2)
+);
+
+// ❌ Wrong: concurrent ops in transaction — throws InvalidOperationException
+provider.BeginTransaction();
+await Task.WhenAll(
+    provider.DeleteAsync<Person>(p => p.Id == 1),
+    provider.InsertAsync<Person, int>(newPerson)
+);
+```
+
+### 4. Querying
 
 *   **Chaining**: Use chained `.Where()` clauses (combined with AND).
     ```csharp

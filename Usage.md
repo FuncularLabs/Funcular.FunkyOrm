@@ -11,7 +11,7 @@ Look, we get it. You've got choices.
 **Funcular.FunkyOrm** sits in the sweet spot. You get the **speed** of a micro-ORM with the **type safety** and **developer joy** of LINQ.
 
 ### The "It Just Works" Philosophy
-*   **One Instance Per Connection**: You create a provider (`SqlServerOrmDataProvider` or `PostgreSqlOrmDataProvider`) with a connection string. That's it. No `DbContext` ceremony, no dependency injection containers required (though you can use them if you want).
+*   **One Instance Per Connection String**: You create a provider (`SqlServerOrmDataProvider` or `PostgreSqlOrmDataProvider`) with a connection string. That's it. No `DbContext` ceremony, no dependency injection containers required (though you can use them if you want). In concurrent environments like Blazor Server, register the provider as **Scoped** (per-circuit) to avoid cross-circuit transaction leaks.
 *   **Auto-Inference**: Name your table `Person` and your class `Person`. We'll figure it out. Name your column `first_name` and your property `FirstName`. We'll figure that out too.
 *   **Forgiving Mapping**: Got a property in your class that isn't in the database? We ignore it. Got a column in the database that isn't in your class? We ignore that too. No more crashing because you added a helper property to your view model.
 
@@ -527,6 +527,46 @@ catch
     provider.RollbackTransaction();
     throw;
 }
+```
+
+### Concurrency & Threading
+
+FunkyORM is safe for concurrent async use in environments like Blazor Server and parallel workflows. Each non-transactional operation automatically receives its own dedicated connection from the ADO.NET connection pool, so concurrent operations on the same provider instance will not interfere with each other.
+
+**Within a transaction**, all operations share a single connection (this is an ADO.NET requirement). As a result, transactional operations **must be awaited sequentially** — do not use `Task.WhenAll` or fire-and-forget patterns inside a transaction scope:
+
+```csharp
+// ✅ CORRECT — sequential awaits within a transaction
+provider.BeginTransaction();
+try
+{
+    await provider.DeleteAsync<Person>(p => p.Id == 1);
+    await provider.InsertAsync<Person, int>(newPerson);  // sequential — safe
+    provider.CommitTransaction();
+}
+catch
+{
+    provider.RollbackTransaction();
+    throw;
+}
+
+// ❌ WRONG — throws InvalidOperationException with a clear message
+provider.BeginTransaction();
+await Task.WhenAll(
+    provider.DeleteAsync<Person>(p => p.Id == 1),
+    provider.InsertAsync<Person, int>(newPerson)  // concurrent transactional usage
+);
+```
+
+**Outside of a transaction**, concurrent operations are fully supported:
+
+```csharp
+// ✅ CORRECT — each gets its own pooled connection
+var people = await Task.WhenAll(
+    provider.GetAsync<Person>(1),
+    provider.GetAsync<Person>(2),
+    provider.GetAsync<Person>(3)
+);
 ```
 
 ---
