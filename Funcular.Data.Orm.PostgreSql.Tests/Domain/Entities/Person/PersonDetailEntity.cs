@@ -6,7 +6,13 @@ using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Address;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person
 {
-    [Table("person")]
+    /// <summary>
+    /// Detail projection of <see cref="PersonEntity"/> with remote-linked relationships.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed. This class inherits
+    /// <c>[Table("person")]</c> from <see cref="PersonEntity"/> via <c>inherit: true</c>.
+    /// </para>
+    /// </summary>
     [Serializable]
     public class PersonDetailEntity : PersonEntity
     {

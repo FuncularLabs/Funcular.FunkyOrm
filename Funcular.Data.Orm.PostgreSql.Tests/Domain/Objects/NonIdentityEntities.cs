@@ -1,9 +1,15 @@
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects
 {
-    [Table("non_identity_guid_entity")]
+    /// <summary>
+    /// Test entity with a non-identity GUID primary key — maps to <c>non_identity_guid_entity</c>.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed. Convention-based resolution
+    /// matches <c>NonIdentityGuidEntity</c> to <c>non_identity_guid_entity</c> via
+    /// <see cref="Funcular.Data.Orm.Core.Utilities.IgnoreUnderscoreAndCaseStringComparer"/>.
+    /// </para>
+    /// </summary>
     public class NonIdentityGuidEntity
     {
         [Key]
@@ -11,7 +17,14 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects
         public string Name { get; set; }
     }
 
-    [Table("non_identity_string_entity")]
+    /// <summary>
+    /// Test entity with a non-identity string primary key — maps to <c>non_identity_string_entity</c>.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed. Convention-based resolution
+    /// matches <c>NonIdentityStringEntity</c> to <c>non_identity_string_entity</c> via
+    /// <see cref="Funcular.Data.Orm.Core.Utilities.IgnoreUnderscoreAndCaseStringComparer"/>.
+    /// </para>
+    /// </summary>
     public class NonIdentityStringEntity
     {
         [Key]

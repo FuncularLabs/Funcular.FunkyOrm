@@ -5,8 +5,11 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Project
 {
     /// <summary>
     /// Full detail class demonstrating all four JSON/computed attribute types on PostgreSQL.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed. This class inherits
+    /// <c>[Table("project")]</c> from <see cref="ProjectEntity"/> via <see cref="ProjectScorecard"/>.
+    /// </para>
     /// </summary>
-    [Table("project")]
     public class ProjectScorecardFull : ProjectScorecard
     {
         // ?? Phase 2: SQL expression ??

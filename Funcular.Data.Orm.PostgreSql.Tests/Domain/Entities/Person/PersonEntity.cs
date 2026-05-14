@@ -3,6 +3,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person
 {
+    /// <summary>
+    /// Canonical entity for the <c>person</c> table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> Requires <c>[Table]</c> because <c>PersonEntity</c> normalizes to
+    /// <c>personentity</c>, which does not match <c>person</c>.
+    /// </para>
+    /// </summary>
     [Table("person")]
     [Serializable]
     public class PersonEntity : PersistenceStateEntity

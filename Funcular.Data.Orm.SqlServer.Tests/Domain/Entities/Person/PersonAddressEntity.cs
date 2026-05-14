@@ -7,8 +7,20 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Enums;
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 {
     /// <summary>
-    /// The Person Address Entity
-    /// Maps to dbo.person_address table
+    /// The Person Address Entity — maps to the <c>dbo.person_address</c> table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> This class requires a <c>[Table]</c> attribute because its class name
+    /// (<c>PersonAddressEntity</c>) does not match the database table name (<c>person_address</c>) under
+    /// convention-based resolution. The <see cref="IgnoreUnderscoreAndCaseStringComparer"/> strips underscores
+    /// and compares case-insensitively, so <c>PersonAddressEntity</c> normalizes to <c>personaddressentity</c>
+    /// while <c>person_address</c> normalizes to <c>personaddress</c> — these do not match.
+    /// </para>
+    /// <para>
+    /// If you only ever query through the subclass <see cref="Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person.PersonAddress"/>
+    /// (whose name <c>PersonAddress</c> normalizes to <c>personaddress</c>, matching <c>person_address</c>),
+    /// the attribute on this base class is still needed because <c>PersonAddress</c> inherits it via
+    /// <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>.
+    /// </para>
     /// </summary>
     [Table("person_address")]
     [Serializable]

@@ -6,9 +6,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project
     /// <summary>
     /// Detail class demonstrating [JsonPath] attribute usage.
     /// Extracts scalar values from the project.metadata JSON column.
-    /// Maps to the same "project" table as <see cref="ProjectEntity"/>.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed here because this class
+    /// inherits from <see cref="ProjectEntity"/>, which declares <c>[Table("project")]</c>.
+    /// The ORM finds the parent's attribute via <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>.
+    /// </para>
     /// </summary>
-    [Table("project")]
     public class ProjectScorecard : ProjectEntity
     {
         // ?? Phase 1: JSON path extraction ??

@@ -6,8 +6,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project
     /// <summary>
     /// Full detail class demonstrating all four JSON/computed attribute types.
     /// Extends <see cref="ProjectScorecard"/> which already has [JsonPath] attributes.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed here because this class
+    /// inherits from <see cref="ProjectScorecard"/> → <see cref="ProjectEntity"/>, which declares
+    /// <c>[Table("project")]</c>. The ORM walks the full inheritance chain via
+    /// <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>.
+    /// </para>
     /// </summary>
-    [Table("project")]
     public class ProjectScorecardFull : ProjectScorecard
     {
         // ?? Phase 2: SQL expression ??

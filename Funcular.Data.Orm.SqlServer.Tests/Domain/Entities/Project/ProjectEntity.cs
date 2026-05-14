@@ -5,8 +5,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project
 {
     /// <summary>
-    /// Canonical entity for the project table.
-    /// Contains a JSON metadata column for [JsonPath] attribute testing.
+    /// Canonical entity for the <c>dbo.project</c> table.
+    /// Contains a JSON metadata column for <c>[JsonPath]</c> attribute testing.
+    /// <para>
+    /// <b>Table Name Resolution:</b> Requires <c>[Table]</c> because <c>ProjectEntity</c> normalizes to
+    /// <c>projectentity</c>, which does not match <c>project</c>.
+    /// </para>
     /// </summary>
     [Table("project")]
     public class ProjectEntity

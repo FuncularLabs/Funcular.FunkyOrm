@@ -8,8 +8,19 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person 
 {
 	/// <summary>
-	/// The Person Entity
-	/// Maps to dbo.person table
+	/// The Person Entity — maps to the <c>dbo.person</c> table.
+	/// <para>
+	/// <b>Table Name Resolution:</b> This class requires a <c>[Table]</c> attribute because its class name
+	/// (<c>PersonEntity</c>) does not match the database table name (<c>person</c>) under convention-based
+	/// resolution. <c>PersonEntity</c> normalizes to <c>personentity</c>, while <c>person</c> normalizes to
+	/// <c>person</c> — these do not match.
+	/// </para>
+	/// <para>
+	/// The subclass <see cref="Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person.Person"/> matches
+	/// the table name by convention (<c>Person</c> → <c>person</c>), so it does not need its own
+	/// <c>[Table]</c> attribute. When queried, <c>Person</c> inherits this attribute via
+	/// <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>.
+	/// </para>
 	/// </summary>
 	[Table("person")]
 	[Serializable]

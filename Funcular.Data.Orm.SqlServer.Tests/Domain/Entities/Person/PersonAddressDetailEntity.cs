@@ -5,7 +5,14 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 {
-    [Table("person_address")]
+    /// <summary>
+    /// Extended person-address entity with remote-linked properties for JOINs to the address table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed here because this class
+    /// inherits from <see cref="PersonAddressEntity"/>, which declares <c>[Table("person_address")]</c>.
+    /// The ORM finds the parent's attribute via <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>.
+    /// </para>
+    /// </summary>
     public class PersonAddressDetailEntity : PersonAddressEntity
     {
         [Column("address_id")]

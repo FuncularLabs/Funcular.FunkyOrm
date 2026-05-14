@@ -4,6 +4,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Project
 {
+    /// <summary>
+    /// Canonical entity for the <c>project_note</c> table.
+    /// <para>
+    /// <b>Table Name Resolution:</b> Requires <c>[Table]</c> because <c>ProjectNoteEntity</c> normalizes
+    /// to <c>projectnoteentity</c>, which does not match <c>projectnote</c>.
+    /// </para>
+    /// </summary>
     [Table("project_note")]
     public class ProjectNoteEntity
     {

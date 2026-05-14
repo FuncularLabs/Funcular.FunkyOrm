@@ -1,5 +1,6 @@
 > **Recent Changes**
-> * **v3.2.1**: 🧩 **All 4 view-replacing attributes implemented!** `[JsonPath]` (JSON scalars), `[SqlExpression]` (COALESCE/CONCAT/CASE), `[SubqueryAggregate]` (COUNT/SUM), and `[JsonCollection]` (child records as JSON arrays). Eliminate SQL views entirely in code. Auto-excludes `[Timestamp]` and `[DatabaseGenerated]` columns from INSERT/UPDATE. See [JSON & Computed Column Attributes](#6-json--computed-column-attributes).
+> * **v3.2.2**: 🔒 **Concurrency-safe connection management!** Each non-transactional operation now uses its own dedicated pooled connection, eliminating "reader already associated" errors in concurrent environments like Blazor Server. Transactional operations include a guard that throws a clear error if concurrent usage is detected. See [Concurrency & Connection Management](#concurrency--connection-management).
+> * **v3.2.1**: 🧩 **All 4 view-replacing attributes implemented!**
 > * **v3.1.0**: 🐘 **PostgreSQL Support!** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
 > * **v3.0.1**: Introduced `ISqlDialect` for multi-database support. Added `[RemoteKey]` and `[RemoteProperty]` attributes, `Guid`/`String` primary keys, generic `Insert<T, TKey>` overloads, and non-identity key handling.
 
@@ -50,7 +51,7 @@ dotnet add package Funcular.Data.Orm
 
 ### 2. Initialization
 
-Create a provider instance. You can register it as a singleton in your DI container, or create it as needed.
+Create a provider instance. You can register it in your DI container or create it as needed. See [Concurrency & Connection Management](#concurrency--connection-management) for lifetime guidance in concurrent environments like Blazor Server.
 
 **SQL Server:**
 ```csharp
@@ -290,6 +291,68 @@ public class ProjectScorecard : ProjectEntity
 ```
 
 All four work in `Get<T>`, `Query<T>`, `GetList<T>`, and **WHERE clauses**. See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
+
+## Concurrency & Connection Management
+
+FunkyORM is fully safe for concurrent use in environments like **Blazor Server**, **parallel async workflows**, and **multi-threaded services**.
+
+### How It Works
+
+| Scenario | Connection Strategy | Concurrent-Safe? |
+|:---|:---|:---|
+| **Normal operations** (no transaction) | Each operation gets its own dedicated connection from the ADO.NET connection pool | ✅ Yes — fully concurrent |
+| **Within a transaction** | All operations share one connection (required by ADO.NET) | ⚠️ Sequential only |
+
+### Provider Lifetime Guidance
+
+| Environment | Recommended Lifetime | Why |
+|:---|:---|:---|
+| **Console / background service** | Singleton or transient | No concurrency concerns |
+| **ASP.NET Core (controllers)** | Scoped or transient | Request-scoped avoids cross-request transaction leaks |
+| **Blazor Server** | **Scoped** (per-circuit) | Each circuit gets its own provider; concurrent operations within a circuit are safe |
+| **Parallel `Task.WhenAll`** | One provider per task, or no transaction | Non-transactional ops are safe on a shared provider |
+
+### ⚠️ Transaction Concurrency Rule
+
+All operations within a transaction **must be awaited sequentially**:
+
+```csharp
+// ✅ CORRECT — sequential awaits within a transaction
+provider.BeginTransaction();
+try
+{
+    await provider.DeleteAsync<Person>(p => p.Id == 1);
+    await provider.InsertAsync<Person, int>(newPerson);  // waits for delete to finish
+    provider.CommitTransaction();
+}
+catch
+{
+    provider.RollbackTransaction();
+    throw;
+}
+
+// ❌ WRONG — concurrent operations within a transaction will throw InvalidOperationException
+provider.BeginTransaction();
+await Task.WhenAll(
+    provider.DeleteAsync<Person>(p => p.Id == 1),
+    provider.InsertAsync<Person, int>(newPerson)  // THROWS: concurrent transactional usage detected
+);
+```
+
+This is an ADO.NET limitation — a single `IDbConnection` cannot execute multiple commands simultaneously. FunkyORM detects this misuse and throws a clear `InvalidOperationException` instead of the cryptic ADO.NET "reader already associated" error.
+
+**Outside of a transaction**, concurrent operations are fully supported because each operation automatically receives its own pooled connection:
+
+```csharp
+// ✅ CORRECT — concurrent operations without a transaction
+var tasks = new[]
+{
+    provider.GetAsync<Person>(1),
+    provider.GetAsync<Person>(2),
+    provider.GetAsync<Person>(3)
+};
+var results = await Task.WhenAll(tasks); // Each gets its own pooled connection
+```
 
 ## Database Provider Differences
 

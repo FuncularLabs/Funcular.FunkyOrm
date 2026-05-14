@@ -7,11 +7,14 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 {
     /// <summary>
-    /// The Person Detail Entity
-    /// Maps to dbo.person table but includes remote properties that trigger joins.
-    /// Use this only when you need the related data.
+    /// Extended person entity with remote-linked properties for JOINs to related tables.
+    /// Use this class when you need the related data (employer, country, addresses) in a single query.
+    /// <para>
+    /// <b>Table Name Resolution:</b> No <c>[Table]</c> attribute is needed here because this class
+    /// inherits from <see cref="PersonEntity"/>, which declares <c>[Table("person")]</c>.
+    /// The ORM finds the parent's attribute via <c>GetCustomAttribute&lt;TableAttribute&gt;(inherit: true)</c>.
+    /// </para>
     /// </summary>
-    [Table("person")]
     [Serializable]
     public class PersonDetailEntity : PersonEntity
     {
