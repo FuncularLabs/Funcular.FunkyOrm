@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
+    <Copyright>Funcular Labs, Inc.</Copyright>
+    <Description>SQLite provider for FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling. Entity classes and query code are portable between providers. Zero external dependencies — embedded SQLite via Microsoft.Data.Sqlite. Supports .NET 8 and .NET Standard 2.0.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>csharp;sql;orm;sqlite;entity;lambda;query;embedded;lightweight</PackageTags>
+    <Title>Funcular.FunkyORM.Sqlite</Title>
+    <Version>3.5.0-beta1</Version>
+    <AssemblyVersion>3.5.0.0</AssemblyVersion>
+    <FileVersion>3.5.0.0</FileVersion>
+    <InformationalVersion>3.5.0-beta1</InformationalVersion>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <SignAssembly>False</SignAssembly>
+    <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
+    <GenerateNuGetTargetMonikerAttribute>true</GenerateNuGetTargetMonikerAttribute>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Funcular.Data.Orm.Sqlite.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+    <PackageReference Include="System.Data.Common" Version="4.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj">
+      <PrivateAssets>all</PrivateAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

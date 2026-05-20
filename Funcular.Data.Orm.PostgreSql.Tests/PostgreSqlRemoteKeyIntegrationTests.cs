@@ -6,7 +6,7 @@ using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 namespace Funcular.Data.Orm.PostgreSql.Tests
 {
     [TestClass]
-    public class PostgreSqlRemoteKeyIntegrationTests : PostgreSqlDataProviderIntegrationTests
+    public class PostgreSqlRemoteKeyIntegrationTests : PostgreSqlTestFixture
     {
         [TestMethod]
         public async Task RemoteKey_FullChainPopulation_ImplicitAndExplicit()

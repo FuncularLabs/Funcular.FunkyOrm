@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
-    public class RemoteKeyWhereTests : SqlDataProviderIntegrationTests
+    public class RemoteKeyWhereTests : SqlServerTestFixture
     {
         [TestMethod]
         public void CanFilterByRemoteKey()

@@ -6,7 +6,7 @@ using Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects.User;
 namespace Funcular.Data.Orm.PostgreSql.Tests
 {
     [TestClass]
-    public class PostgreSqlDocumentationGapTests : PostgreSqlDataProviderIntegrationTests
+    public class PostgreSqlDocumentationGapTests : PostgreSqlTestFixture
     {
         [TestMethod]
         public void ReservedWords_AreHandledCorrectly()

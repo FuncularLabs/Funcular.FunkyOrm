@@ -3,7 +3,7 @@ using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 namespace Funcular.Data.Orm.PostgreSql.Tests
 {
     [TestClass]
-    public class PostgreSqlRemoteFeaturesTests : PostgreSqlDataProviderIntegrationTests
+    public class PostgreSqlRemoteFeaturesTests : PostgreSqlTestFixture
     {
         [TestMethod]
         public void RemoteProperty_IsPopulated_OnQuery()

@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
-    public class RemoteFeaturesTests : SqlDataProviderIntegrationTests
+    public class RemoteFeaturesTests : SqlServerTestFixture
     {
         [TestMethod]
         public void RemoteProperty_IsPopulated_OnQuery()

@@ -9,7 +9,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
-    public class DocumentationGapTests : SqlDataProviderIntegrationTests
+    public class DocumentationGapTests : SqlServerTestFixture
     {
         [TestInitialize]
         public new void Setup()

@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj" />
+    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj" />
     <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj" />
   </ItemGroup>
 

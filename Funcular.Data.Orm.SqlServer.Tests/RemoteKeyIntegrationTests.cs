@@ -11,7 +11,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
-    public class RemoteKeyIntegrationTests : SqlDataProviderIntegrationTests
+    public class RemoteKeyIntegrationTests : SqlServerTestFixture
     {
         [TestMethod]
         public async Task RemoteKey_FullChainPopulation_ImplicitAndExplicit()

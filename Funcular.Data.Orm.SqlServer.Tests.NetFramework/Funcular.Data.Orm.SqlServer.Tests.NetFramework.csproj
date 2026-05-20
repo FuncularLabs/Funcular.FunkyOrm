@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -106,7 +106,7 @@
     <Folder Include="TestResults\" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj">
+    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj">
       <Project>{b7d82b6f-1cd9-48b7-86b7-33b9ac37a13f}</Project>
       <Name>Funcular.Data.Orm</Name>
     </ProjectReference>

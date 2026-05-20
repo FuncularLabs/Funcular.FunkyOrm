@@ -2,7 +2,7 @@
 
 > **Target Audience**: AI Agents (GitHub Copilot, Cursor, Gemini, GPT, Claude, etc.) assisting developers who use FunkyORM.
 >
-> **Package**: `Funcular.Data.Orm` (includes SQL Server and PostgreSQL providers)
+> **Package**: `Funcular.Data.Orm` (includes SQL Server, PostgreSQL, and SQLite providers)
 
 ----
 
@@ -10,7 +10,7 @@
 
 You are assisting a developer using **Funcular.FunkyOrm**. This framework follows strict conventions that differ from Entity Framework or Dapper. **Do not infer usage patterns from other ORMs.**
 
-FunkyORM supports **SQL Server** and **PostgreSQL**. Entity classes and LINQ query code are portable between providers -- only the provider class and connection string change.
+FunkyORM supports **SQL Server**, **PostgreSQL**, and **SQLite**. Entity classes and LINQ query code are portable between providers -- only the provider class and connection string change.
 
 ---
 
@@ -21,7 +21,7 @@ FunkyORM supports **SQL Server** and **PostgreSQL**. Entity classes and LINQ que
     *   *Correct*: If raw SQL is absolutely required (rare), access `.Connection` directly -- but this signals "leaving the safety of the framework."
 
 2.  **NO `DbContext`**: There is no Unit of Work or Context pattern.
-    *   *Correct*: Use `SqlServerOrmDataProvider` or `PostgreSqlOrmDataProvider` as a singleton or transient service.
+    *   *Correct*: Use `SqlServerOrmDataProvider`, `PostgreSqlOrmDataProvider`, or `SqliteOrmDataProvider` as a singleton or transient service.
 
 3.  **NO Unnecessary Attributes**: Do not add `[Key]`, `[Table]`, or `[Column]` if the names match conventions.
     *   *Convention*: `Id`, `ClassNameId` = PK. `ClassName` = Table. `PropName` = Column.
@@ -60,14 +60,22 @@ using Funcular.Data.Orm.PostgreSql;
 var provider = new PostgreSqlOrmDataProvider(connectionString);
 ```
 
-All subsequent CRUD, Query, and Remote Attribute examples work identically with either provider. The generated SQL differs automatically:
+**SQLite:**
+```csharp
+using Funcular.Data.Orm.Sqlite;
+var provider = new SqliteOrmDataProvider("Data Source=myapp.db");
+```
 
-| Feature | SQL Server | PostgreSQL |
-|---------|-----------|------------|
-| Identifier quoting | `[brackets]` | `"double-quotes"` |
-| Insert return | `OUTPUT INSERTED.id` | `RETURNING id` |
-| Paging | `OFFSET...FETCH NEXT` | `LIMIT...OFFSET` |
-| String concat | `+` | `\|\|` |
+All subsequent CRUD, Query, and Remote Attribute examples work identically with any provider. The generated SQL differs automatically:
+
+| Feature | SQL Server | PostgreSQL | SQLite |
+|---------|-----------|------------|--------|
+| Identifier quoting | `[brackets]` | `"double-quotes"` | `"double-quotes"` |
+| Insert return | `OUTPUT INSERTED.id` | `RETURNING id` | `last_insert_rowid()` |
+| Paging | `OFFSET...FETCH NEXT` | `LIMIT...OFFSET` | `LIMIT...OFFSET` |
+| String concat | `+` | `\|\|` | `\|\|` |
+| Boolean type | `BIT` | `BOOLEAN` | `INTEGER (0/1)` |
+| Date storage | `DATETIME2` | `TIMESTAMP` | `TEXT (ISO 8601)` |
 | Date parts | `YEAR()`, `MONTH()` | `EXTRACT(YEAR FROM ...)` |
 | Boolean type | `BIT` (0/1) | Native `BOOLEAN` |
 

@@ -13,7 +13,7 @@ using PersonObject = Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person.Per
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     [TestClass]
-    public class RemoteKeyReverseTests : SqlDataProviderIntegrationTests
+    public class RemoteKeyReverseTests : SqlServerTestFixture
     {
         [Table("country")]
         public class CountryReverseDetailEntity : CountryEntity

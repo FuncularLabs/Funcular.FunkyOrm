@@ -1,9 +1,9 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.0.11222.15
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Funcular.Data.Orm", "Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj", "{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Funcular.Data.Orm.SqlServer", "Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj", "{B7D82B6F-1CD9-48B7-86B7-33B9AC37A13F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1B578596-7F17-46CB-AA38-248077A888AE}"
 	ProjectSection(SolutionItems) = preProject
@@ -39,6 +39,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.PostgreSql", "Funcular.Data.Orm.PostgreSql\Funcular.Data.Orm.PostgreSql.csproj", "{27EB6DBD-C7D2-44D3-B304-4BF6907EBEDF}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.PostgreSql.Tests", "Funcular.Data.Orm.PostgreSql.Tests\Funcular.Data.Orm.PostgreSql.Tests.csproj", "{3D7A427E-B490-491C-9574-D58E7BAEACE9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.Sqlite", "Funcular.Data.Orm.Sqlite\Funcular.Data.Orm.Sqlite.csproj", "{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Funcular.Data.Orm.Sqlite.Tests", "Funcular.Data.Orm.Sqlite.Tests\Funcular.Data.Orm.Sqlite.Tests.csproj", "{202DDD53-05EA-4425-9117-B4C87299A4AC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -134,6 +138,30 @@ Global
 		{3D7A427E-B490-491C-9574-D58E7BAEACE9}.Release|x64.Build.0 = Release|Any CPU
 		{3D7A427E-B490-491C-9574-D58E7BAEACE9}.Release|x86.ActiveCfg = Release|Any CPU
 		{3D7A427E-B490-491C-9574-D58E7BAEACE9}.Release|x86.Build.0 = Release|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Debug|x64.Build.0 = Debug|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Debug|x86.Build.0 = Debug|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Release|x64.ActiveCfg = Release|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Release|x64.Build.0 = Release|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Release|x86.ActiveCfg = Release|Any CPU
+		{37DDEC51-0E3C-4877-A19A-CC65ED4464B7}.Release|x86.Build.0 = Release|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Debug|x64.Build.0 = Debug|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Debug|x86.Build.0 = Debug|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Release|x64.ActiveCfg = Release|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Release|x64.Build.0 = Release|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Release|x86.ActiveCfg = Release|Any CPU
+		{202DDD53-05EA-4425-9117-B4C87299A4AC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

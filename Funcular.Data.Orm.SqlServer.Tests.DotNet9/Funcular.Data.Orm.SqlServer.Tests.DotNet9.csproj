@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.csproj" />
+    <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj" />
     <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj" />
   </ItemGroup>
 
