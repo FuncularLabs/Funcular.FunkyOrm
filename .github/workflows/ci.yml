@@ -65,6 +65,7 @@ jobs:
       run: dotnet pack Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj --configuration Release --output nupkgs
       
     - name: Push to NuGet
+      shell: pwsh
       run: |
         $packages = Get-ChildItem -Path nupkgs -Filter *.nupkg -File
         if (-not $packages) {
