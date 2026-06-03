@@ -267,6 +267,8 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         {
             _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, prop =>
             {
+                if (_remotePropertyMap != null && _remotePropertyMap.TryGetValue(prop.Name, out string remoteColumn))
+                    return remoteColumn;
                 var col = GetColumnName(prop);
                 return !string.IsNullOrEmpty(_tableName) ? $"{_tableName}.{col}" : col;
             });

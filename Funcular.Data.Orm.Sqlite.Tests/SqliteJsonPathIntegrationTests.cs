@@ -208,5 +208,84 @@ CREATE TABLE IF NOT EXISTS project_note (id INTEGER PRIMARY KEY AUTOINCREMENT, p
             var withJson = results.FirstOrDefault(r => r.Priority != null);
             Assert.IsNotNull(withJson);
         }
+
+        [TestMethod]
+        public void JsonPath_WhereClause_StringContainsOnJsonValue()
+        {
+            // Act - filter using string.Contains on a [JsonPath] property
+            var results = _provider.Query<ProjectScorecard>()
+                .Where(p => p.ClientName.Contains("Acme"))
+                .ToList();
+
+            // Assert
+            Assert.IsTrue(results.Count >= 1, "Should find at least 1 project with ClientName containing 'Acme'");
+            Assert.IsTrue(results.All(r => r.ClientName != null && r.ClientName.Contains("Acme")));
+        }
+
+        [TestMethod]
+        public void JsonPath_WhereClause_CollectionContainsOnJsonValue()
+        {
+            // Act - filter using list.Contains on a [JsonPath] property
+            var priorities = new List<string> { "high", "medium" };
+            var results = _provider.Query<ProjectScorecard>()
+                .Where(p => priorities.Contains(p.Priority))
+                .ToList();
+
+            // Assert
+            Assert.IsTrue(results.Count >= 1, "Should find at least 1 project with priority in list");
+            Assert.IsTrue(results.All(r => priorities.Contains(r.Priority)));
+        }
+
+        [TestMethod]
+        public void JsonPath_WhereClause_FiltersOnUnderscoreJsonPath()
+        {
+            // Act — filter on RiskLevel which maps to $.risk_level (underscore-separated path)
+            var results = _provider.Query<ProjectScorecard>()
+                .Where(p => p.RiskLevel == 3)
+                .ToList();
+
+            // Assert
+            Assert.IsTrue(results.Count >= 1, "Should find at least 1 project with risk_level = 3");
+            Assert.IsTrue(results.All(r => r.RiskLevel == 3));
+        }
+
+        [TestMethod]
+        public void JsonPath_WhereClause_ComparisonOnUnderscoreJsonPath()
+        {
+            // Act — filter using > on RiskLevel (underscore-separated path with SqlType = "int")
+            var results = _provider.Query<ProjectScorecard>()
+                .Where(p => p.RiskLevel > 1)
+                .ToList();
+
+            // Assert — only the project with risk_level=3 should match
+            Assert.IsTrue(results.Count >= 1, "Should find at least 1 project with risk_level > 1");
+            Assert.IsTrue(results.All(r => r.RiskLevel > 1));
+        }
+
+        [TestMethod]
+        public void JsonPath_WhereClause_NotEqualOnJsonValue()
+        {
+            // Act - filter using != on a [JsonPath] property
+            var results = _provider.Query<ProjectScorecard>()
+                .Where(p => p.Priority != null && p.Priority != "low")
+                .ToList();
+
+            // Assert
+            Assert.IsTrue(results.Count >= 1, "Should find at least 1 project with priority != 'low'");
+            Assert.IsTrue(results.All(r => r.Priority != "low"));
+        }
+
+        [TestMethod]
+        public void JsonPath_WhereClause_IsNullOnJsonValue()
+        {
+            // Act - filter using == null on a [JsonPath] property
+            var results = _provider.Query<ProjectScorecard>()
+                .Where(p => p.Priority == null)
+                .ToList();
+
+            // Assert - the NullMetadata project should have null Priority
+            Assert.IsTrue(results.Count >= 1, "Should find at least 1 project with null priority");
+            Assert.IsTrue(results.All(r => r.Priority == null));
+        }
     }
 }

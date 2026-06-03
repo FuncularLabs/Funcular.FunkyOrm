@@ -1,5 +1,3 @@
-> ⚠️ **DEPRECATED LOCATION** — This file has moved to `docs/plans/`. This copy is retained for backward compatibility. All edits should go to the new location.
-
 # SQLite Provider Implementation Plan
 
 > **Goal**: Create a `Funcular.Data.Orm.Sqlite` provider with maximum practical feature parity to `Funcular.Data.Orm.SqlServer`, including a complete test suite. This document identifies features that cannot be supported in SQLite, prescribes framework behavior for those situations, and serves as a ready-to-implement specification.

@@ -226,11 +226,14 @@ namespace Funcular.Data.Orm.PostgreSql
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    var tableName = _dataProvider.GetTableNameInternal<T>();
+                    var remoteInfo = _dataProvider.ResolveRemoteJoins<T>(tableName);
                     var whereVisitor = new PostgreSqlWhereClauseVisitor<T>(
                         PostgreSqlOrmDataProvider.ColumnNamesCache,
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
-                        parameterGenerator, translator, _dataProvider.GetTableNameInternal<T>());
+                        parameterGenerator, translator, tableName,
+                        remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
