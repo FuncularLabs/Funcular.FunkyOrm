@@ -1,6 +1,4 @@
-> ⚠️ **DEPRECATED LOCATION** — This file has moved to `docs/plans/`. This copy is retained for backward compatibility. All edits should go to the new location.
-
-# Stored Procedure Execution — Implementation Plan
+﻿# Stored Procedure Execution — Implementation Plan
 
 > **Goal**: Enable developers to execute stored procedures and retrieve scalar values or entity-mapped result sets using the same conventions and mapping pipeline that power `Query<T>`. Parameters may be passed as a class, anonymous object, or param array of tuples/`SqlParam` objects. Add the contract to `IOrmDataProvider`; implement in both MSSQL and PostgreSQL providers.
 

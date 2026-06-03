@@ -1,6 +1,4 @@
-> ⚠️ **DEPRECATED LOCATION** — This file has moved to `docs/plans/`. This copy is retained for backward compatibility. All edits should go to the new location.
-
-# JSON Query Attributes — Implementation Plan
+﻿# JSON Query Attributes — Implementation Plan
 
 > **Goal**: Enable developers to use C# attributes to query, extract, aggregate, and project JSON data — eliminating the need to create SQL Views for the most common JSON scenarios. Start with MSSQL; design for PostgreSQL parity via `ISqlDialect`.
 

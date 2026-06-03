@@ -240,11 +240,14 @@ namespace Funcular.Data.Orm.Sqlite
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    var tableName = _dataProvider.GetTableNameInternal<T>();
+                    var remoteInfo = _dataProvider.ResolveRemoteJoins<T>(tableName);
                     var whereVisitor = new SqliteWhereClauseVisitor<T>(
                         SqliteOrmDataProvider.ColumnNamesCache,
                         SqliteOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
-                        parameterGenerator, translator, _dataProvider.GetTableNameInternal<T>());
+                        parameterGenerator, translator, tableName,
+                        remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
