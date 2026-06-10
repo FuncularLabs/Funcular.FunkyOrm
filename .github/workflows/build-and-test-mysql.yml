@@ -1,0 +1,65 @@
+# GitHub Actions CI for MySQL integration tests
+name: MySQL Integration Tests
+
+on:
+  push:
+    branches: [main, master, 'development/**']
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test-mysql:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: funky_db
+          MYSQL_USER: funky_user
+          MYSQL_PASSWORD: funky_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Tests connect as root so schema/seed and all privileges are available in the ephemeral CI DB.
+      FUNKY_MYSQL_CONNECTION: "Server=127.0.0.1;Port=3306;Database=funky_db;User ID=root;Password=root;GuidFormat=Char36;AllowUserVariables=true;"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Create MySQL schema
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -proot funky_db < Database/MySql/integration_test_db.sql
+
+      - name: Restore dependencies
+        run: dotnet restore Funcular.Data.Orm.MySql.Tests/Funcular.Data.Orm.MySql.Tests.csproj
+
+      - name: Build
+        run: dotnet build Funcular.Data.Orm.MySql.Tests/Funcular.Data.Orm.MySql.Tests.csproj --no-restore --configuration Release
+
+      - name: Run MySQL tests
+        run: >
+          dotnet test
+          Funcular.Data.Orm.MySql.Tests/Funcular.Data.Orm.MySql.Tests.csproj
+          --no-build --configuration Release --verbosity normal
+          --filter "FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework"
+          --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql-test-results
+          path: '**/test-results.trx'

@@ -1,0 +1,22 @@
+# Local MySQL for FunkyORM development/tests (for developers without a local MySQL install).
+# Usage: docker compose -f Database/MySql/docker-compose.yml up -d
+#   then: FUNKY_MYSQL_CONNECTION="Server=localhost;Port=3306;Database=funky_db;User ID=funky;Password=funky;GuidFormat=Char36;AllowUserVariables=true;"
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: funky_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: funky_db
+      MYSQL_USER: funky
+      MYSQL_PASSWORD: funky
+    command: --lower_case_table_names=1
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./integration_test_db.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

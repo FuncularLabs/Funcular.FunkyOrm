@@ -53,6 +53,9 @@
     <ProjectReference Include="..\Funcular.Data.Orm.Sqlite\Funcular.Data.Orm.Sqlite.csproj" Condition="'$(TargetFramework)' != 'net48'">
       <PrivateAssets>all</PrivateAssets>
     </ProjectReference>
+    <ProjectReference Include="..\Funcular.Data.Orm.MySql\Funcular.Data.Orm.MySql.csproj" Condition="'$(TargetFramework)' != 'net48'">
+      <PrivateAssets>all</PrivateAssets>
+    </ProjectReference>
   </ItemGroup>
 
   <Target Name="CopyProjectReferencesToPackage" DependsOnTargets="ResolveReferences">
