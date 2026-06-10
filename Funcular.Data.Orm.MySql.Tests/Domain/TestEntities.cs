@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Funcular.Data.Orm.Attributes;
 
 namespace Funcular.Data.Orm.MySql.Tests.Domain
 {
@@ -58,6 +59,32 @@ namespace Funcular.Data.Orm.MySql.Tests.Domain
     {
         public string Id { get; set; }
         public string Name { get; set; }
+    }
+
+    /// <summary>
+    /// Detail entity over the person table that projects the employer's name/id via remote
+    /// joins. EmployerId carries [RemoteLink] so the resolver knows it points to Organization
+    /// (the name "Employer" is not type-inferable). EmployerName/EmployerOrgId are unmapped and
+    /// populated from a generated LEFT JOIN.
+    /// </summary>
+    [Table("person")]
+    public class PersonWithEmployer
+    {
+        public int Id { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+
+        [RemoteLink(typeof(Organization))]
+        public int? EmployerId { get; set; }
+
+        [RemoteProperty(typeof(Organization), nameof(Organization.Name))]
+        public string EmployerName { get; set; }
+
+        [RemoteKey(typeof(Organization), nameof(Organization.Id))]
+        public int? EmployerOrgId { get; set; }
+
+        public DateTime DateUtcCreated { get; set; }
+        public DateTime DateUtcModified { get; set; }
     }
 
     /// <summary>
