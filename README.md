@@ -15,7 +15,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-> **For AI Agents**: Please refer to [FUNKYORM_AI_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md](Funcular.Data.Orm.PostgreSql/FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md). A SQLite-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_SQLITE.md](Funcular.Data.Orm.Sqlite/FUNKYORM_AI_INSTRUCTIONS_SQLITE.md).
+> **For AI Agents**: Please refer to [FUNKYORM_AI_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md](Funcular.Data.Orm.PostgreSql/FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md). A SQLite-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_SQLITE.md](Funcular.Data.Orm.Sqlite/FUNKYORM_AI_INSTRUCTIONS_SQLITE.md). A MySQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_MYSQL.md](docs/ai-instructions/FUNKYORM_AI_INSTRUCTIONS_MYSQL.md).
 >
 > **Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `FUNKYORM_AI_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder. The product-specific filename avoids collisions with instructions from other packages.
 
