@@ -13,10 +13,10 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;sqlite;entity;lambda;query;embedded;lightweight</PackageTags>
     <Title>Funcular.FunkyORM.Sqlite</Title>
-    <Version>3.5.1-beta1</Version>
+    <Version>3.5.1</Version>
     <AssemblyVersion>3.5.1.0</AssemblyVersion>
     <FileVersion>3.5.1.0</FileVersion>
-    <InformationalVersion>3.5.1-beta1</InformationalVersion>
+    <InformationalVersion>3.5.1</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
