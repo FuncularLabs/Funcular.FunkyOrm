@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Funcular.Data.Orm.MySql.Tests.Domain
@@ -57,5 +58,19 @@ namespace Funcular.Data.Orm.MySql.Tests.Domain
     {
         public string Id { get; set; }
         public string Name { get; set; }
+    }
+
+    /// <summary>
+    /// Maps the reserved-word table `user` with reserved columns (`key`, `order`, `select`).
+    /// Exercises backtick identifier quoting. Convention maps Key->key, Order->order, Select->select.
+    /// </summary>
+    [Table("user")]
+    public class User
+    {
+        [Key]
+        public int Key { get; set; }
+        public string Name { get; set; }
+        public int Order { get; set; }
+        public int Select { get; set; }
     }
 }
