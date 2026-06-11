@@ -387,7 +387,7 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 | **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` |
 | **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` | `MySqlConnector` (MIT) | `Microsoft.Data.Sqlite` |
 | **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` | `JSON_EXTRACT(col, '$.path')` | `json_extract(col, '$.path')` |
-| **Stored Procedures** | ✅ Supported | ❌ Not supported | ❌ Not supported | ❌ Not supported |
+| **Stored Procedure Execution** | 🔜 Planned (v3.7.0) | 🔜 Planned (v3.7.0; scalar/non-query only) | 🔜 Planned (v3.7.0) | ❌ N/A (SQLite has no stored procedures) |
 | **JSON Collection** | `FOR JSON PATH` | `json_agg(row_to_json(…))` | `JSON_ARRAYAGG(JSON_OBJECT(…))` | `json_group_array(json_object(…))` |
 
 ### PostgreSQL-Specific Notes

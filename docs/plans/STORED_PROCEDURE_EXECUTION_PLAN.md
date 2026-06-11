@@ -23,6 +23,8 @@ This feature is intentionally **capability-based**: the API is uniform, but supp
 
 **Why SQLite needs no code**: the virtual base implementations throw `NotSupportedException` by default (see §2.1), which *is* the documented SQLite behavior (per the SQLite provider plan §5.8). The SQLite provider ships zero changes for this feature.
 
+> **README sync**: the README's "Database Provider Differences" table currently marks *Stored Procedure Execution* as "🔜 Planned (v3.7.0)". Replacing that row with this matrix is **Phase 9 (not started)** and must be completed before 3.7.0 ships.
+
 ---
 
 ## 1. API Design
@@ -901,6 +903,7 @@ Console.WriteLine($"Page has {page.Count} rows of {total.Value} total");
 | **6** | **MySQL: full implementation** (mirrors Phases 1–5; mostly mechanical given the SQL Server reference) | Medium |
 | **7** | PostgreSQL: `ExecNonQuery`/`ExecScalar` via `CALL`; `ExecProcedure<T>` guidance throw | Medium |
 | **8** | Integration tests: SQL Server 24, MySQL 24, PostgreSQL subset, SQLite negative; DDL for all three databases; CI green | Medium |
+| **9** | **Docs sync (status: not started — must be completed before 3.7.0 ships)**: replace the README "Database Provider Differences" *Stored Procedure Execution* row (currently marked "🔜 Planned (v3.7.0)") with the §0 capability matrix or a link to it; update the AI-instructions supplements; changelog entry including the `IOrmDataProvider` breaking-change caveat (§11) | Low |
 
 ---
 
