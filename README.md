@@ -1,5 +1,5 @@
 > **Recent Changes**
-> * **v3.6.0-beta1**: 🐬 **MySQL Support** FunkyORM now ships a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector driver), bundled in the same `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, all four JSON/computed attributes against native MySQL `JSON`, transactions, paging, and reserved-word handling — feature parity with the SQL Server, PostgreSQL & SQLite providers. See [Database Provider Differences](#database-provider-differences).
+> * **v3.6.0**: 🐬 **MySQL Support** FunkyORM now ships a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector driver), bundled in the same `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, all four JSON/computed attributes against native MySQL `JSON`, transactions, paging, and reserved-word handling — feature parity with the SQL Server, PostgreSQL & SQLite providers. See [Database Provider Differences](#database-provider-differences).
 > * **v3.5.1**: 🛠️ **`[JsonPath]` WHERE-predicate fix** — JSON-extracted properties are now honored in method-call WHERE predicates (`Contains`, `StartsWith`, `EndsWith`, `IN`) and inside aggregate operators (`Any`/`All`/`Count`) across SQL Server, PostgreSQL & SQLite. Documentation reorganized under `docs/`.
 > * **v3.5.0**: 🗃️ **SQLite Support** FunkyORM now ships a full `SqliteOrmDataProvider` — file-backed, zero-config embedded databases bundled in the same `Funcular.Data.Orm` package. Full LINQ-to-SQL translation, CASE/conditional projections, paging, identity and non-identity inserts, transactions, async operations, reserved-word handling, and connection-string filename resolution. See [Database Provider Differences](#database-provider-differences) for details.
 > * **v3.2.2**: 🔒 **Concurrency-safe connection management** Each non-transactional operation now uses its own dedicated pooled connection, eliminating "reader already associated" errors in concurrent environments like Blazor Server. Transactional operations include a guard that throws a clear error if concurrent usage is detected. See [Concurrency & Connection Management](#concurrency--connection-management).
@@ -387,7 +387,7 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 | **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` |
 | **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` | `MySqlConnector` (MIT) | `Microsoft.Data.Sqlite` |
 | **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` | `JSON_EXTRACT(col, '$.path')` | `json_extract(col, '$.path')` |
-| **Stored Procedures** | ✅ Supported | ❌ Not supported | ❌ Not supported | ❌ Not supported |
+| **Stored Procedure Execution** | 🔜 Planned (v3.7.0) | 🔜 Planned (v3.7.0; scalar/non-query only) | 🔜 Planned (v3.7.0) | ❌ N/A (SQLite has no stored procedures) |
 | **JSON Collection** | `FOR JSON PATH` | `json_agg(row_to_json(…))` | `JSON_ARRAYAGG(JSON_OBJECT(…))` | `json_group_array(json_object(…))` |
 
 ### PostgreSQL-Specific Notes

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.6.0-beta1] - 2026-06-10
+## [3.6.0] - 2026-06-10
 
 ### Added
 - **🐬 MySQL Provider**: New `MySqlOrmDataProvider` (project `Funcular.Data.Orm.MySql`), bundled into the single `Funcular.Data.Orm` NuGet package alongside the SQL Server, PostgreSQL, and SQLite providers (`net8.0` + `netstandard2.0`).
@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file.
   - GitHub Actions CI workflow using a MySQL 8.0 service container; `Database/MySql/` DDL + `docker-compose.yml` for local setup.
 
 ### Changed
-- **Version**: All projects bumped to `3.6.0-beta1`.
+- **Version**: All projects promoted from `3.6.0-beta1` to `3.6.0`.
 - **`ISqlDialect`**: Added the MySQL implementation (`MySqlDialect`) with `ProviderName = "mysql"`, backtick `EncloseIdentifier`, the `LAST_INSERT_ID()` insert strategy, and MySQL JSON value/collection builders.
 
 ### Notes
