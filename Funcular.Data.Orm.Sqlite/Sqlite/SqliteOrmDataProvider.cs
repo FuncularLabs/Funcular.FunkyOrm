@@ -1093,7 +1093,10 @@ namespace Funcular.Data.Orm.Sqlite
                     {
                         Interlocked.Decrement(ref provider._activeTransactionalScopes);
                         throw new InvalidOperationException(
-                            "A concurrent operation is already using the transactional connection.");
+                            "A concurrent operation is already using the transactional connection. " +
+                            "It can also surface from re-entrant (nested) use on a single thread — " +
+                            "e.g. invoking a provider operation that opens its own connection from " +
+                            "inside another operation on the same transactional provider.");
                     }
                 }
                 else

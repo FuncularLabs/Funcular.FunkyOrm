@@ -27,8 +27,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         public void Setup()
         {
             _sb.Clear();
-            _connectionString = Environment.GetEnvironmentVariable("FUNKY_PG_CONNECTION") ??
-                "Host=localhost;Port=5432;Database=funky_db;Username=funky_user;Password=funky_password";
+            _connectionString = PostgreSqlTestConnection.Resolve();
             TestConnection();
 
             _provider = new PostgreSqlOrmDataProvider(_connectionString)

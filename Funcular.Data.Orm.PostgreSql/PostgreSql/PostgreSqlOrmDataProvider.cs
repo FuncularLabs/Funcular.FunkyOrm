@@ -1135,7 +1135,10 @@ namespace Funcular.Data.Orm.PostgreSql
                             "A concurrent operation is already using the transactional connection. " +
                             "Operations within a transaction must be awaited sequentially " +
                             "(e.g., 'await A(); await B();'). Do not use Task.WhenAll or " +
-                            "fire-and-forget patterns within a transaction scope.");
+                            "fire-and-forget patterns within a transaction scope. " +
+                            "It can also surface from re-entrant (nested) use on a single thread — " +
+                            "e.g. invoking a provider operation that opens its own connection from " +
+                            "inside another operation on the same transactional provider.");
                     }
                 }
                 else

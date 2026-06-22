@@ -7,7 +7,7 @@ using Npgsql;
 namespace Funcular.Data.Orm.PostgreSql.Tests
 {
     /// <summary>
-    /// Integration tests for Phases 2–4: [SqlExpression], [SubqueryAggregate], [JsonCollection] on PostgreSQL.
+    /// Integration tests for Phases 2ï¿½4: [SqlExpression], [SubqueryAggregate], [JsonCollection] on PostgreSQL.
     /// Mirrors <c>ComputedAttributeIntegrationTests</c> from the SQL Server test project.
     /// </summary>
     [TestClass]
@@ -23,8 +23,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         public void Setup()
         {
             _sb.Clear();
-            _connectionString = Environment.GetEnvironmentVariable("FUNKY_PG_CONNECTION") ??
-                "Host=localhost;Port=5432;Database=funky_db;Username=funky_user;Password=funky_password";
+            _connectionString = PostgreSqlTestConnection.Resolve();
 
             TestConnection();
             EnsureSchema();

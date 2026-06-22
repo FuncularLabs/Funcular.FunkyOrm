@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Regression tests `Update_WithinTransaction_*` / `UpdateAsync_WithinTransaction_*` in every provider's integration suite, covering update inside a transaction for both the sync and async paths.
 
+### Changed
+- The transactional-concurrency guard's exception message now also notes that the error can arise from re-entrant (nested) single-threaded use — not only from `Task.WhenAll`/concurrent access — so that class of cause is discoverable from the message alone. Additive wording; the original guidance is unchanged.
+
 ## [3.6.0] - 2026-06-10
 
 ### Added
