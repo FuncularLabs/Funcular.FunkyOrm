@@ -27,6 +27,30 @@ namespace Funcular.Data.Orm.MySql.Tests
         };
 
         [TestMethod]
+        public async Task UpdateAsync_WithinTransaction_Persists()
+        {
+            // Regression (3.6.1): UpdateAsync inside a BeginTransaction scope must not trip the
+            // transactional-concurrency guard via a nested read scope.
+            _provider.BeginTransaction();
+            try
+            {
+                var person = NewPerson("Before", "Tx-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                await _provider.InsertAsync(person);
+
+                person.FirstName = "After";
+                await _provider.UpdateAsync(person);
+
+                var fetched = await _provider.GetAsync<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual("After", fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
+        }
+
+        [TestMethod]
         public async Task InsertAsync_AssignsIdentity_AndGetAsyncRoundTrips()
         {
             var person = NewPerson("Async", "Inserter");

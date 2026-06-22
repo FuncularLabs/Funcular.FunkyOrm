@@ -517,6 +517,31 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         #region Transaction Tests
 
         [TestMethod]
+        public void Update_WithinTransaction_DoesNotThrowAndPersists()
+        {
+            OutputTestMethodName();
+            // Regression (3.6.1): Update inside a transaction must not trip the transactional-concurrency
+            // guard via a nested read scope.
+            _provider.BeginTransaction();
+            try
+            {
+                var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
+                _provider.Insert(person);
+
+                person.FirstName = "Updated-" + Guid.NewGuid();
+                _provider.Update(person);
+
+                var fetched = _provider.Get<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual(person.FirstName, fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
+        }
+
+        [TestMethod]
         public void Transaction_BeginCommit()
         {
             OutputTestMethodName();

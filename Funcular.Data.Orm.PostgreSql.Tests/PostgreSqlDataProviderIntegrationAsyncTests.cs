@@ -21,8 +21,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         public void Setup()
         {
             _sb.Clear();
-            _connectionString = Environment.GetEnvironmentVariable("FUNKY_PG_CONNECTION") ??
-                "Host=localhost;Port=5432;Database=funky_db;Username=funky_user;Password=funky_password";
+            _connectionString = PostgreSqlTestConnection.Resolve();
             TestConnection();
             _provider = new PostgreSqlOrmDataProvider(_connectionString)
             {
@@ -192,6 +191,31 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () =>
                 await _provider.DeleteAsync<Person>(null));
             _provider.RollbackTransaction();
+        }
+
+        [TestMethod]
+        public async Task UpdateAsync_WithinTransaction_DoesNotThrowAndPersists()
+        {
+            OutputTestMethodName();
+            // Regression (3.6.1): UpdateAsync inside a transaction must not trip the
+            // transactional-concurrency guard via a nested read scope.
+            _provider.BeginTransaction();
+            try
+            {
+                var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
+                await _provider.InsertAsync(person);
+
+                person.FirstName = "Updated-" + Guid.NewGuid();
+                await _provider.UpdateAsync(person);
+
+                var fetched = await _provider.GetAsync<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual(person.FirstName, fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
         }
 
         [TestMethod]

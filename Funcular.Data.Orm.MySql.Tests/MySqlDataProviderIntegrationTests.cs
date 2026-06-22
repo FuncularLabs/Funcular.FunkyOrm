@@ -7,7 +7,8 @@ namespace Funcular.Data.Orm.MySql.Tests
 {
     /// <summary>
     /// Core CRUD + LINQ integration tests for the MySQL provider, run against a live MySQL server
-    /// (FUNKY_MYSQL_CONNECTION). Each test runs inside a transaction that is rolled back on cleanup.
+    /// (FUNKY_MYSQL_CONNECTION). Tests isolate themselves with unique markers (the fixture does not
+    /// wrap each test in a transaction); transaction-specific tests manage their own scope.
     /// </summary>
     [TestClass]
     public class MySqlDataProviderIntegrationTests : MySqlTestFixture
@@ -26,6 +27,31 @@ namespace Funcular.Data.Orm.MySql.Tests
             DateUtcCreated = DateTime.UtcNow,
             DateUtcModified = DateTime.UtcNow
         };
+
+        [TestMethod]
+        public void Update_WithinTransaction_Persists()
+        {
+            // Regression (3.6.1): Update inside a BeginTransaction scope must not trip the
+            // transactional-concurrency guard. Previously the read-before-write opened a nested
+            // ConnectionScope and threw "A concurrent operation is already using the transactional connection."
+            _provider.BeginTransaction();
+            try
+            {
+                var person = NewPerson("Before", "Tx-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                _provider.Insert(person);
+
+                person.FirstName = "After";
+                _provider.Update(person);
+
+                var fetched = _provider.Get<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual("After", fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
+        }
 
         [TestMethod]
         public void Insert_AssignsIdentity_AndGetRoundTrips()

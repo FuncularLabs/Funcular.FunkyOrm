@@ -819,6 +819,38 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Update_WithinTransaction_DoesNotThrowAndPersists()
+        {
+            OutputTestMethodName();
+            // Regression (3.6.1): Update inside a transaction must not trip the transactional-concurrency
+            // guard. Previously the read-before-write opened a nested ConnectionScope and threw
+            // "A concurrent operation is already using the transactional connection."
+            _provider.BeginTransaction();
+            try
+            {
+                var person = new Person
+                {
+                    FirstName = Guid.NewGuid().ToString(),
+                    LastName = Guid.NewGuid().ToString(),
+                    Birthdate = null,
+                    UniqueId = Guid.NewGuid()
+                };
+                _provider.Insert(person);
+
+                person.FirstName = "Updated-" + Guid.NewGuid();
+                _provider.Update(person);
+
+                var fetched = _provider.Get<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual(person.FirstName, fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
+        }
+
+        [TestMethod]
         public void Transaction_BeginCommit()
         {
             OutputTestMethodName();

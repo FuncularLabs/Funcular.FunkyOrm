@@ -191,6 +191,37 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public async Task UpdateAsync_WithinTransaction_DoesNotThrowAndPersists()
+        {
+            OutputTestMethodName();
+            // Regression (3.6.1): UpdateAsync inside a transaction must not trip the
+            // transactional-concurrency guard via a nested read scope.
+            _provider.BeginTransaction();
+            try
+            {
+                var person = new Person
+                {
+                    FirstName = Guid.NewGuid().ToString(),
+                    LastName = Guid.NewGuid().ToString(),
+                    Birthdate = null,
+                    UniqueId = Guid.NewGuid()
+                };
+                await _provider.InsertAsync(person);
+
+                person.FirstName = "Updated-" + Guid.NewGuid();
+                await _provider.UpdateAsync(person);
+
+                var fetched = await _provider.GetAsync<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual(person.FirstName, fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
+        }
+
+        [TestMethod]
         public async Task Transaction_BeginCommit_Async()
         {
             OutputTestMethodName();
