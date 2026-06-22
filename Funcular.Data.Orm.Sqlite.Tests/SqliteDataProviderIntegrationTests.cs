@@ -515,6 +515,31 @@ CREATE TABLE IF NOT EXISTS project_note (id INTEGER PRIMARY KEY AUTOINCREMENT, p
         #region Transaction Tests
 
         [TestMethod]
+        public void Update_WithinTransaction_DoesNotThrowAndPersists()
+        {
+            OutputTestMethodName();
+            // Regression (3.6.1): Update inside a transaction must not trip the transactional-concurrency
+            // guard via a nested read scope.
+            _provider.BeginTransaction();
+            try
+            {
+                var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
+                _provider.Insert(person);
+
+                person.FirstName = "Updated-" + Guid.NewGuid();
+                _provider.Update(person);
+
+                var fetched = _provider.Get<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual(person.FirstName, fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
+        }
+
+        [TestMethod]
         public void Transaction_Rollback_RevertsChanges()
         {
             OutputTestMethodName();
@@ -560,6 +585,31 @@ CREATE TABLE IF NOT EXISTS project_note (id INTEGER PRIMARY KEY AUTOINCREMENT, p
             var result = await _provider.InsertAsync(newPerson);
             Assert.IsNotNull(result);
             Assert.IsTrue((int)result > 0);
+        }
+
+        [TestMethod]
+        public async Task UpdateAsync_WithinTransaction_DoesNotThrowAndPersists()
+        {
+            OutputTestMethodName();
+            // Regression (3.6.1): UpdateAsync inside a transaction must not trip the
+            // transactional-concurrency guard via a nested read scope.
+            _provider.BeginTransaction();
+            try
+            {
+                var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
+                await _provider.InsertAsync(person);
+
+                person.FirstName = "Updated-" + Guid.NewGuid();
+                await _provider.UpdateAsync(person);
+
+                var fetched = await _provider.GetAsync<Person>(person.Id);
+                Assert.IsNotNull(fetched);
+                Assert.AreEqual(person.FirstName, fetched.FirstName);
+            }
+            finally
+            {
+                _provider.RollbackTransaction();
+            }
         }
 
         [TestMethod]

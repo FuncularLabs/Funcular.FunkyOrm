@@ -166,7 +166,12 @@ namespace Funcular.Data.Orm.Sqlite
             ValidateUpdatePrimaryKey(entity, primaryKey);
             using (var connectionScope = new ConnectionScope(this))
             {
-                var existingEntity = await GetAsync<T>((dynamic)primaryKey.GetValue(entity)).ConfigureAwait(false);
+                // Read the existing row on the scope's own connection (not via GetAsync<T>, which would
+                // open a second ConnectionScope and trip the transactional concurrency guard).
+                string existingCommandText = CreateGetOneOrSelectCommandText<T>((dynamic)primaryKey.GetValue(entity));
+                T existingEntity;
+                using (var existingCommand = BuildSqlCommandObject(existingCommandText, connectionScope.Connection))
+                    existingEntity = await ExecuteReaderSingleAsync<T>(existingCommand).ConfigureAwait(false);
                 if (existingEntity == null) throw new InvalidOperationException("Entity does not exist in database.");
                 CommandParameters commandParameters = BuildUpdateCommand(entity, existingEntity, primaryKey);
                 if (commandParameters.Parameters.Any())
@@ -322,7 +327,12 @@ namespace Funcular.Data.Orm.Sqlite
             ValidateUpdatePrimaryKey(entity, primaryKey);
             using (var connectionScope = new ConnectionScope(this))
             {
-                var existingEntity = Get<T>((dynamic)primaryKey.GetValue(entity));
+                // Read the existing row on the scope's own connection (not via Get<T>, which would
+                // open a second ConnectionScope and trip the transactional concurrency guard).
+                string existingCommandText = CreateGetOneOrSelectCommandText<T>((dynamic)primaryKey.GetValue(entity));
+                T existingEntity;
+                using (var existingCommand = BuildSqlCommandObject(existingCommandText, connectionScope.Connection))
+                    existingEntity = ExecuteReaderSingle<T>(existingCommand);
                 if (existingEntity == null) throw new InvalidOperationException("Entity does not exist in database.");
                 CommandParameters commandParameters = BuildUpdateCommand(entity, existingEntity, primaryKey);
                 if (commandParameters.Parameters.Any())
