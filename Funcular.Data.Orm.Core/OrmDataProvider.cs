@@ -3,6 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Data;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -86,6 +88,196 @@ namespace Funcular.Data.Orm
         public abstract int Delete<T>(System.Linq.Expressions.Expression<Func<T, bool>> predicate) where T : class, new();
         public abstract bool Delete<T>(long id) where T : class, new();
         public abstract void Dispose();
+
+        #endregion
+
+        #region Stored Procedure Support (virtual throwing defaults + shared helpers)
+
+        // Default implementations throw NotSupportedException. Providers that support stored procedures
+        // (SQL Server and MySQL fully; PostgreSQL partially) override these. SQLite inherits the throwing
+        // defaults, which is its documented behavior.
+
+        /// <inheritdoc />
+        public virtual ICollection<T> ExecProcedure<T>(object? parameters = null) where T : class, new()
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual ICollection<T> ExecProcedure<T>(string procedureName, object? parameters = null) where T : class, new()
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual ICollection<T> ExecProcedure<T>(string procedureName, params SqlParam[] parameters) where T : class, new()
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual TResult ExecScalar<TResult>(string procedureName, object? parameters = null)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual TResult ExecScalar<TResult>(string procedureName, params SqlParam[] parameters)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual int ExecNonQuery(string procedureName, object? parameters = null)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual int ExecNonQuery(string procedureName, params SqlParam[] parameters)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<ICollection<T>> ExecProcedureAsync<T>(object? parameters = null) where T : class, new()
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, object? parameters = null) where T : class, new()
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, params SqlParam[] parameters) where T : class, new()
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<TResult> ExecScalarAsync<TResult>(string procedureName, object? parameters = null)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<TResult> ExecScalarAsync<TResult>(string procedureName, params SqlParam[] parameters)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<int> ExecNonQueryAsync(string procedureName, object? parameters = null)
+            => throw NewProcedureNotSupportedException();
+
+        /// <inheritdoc />
+        public virtual Task<int> ExecNonQueryAsync(string procedureName, params SqlParam[] parameters)
+            => throw NewProcedureNotSupportedException();
+
+        /// <summary>
+        /// Builds the standard "not supported" exception for stored procedure operations on providers
+        /// (or specific operations) that do not support them.
+        /// </summary>
+        protected NotSupportedException NewProcedureNotSupportedException() =>
+            new NotSupportedException(
+                $"{GetType().Name} does not support this stored procedure operation. " +
+                "SQL Server and MySQL support stored procedures fully; PostgreSQL supports " +
+                "ExecNonQuery/ExecScalar via CALL (use a FUNCTION RETURNS TABLE for result sets); " +
+                "SQLite has no stored procedures.");
+
+        /// <summary>
+        /// A provider-agnostic normalized stored-procedure parameter produced by
+        /// <see cref="NormalizeParameters(object)"/> / <see cref="NormalizeParameters(SqlParam[])"/>.
+        /// Each provider converts these to its native parameter type and, after execution,
+        /// back-populates <see cref="Source"/> for output / input-output directions.
+        /// </summary>
+        protected sealed class NormalizedParameter
+        {
+            /// <summary>Canonical parameter name with any leading <c>@</c> stripped; providers add their own prefix.</summary>
+            public string Name { get; set; } = string.Empty;
+            public object? Value { get; set; }
+            public ParameterDirection Direction { get; set; } = ParameterDirection.Input;
+            public DbType? DbType { get; set; }
+            public int? Size { get; set; }
+            /// <summary>The originating <see cref="SqlParam"/> (when applicable), for output back-population.</summary>
+            public SqlParam? Source { get; set; }
+        }
+
+        /// <summary>
+        /// Normalizes an anonymous/typed parameters object (input-only) into a provider-agnostic list.
+        /// Reflects over public readable instance properties, one parameter each; null values become
+        /// <see cref="DBNull"/>. A bare string, or a <see cref="SqlParam"/>/<see cref="SqlParam"/> sequence
+        /// passed through the object overload, are handled explicitly rather than reflected over.
+        /// </summary>
+        protected static IReadOnlyList<NormalizedParameter> NormalizeParameters(object? parameters)
+        {
+            if (parameters == null)
+                return Array.Empty<NormalizedParameter>();
+
+            if (parameters is string)
+                throw new ArgumentException(
+                    "A string was passed as the parameters object; did you mean the (procedureName, parameters) overload?",
+                    nameof(parameters));
+
+            if (parameters is SqlParam single)
+                return NormalizeParameters(new[] { single });
+
+            if (parameters is IEnumerable<SqlParam> sequence)
+                return NormalizeParameters(sequence.ToArray());
+
+            var list = new List<NormalizedParameter>();
+            foreach (var prop in parameters.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanRead || prop.GetIndexParameters().Length > 0)
+                    continue;
+                list.Add(new NormalizedParameter
+                {
+                    Name = StripParameterPrefix(prop.Name),
+                    Value = prop.GetValue(parameters) ?? (object)DBNull.Value,
+                    Direction = ParameterDirection.Input
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Normalizes a <see cref="SqlParam"/> array (supports output parameters) into a provider-agnostic list.
+        /// A null or empty array means "no parameters".
+        /// </summary>
+        protected static IReadOnlyList<NormalizedParameter> NormalizeParameters(SqlParam[]? parameters)
+        {
+            if (parameters == null || parameters.Length == 0)
+                return Array.Empty<NormalizedParameter>();
+
+            var list = new List<NormalizedParameter>(parameters.Length);
+            foreach (var p in parameters)
+            {
+                list.Add(new NormalizedParameter
+                {
+                    Name = StripParameterPrefix(p.Name),
+                    Value = p.Value ?? (object)DBNull.Value,
+                    Direction = p.Direction,
+                    DbType = p.DbType,
+                    Size = p.Size,
+                    Source = p
+                });
+            }
+            return list;
+        }
+
+        /// <summary>Removes a single leading <c>@</c> from a parameter name, yielding a provider-neutral canonical name.</summary>
+        protected static string StripParameterPrefix(string name)
+            => !string.IsNullOrEmpty(name) && name[0] == '@' ? name.Substring(1) : name;
+
+        /// <summary>
+        /// Converts a scalar value returned by a stored procedure to <typeparamref name="TResult"/>, handling the
+        /// cases plain <see cref="Convert.ChangeType(object, Type)"/> cannot: DBNull/null (including Nullable&lt;T&gt;),
+        /// enums, and <see cref="Guid"/>.
+        /// </summary>
+        protected static TResult ConvertScalar<TResult>(object? value)
+        {
+            if (value == null || value is DBNull)
+                return default!;
+
+            var target = Nullable.GetUnderlyingType(typeof(TResult)) ?? typeof(TResult);
+            if (target.IsInstanceOfType(value))
+                return (TResult)value;
+            if (target.IsEnum)
+                return (TResult)Enum.ToObject(target, value);
+            if (target == typeof(Guid))
+                return (TResult)(object)Guid.Parse(value.ToString()!);
+            return (TResult)Convert.ChangeType(value, target, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Returns the explicit <c>[Procedure]</c> name for <typeparamref name="T"/>, or null when the attribute is absent.</summary>
+        protected internal static string? GetProcedureNameFromAttribute<T>()
+            => typeof(T).GetCustomAttribute<ProcedureAttribute>()?.Name;
+
+        /// <summary>
+        /// Normalizes a name for catalog lookup by removing underscores and lowercasing, matching the
+        /// <c>REPLACE(LOWER(name), '_', '')</c> form used in the provider catalog queries.
+        /// </summary>
+        protected static string NormalizeProcedureNameForLookup(string name)
+            => name.Replace("_", string.Empty).ToLowerInvariant();
 
         #endregion
 

@@ -126,5 +126,68 @@ namespace Funcular.Data.Orm
         /// Deletes the entity of type <typeparamref name="T"/> with the specified ID.
         /// </summary>
         bool Delete<T>(long id) where T : class, new();
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        //  Stored procedure execution
+        //
+        //  Capability-based: the surface is uniform but support varies by provider.
+        //  SQL Server and MySQL support all operations; PostgreSQL supports
+        //  ExecNonQuery/ExecScalar via CALL (ExecProcedure<T> throws with guidance);
+        //  SQLite throws for everything. Unsupported operations throw NotSupportedException.
+        //
+        //  Two parameter modes: an anonymous/typed object (input-only), or params SqlParam[]
+        //  (supports output parameters; (name, value) tuples convert implicitly to SqlParam).
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Executes the stored procedure inferred from <typeparamref name="T"/> (via <c>[Procedure]</c> or
+        /// naming convention) and maps the result set to a collection of <typeparamref name="T"/>.
+        /// </summary>
+        ICollection<T> ExecProcedure<T>(object? parameters = null) where T : class, new();
+
+        /// <summary>
+        /// Executes the named stored procedure and maps the result set to a collection of <typeparamref name="T"/>.
+        /// <paramref name="parameters"/> may be an anonymous object or a typed class (input-only).
+        /// </summary>
+        ICollection<T> ExecProcedure<T>(string procedureName, object? parameters = null) where T : class, new();
+
+        /// <summary>
+        /// Executes the named stored procedure with <see cref="SqlParam"/> parameters (supports output
+        /// parameters and tuple syntax via implicit conversion) and maps the result set.
+        /// </summary>
+        ICollection<T> ExecProcedure<T>(string procedureName, params SqlParam[] parameters) where T : class, new();
+
+        /// <summary>Executes the named stored procedure and returns a single scalar value, converted to <typeparamref name="TResult"/>.</summary>
+        TResult ExecScalar<TResult>(string procedureName, object? parameters = null);
+
+        /// <summary>Executes the named stored procedure with <see cref="SqlParam"/> parameters and returns a single scalar value.</summary>
+        TResult ExecScalar<TResult>(string procedureName, params SqlParam[] parameters);
+
+        /// <summary>Executes the named stored procedure as a non-query and returns the rows-affected count.</summary>
+        int ExecNonQuery(string procedureName, object? parameters = null);
+
+        /// <summary>Executes the named stored procedure as a non-query with <see cref="SqlParam"/> parameters.</summary>
+        int ExecNonQuery(string procedureName, params SqlParam[] parameters);
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecProcedure{T}(object)"/>.</summary>
+        Task<ICollection<T>> ExecProcedureAsync<T>(object? parameters = null) where T : class, new();
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecProcedure{T}(string, object)"/>.</summary>
+        Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, object? parameters = null) where T : class, new();
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecProcedure{T}(string, SqlParam[])"/>.</summary>
+        Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, params SqlParam[] parameters) where T : class, new();
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecScalar{TResult}(string, object)"/>.</summary>
+        Task<TResult> ExecScalarAsync<TResult>(string procedureName, object? parameters = null);
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecScalar{TResult}(string, SqlParam[])"/>.</summary>
+        Task<TResult> ExecScalarAsync<TResult>(string procedureName, params SqlParam[] parameters);
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecNonQuery(string, object)"/>.</summary>
+        Task<int> ExecNonQueryAsync(string procedureName, object? parameters = null);
+
+        /// <summary>Asynchronous counterpart of <see cref="ExecNonQuery(string, SqlParam[])"/>.</summary>
+        Task<int> ExecNonQueryAsync(string procedureName, params SqlParam[] parameters);
     }
 }
