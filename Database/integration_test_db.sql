@@ -297,3 +297,124 @@ CREATE TABLE [User] (
 );
 GO
 
+-- =========================================================================
+-- Stored Procedure Test Objects (v3.7.0)
+-- Cover every execution mode: result set, scalar, non-query, output
+-- parameters, and both parameter styles. Idempotent via CREATE OR ALTER.
+-- =========================================================================
+
+CREATE OR ALTER PROCEDURE sp_get_persons_by_gender
+    @gender NVARCHAR(10)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT id, first_name, last_name, gender, birthdate
+    FROM person
+    WHERE gender = @gender;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_get_person_by_id
+    @person_id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT id, first_name, last_name, gender, birthdate
+    FROM person
+    WHERE id = @person_id;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_count_persons_by_gender
+    @gender NVARCHAR(10)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT COUNT(*) FROM person WHERE gender = @gender;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_insert_organization
+    @name NVARCHAR(100),
+    @headquarters_address_id INT = NULL
+AS
+BEGIN
+    INSERT INTO organization (name, headquarters_address_id)
+    VALUES (@name, @headquarters_address_id);
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_update_person_gender
+    @person_id INT,
+    @new_gender NVARCHAR(10)
+AS
+BEGIN
+    UPDATE person SET gender = @new_gender WHERE id = @person_id;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_get_persons_paged
+    @page INT,
+    @page_size INT,
+    @total_count INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT @total_count = COUNT(*) FROM person;
+    SELECT id, first_name, last_name, gender, birthdate
+    FROM person
+    ORDER BY id
+    OFFSET (@page - 1) * @page_size ROWS
+    FETCH NEXT @page_size ROWS ONLY;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_search_persons
+    @first_name NVARCHAR(100) = NULL,
+    @last_name NVARCHAR(100) = NULL,
+    @gender NVARCHAR(10) = NULL,
+    @min_birthdate DATE = NULL,
+    @max_birthdate DATE = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT id, first_name, last_name, gender, birthdate
+    FROM person
+    WHERE (@first_name IS NULL OR first_name LIKE '%' + @first_name + '%')
+      AND (@last_name IS NULL OR last_name LIKE '%' + @last_name + '%')
+      AND (@gender IS NULL OR gender = @gender)
+      AND (@min_birthdate IS NULL OR birthdate >= @min_birthdate)
+      AND (@max_birthdate IS NULL OR birthdate <= @max_birthdate);
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_get_person_full_name
+    @person_id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT CONCAT(first_name, ' ', last_name) FROM person WHERE id = @person_id;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_get_projects_by_org
+    @organization_id INT,
+    @min_budget DECIMAL(12,2) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT id, name, organization_id, lead_id, category_id, budget, score, metadata
+    FROM project
+    WHERE organization_id = @organization_id
+      AND (@min_budget IS NULL OR budget >= @min_budget);
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_noop
+AS
+BEGIN
+    SET NOCOUNT ON;
+    -- intentionally empty
+END;
+GO
+
