@@ -1,9 +1,11 @@
 > **Recent Changes**
-> * **v3.6.0**: 🐬 **MySQL Support** FunkyORM now ships a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector driver), bundled in the same `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, all four JSON/computed attributes against native MySQL `JSON`, transactions, paging, and reserved-word handling — feature parity with the SQL Server, PostgreSQL & SQLite providers. See [Database Provider Differences](#database-provider-differences).
-> * **v3.5.1**: 🛠️ **`[JsonPath]` WHERE-predicate fix** — JSON-extracted properties are now honored in method-call WHERE predicates (`Contains`, `StartsWith`, `EndsWith`, `IN`) and inside aggregate operators (`Any`/`All`/`Count`) across SQL Server, PostgreSQL & SQLite. Documentation reorganized under `docs/`.
-> * **v3.5.0**: 🗃️ **SQLite Support** FunkyORM now ships a full `SqliteOrmDataProvider` — file-backed, zero-config embedded databases bundled in the same `Funcular.Data.Orm` package. Full LINQ-to-SQL translation, CASE/conditional projections, paging, identity and non-identity inserts, transactions, async operations, reserved-word handling, and connection-string filename resolution. See [Database Provider Differences](#database-provider-differences) for details.
-> * **v3.2.2**: 🔒 **Concurrency-safe connection management** Each non-transactional operation now uses its own dedicated pooled connection, eliminating "reader already associated" errors in concurrent environments like Blazor Server. Transactional operations include a guard that throws a clear error if concurrent usage is detected. See [Concurrency & Connection Management](#concurrency--connection-management).
-> * **v3.2.1**: 🧩 **All 4 view-replacing attributes implemented** — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` let you project computed values, aggregated child counts, and nested JSON arrays directly onto entity properties — no SQL views, no stored procedures, and no raw SQL required.
+> * **v3.7.0**: ⚙️ **Stored procedure execution** — `ExecProcedure<T>` / `ExecScalar` / `ExecNonQuery` (+ async), with output parameters and `[Procedure]`/convention name resolution. Full on SQL Server & MySQL; `CALL`-based scalar/non-query on PostgreSQL; not supported on SQLite. See [Database Provider Differences](#database-provider-differences).
+> * **v3.6.1**: 🛠️ **Update-in-transaction fix** — `Update`/`UpdateAsync` no longer trip the connection guard inside a `BeginTransaction()` scope.
+> * **v3.6.0**: 🐬 **MySQL support** — a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector), bundled in the same `Funcular.Data.Orm` package with feature parity across providers.
+> * **v3.5.1**: 🛠️ **`[JsonPath]` WHERE-predicate fix** — JSON-extracted properties honored in method-call (`Contains`/`StartsWith`/`IN`) and aggregate predicates.
+> * **v3.5.0**: 🗃️ **SQLite support** — a full file-backed, zero-config `SqliteOrmDataProvider`, bundled in the same package.
+> * **v3.2.2**: 🔒 **Concurrency-safe connections** — each non-transactional operation uses its own pooled connection; transactional misuse fails loudly.
+> * **v3.2.1**: 🧩 **All four view-replacing attributes** — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, `[JsonCollection]`.
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET micro-ORM for MSSQL, PostgreSQL, MySQL & SQLite
