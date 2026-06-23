@@ -116,3 +116,35 @@ CREATE TRIGGER trg_person_address_update
     BEFORE UPDATE ON person_address
     FOR EACH ROW
     EXECUTE FUNCTION update_dateutc_modified();
+
+-- =========================================================================
+-- Stored Procedure Test Objects (v3.7.0) — CALL-based (non-query + scalar/INOUT)
+-- =========================================================================
+
+CREATE OR REPLACE PROCEDURE sp_update_person_gender(p_person_id INT, p_new_gender VARCHAR)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE person SET gender = p_new_gender WHERE id = p_person_id;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE sp_insert_organization(p_name VARCHAR, p_headquarters_address_id INT DEFAULT NULL)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO organization (name, headquarters_address_id) VALUES (p_name, p_headquarters_address_id);
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE sp_count_persons_by_gender(IN p_gender VARCHAR, INOUT p_total INT DEFAULT 0)
+LANGUAGE plpgsql AS $$
+BEGIN
+    SELECT COUNT(*) INTO p_total FROM person WHERE gender = p_gender;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE sp_noop()
+LANGUAGE plpgsql AS $$
+BEGIN
+    -- intentionally empty
+END;
+$$;

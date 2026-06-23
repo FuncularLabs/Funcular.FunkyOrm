@@ -869,6 +869,159 @@ namespace Funcular.Data.Orm.PostgreSql
             return command;
         }
 
+        #region Stored Procedure Execution (partial: CALL-based non-query + scalar)
+
+        // PostgreSQL procedures are invoked via CALL (CommandType.Text); Npgsql does not support
+        // CommandType.StoredProcedure for CALL. CALL does not return result sets, so ExecProcedure<T>
+        // throws with guidance (use a FUNCTION RETURNS TABLE). INOUT parameters are returned as the
+        // single CALL result row and are back-populated onto the source SqlParams.
+
+        /// <inheritdoc />
+        public override ICollection<T> ExecProcedure<T>(object parameters = null) => throw NewResultSetNotSupported<T>();
+        /// <inheritdoc />
+        public override ICollection<T> ExecProcedure<T>(string procedureName, object parameters = null) => throw NewResultSetNotSupported<T>();
+        /// <inheritdoc />
+        public override ICollection<T> ExecProcedure<T>(string procedureName, params SqlParam[] parameters) => throw NewResultSetNotSupported<T>();
+        /// <inheritdoc />
+        public override Task<ICollection<T>> ExecProcedureAsync<T>(object parameters = null) => throw NewResultSetNotSupported<T>();
+        /// <inheritdoc />
+        public override Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, object parameters = null) => throw NewResultSetNotSupported<T>();
+        /// <inheritdoc />
+        public override Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, params SqlParam[] parameters) => throw NewResultSetNotSupported<T>();
+
+        /// <inheritdoc />
+        public override TResult ExecScalar<TResult>(string procedureName, object parameters = null)
+            => ExecScalarInternal<TResult>(procedureName, NormalizeParameters(parameters));
+        /// <inheritdoc />
+        public override TResult ExecScalar<TResult>(string procedureName, params SqlParam[] parameters)
+            => ExecScalarInternal<TResult>(procedureName, NormalizeParameters(parameters));
+        /// <inheritdoc />
+        public override Task<TResult> ExecScalarAsync<TResult>(string procedureName, object parameters = null)
+            => ExecScalarInternalAsync<TResult>(procedureName, NormalizeParameters(parameters));
+        /// <inheritdoc />
+        public override Task<TResult> ExecScalarAsync<TResult>(string procedureName, params SqlParam[] parameters)
+            => ExecScalarInternalAsync<TResult>(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override int ExecNonQuery(string procedureName, object parameters = null)
+            => ExecNonQueryInternal(procedureName, NormalizeParameters(parameters));
+        /// <inheritdoc />
+        public override int ExecNonQuery(string procedureName, params SqlParam[] parameters)
+            => ExecNonQueryInternal(procedureName, NormalizeParameters(parameters));
+        /// <inheritdoc />
+        public override Task<int> ExecNonQueryAsync(string procedureName, object parameters = null)
+            => ExecNonQueryInternalAsync(procedureName, NormalizeParameters(parameters));
+        /// <inheritdoc />
+        public override Task<int> ExecNonQueryAsync(string procedureName, params SqlParam[] parameters)
+            => ExecNonQueryInternalAsync(procedureName, NormalizeParameters(parameters));
+
+        private NotSupportedException NewResultSetNotSupported<T>() =>
+            new NotSupportedException(
+                "PostgreSQL procedures invoked via CALL do not return result sets, so ExecProcedure<" +
+                typeof(T).Name + "> is not supported in this version. Expose the query as a FUNCTION " +
+                "RETURNS TABLE and read it with Query<T>()/raw SQL, or use ExecNonQuery/ExecScalar for CALL procedures.");
+
+        private TResult ExecScalarInternal<TResult>(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(BuildCallText(procedureName, normalized), scope.Connection, BuildProcedureParameters(normalized)))
+            {
+                InvokeLogAction(command);
+                var raw = command.ExecuteScalar();
+                return ConvertScalar<TResult>(raw);
+            }
+        }
+
+        private async Task<TResult> ExecScalarInternalAsync<TResult>(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(BuildCallText(procedureName, normalized), scope.Connection, BuildProcedureParameters(normalized)))
+            {
+                InvokeLogAction(command);
+                var raw = await command.ExecuteScalarAsync().ConfigureAwait(false);
+                return ConvertScalar<TResult>(raw);
+            }
+        }
+
+        private int ExecNonQueryInternal(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(BuildCallText(procedureName, normalized), scope.Connection, BuildProcedureParameters(normalized)))
+            {
+                InvokeLogAction(command);
+                if (HasOutputParameters(normalized))
+                {
+                    using (var reader = command.ExecuteReader())
+                        if (reader.Read()) BackPopulateFromRow(reader, normalized);
+                    return -1;
+                }
+                return command.ExecuteNonQuery();
+            }
+        }
+
+        private async Task<int> ExecNonQueryInternalAsync(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(BuildCallText(procedureName, normalized), scope.Connection, BuildProcedureParameters(normalized)))
+            {
+                InvokeLogAction(command);
+                if (HasOutputParameters(normalized))
+                {
+                    using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+                        if (await reader.ReadAsync().ConfigureAwait(false)) BackPopulateFromRow(reader, normalized);
+                    return -1;
+                }
+                return await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+        }
+
+        private static string BuildCallText(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            if (normalized.Count == 0) return "CALL " + procedureName + "()";
+            var placeholders = string.Join(", ", normalized.Select(n => "@" + n.Name));
+            return "CALL " + procedureName + "(" + placeholders + ")";
+        }
+
+        private static ICollection<NpgsqlParameter> BuildProcedureParameters(IReadOnlyList<NormalizedParameter> normalized)
+        {
+            var list = new List<NpgsqlParameter>(normalized.Count);
+            foreach (var np in normalized)
+            {
+                var parameter = new NpgsqlParameter("@" + np.Name, np.Value ?? DBNull.Value);
+                if (np.DbType.HasValue) parameter.DbType = np.DbType.Value;
+                if (np.Size.HasValue) parameter.Size = np.Size.Value;
+                list.Add(parameter);
+            }
+            return list;
+        }
+
+        private static bool HasOutputParameters(IReadOnlyList<NormalizedParameter> normalized)
+        {
+            foreach (var np in normalized)
+                if (np.Direction != ParameterDirection.Input) return true;
+            return false;
+        }
+
+        /// <summary>Back-populates INOUT/OUT SqlParams from the single CALL result row (columns named after the parameters).</summary>
+        private static void BackPopulateFromRow(IDataReader reader, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            foreach (var np in normalized)
+            {
+                if (np.Source == null || np.Direction == ParameterDirection.Input) continue;
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    if (string.Equals(reader.GetName(i), np.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var value = reader.GetValue(i);
+                        np.Source.Value = value is DBNull ? null : value;
+                        break;
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         protected void DiscoverColumns<T>()
         {
             if (_mappedTypes.Contains(typeof(T))) return;
