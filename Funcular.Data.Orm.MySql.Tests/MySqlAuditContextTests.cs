@@ -82,5 +82,16 @@ namespace Funcular.Data.Orm.MySql.Tests
             _accessor.Current = null;
             Assert.ThrowsException<InvalidOperationException>(() => _provider.GetList<Person>());
         }
+
+        [TestMethod]
+        public void InvalidKey_Throws()
+        {
+            // MySQL user-variable names must be [A-Za-z0-9_]; a dotted key must fail clearly.
+            _accessor.Current = new FunkyAuditContext
+            {
+                Entries = new[] { new SessionContextEntry("bad.key", "x") }
+            };
+            Assert.ThrowsException<InvalidOperationException>(() => _provider.GetList<Person>());
+        }
     }
 }

@@ -21,11 +21,11 @@ service account, a shared login). Two things become possible:
 | Provider | RLS filtering | Audit attribution | Per-key immutability |
 |:--|:--|:--|:--|
 | **SQL Server** | ✅ `SESSION_CONTEXT(key)` | ✅ | ✅ (`@read_only=1`) |
-| **PostgreSQL** | ✅ `current_setting(key)` | ✅ | ⚠️ emulated (transaction-local) |
+| **PostgreSQL** | ✅ `current_setting(key)` | ✅ | ⚠️ emulated (no read-only GUC) |
 | **MySQL** | ❌ (no native RLS) | ✅ (session vars) | ❌ best-effort |
 | **SQLite** | ❌ N/A | ❌ N/A | — |
 
-If you point a **strict** (audit-required) provider at SQLite, FunkyORM throws at construction — there is
+If you point a **strict** (audit-required) provider at SQLite, FunkyORM throws on first use — there is
 no isolation model to enforce, so silently doing nothing would be unsafe for a PHI configuration.
 
 ---
@@ -35,8 +35,8 @@ no isolation model to enforce, so silently doing nothing would be unsafe for a P
 You define a `FunkyAuditContext` per request: a list of **caller-defined** `SessionContextEntry`
 key/value pairs (FunkyORM treats values as opaque strings) plus two optional opaque identifiers for the
 audit comment. FunkyORM primes those keys onto each connection it uses, once per connection. Your RLS
-predicate (which you author) reads the keys back. **The key names and meanings are entirely yours** —
-`UserId`/`TeamIds`/`RequestId` below are just an example.
+predicate (which you author) reads the keys back. **The key names and meanings are entirely yours** — the
+`myapp.*` keys below are an illustrative placeholder; choose your own namespace and names.
 
 ---
 
@@ -68,18 +68,19 @@ app.Use(async (ctx, next) =>
     var accessor = ctx.RequestServices.GetRequiredService<AsyncLocalAuditContextAccessor>();
     if (ctx.User.Identity?.IsAuthenticated == true)
     {
-        var objectId = ctx.User.FindFirst("oid")!.Value;                 // Entra object id
-        var teamKeys = ctx.User.FindAll("team").Select(c => c.Value);    // immutable team keys, not names
+        // Pull opaque identifiers from your authenticated principal — never a name/email/UPN.
+        var userId   = ctx.User.FindFirst("sub")?.Value;                 // your auth scheme's subject id
+        var groupIds = ctx.User.FindAll("groups").Select(c => c.Value);  // opaque group/role keys
 
         accessor.Set(new FunkyAuditContext
         {
             Entries = new[]
             {
-                new SessionContextEntry("UserId",    objectId),                        // read_only by default
-                new SessionContextEntry("TeamIds",   string.Join(",", teamKeys)),      // CSV, split with STRING_SPLIT
-                new SessionContextEntry("RequestId", ctx.TraceIdentifier),
+                new SessionContextEntry("myapp.user_id",   userId),                     // read_only by default
+                new SessionContextEntry("myapp.group_ids", string.Join(",", groupIds)), // CSV, split with STRING_SPLIT
+                new SessionContextEntry("myapp.request_id", ctx.TraceIdentifier),
             },
-            AuditSubjectId    = objectId,            // opaque id only — NO email/UPN/PII
+            AuditSubjectId     = userId,             // opaque id only — NO name/email/PII
             AuditCorrelationId = ctx.TraceIdentifier,
         });
     }
@@ -104,24 +105,24 @@ var options = new AuditContextOptions
 ### 5. Author the RLS security policy (your DDL, not FunkyORM's)
 
 ```sql
-CREATE FUNCTION dbo.fn_rls_patient(@owner_id sql_variant)
+CREATE FUNCTION dbo.fn_rls_record(@owner_id sql_variant)
 RETURNS TABLE WITH SCHEMABINDING AS
 RETURN
     SELECT 1 AS allowed
-    WHERE CONVERT(nvarchar(64), @owner_id) = CONVERT(nvarchar(64), SESSION_CONTEXT(N'UserId'))
+    WHERE CONVERT(nvarchar(64), @owner_id) = CONVERT(nvarchar(64), SESSION_CONTEXT(N'myapp.user_id'))
        OR EXISTS (
-           SELECT 1 FROM STRING_SPLIT(CONVERT(nvarchar(max), SESSION_CONTEXT(N'TeamIds')), ',') t
-           WHERE t.value = CONVERT(nvarchar(64), @owner_id)   -- or join to a team-membership column
+           SELECT 1 FROM STRING_SPLIT(CONVERT(nvarchar(max), SESSION_CONTEXT(N'myapp.group_ids')), ',') g
+           WHERE g.value = CONVERT(nvarchar(64), @owner_id)   -- or join to a group-membership column
        );
 
-CREATE SECURITY POLICY dbo.patient_rls
-    ADD FILTER PREDICATE dbo.fn_rls_patient(owner_id) ON dbo.patient,
-    ADD BLOCK  PREDICATE dbo.fn_rls_patient(owner_id) ON dbo.patient
+CREATE SECURITY POLICY dbo.record_rls
+    ADD FILTER PREDICATE dbo.fn_rls_record(owner_id) ON dbo.record,
+    ADD BLOCK  PREDICATE dbo.fn_rls_record(owner_id) ON dbo.record
     WITH (STATE = ON);
 ```
 
-That's it. Every FunkyORM query/insert/update/delete from a strict provider now carries `UserId`/`TeamIds`
-on its connection, and the policy filters accordingly.
+That's it. Every FunkyORM query/insert/update/delete from a strict provider now carries
+`myapp.user_id`/`myapp.group_ids` on its connection, and the policy filters accordingly.
 
 ---
 
@@ -130,17 +131,17 @@ on its connection, and the policy filters accordingly.
 Same `FunkyAuditContext`; FunkyORM primes via `set_config` and passes your keys through **verbatim**.
 
 > **Key names must be dot-namespaced on PostgreSQL.** PostgreSQL requires custom settings to have a
-> namespace (e.g. `app.UserId`, `myorg.user_id`). FunkyORM does **not** impose one — you choose it — and it
-> throws a clear error if a key has no dot. A dotted key also works on SQL Server (which accepts any key),
-> so a dotted namespace is the portable choice if you target both.
+> namespace (e.g. `myapp.user_id`). FunkyORM does **not** impose one — you choose it — and it throws a clear
+> error if a key has no dot. A dotted key also works on SQL Server (which accepts any key), so a dotted
+> namespace is the portable choice if you target both.
 
 Your policy reads the keys with `current_setting`:
 
 ```sql
-ALTER TABLE patient ENABLE ROW LEVEL SECURITY;
-CREATE POLICY patient_isolation ON patient
-    USING (owner_id = current_setting('app.UserId', true)
-           OR owner_id = ANY (string_to_array(coalesce(current_setting('app.TeamIds', true), ''), ',')));
+ALTER TABLE record ENABLE ROW LEVEL SECURITY;
+CREATE POLICY record_isolation ON record
+    USING (owner_id = current_setting('myapp.user_id', true)
+           OR owner_id = ANY (string_to_array(coalesce(current_setting('myapp.group_ids', true), ''), ',')));
 ```
 
 Notes: settings are session-scoped (`is_local=false`) and Npgsql clears them on pool return (verified by
@@ -152,9 +153,10 @@ non-superuser role.
 
 ## MySQL & SQLite
 
-- **MySQL** primes session variables (`SET @UserId = …`) for **attribution** (use them in triggers / audit
-  tables). MySQL has no native RLS, so it cannot *filter* — don't rely on it for isolation. Requires
-  `AllowUserVariables=true` on the connection, and keys must be unqualified identifiers (`[A-Za-z0-9_]`).
+- **MySQL** primes session variables (`SET @myapp_user_id = …`) for **attribution** (use them in triggers /
+  audit tables). MySQL has no native RLS, so it cannot *filter* — don't rely on it for isolation. Requires
+  `AllowUserVariables=true` on the connection, and keys must be unqualified identifiers (`[A-Za-z0-9_]`, e.g.
+  `myapp_user_id`).
   The dot-namespaced keys PostgreSQL needs are not valid MySQL variable names, so use provider-appropriate
   keys if you target both PostgreSQL and MySQL with the same workload.
 - **SQLite** is a no-op (no session context or RLS). A strict (`RequireAuditContext = true`) provider
@@ -170,13 +172,13 @@ only parameters (not values) are logged:
 
 ```
 /* funky:audit sub=<AuditSubjectId> corr=<AuditCorrelationId> */
-SELECT ... FROM patient WHERE ...
+SELECT ... FROM record WHERE ...
 ```
 
 - Pair with **Azure SQL Auditing** (or `pgaudit`, or MySQL's audit log) to capture attributable statements.
 - **Only opaque identifiers** go in the comment. Never put email/UPN/name/PHI here — audit logs are widely
   readable. FunkyORM validates the identifiers against a safe charset and **rejects** anything that could
-  break out of the comment (fails fast when you build the context).
+  break out of the comment (it throws when the command is built — it never silently strips).
 - Stored-procedure calls (`ExecProcedure`/`ExecScalar`/`ExecNonQuery`) do not carry the comment (the call
   has no statement text to annotate); the session context is still primed on the connection.
 

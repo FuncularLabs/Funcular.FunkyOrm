@@ -134,5 +134,16 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
 
             StringAssert.Contains(captured.ToString(), "/* funky:audit sub=" + a + " */");
         }
+
+        [TestMethod]
+        public void NonDottedKey_ThrowsWithGuidance()
+        {
+            // PostgreSQL custom settings require a dot-namespaced key; a non-dotted key must fail clearly.
+            _accessor.Current = new FunkyAuditContext
+            {
+                Entries = new[] { new SessionContextEntry("user_id", NewId()) } // no dot
+            };
+            Assert.ThrowsException<InvalidOperationException>(() => _provider.GetList<RlsDemo>());
+        }
     }
 }

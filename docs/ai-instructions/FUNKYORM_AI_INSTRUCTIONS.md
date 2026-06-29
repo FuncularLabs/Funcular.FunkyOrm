@@ -301,10 +301,10 @@ accessor.Set(new FunkyAuditContext
 {
     Entries = new[]
     {
-        new SessionContextEntry("app.UserId",  objectId),     // dot-namespace keys for PostgreSQL
-        new SessionContextEntry("app.TeamIds", string.Join(",", teamKeys)),
+        new SessionContextEntry("myapp.user_id",  userId),     // dot-namespace keys for PostgreSQL
+        new SessionContextEntry("myapp.group_ids", string.Join(",", groupIds)),
     },
-    AuditSubjectId = objectId,   // opaque id only — never email/UPN/PHI
+    AuditSubjectId = userId,   // opaque id only — never name/email/PII
 });
 
 // The ORM factory stamps options onto each provider (strict for PHI, lenient elsewhere):
@@ -314,7 +314,7 @@ provider.AuditContext = new AuditContextOptions { Accessor = accessor, RequireAu
 **Rules for AI agents:**
 *   **Keys are caller-defined and opaque to FunkyORM.** It primes whatever `SessionContextEntry` list you supply; you author the RLS predicate that reads them back.
 *   **Per-provider capability** (FunkyORM throws where unsupported): **SQL Server** & **PostgreSQL** = RLS filtering + attribution; **MySQL** = attribution only (no RLS; needs `AllowUserVariables=true`; keys `[A-Za-z0-9_]`); **SQLite** = no-op (a `RequireAuditContext` provider throws).
-*   **PostgreSQL keys must be dot-namespaced** (e.g. `app.UserId`) — FunkyORM passes keys verbatim and errors otherwise; a dotted namespace also works on SQL Server, so it's the portable choice.
+*   **PostgreSQL keys must be dot-namespaced** (e.g. `myapp.user_id`) — FunkyORM passes keys verbatim and errors otherwise; a dotted namespace also works on SQL Server, so it's the portable choice.
 *   **`RequireAuditContext = true`** makes the provider fail-closed (throws when no context is present). Set it per provider for PHI repositories; leave it off for unauthenticated/non-PHI paths.
 *   Keys default to immutable (`read_only`) where supported; never put PII in the audit comment identifiers. Full setup + RLS examples: `docs/guides/AUDIT_CONTEXT_RUNBOOK.md`.
 

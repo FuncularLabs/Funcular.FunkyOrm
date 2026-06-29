@@ -184,6 +184,50 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             }
         }
 
+        [TestMethod]
+        public void AuditComment_SubjectAndCorrelation_EndToEnd()
+        {
+            var captured = new StringBuilder();
+            _provider.Log = s => captured.AppendLine(s);
+
+            var a = NewId();
+            var corr = "req-" + NewId();
+            _accessor.Current = new FunkyAuditContext
+            {
+                Entries = new[] { new SessionContextEntry("UserId", a), new SessionContextEntry("TeamIds", "") },
+                AuditSubjectId = a,
+                AuditCorrelationId = corr,
+            };
+            _provider.Insert(new RlsDemo { OwnerId = a, Payload = "log-check2" });
+
+            StringAssert.Contains(captured.ToString(), "/* funky:audit sub=" + a + " corr=" + corr + " */");
+        }
+
+        [TestMethod]
+        public void LenientProvider_PrimesWhenPresent_NoThrowWhenAbsent()
+        {
+            var accessor = new TestAccessor();
+            using (var lenient = new SqlServerOrmDataProvider(_connectionString)
+            {
+                AuditContext = new AuditContextOptions { Accessor = accessor, RequireAuditContext = false }
+            })
+            {
+                // Context present: priming happens opportunistically and RLS filters to this user.
+                var a = NewId();
+                accessor.Current = new FunkyAuditContext
+                {
+                    Entries = new[] { new SessionContextEntry("UserId", a), new SessionContextEntry("TeamIds", "") }
+                };
+                lenient.Insert(new RlsDemo { OwnerId = a, Payload = "lenient" });
+                Assert.IsTrue(lenient.GetList<RlsDemo>().All(r => r.OwnerId == a));
+
+                // No context: a lenient provider must NOT throw (primes nothing); a's row is simply not visible.
+                accessor.Current = null;
+                var rows = lenient.GetList<RlsDemo>();
+                Assert.IsFalse(rows.Any(r => r.OwnerId == a));
+            }
+        }
+
         /// <summary>AsyncLocal-backed accessor for the concurrency test (mirrors a real middleware setup).</summary>
         private sealed class AsyncLocalAccessor : IAuditContextAccessor
         {

@@ -384,10 +384,10 @@ accessor.Set(new FunkyAuditContext
 {
     Entries = new[]
     {
-        new SessionContextEntry("app.UserId",  objectId),   // dot-namespace keys for PostgreSQL
-        new SessionContextEntry("app.TeamIds", string.Join(",", teamKeys)),
+        new SessionContextEntry("myapp.user_id",  userId),   // dot-namespace keys for PostgreSQL
+        new SessionContextEntry("myapp.group_ids", string.Join(",", groupIds)),
     },
-    AuditSubjectId = objectId,           // opaque id only, no email/UPN/PHI
+    AuditSubjectId = userId,             // opaque id only, no name/email/PII
 });
 // PHI providers can be configured fail-closed (throw when no context is present).
 ```
