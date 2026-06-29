@@ -112,3 +112,105 @@ CREATE TABLE IF NOT EXISTS `user` (
     `order`  INT NOT NULL,
     `select` INT NOT NULL DEFAULT 0
 ) ENGINE=InnoDB;
+
+-- =========================================================================
+-- Stored Procedure Test Objects (v3.7.0)
+-- DELIMITER blocks are required when this file is piped through the mysql CLI
+-- (as the CI workflow does). DELIMITER is a client directive: when creating
+-- these through MySqlConnector, send each CREATE PROCEDURE as its own command.
+-- Parameters use a p_ prefix to avoid clashing with column names in the body.
+-- =========================================================================
+
+DROP PROCEDURE IF EXISTS sp_get_persons_by_gender;
+DELIMITER $$
+CREATE PROCEDURE sp_get_persons_by_gender(IN p_gender VARCHAR(10))
+BEGIN
+    SELECT id, first_name, last_name, gender, birthdate FROM person WHERE gender = p_gender;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_get_person_by_id;
+DELIMITER $$
+CREATE PROCEDURE sp_get_person_by_id(IN p_person_id INT)
+BEGIN
+    SELECT id, first_name, last_name, gender, birthdate FROM person WHERE id = p_person_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_get_all_persons;
+DELIMITER $$
+CREATE PROCEDURE sp_get_all_persons()
+BEGIN
+    SELECT id, first_name, last_name, gender, birthdate FROM person;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_count_persons_by_gender;
+DELIMITER $$
+CREATE PROCEDURE sp_count_persons_by_gender(IN p_gender VARCHAR(10))
+BEGIN
+    SELECT COUNT(*) FROM person WHERE gender = p_gender;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_get_person_full_name;
+DELIMITER $$
+CREATE PROCEDURE sp_get_person_full_name(IN p_person_id INT)
+BEGIN
+    SELECT CONCAT(first_name, ' ', last_name) FROM person WHERE id = p_person_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_insert_organization;
+DELIMITER $$
+CREATE PROCEDURE sp_insert_organization(IN p_name VARCHAR(100), IN p_headquarters_address_id INT)
+BEGIN
+    INSERT INTO organization (name, headquarters_address_id) VALUES (p_name, p_headquarters_address_id);
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_update_person_gender;
+DELIMITER $$
+CREATE PROCEDURE sp_update_person_gender(IN p_person_id INT, IN p_new_gender VARCHAR(10))
+BEGIN
+    UPDATE person SET gender = p_new_gender WHERE id = p_person_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_get_persons_paged;
+DELIMITER $$
+CREATE PROCEDURE sp_get_persons_paged(IN p_page INT, IN p_page_size INT, OUT p_total_count INT)
+BEGIN
+    DECLARE v_offset INT;
+    SET v_offset = (p_page - 1) * p_page_size;
+    SELECT COUNT(*) INTO p_total_count FROM person;
+    SELECT id, first_name, last_name, gender, birthdate FROM person
+    ORDER BY id LIMIT p_page_size OFFSET v_offset;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_search_persons;
+DELIMITER $$
+CREATE PROCEDURE sp_search_persons(
+    IN p_first_name VARCHAR(100),
+    IN p_last_name VARCHAR(100),
+    IN p_gender VARCHAR(10),
+    IN p_min_birthdate DATE,
+    IN p_max_birthdate DATE)
+BEGIN
+    SELECT id, first_name, last_name, gender, birthdate FROM person
+    WHERE (p_first_name IS NULL OR first_name LIKE CONCAT('%', p_first_name, '%'))
+      AND (p_last_name IS NULL OR last_name LIKE CONCAT('%', p_last_name, '%'))
+      AND (p_gender IS NULL OR gender = p_gender)
+      AND (p_min_birthdate IS NULL OR birthdate >= p_min_birthdate)
+      AND (p_max_birthdate IS NULL OR birthdate <= p_max_birthdate);
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_noop;
+DELIMITER $$
+CREATE PROCEDURE sp_noop()
+BEGIN
+    SET @dummy = 0;
+END$$
+DELIMITER ;

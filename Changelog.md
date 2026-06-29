@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.7.0] - 2026-06-23
+
+### Added
+- **Stored procedure execution.** New `ExecProcedure<T>`, `ExecScalar<TResult>`, and `ExecNonQuery` methods (each with async counterparts) on `IOrmDataProvider`, for result-set, scalar, and non-query procedures. Parameters may be passed as an anonymous/typed object (input-only) or as `params SqlParam[]` (supports output/INOUT parameters; `(name, value)` tuples convert implicitly to `SqlParam`). Result sets map through the same `Query<T>` mapping pipeline (column/convention/`[Column]` aware), and procedure names resolve by explicit argument, the new `[Procedure]` attribute, or convention (cached).
+- **Capability-based per provider:**
+  - **SQL Server** — full support (`CommandType.StoredProcedure`; `OUTPUT` parameters; `sys.procedures` convention lookup).
+  - **MySQL** — full support (`CALL` via `CommandType.StoredProcedure`; `OUT`/`INOUT` parameters; `information_schema.routines` lookup).
+  - **PostgreSQL** — partial: `ExecNonQuery`/`ExecScalar` via `CALL` (INOUT parameters returned as the result row and back-populated); `ExecProcedure<T>` throws `NotSupportedException` with guidance (use a `FUNCTION RETURNS TABLE`), because `CALL` does not return result sets.
+  - **SQLite** — not supported; every `Exec*` throws `NotSupportedException` (SQLite has no stored procedures).
+- `SqlParam` type and `[Procedure]` attribute in `Funcular.Data.Orm.Core`.
+- Integration tests across all four providers (SQL Server 22, MySQL 22, PostgreSQL 7, SQLite 6 negative) plus 17 overload-resolution/guard unit tests; procedure DDL added to each provider's `Database/**/integration_test_db.sql`.
+
+### Changed
+- **`IOrmDataProvider` gained the `Exec*` members.** `OrmDataProvider` supplies virtual implementations (throwing by default; providers override), so code deriving from `OrmDataProvider` is unaffected. This is a **source-breaking change only for external code that implements `IOrmDataProvider` directly** — such implementors must add the new members. Consistent with prior interface evolution (`ISqlDialect` in 3.2.1).
+- The transactional-concurrency guard message (3.6.1) is unchanged here.
+
 ## [3.6.1] - 2026-06-22
 
 ### Fixed

@@ -832,17 +832,211 @@ namespace Funcular.Data.Orm.MySql
             return results;
         }
 
-        protected internal MySqlCommand BuildSqlCommandObject(string commandText, IDbConnection connection, ICollection<MySqlParameter> parameters = null)
+        protected internal MySqlCommand BuildSqlCommandObject(string commandText, IDbConnection connection, ICollection<MySqlParameter> parameters = null, CommandType commandType = CommandType.Text)
         {
             var command = new MySqlCommand(commandText, (MySqlConnection)connection)
             {
-                CommandType = CommandType.Text,
+                CommandType = commandType,
                 Transaction = (MySqlTransaction)Transaction
             };
             if (parameters?.Any() == true)
                 command.Parameters.AddRange(parameters.ToArray());
             return command;
         }
+
+        #region Stored Procedure Execution
+
+        /// <summary>Per-type cache of resolved stored procedure names (mirrors the table-name cache).</summary>
+        private static readonly ConcurrentDictionary<Type, string> _procedureNames = new ConcurrentDictionary<Type, string>();
+
+        /// <inheritdoc />
+        public override ICollection<T> ExecProcedure<T>(object parameters = null)
+            => ExecProcedureInternal<T>(ResolveProcedureName<T>(null), NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override ICollection<T> ExecProcedure<T>(string procedureName, object parameters = null)
+            => ExecProcedureInternal<T>(ResolveProcedureName<T>(procedureName), NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override ICollection<T> ExecProcedure<T>(string procedureName, params SqlParam[] parameters)
+            => ExecProcedureInternal<T>(ResolveProcedureName<T>(procedureName), NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override TResult ExecScalar<TResult>(string procedureName, object parameters = null)
+            => ExecScalarInternal<TResult>(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override TResult ExecScalar<TResult>(string procedureName, params SqlParam[] parameters)
+            => ExecScalarInternal<TResult>(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override int ExecNonQuery(string procedureName, object parameters = null)
+            => ExecNonQueryInternal(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override int ExecNonQuery(string procedureName, params SqlParam[] parameters)
+            => ExecNonQueryInternal(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<ICollection<T>> ExecProcedureAsync<T>(object parameters = null)
+            => ExecProcedureInternalAsync<T>(ResolveProcedureName<T>(null), NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, object parameters = null)
+            => ExecProcedureInternalAsync<T>(ResolveProcedureName<T>(procedureName), NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<ICollection<T>> ExecProcedureAsync<T>(string procedureName, params SqlParam[] parameters)
+            => ExecProcedureInternalAsync<T>(ResolveProcedureName<T>(procedureName), NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<TResult> ExecScalarAsync<TResult>(string procedureName, object parameters = null)
+            => ExecScalarInternalAsync<TResult>(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<TResult> ExecScalarAsync<TResult>(string procedureName, params SqlParam[] parameters)
+            => ExecScalarInternalAsync<TResult>(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<int> ExecNonQueryAsync(string procedureName, object parameters = null)
+            => ExecNonQueryInternalAsync(procedureName, NormalizeParameters(parameters));
+
+        /// <inheritdoc />
+        public override Task<int> ExecNonQueryAsync(string procedureName, params SqlParam[] parameters)
+            => ExecNonQueryInternalAsync(procedureName, NormalizeParameters(parameters));
+
+        private ICollection<T> ExecProcedureInternal<T>(string procedureName, IReadOnlyList<NormalizedParameter> normalized) where T : class, new()
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(procedureName, scope.Connection, BuildProcedureParameters(normalized), CommandType.StoredProcedure))
+            {
+                var results = ExecuteReaderList<T>(command);
+                BackPopulateOutputParameters(command, normalized);
+                return results;
+            }
+        }
+
+        private async Task<ICollection<T>> ExecProcedureInternalAsync<T>(string procedureName, IReadOnlyList<NormalizedParameter> normalized) where T : class, new()
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(procedureName, scope.Connection, BuildProcedureParameters(normalized), CommandType.StoredProcedure))
+            {
+                var results = await ExecuteReaderListAsync<T>(command).ConfigureAwait(false);
+                BackPopulateOutputParameters(command, normalized);
+                return results;
+            }
+        }
+
+        private TResult ExecScalarInternal<TResult>(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(procedureName, scope.Connection, BuildProcedureParameters(normalized), CommandType.StoredProcedure))
+            {
+                InvokeLogAction(command);
+                var raw = command.ExecuteScalar();
+                BackPopulateOutputParameters(command, normalized);
+                return ConvertScalar<TResult>(raw);
+            }
+        }
+
+        private async Task<TResult> ExecScalarInternalAsync<TResult>(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(procedureName, scope.Connection, BuildProcedureParameters(normalized), CommandType.StoredProcedure))
+            {
+                InvokeLogAction(command);
+                var raw = await command.ExecuteScalarAsync().ConfigureAwait(false);
+                BackPopulateOutputParameters(command, normalized);
+                return ConvertScalar<TResult>(raw);
+            }
+        }
+
+        private int ExecNonQueryInternal(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(procedureName, scope.Connection, BuildProcedureParameters(normalized), CommandType.StoredProcedure))
+            {
+                InvokeLogAction(command);
+                var rowsAffected = command.ExecuteNonQuery();
+                BackPopulateOutputParameters(command, normalized);
+                return rowsAffected;
+            }
+        }
+
+        private async Task<int> ExecNonQueryInternalAsync(string procedureName, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(procedureName, scope.Connection, BuildProcedureParameters(normalized), CommandType.StoredProcedure))
+            {
+                InvokeLogAction(command);
+                var rowsAffected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                BackPopulateOutputParameters(command, normalized);
+                return rowsAffected;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the stored procedure name for <typeparamref name="T"/>: explicit name wins, then
+        /// <c>[Procedure]</c>, then convention inference against information_schema.routines (cached). Catalog
+        /// lookup runs on its own scope before the execution scope opens, so it never nests inside a transaction.
+        /// </summary>
+        private string ResolveProcedureName<T>(string procedureName)
+        {
+            if (!string.IsNullOrEmpty(procedureName)) return procedureName;
+            return _procedureNames.GetOrAdd(typeof(T), t =>
+            {
+                var attributeName = GetProcedureNameFromAttribute<T>();
+                if (!string.IsNullOrEmpty(attributeName)) return attributeName;
+                var normalized = NormalizeProcedureNameForLookup(t.Name);
+                return LookupProcedureName(normalized) ?? t.Name;
+            });
+        }
+
+        private string LookupProcedureName(string normalized)
+        {
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(
+                       "SELECT routine_name FROM information_schema.routines " +
+                       "WHERE routine_schema = DATABASE() AND routine_type = 'PROCEDURE' " +
+                       "AND REPLACE(LOWER(routine_name), '_', '') = @normalized",
+                       scope.Connection,
+                       new[] { new MySqlParameter("@normalized", normalized) }))
+            {
+                InvokeLogAction(command);
+                var result = command.ExecuteScalar();
+                return result == null || result is DBNull ? null : result.ToString();
+            }
+        }
+
+        /// <summary>Converts normalized parameters to native <see cref="MySqlParameter"/>s (re-adding the <c>@</c> prefix).</summary>
+        private static ICollection<MySqlParameter> BuildProcedureParameters(IReadOnlyList<NormalizedParameter> normalized)
+        {
+            var list = new List<MySqlParameter>(normalized.Count);
+            foreach (var np in normalized)
+            {
+                var parameter = new MySqlParameter("@" + np.Name, np.Value ?? DBNull.Value)
+                {
+                    Direction = np.Direction
+                };
+                if (np.DbType.HasValue) parameter.DbType = np.DbType.Value;
+                if (np.Size.HasValue) parameter.Size = np.Size.Value;
+                list.Add(parameter);
+            }
+            return list;
+        }
+
+        /// <summary>After execution, copies output/input-output parameter values back onto the source <see cref="SqlParam"/>s.</summary>
+        private static void BackPopulateOutputParameters(MySqlCommand command, IReadOnlyList<NormalizedParameter> normalized)
+        {
+            foreach (var np in normalized)
+            {
+                if (np.Source == null || np.Direction == ParameterDirection.Input) continue;
+                var native = command.Parameters["@" + np.Name];
+                np.Source.Value = native.Value is DBNull ? null : native.Value;
+            }
+        }
+
+        #endregion
 
         protected void DiscoverColumns<T>()
         {

@@ -260,6 +260,37 @@ await Task.WhenAll(
 
 ---
 
+## Stored Procedure Execution (v3.7+)
+
+Three methods (each with an async counterpart) execute stored procedures and map results through the same pipeline as `Query<T>`:
+
+```csharp
+// Result set -> entities (procedure name explicit, [Procedure] attribute, or convention)
+ICollection<PersonDto> people = db.ExecProcedure<PersonDto>("sp_get_persons_by_gender", new { gender = "Female" });
+
+// Scalar
+int count = db.ExecScalar<int>("sp_count_persons_by_gender", ("@gender", "Female")); // tuple -> SqlParam
+
+// Non-query (returns rows affected)
+int rows = db.ExecNonQuery("sp_update_person_gender", new { person_id = 42, new_gender = "Other" });
+
+// Output parameter
+var total = new SqlParam("@total_count", null, ParameterDirection.Output) { DbType = DbType.Int32 };
+var page = db.ExecProcedure<PersonDto>("sp_get_persons_paged", new SqlParam("@page", 1), new SqlParam("@page_size", 25), total);
+int t = (int)total.Value; // populated after execution
+```
+
+**Rules for AI agents:**
+*   **Parameters:** pass an anonymous/typed object (input-only) **or** `params SqlParam[]` (the only mode that supports output/INOUT parameters). `(name, value)` tuples convert implicitly to `SqlParam`. Property/parameter names are used **as written** — no snake_case conversion — so name the object's properties to match the procedure's parameter names.
+*   **Name resolution:** explicit name argument wins, then `[Procedure("sp_name")]` on the result class, then convention (class name normalized against the catalog).
+*   **Provider capability (this throws `NotSupportedException` when unsupported):**
+    *   **SQL Server / MySQL** — full: result set, scalar, non-query, output params.
+    *   **PostgreSQL** — `ExecNonQuery`/`ExecScalar` via `CALL` only (INOUT params returned and back-populated). `ExecProcedure<T>` (result set) is **not** supported — expose the query as a `FUNCTION RETURNS TABLE` and read it with `Query<T>()`/raw SQL.
+    *   **SQLite** — not supported (no stored procedures).
+*   Execution flows through the normal `ConnectionScope`/transaction path, so `Exec*` calls work inside `BeginTransaction()`.
+
+---
+
 ## Remote Attributes (The "Superpower")
 
 FunkyORM allows mapping properties on an entity (or DTO) directly to columns in related tables using attributes. This avoids manual JOIN syntax.
