@@ -384,8 +384,8 @@ accessor.Set(new FunkyAuditContext
 {
     Entries = new[]
     {
-        new SessionContextEntry("UserId",  objectId),
-        new SessionContextEntry("TeamIds", string.Join(",", teamKeys)),
+        new SessionContextEntry("app.UserId",  objectId),   // dot-namespace keys for PostgreSQL
+        new SessionContextEntry("app.TeamIds", string.Join(",", teamKeys)),
     },
     AuditSubjectId = objectId,           // opaque id only, no email/UPN/PHI
 });

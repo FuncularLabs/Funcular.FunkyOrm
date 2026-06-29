@@ -127,27 +127,39 @@ on its connection, and the policy filters accordingly.
 
 ## PostgreSQL
 
-Same `FunkyAuditContext`; FunkyORM primes via `set_config`. Your policy reads the keys with
-`current_setting`:
+Same `FunkyAuditContext`; FunkyORM primes via `set_config` and passes your keys through **verbatim**.
+
+> **Key names must be dot-namespaced on PostgreSQL.** PostgreSQL requires custom settings to have a
+> namespace (e.g. `app.UserId`, `myorg.user_id`). FunkyORM does **not** impose one — you choose it — and it
+> throws a clear error if a key has no dot. A dotted key also works on SQL Server (which accepts any key),
+> so a dotted namespace is the portable choice if you target both.
+
+Your policy reads the keys with `current_setting`:
 
 ```sql
 ALTER TABLE patient ENABLE ROW LEVEL SECURITY;
 CREATE POLICY patient_isolation ON patient
-    USING (owner_id = current_setting('UserId', true)
-           OR owner_id = ANY (string_to_array(current_setting('TeamIds', true), ',')));
+    USING (owner_id = current_setting('app.UserId', true)
+           OR owner_id = ANY (string_to_array(coalesce(current_setting('app.TeamIds', true), ''), ',')));
 ```
 
-Notes: custom settings are session-scoped (`is_local=false`) and reset on pool return; inside a transaction
-FunkyORM can scope them transaction-locally. There is no read-only GUC, so immutability is *emulated* — rely
-on FunkyORM being the only writer of these keys.
+Notes: settings are session-scoped (`is_local=false`) and Npgsql clears them on pool return (verified by
+FunkyORM's no-leak test). There is no read-only GUC, so immutability is *emulated* — rely on FunkyORM being
+the only writer of these keys. PostgreSQL **superusers bypass RLS**, so author and test enforcement under a
+non-superuser role.
 
 ---
 
 ## MySQL & SQLite
 
-- **MySQL** primes session variables (`SET @UserId := …`) for **attribution** (use them in triggers /
-  audit tables / views). MySQL has no native RLS, so it cannot *filter* — don't rely on it for isolation.
-- **SQLite** is a no-op. A strict (`RequireAuditContext = true`) provider throws at construction.
+- **MySQL** primes session variables (`SET @UserId = …`) for **attribution** (use them in triggers / audit
+  tables). MySQL has no native RLS, so it cannot *filter* — don't rely on it for isolation. Requires
+  `AllowUserVariables=true` on the connection, and keys must be unqualified identifiers (`[A-Za-z0-9_]`).
+  The dot-namespaced keys PostgreSQL needs are not valid MySQL variable names, so use provider-appropriate
+  keys if you target both PostgreSQL and MySQL with the same workload.
+- **SQLite** is a no-op (no session context or RLS). A strict (`RequireAuditContext = true`) provider
+  **throws** on first use rather than silently running a PHI workload without isolation; a lenient provider
+  ignores any context and works normally.
 
 ---
 

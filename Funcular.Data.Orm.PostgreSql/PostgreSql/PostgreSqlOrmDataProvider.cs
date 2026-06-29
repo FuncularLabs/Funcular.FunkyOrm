@@ -493,10 +493,16 @@ namespace Funcular.Data.Orm.PostgreSql
             var index = 0;
             foreach (var entry in entries)
             {
+                // PostgreSQL custom settings require a dotted namespace. FunkyORM passes keys through verbatim
+                // (it does not impose a namespace) and fails clearly when a key is not namespaced.
+                if (entry.Key.IndexOf('.') < 0)
+                    throw new InvalidOperationException(
+                        "PostgreSQL session-context key '" + entry.Key + "' must be namespaced with a dot " +
+                        "(PostgreSQL requires it for custom settings), e.g. 'app." + entry.Key + "'. " +
+                        "Read it back with current_setting('app." + entry.Key + "', true) in your RLS policy.");
                 if (index > 0) sql.Append(", ");
-                var settingName = entry.Key.IndexOf('.') >= 0 ? entry.Key : "funky." + entry.Key;
                 sql.Append("set_config(@__sck").Append(index).Append(", @__scv").Append(index).Append(", false)");
-                parameters.Add(new NpgsqlParameter("@__sck" + index, settingName));
+                parameters.Add(new NpgsqlParameter("@__sck" + index, entry.Key));
                 parameters.Add(new NpgsqlParameter("@__scv" + index, entry.Value));
                 index++;
             }

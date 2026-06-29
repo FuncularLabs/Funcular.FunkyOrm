@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.0] - 2026-06-29
+
+### Added
+- **Per-request session context for Row-Level Security & audit attribution.** When an app authenticates to the database as a single identity (e.g. a managed identity), FunkyORM can attach the *end-user's* identity to every command by priming caller-defined session-context keys onto the exact connection each command uses — so an RLS predicate can filter by it and audit logs can attribute it. New Core types: `FunkyAuditContext`, `SessionContextEntry`, `IAuditContextAccessor`, `AuditContextOptions`; the app implements the accessor over its own `AsyncLocal`, and the provider's `AuditContext` option (typically set per provider by an ORM factory) controls it. The capability is **generic** — FunkyORM is agnostic about key names/meaning.
+  - **Prime-once-per-connection**: primed on each pooled connection at open (and once per transaction), so immutable (`read_only`) keys are never re-set; runs on the scope's own connection (no nested scope).
+  - **Opt-in fail-closed**: `RequireAuditContext = true` throws when no context is present (for PHI providers); lenient providers prime opportunistically. Internal bootstrap queries (schema discovery, table-name resolution) run under a system context exempt from fail-closed.
+  - **Self-attributing audit comment**: an optional `/* funky:audit sub=… corr=… */` prefix on text commands (opaque identifiers only; validated to a safe charset — no PII, no comment escape).
+- **Capability-based per provider:**
+  - **SQL Server** — `sp_set_session_context` (+ `@read_only`); RLS via `SESSION_CONTEXT(key)`.
+  - **PostgreSQL** — `set_config`; RLS via `current_setting(key)`. Keys must be dot-namespaced (PostgreSQL requirement) — FunkyORM passes keys through verbatim and throws a clear error otherwise (it does not impose a namespace). Superusers bypass RLS.
+  - **MySQL** — session user variables (`SET @Key`) for **attribution only** (no native RLS); requires `AllowUserVariables=true`; keys must be `[A-Za-z0-9_]`.
+  - **SQLite** — no-op; a `RequireAuditContext` provider throws (no isolation model to enforce).
+- Integration + unit tests across all providers (SQL Server incl. transaction prime-once and concurrency no-bleed; PostgreSQL RLS enforced via a non-superuser role; MySQL attribution; SQLite guard) plus Core unit tests; `rls_demo` table/policy and probe DDL added to the test databases.
+
+### Changed
+- `OrmDataProvider` gained an `AuditContext` option and audit-resolution helpers; each provider's `ConnectionScope` primes the connection. No behavior change when the feature is disabled (the default): priming, the comment, and the guards are all no-ops.
+
 ## [3.7.0] - 2026-06-23
 
 ### Added

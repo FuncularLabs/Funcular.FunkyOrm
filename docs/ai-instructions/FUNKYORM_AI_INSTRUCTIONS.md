@@ -291,6 +291,35 @@ int t = (int)total.Value; // populated after execution
 
 ---
 
+## Session Context for RLS & Audit (v3.8+)
+
+For apps that connect to the database as one identity (e.g. a managed identity) but need the **end-user's** identity on every command — for Row-Level Security filtering or audit attribution — FunkyORM primes per-request session context onto the connection each command uses.
+
+```csharp
+// The app implements IAuditContextAccessor over its own AsyncLocal (set in auth middleware):
+accessor.Set(new FunkyAuditContext
+{
+    Entries = new[]
+    {
+        new SessionContextEntry("app.UserId",  objectId),     // dot-namespace keys for PostgreSQL
+        new SessionContextEntry("app.TeamIds", string.Join(",", teamKeys)),
+    },
+    AuditSubjectId = objectId,   // opaque id only — never email/UPN/PHI
+});
+
+// The ORM factory stamps options onto each provider (strict for PHI, lenient elsewhere):
+provider.AuditContext = new AuditContextOptions { Accessor = accessor, RequireAuditContext = true };
+```
+
+**Rules for AI agents:**
+*   **Keys are caller-defined and opaque to FunkyORM.** It primes whatever `SessionContextEntry` list you supply; you author the RLS predicate that reads them back.
+*   **Per-provider capability** (FunkyORM throws where unsupported): **SQL Server** & **PostgreSQL** = RLS filtering + attribution; **MySQL** = attribution only (no RLS; needs `AllowUserVariables=true`; keys `[A-Za-z0-9_]`); **SQLite** = no-op (a `RequireAuditContext` provider throws).
+*   **PostgreSQL keys must be dot-namespaced** (e.g. `app.UserId`) — FunkyORM passes keys verbatim and errors otherwise; a dotted namespace also works on SQL Server, so it's the portable choice.
+*   **`RequireAuditContext = true`** makes the provider fail-closed (throws when no context is present). Set it per provider for PHI repositories; leave it off for unauthenticated/non-PHI paths.
+*   Keys default to immutable (`read_only`) where supported; never put PII in the audit comment identifiers. Full setup + RLS examples: `docs/guides/AUDIT_CONTEXT_RUNBOOK.md`.
+
+---
+
 ## Remote Attributes (The "Superpower")
 
 FunkyORM allows mapping properties on an entity (or DTO) directly to columns in related tables using attributes. This avoids manual JOIN syntax.
