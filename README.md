@@ -373,6 +373,29 @@ var tasks = new[]
 var results = await Task.WhenAll(tasks); // Each gets its own pooled connection
 ```
 
+## Row-Level Security & Audit Context (v3.8+)
+
+When your app authenticates to the database as a single identity (a managed identity, service account, or shared login) but you need the **end-user's** identity to ride along on every query — for **Row-Level Security** filtering or **audit attribution** — FunkyORM can prime per-request session context onto the exact connection each command uses.
+
+You supply a per-request `FunkyAuditContext` of **caller-defined** session-context keys (FunkyORM is agnostic about their names/meaning); FunkyORM primes them onto each connection, and your RLS predicate reads them back. It also prepends an optional self-attributing audit comment (opaque identifiers only — never PII) so captured statement text is attributable.
+
+```csharp
+accessor.Set(new FunkyAuditContext
+{
+    Entries = new[]
+    {
+        new SessionContextEntry("UserId",  objectId),
+        new SessionContextEntry("TeamIds", string.Join(",", teamKeys)),
+    },
+    AuditSubjectId = objectId,           // opaque id only, no email/UPN/PHI
+});
+// PHI providers can be configured fail-closed (throw when no context is present).
+```
+
+Capability is per provider: **SQL Server & PostgreSQL** get RLS filtering *and* attribution; **MySQL** gets attribution only (no native RLS); **SQLite** is a no-op.
+
+> **Full setup, RLS policy examples (SQL Server + PostgreSQL), security notes, and troubleshooting:** see the **[Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md)**.
+
 ## Database Provider Differences
 
 FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. Your entity classes and LINQ queries are portable, but the generated SQL differs to match each platform's conventions.
