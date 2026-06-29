@@ -148,3 +148,35 @@ BEGIN
     -- intentionally empty
 END;
 $$;
+
+-- =========================================================================
+-- Row-Level Security demo objects (v3.8.0) — audit/session-context tests.
+-- PostgreSQL superusers BYPASS RLS, so enforcement is validated via a dedicated
+-- non-superuser login role (funky_rls_tester). Settings are namespaced under
+-- "funky." (FunkyORM prefixes keys lacking a dot).
+-- =========================================================================
+DROP TABLE IF EXISTS rls_demo;
+CREATE TABLE rls_demo (
+    id SERIAL PRIMARY KEY,
+    owner_id VARCHAR(64) NOT NULL,
+    payload VARCHAR(200)
+);
+ALTER TABLE rls_demo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rls_demo FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS rls_demo_policy ON rls_demo;
+CREATE POLICY rls_demo_policy ON rls_demo
+    USING (owner_id = current_setting('funky.UserId', true)
+           OR owner_id = ANY (string_to_array(coalesce(current_setting('funky.TeamIds', true), ''), ',')))
+    WITH CHECK (owner_id = current_setting('funky.UserId', true)
+           OR owner_id = ANY (string_to_array(coalesce(current_setting('funky.TeamIds', true), ''), ',')));
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'funky_rls_tester') THEN
+    CREATE ROLE funky_rls_tester LOGIN PASSWORD 'funky_rls_pw';
+  END IF;
+END $$;
+
+GRANT USAGE ON SCHEMA public TO funky_rls_tester;
+GRANT SELECT, INSERT, UPDATE, DELETE ON rls_demo TO funky_rls_tester;
+GRANT USAGE, SELECT ON SEQUENCE rls_demo_id_seq TO funky_rls_tester;

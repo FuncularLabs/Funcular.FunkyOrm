@@ -393,6 +393,7 @@ namespace Funcular.Data.Orm.Sqlite
         {
             EnsureConnectionOpen();
             if (Transaction != null) throw new InvalidOperationException("Transaction already in progress.");
+            GuardAuditContextUnsupported();
             Transaction = Connection?.BeginTransaction();
             TransactionName = name ?? string.Empty;
         }
@@ -443,6 +444,21 @@ namespace Funcular.Data.Orm.Sqlite
                 Connection = new SqliteConnection(_connectionString);
                 Connection.Open();
             }
+        }
+
+        /// <summary>
+        /// SQLite has no session context or row-level security, so audit-context priming is a no-op. A provider
+        /// configured with <c>RequireAuditContext = true</c> is a misconfiguration (a strict PHI provider must
+        /// not silently run without isolation), so this throws for any real operation. Bootstrap/system queries
+        /// (under <see cref="SystemContextScope"/>) are exempt so schema discovery still works.
+        /// </summary>
+        protected internal void GuardAuditContextUnsupported()
+        {
+            var options = AuditContext;
+            if (options != null && options.Enabled && options.RequireAuditContext && !SystemContextScope.IsActive)
+                throw new NotSupportedException(
+                    "SQLite has no session context or row-level security, so RequireAuditContext is not supported. " +
+                    "Use a SQLite provider without RequireAuditContext, or use SQL Server / PostgreSQL for RLS.");
         }
 
         protected internal void CloseConnectionIfNoTransaction()
@@ -828,6 +844,8 @@ namespace Funcular.Data.Orm.Sqlite
             var commandText = $"SELECT * FROM {table} LIMIT 0";
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
 
+            // Schema discovery is an internal/system operation: exempt from the RequireAuditContext guard.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, Array.Empty<SqliteParameter>()))
@@ -1103,8 +1121,18 @@ namespace Funcular.Data.Orm.Sqlite
                 {
                     var conn = new SqliteConnection(provider._connectionString);
                     conn.Open();
-                    _ownedConnection = conn;
                     _isTransactional = false;
+                    try
+                    {
+                        provider.GuardAuditContextUnsupported();
+                    }
+                    catch
+                    {
+                        conn.Close();
+                        conn.Dispose();
+                        throw;
+                    }
+                    _ownedConnection = conn;
                 }
             }
 
@@ -1189,6 +1217,8 @@ namespace Funcular.Data.Orm.Sqlite
             string exactMatch = null;
             string fuzzyMatch = null;
 
+            // Table-name resolution is an internal/system operation: exempt from the RequireAuditContext guard.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 var sql = "SELECT name FROM sqlite_master WHERE type='table'";

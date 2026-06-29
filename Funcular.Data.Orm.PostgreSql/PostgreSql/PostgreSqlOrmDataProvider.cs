@@ -410,6 +410,8 @@ namespace Funcular.Data.Orm.PostgreSql
         {
             EnsureConnectionOpen();
             if (Transaction != null) throw new InvalidOperationException("Transaction already in progress.");
+            // Prime per-request session context once for the transaction's connection, before it begins.
+            PrimeConnectionWithAuditContext(Connection);
             Transaction = Connection?.BeginTransaction(IsolationLevel.ReadCommitted);
             TransactionName = name ?? string.Empty;
         }
@@ -469,6 +471,43 @@ namespace Funcular.Data.Orm.PostgreSql
                 Connection.Close();
                 Connection.Dispose();
                 Connection = null;
+            }
+        }
+
+        /// <summary>
+        /// Primes the application's per-request session context onto <paramref name="connection"/> via
+        /// set_config (one statement). Custom settings require a dotted namespace, so keys without a dot are
+        /// prefixed with <c>funky.</c> (read back as e.g. <c>current_setting('funky.UserId', true)</c>). No-op
+        /// when disabled, under a <see cref="SystemContextScope"/>, or with no context/entries; throws when a
+        /// context is required and absent. Runs on the supplied connection directly (never a nested scope).
+        /// </summary>
+        protected internal void PrimeConnectionWithAuditContext(IDbConnection connection)
+        {
+            var context = ResolveAuditContextForPriming();
+            if (context == null) return;
+            var entries = context.Entries;
+            if (entries == null || entries.Count == 0) return;
+
+            var sql = new StringBuilder("SELECT ");
+            var parameters = new List<NpgsqlParameter>(entries.Count * 2);
+            var index = 0;
+            foreach (var entry in entries)
+            {
+                if (index > 0) sql.Append(", ");
+                var settingName = entry.Key.IndexOf('.') >= 0 ? entry.Key : "funky." + entry.Key;
+                sql.Append("set_config(@__sck").Append(index).Append(", @__scv").Append(index).Append(", false)");
+                parameters.Add(new NpgsqlParameter("@__sck" + index, settingName));
+                parameters.Add(new NpgsqlParameter("@__scv" + index, entry.Value));
+                index++;
+            }
+
+            using (var command = new NpgsqlCommand(sql.ToString(), (NpgsqlConnection)connection))
+            {
+                if (Transaction != null && ReferenceEquals(connection, Connection))
+                    command.Transaction = (NpgsqlTransaction)Transaction;
+                command.Parameters.AddRange(parameters.ToArray());
+                InvokeLogAction(command);
+                command.ExecuteNonQuery();
             }
         }
 
@@ -859,6 +898,11 @@ namespace Funcular.Data.Orm.PostgreSql
 
         protected internal NpgsqlCommand BuildSqlCommandObject(string commandText, IDbConnection connection, ICollection<NpgsqlParameter> parameters = null)
         {
+            // Prepend the self-attributing audit comment to text commands (no-op when disabled / no context).
+            var auditPrefix = GetAuditCommentPrefix();
+            if (auditPrefix != null)
+                commandText = auditPrefix + "\r\n" + commandText;
+
             var command = new NpgsqlCommand(commandText, (NpgsqlConnection)connection)
             {
                 CommandType = CommandType.Text,
@@ -1030,6 +1074,8 @@ namespace Funcular.Data.Orm.PostgreSql
             var commandText = $"SELECT * FROM {table} LIMIT 0";
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
 
+            // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, Array.Empty<NpgsqlParameter>()))
@@ -1298,8 +1344,18 @@ namespace Funcular.Data.Orm.PostgreSql
                 {
                     var conn = new NpgsqlConnection(provider._connectionString);
                     conn.Open();
-                    _ownedConnection = conn;
                     _isTransactional = false;
+                    try
+                    {
+                        provider.PrimeConnectionWithAuditContext(conn);
+                    }
+                    catch
+                    {
+                        conn.Close();
+                        conn.Dispose();
+                        throw;
+                    }
+                    _ownedConnection = conn;
                 }
             }
 
@@ -1394,6 +1450,8 @@ namespace Funcular.Data.Orm.PostgreSql
             string exactMatch = null;
             string fuzzyMatch = null;
 
+            // Table-name resolution is an internal/system operation: prime no identity and never fail-closed.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 var sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'";

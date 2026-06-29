@@ -133,5 +133,64 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             StringAssert.Contains(captured.ToString(), "/* funky:audit sub=" + a + " */");
         }
+
+        [TestMethod]
+        public void Transaction_PrimedOnce_OpsSeePrimedIdentity()
+        {
+            var a = NewId();
+            SetUser(a);
+            _provider.BeginTransaction();
+            try
+            {
+                // BeginTransaction primes the connection once; subsequent ops reuse it WITHOUT re-priming —
+                // a re-prime of a read_only key would throw "the key has already been set".
+                _provider.Insert(new RlsDemo { OwnerId = a, Payload = "txn" });
+                var rows = _provider.GetList<RlsDemo>();
+                Assert.IsTrue(rows.All(r => r.OwnerId == a));
+                Assert.IsTrue(rows.Any(r => r.Payload == "txn"));
+                _provider.CommitTransaction();
+            }
+            catch
+            {
+                _provider.RollbackTransaction();
+                throw;
+            }
+        }
+
+        [TestMethod]
+        public void Concurrency_ParallelRequests_NoBleed()
+        {
+            var accessor = new AsyncLocalAccessor();
+            using (var provider = new SqlServerOrmDataProvider(_connectionString)
+            {
+                AuditContext = new AuditContextOptions { Accessor = accessor, RequireAuditContext = true }
+            })
+            {
+                var users = Enumerable.Range(0, 8).Select(_ => NewId()).ToArray();
+                var tasks = users.Select(u => System.Threading.Tasks.Task.Run(() =>
+                {
+                    accessor.Set(new FunkyAuditContext
+                    {
+                        Entries = new[] { new SessionContextEntry("UserId", u), new SessionContextEntry("TeamIds", "") },
+                        AuditSubjectId = u,
+                    });
+                    provider.Insert(new RlsDemo { OwnerId = u, Payload = u });
+                    var rows = provider.GetList<RlsDemo>();
+                    return rows.Count >= 1 && rows.All(r => r.OwnerId == u);
+                })).ToArray();
+
+                System.Threading.Tasks.Task.WaitAll(tasks);
+                Assert.IsTrue(tasks.All(t => t.Result), "each parallel request must see only its own rows (no context bleed)");
+            }
+        }
+
+        /// <summary>AsyncLocal-backed accessor for the concurrency test (mirrors a real middleware setup).</summary>
+        private sealed class AsyncLocalAccessor : IAuditContextAccessor
+        {
+            private static readonly System.Threading.AsyncLocal<FunkyAuditContext> _ctx =
+                new System.Threading.AsyncLocal<FunkyAuditContext>();
+            public FunkyAuditContext Current => _ctx.Value;
+            public void Set(FunkyAuditContext context) => _ctx.Value = context;
+        }
     }
 }
