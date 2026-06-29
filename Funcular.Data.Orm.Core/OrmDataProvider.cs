@@ -66,6 +66,58 @@ namespace Funcular.Data.Orm
         /// </summary>
         public Action<string> Log { get; set; }
 
+        /// <summary>
+        /// Per-provider session-context / audit configuration. Disabled by default (no accessor). Typically
+        /// set by the application's ORM factory. See docs/guides/AUDIT_CONTEXT_RUNBOOK.md.
+        /// </summary>
+        public AuditContextOptions AuditContext { get; set; } = new AuditContextOptions();
+
+        #endregion
+
+        #region Audit / Session Context
+
+        /// <summary>
+        /// Resolves the ambient audit context to prime onto a connection, or returns null to prime nothing.
+        /// Respects <see cref="SystemContextScope"/> (internal/bootstrap operations prime nothing and never
+        /// fail-closed). Throws when <see cref="AuditContextOptions.RequireAuditContext"/> is set and no
+        /// context is present. Called by each provider's connection-priming path.
+        /// </summary>
+        protected internal FunkyAuditContext? ResolveAuditContextForPriming()
+        {
+            var options = AuditContext;
+            if (options == null || !options.Enabled) return null;
+            if (SystemContextScope.IsActive) return null;
+
+            var context = options.Accessor!.Current;
+            if (context == null)
+            {
+                if (options.RequireAuditContext)
+                    throw new InvalidOperationException(
+                        "An audit context is required for this provider (RequireAuditContext = true) but none " +
+                        "is present. Ensure the request is authenticated and the audit context is set before " +
+                        "data access, or use a provider configured without RequireAuditContext for " +
+                        "unauthenticated/non-PHI paths.");
+                return null;
+            }
+            return context;
+        }
+
+        /// <summary>
+        /// Returns the self-attributing audit comment to prepend to a text command, or null when none applies
+        /// (feature disabled, comment disabled, system scope, no context, or no identifiers). The returned
+        /// string has no trailing newline.
+        /// </summary>
+        protected internal string? GetAuditCommentPrefix()
+        {
+            var options = AuditContext;
+            if (options == null || !options.Enabled || !options.EmitAuditComment) return null;
+            if (SystemContextScope.IsActive) return null;
+
+            var context = options.Accessor!.Current;
+            if (context == null) return null;
+            return AuditComment.Build(context);
+        }
+
         #endregion
 
         #region Abstract Methods

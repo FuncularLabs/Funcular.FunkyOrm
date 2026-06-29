@@ -256,11 +256,14 @@ those two call sites so a strict PHI provider doesn't throw during bootstrap.
 
 ---
 
-## 10. Remaining Open Decision
+## 10. Decisions (resolved)
 
-**The only true design decision left** is the unauthenticated/fail-closed boundary (§6/§7). Recommended:
-per-provider `RequireAuditContext` via the factory + internal system-context for bootstrap. Everything else
-is implementation-time validation (PG/MySQL pool-reset behavior, async-prime ergonomics), not a blocker.
+- **Fail-closed boundary — DECIDED (2026-06-29):** `RequireAuditContext` is set **per provider** via the
+  app's ORM factory (strict providers for PHI repositories, lenient for non-PHI/unauthenticated paths).
+  Priming is opportunistic in both; only the throw differs. FunkyORM's internal bootstrap queries run under
+  a system context exempt from fail-closed (§7). No per-call opt-out / ambient suppress in v1.
+- Remaining items are implementation-time validations, not design decisions: Npgsql custom-GUC reset on
+  pool return; MySQL session-var reset; async-prime ergonomics.
 
 ---
 
