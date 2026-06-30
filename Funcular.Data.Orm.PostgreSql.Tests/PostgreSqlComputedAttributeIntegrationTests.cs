@@ -396,6 +396,58 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                     .ToList());
         }
 
+        [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            // FunkyOrm correctly emits SELECT DISTINCT over the full entity. On PostgreSQL, however, the
+            // full entity carries a raw json-typed metadata column, and PostgreSQL has no equality operator
+            // for the json type, so DISTINCT execution fails at the engine level (42883). This is a real,
+            // PostgreSQL-specific divergence from SQL Server (where the equivalent test passes): we assert the
+            // emitted SQL contains SELECT DISTINCT, and that the engine rejects DISTINCT over json.
+            _sb.Clear();
+            var ex = Assert.ThrowsException<PostgresException>(() =>
+                SeededScorecards().Distinct().ToList());
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            StringAssert.Contains(ex.Message, "json");
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            // Full-entity Distinct() combined with ORDER BY a computed attribute. FunkyOrm emits SELECT DISTINCT
+            // with the computed COALESCE expression as the ORDER BY key (verified below). As with the prior test,
+            // PostgreSQL rejects DISTINCT over the full entity's raw json metadata column (no equality operator
+            // for json), so execution throws at the engine level. This is a PostgreSQL-specific divergence.
+            _sb.Clear();
+            var ex = Assert.ThrowsException<PostgresException>(() =>
+                SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList());
+            var sql = _sb.ToString().ToUpperInvariant();
+            StringAssert.Contains(sql, "SELECT DISTINCT");
+            StringAssert.Contains(sql, "ORDER BY COALESCE(PROJECT.SCORE, 0)");
+            StringAssert.Contains(ex.Message, "json");
+        }
+
+        [TestMethod]
+        public void Select_ComputedAttribute_NotSupported()
+        {
+            // Documents the limitation: a computed/view-replacing attribute cannot be projected in a custom .Select(...).
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Priority = p.Priority })
+                    .ToList());
+        }
+
         // ???????????????????????????????????????????????????????????
         // Phase 4: [JsonCollection] Tests
         // ???????????????????????????????????????????????????????????

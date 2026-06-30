@@ -311,6 +311,44 @@ INSERT INTO project_note (project_id, content, category) VALUES
                     .ToList());
         }
 
+        [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards().Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Select_ComputedAttribute_NotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Priority = p.Priority })
+                    .ToList());
+        }
+
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // Phase 4: [JsonCollection] Tests
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

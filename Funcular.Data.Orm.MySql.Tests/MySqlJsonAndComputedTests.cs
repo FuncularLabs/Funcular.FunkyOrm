@@ -210,5 +210,43 @@ namespace Funcular.Data.Orm.MySql.Tests
                     .OrderBy(p => p.Score) // Score is not in the projection
                     .ToList());
         }
+
+        [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards().Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecard { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Select_ComputedAttribute_NotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecard { Priority = p.Priority })
+                    .ToList());
+        }
     }
 }

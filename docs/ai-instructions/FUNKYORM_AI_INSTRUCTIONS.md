@@ -550,8 +550,11 @@ provider.Query<ProjectScorecard>().Distinct();                  // SELECT DISTIN
 
 > **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
 > Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
-> A custom `.Select(...)` that drops a `[RemoteProperty]` join and then orders by it is unsupported (the
-> self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` still order correctly under projection).
+> A computed/view-replacing attribute **cannot be projected in a custom `.Select(...)`** —
+> `Select(p => new T { Priority = p.Priority })` throws `NotSupportedException` ("Unmapped properties cannot be
+> selected directly"). Use computed attributes in full-entity queries, `Where`, and `OrderBy` instead.
+> **PostgreSQL only:** full-entity `Distinct()` over an entity exposing a raw `json` column errors at the engine
+> (`42883` — no equality operator for `json`); use `jsonb` or `Distinct()` a column projection. SQL Server/MySQL/SQLite are fine.
 
 **Combining `[JsonPath]` with `[RemoteProperty]` on the same Detail class:**
 

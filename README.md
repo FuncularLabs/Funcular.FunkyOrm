@@ -323,18 +323,25 @@ db.Query<ProjectScorecard>().OrderByDescending(p => p.MilestoneCount).ThenBy(p =
 db.Query<ProjectScorecard>().OrderBy(p => p.Priority);              // sorts by the JSON_VALUE / json_extract
 
 // DISTINCT
-db.Query<ProjectScorecard>().Distinct();                            // SELECT DISTINCT <all columns>
-db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority = p.Priority }).Distinct();
-db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority = p.Priority })
-                            .Distinct().OrderBy(p => p.Priority);   // order key is in the projection — OK
+db.Query<ProjectScorecard>().Distinct();                            // SELECT DISTINCT <all columns>  (¹ PG json caveat)
+db.Query<ProjectScorecard>().OrderBy(p => p.EffectiveScore).Distinct();   // full-entity distinct + order by a computed attr  (¹)
+db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name }).Distinct();
+db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name })
+                            .Distinct().OrderBy(p => p.Name);       // order key is in the projection — OK
 ```
 
 **Documented limits (clear errors, by design):**
+- ¹ **PostgreSQL + full-entity `Distinct()` over a `json` column:** PostgreSQL has no equality operator for the `json`
+  type, so `SELECT DISTINCT *` over an entity that exposes a raw `json` column (e.g. the `metadata` column behind
+  `[JsonPath]`) errors at the engine (`42883`). Use a `jsonb` column, or `Distinct()` a column projection instead of
+  the whole entity. **SQL Server, MySQL, and SQLite are unaffected.**
+- **Computed/view-replacing attributes can't be projected in a custom `.Select(...)`** — `Select(p => new T { Priority = p.Priority })`
+  on a `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`/`[RemoteProperty]` member throws `NotSupportedException`
+  (*"Unmapped properties cannot be selected directly"*). Use them in full-entity queries, `Where`, and `OrderBy` instead —
+  e.g. order or filter by the computed attribute directly rather than selecting it into a projection.
 - `Distinct().Count()` throws `NotSupportedException` (count client-side, or drop `Distinct`) — postponed to a later cut.
 - Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by a column *not* in the projection throws
   `InvalidOperationException` (SQL requires the order key in the `DISTINCT` list).
-- A custom `.Select(...)` that drops a `[RemoteProperty]`'s join and then orders by it is unsupported;
-  `[JsonPath]` / `[SqlExpression]` / `[SubqueryAggregate]` are self-contained and order correctly regardless.
 
 ## Concurrency & Connection Management
 

@@ -298,6 +298,50 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            // Whole-entity Distinct() (no custom projection): SELECT DISTINCT over all columns incl. computed.
+            _sb.Clear();
+            var rows = SeededScorecards().Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct projects
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            // Positive counterpart to the guard: the ORDER BY key IS in the projection, so no throw.
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            // Full-entity Distinct() combined with ORDER BY a computed attribute (no custom projection).
+            // The computed column is part of SELECT DISTINCT *, so the resolved expression is a valid ORDER BY key.
+            _sb.Clear();
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Select_ComputedAttribute_NotSupported()
+        {
+            // Documents a real limitation: a computed/"view-replacing" attribute cannot be projected in a
+            // custom .Select(...). They work in full-entity queries, Where(...), and OrderBy(...), but not here.
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Priority = p.Priority }) // [JsonPath] — unsupported in Select
+                    .ToList());
+        }
+
+        [TestMethod]
         public void SubqueryAggregate_MilestonesCompleted_Returns2()
         {
             var result = _provider.Get<ProjectScorecardFull>(_testProjectId);

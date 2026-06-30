@@ -16,7 +16,8 @@ All notable changes to this project will be documented in this file.
 ### Limitations / guards (intentional, with clear errors)
 - **`Distinct().Count()`** (any aggregate after `Distinct`) throws `NotSupportedException` — postponed to a later cut; count client-side or drop `Distinct` for now.
 - **`Distinct()` + `OrderBy(x => x.NotProjected)` under a custom `.Select(...)`** throws `InvalidOperationException` naming the offending key — SQL requires every `ORDER BY` key to be in the `SELECT DISTINCT` list. (Full-entity `Distinct()` is unaffected.)
-- **Custom `.Select(...)` that drops a `[RemoteProperty]`'s join and then orders by it** is out of scope (documented). `[JsonPath]` / `[SqlExpression]` / `[SubqueryAggregate]` are self-contained and order correctly even under a custom projection.
+- **Computed/view-replacing attributes cannot be projected in a custom `.Select(...)`** — `Select(p => new T { Priority = p.Priority })` on a `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`/`[RemoteProperty]` member throws `NotSupportedException` (*"Unmapped properties cannot be selected directly"*). They are fully supported in full-entity queries, `Where(...)`, and `OrderBy(...)` — order/filter by them directly instead of projecting them.
+- **PostgreSQL + full-entity `Distinct()` over a raw `json` column** errors at the engine (`42883: could not identify an equality operator for type json`) — PostgreSQL has no equality for `json` (only `jsonb`). FunkyORM emits correct `SELECT DISTINCT`; the engine rejects it. Use `jsonb`, or `Distinct()` a column projection. SQL Server, MySQL, and SQLite are unaffected.
 
 ## [3.8.0-beta1] - 2026-06-30
 

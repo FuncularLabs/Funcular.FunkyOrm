@@ -81,20 +81,33 @@ subquery fragments are distinct-ed like any other column) and with `Where`/`Sele
 
 **What works / what doesn't (these examples go in the docs):**
 
+> **Custom-projection caveat (verified by test):** a computed/view-replacing attribute **cannot** be projected in a
+> custom `.Select(...)` — `Select(p => new Project { Priority = p.Priority })` throws `NotSupportedException`
+> (*"Unmapped properties cannot be selected directly"*). So the custom-`.Select` examples below project a **plain**
+> column; computed attributes are used in full-entity queries / `Where` / `OrderBy` instead.
+
 ```csharp
 // ✔ works
 db.Query<Project>().Distinct();                                   // SELECT DISTINCT <all columns>
 db.Query<Project>().Where(p => p.Active).Distinct();              // filter + distinct
-db.Query<Project>().Select(p => new Project { Priority = p.Priority }).Distinct();           // distinct of one (computed) column
-db.Query<Project>().Select(p => new Project { Priority = p.Priority }).Distinct()
-                   .OrderBy(p => p.Priority);                     // order key IS in the projection
+db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct();                   // distinct of one (plain) column
+db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct()
+                   .OrderBy(p => p.Name);                         // order key IS in the projection
 db.Query<Project>().OrderBy(p => p.EffectiveScore).Distinct();    // full-entity distinct + order by computed attr
 
 // ✘ throws (clear, intentional)
-db.Query<Project>().Select(p => new Project { Priority = p.Priority }).Distinct().Count();   // NotSupportedException
-db.Query<Project>().Select(p => new Project { Priority = p.Priority }).Distinct()
-                   .OrderBy(p => p.Name);                         // InvalidOperationException — 'name' not projected
+db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct().Count();           // NotSupportedException (Distinct + aggregate)
+db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct()
+                   .OrderBy(p => p.Score);                        // InvalidOperationException — 'score' not projected
+db.Query<Project>().Select(p => new Project { Priority = p.Priority });                      // NotSupportedException — computed attr can't be custom-Select'd
 ```
+
+> **PostgreSQL caveat (verified by test):** the two **full-entity** `Distinct()` lines above (`Distinct()` and
+> `OrderBy(EffectiveScore).Distinct()`) throw at the **engine** on PostgreSQL when the entity exposes a raw `json`
+> column (`42883: could not identify an equality operator for type json`) — PG has no `=` for `json`, only `jsonb`.
+> FunkyORM emits correct `SELECT DISTINCT`; PG rejects it. Use `jsonb` or `Distinct()` a column projection. SQL Server,
+> MySQL, and SQLite distinct the whole entity fine. (The PG integration tests assert the `SELECT DISTINCT` SQL plus the
+> `PostgresException`; the other three assert success.)
 
 ## 4. Files touched (per provider)
 - `…/Visitors/*OrderByClauseVisitor.cs` — new ctor param + `ResolveOrderColumn` (map-first) + `IsOrderableProperty`
