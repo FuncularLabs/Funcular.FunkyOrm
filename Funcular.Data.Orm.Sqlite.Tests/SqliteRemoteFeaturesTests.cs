@@ -152,6 +152,20 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
         }
 
         [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            var asc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderBy(p => p.EmployerHeadquartersCountryName).ToList();
+            if (asc.Count < 2) Assert.Inconclusive("Need >= 2 people with a remote country name.");
+            var desc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderByDescending(p => p.EmployerHeadquartersCountryName).ToList();
+            Assert.AreEqual(asc.First().EmployerHeadquartersCountryName, desc.Last().EmployerHeadquartersCountryName);
+            Assert.AreEqual(asc.Last().EmployerHeadquartersCountryName, desc.First().EmployerHeadquartersCountryName);
+        }
+
+        [TestMethod]
         public void Select_RemoteProperty_InCustomProjection_Throws()
         {
             Assert.ThrowsException<System.NotSupportedException>(() =>

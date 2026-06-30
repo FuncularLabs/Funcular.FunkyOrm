@@ -257,11 +257,33 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void OrderBy_ThenBy_ComputedAttributes_Composes()
         {
+            _sb.Clear();
             var rows = SeededScorecards()
                 .OrderBy(p => p.EffectiveScore)
                 .ThenByDescending(p => p.MilestoneCount)
                 .ToList();
-            Assert.AreEqual(2, rows.Count); // composes + executes
+            Assert.AreEqual(2, rows.Count);
+            // Assert BOTH ordering keys reach the emitted ORDER BY (a count-only check can't observe a dropped ThenBy).
+            var sql = _sb.ToString().ToUpperInvariant();
+            var idx = sql.IndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(idx >= 0, "no ORDER BY emitted");
+            var orderBy = sql.Substring(idx);
+            StringAssert.Contains(orderBy, "COALESCE", "primary key [SqlExpression] EffectiveScore missing from ORDER BY");
+            StringAssert.Contains(orderBy, "SELECT COUNT", "secondary key [SubqueryAggregate] MilestoneCount missing from ORDER BY");
+            StringAssert.Contains(orderBy, "DESC", "ThenByDescending direction missing from ORDER BY");
+        }
+
+        [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            // Distinct + custom projection + paging with no explicit OrderBy would inject a default ORDER BY id
+            // (not in the projection) → clear InvalidOperationException rather than a raw DB error.
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
         }
 
         [TestMethod]

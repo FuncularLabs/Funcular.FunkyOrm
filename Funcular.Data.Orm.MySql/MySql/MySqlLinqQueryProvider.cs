@@ -352,20 +352,28 @@ namespace Funcular.Data.Orm.MySql
             if (components.IsDistinct)
             {
                 // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
-                if (!string.IsNullOrEmpty(components.SelectClause) && !string.IsNullOrEmpty(components.OrderByClause))
+                if (!string.IsNullOrEmpty(components.SelectClause))
                 {
-                    var selectLower = components.SelectClause.ToLowerInvariant();
-                    var orderBody = components.OrderByClause.Substring("ORDER BY".Length);
-                    foreach (var rawTerm in orderBody.Split(','))
+                    if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
+                        throw new InvalidOperationException(
+                            "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit " +
+                            "OrderBy whose keys are in the projection.");
+
+                    if (!string.IsNullOrEmpty(components.OrderByClause))
                     {
-                        var col = rawTerm.Trim();
-                        if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
-                        else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
-                        if (col.Length == 0) continue;
-                        if (!selectLower.Contains(col.ToLowerInvariant()))
-                            throw new InvalidOperationException(
-                                $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
-                                "Select(...) list. Add it to the projection, or remove Distinct().");
+                        var selectLower = components.SelectClause.ToLowerInvariant();
+                        var orderBody = components.OrderByClause.Substring("ORDER BY".Length);
+                        foreach (var rawTerm in SplitTopLevelCommas(orderBody))
+                        {
+                            var col = rawTerm.Trim();
+                            if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
+                            else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
+                            if (col.Length == 0) continue;
+                            if (!selectLower.Contains(col.ToLowerInvariant()))
+                                throw new InvalidOperationException(
+                                    $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
+                                    "Select(...) list. Add it to the projection, or remove Distinct().");
+                        }
                     }
                 }
 
@@ -414,6 +422,21 @@ namespace Funcular.Data.Orm.MySql
                 commandText += $"\r\nLIMIT 18446744073709551615 OFFSET {components.Skip.Value}";
 
             return commandText;
+        }
+
+        private static List<string> SplitTopLevelCommas(string s)
+        {
+            var parts = new List<string>();
+            int depth = 0, start = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '(') depth++;
+                else if (c == ')') { if (depth > 0) depth--; }
+                else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start)); start = i + 1; }
+            }
+            parts.Add(s.Substring(start));
+            return parts;
         }
 
         private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)

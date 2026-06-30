@@ -368,12 +368,20 @@ namespace Funcular.Data.Orm.Sqlite
 
             if (components.IsDistinct)
             {
+                // Under DISTINCT with a custom projection, paging without an explicit ORDER BY is non-deterministic.
+                if (!string.IsNullOrEmpty(_lastSelectProjection) && string.IsNullOrEmpty(_lastOrderByClause)
+                    && (components.Skip.HasValue || components.Take.HasValue))
+                {
+                    throw new InvalidOperationException(
+                        "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit OrderBy whose keys are in the projection.");
+                }
+
                 // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
                 if (!string.IsNullOrEmpty(_lastSelectProjection) && !string.IsNullOrEmpty(_lastOrderByClause))
                 {
                     var selectLower = _lastSelectProjection.ToLowerInvariant();
                     var orderBody = _lastOrderByClause.Substring("ORDER BY".Length);
-                    foreach (var rawTerm in orderBody.Split(','))
+                    foreach (var rawTerm in SplitTopLevelCommas(orderBody))
                     {
                         var col = rawTerm.Trim();
                         if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
@@ -480,6 +488,21 @@ namespace Funcular.Data.Orm.Sqlite
                     }
                 }
             }
+        }
+
+        private static List<string> SplitTopLevelCommas(string s)
+        {
+            var parts = new List<string>();
+            int depth = 0, start = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '(') depth++;
+                else if (c == ')') { if (depth > 0) depth--; }
+                else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start)); start = i + 1; }
+            }
+            parts.Add(s.Substring(start));
+            return parts;
         }
 
         private static int FindOuterKeywordIndex(string sql, string keyword)

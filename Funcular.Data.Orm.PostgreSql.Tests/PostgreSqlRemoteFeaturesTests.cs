@@ -48,6 +48,20 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         }
 
         [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            var asc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderBy(p => p.EmployerHeadquartersCountryName).ToList();
+            if (asc.Count < 2) Assert.Inconclusive("Need >= 2 people with a remote country name.");
+            var desc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderByDescending(p => p.EmployerHeadquartersCountryName).ToList();
+            Assert.AreEqual(asc.First().EmployerHeadquartersCountryName, desc.Last().EmployerHeadquartersCountryName);
+            Assert.AreEqual(asc.Last().EmployerHeadquartersCountryName, desc.First().EmployerHeadquartersCountryName);
+        }
+
+        [TestMethod]
         public void Select_RemoteProperty_InCustomProjection_Throws()
         {
             // A [RemoteProperty] requires a join a custom projection's FROM does not carry — reject clearly.

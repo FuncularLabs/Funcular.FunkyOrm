@@ -106,11 +106,12 @@ db.Query<PersonDetail>().Select(p => new PersonDetail { CountryName = p.CountryN
 ```
 
 > **PostgreSQL caveat (verified by test):** the two **full-entity** `Distinct()` lines above (`Distinct()` and
-> `OrderBy(EffectiveScore).Distinct()`) throw at the **engine** on PostgreSQL when the entity exposes a raw `json`
-> column (`42883: could not identify an equality operator for type json`) — PG has no `=` for `json`, only `jsonb`.
-> FunkyORM emits correct `SELECT DISTINCT`; PG rejects it. Use `jsonb` or `Distinct()` a column projection. SQL Server,
-> MySQL, and SQLite distinct the whole entity fine. (The PG integration tests assert the `SELECT DISTINCT` SQL plus the
-> `PostgresException`; the other three assert success.)
+> `OrderBy(EffectiveScore).Distinct()`) throw at the **engine** on PostgreSQL when the entity declares a
+> `[JsonCollection]` — that attribute emits `json_agg(row_to_json(...))`, which is `json`-typed, and PG has no `=`
+> for `json` (only `jsonb`), so `SELECT DISTINCT *` can't compare it (`42883`). The `[JsonPath]`/`jsonb` source column
+> is *not* the trigger. FunkyORM emits correct `SELECT DISTINCT`; PG rejects it. Remedy: `Distinct()` a column
+> projection excluding the `[JsonCollection]` columns. SQL Server, MySQL, and SQLite distinct the whole entity fine.
+> (The PG integration tests assert the `SELECT DISTINCT` SQL plus the `PostgresException`; the other three assert success.)
 
 ## 4. Files touched (per provider)
 - `…/Visitors/*OrderByClauseVisitor.cs` — new ctor param + `ResolveOrderColumn` (map-first) + `IsOrderableProperty`

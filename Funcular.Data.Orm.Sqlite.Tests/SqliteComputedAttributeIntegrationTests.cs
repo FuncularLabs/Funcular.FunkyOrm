@@ -271,11 +271,20 @@ INSERT INTO project_note (project_id, content, category) VALUES
         [TestMethod]
         public void OrderBy_ThenBy_ComputedAttributes_Composes()
         {
+            _sb.Clear();
             var rows = SeededScorecards()
                 .OrderBy(p => p.EffectiveScore)
                 .ThenByDescending(p => p.MilestoneCount)
                 .ToList();
             Assert.AreEqual(2, rows.Count); // composes + executes
+
+            var sql = _sb.ToString().ToUpperInvariant();
+            // First key: [SqlExpression] COALESCE(score, 0)
+            StringAssert.Contains(sql, "COALESCE");
+            // Second key: [SubqueryAggregate] count subquery
+            StringAssert.Contains(sql, "COUNT");
+            // ThenByDescending => DESC must be present
+            StringAssert.Contains(sql, "DESC");
         }
 
         [TestMethod]
@@ -329,6 +338,17 @@ INSERT INTO project_note (project_id, content, category) VALUES
                 .OrderBy(p => p.Name)
                 .ToList();
             Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
         }
 
         [TestMethod]

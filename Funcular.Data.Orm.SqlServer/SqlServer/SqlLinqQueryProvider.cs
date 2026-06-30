@@ -298,6 +298,25 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
+        /// Splits a SQL fragment on commas that are NOT inside parentheses, so multi-argument expressions
+        /// (e.g. <c>COALESCE(x, 0)</c>, <c>JSON_VALUE(c, '$.p')</c>) survive intact as single terms.
+        /// </summary>
+        private static List<string> SplitTopLevelCommas(string s)
+        {
+            var parts = new List<string>();
+            int depth = 0, start = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '(') depth++;
+                else if (c == ')') { if (depth > 0) depth--; }
+                else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start)); start = i + 1; }
+            }
+            parts.Add(s.Substring(start));
+            return parts;
+        }
+
+        /// <summary>
         /// Builds the SQL clause for aggregate methods (Any, All, Count, Average, Min, Max).
         /// Handles predicate-based and selector-based aggregates.
         /// </summary>
@@ -503,21 +522,33 @@ namespace Funcular.Data.Orm.SqlServer
 
             if (components.IsDistinct)
             {
-                // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
-                if (!string.IsNullOrEmpty(components.SelectClause) && !string.IsNullOrEmpty(components.OrderByClause))
+                // Under DISTINCT with a custom projection, every ORDER BY key must be part of the SELECT list.
+                if (!string.IsNullOrEmpty(components.SelectClause))
                 {
-                    var selectLower = components.SelectClause.ToLowerInvariant();
-                    var orderBody = components.OrderByClause.Substring("ORDER BY".Length);
-                    foreach (var rawTerm in orderBody.Split(','))
+                    // Paging with no explicit OrderBy would inject a default `ORDER BY id` below, which is not in
+                    // a custom projection — reject with a clear message instead of letting the DB error out.
+                    if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
+                        throw new InvalidOperationException(
+                            "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit " +
+                            "OrderBy whose keys are in the projection.");
+
+                    if (!string.IsNullOrEmpty(components.OrderByClause))
                     {
-                        var col = rawTerm.Trim();
-                        if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
-                        else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
-                        if (col.Length == 0) continue;
-                        if (!selectLower.Contains(col.ToLowerInvariant()))
-                            throw new InvalidOperationException(
-                                $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
-                                "Select(...) list. Add it to the projection, or remove Distinct().");
+                        var selectLower = components.SelectClause.ToLowerInvariant();
+                        var orderBody = components.OrderByClause.Substring("ORDER BY".Length);
+                        // Split on TOP-LEVEL commas only, so multi-arg computed expressions
+                        // (COALESCE(x, 0), JSON_VALUE(c, '$.p'), DATEDIFF(...)) aren't shredded.
+                        foreach (var rawTerm in SplitTopLevelCommas(orderBody))
+                        {
+                            var col = rawTerm.Trim();
+                            if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
+                            else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
+                            if (col.Length == 0) continue;
+                            if (!selectLower.Contains(col.ToLowerInvariant()))
+                                throw new InvalidOperationException(
+                                    $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
+                                    "Select(...) list. Add it to the projection, or remove Distinct().");
+                        }
                     }
                 }
 

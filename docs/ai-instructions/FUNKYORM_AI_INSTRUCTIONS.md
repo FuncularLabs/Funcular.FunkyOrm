@@ -556,8 +556,9 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 > A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
 > projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
 > The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
-> **PostgreSQL only:** full-entity `Distinct()` over an entity exposing a raw `json` column errors at the engine
-> (`42883` — no equality operator for `json`); use `jsonb` or `Distinct()` a column projection. SQL Server/MySQL/SQLite are fine.
+> **PostgreSQL only:** full-entity `Distinct()` on an entity declaring `[JsonCollection]` errors at the engine
+> (`42883` — `json_agg(row_to_json(...))` is `json`-typed and `json` has no equality operator). `[JsonPath]`/`jsonb`
+> columns are fine. Remedy: `Distinct()` a column projection excluding the `[JsonCollection]` columns. SQL Server/MySQL/SQLite are fine.
 
 **Combining `[JsonPath]` with `[RemoteProperty]` on the same Detail class:**
 

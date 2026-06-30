@@ -29,6 +29,25 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            // Ordering by a [RemoteProperty] sorts by the joined alias.column (the join is already in the SELECT).
+            var asc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderBy(p => p.EmployerHeadquartersCountryName)
+                .ToList();
+            if (asc.Count < 2)
+                Assert.Inconclusive("Need >= 2 people with a remote country name to assert ordering.");
+            var desc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderByDescending(p => p.EmployerHeadquartersCountryName)
+                .ToList();
+            // Collation-agnostic proof that ordering was applied: ASC.first name == DESC.last name (and vice versa).
+            Assert.AreEqual(asc.First().EmployerHeadquartersCountryName, desc.Last().EmployerHeadquartersCountryName);
+            Assert.AreEqual(asc.Last().EmployerHeadquartersCountryName, desc.First().EmployerHeadquartersCountryName);
+        }
+
+        [TestMethod]
         public void Select_RemoteProperty_InCustomProjection_Throws()
         {
             // A [RemoteProperty] resolves to alias.column and needs a JOIN a custom projection's FROM doesn't

@@ -108,7 +108,7 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                     _selectBuilder.Append(columnName);
                     return;
                 }
-                if (property != null)
+                if (property != null && IsUnmappedProperty(property))
                 {
                     // Unmapped property in a custom projection. A [RemoteProperty]/[RemoteKey]
                     // requires a join and cannot be projected directly. Self-contained computed
@@ -121,6 +121,8 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                         _selectBuilder.Append(resolved);
                         return;
                     }
+
+                    throw new NotSupportedException("Unmapped properties cannot be selected directly.");
                 }
             }
             if (node.Expression is ConstantExpression constantExpression)

@@ -354,11 +354,21 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         [TestMethod]
         public void OrderBy_ThenBy_ComputedAttributes_Composes()
         {
+            _sb.Clear();
             var rows = SeededScorecards()
                 .OrderBy(p => p.EffectiveScore)
                 .ThenByDescending(p => p.MilestoneCount)
                 .ToList();
             Assert.AreEqual(2, rows.Count); // composes + executes
+
+            var sql = _sb.ToString().ToUpperInvariant();
+            var orderByIdx = sql.IndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(orderByIdx >= 0, "Expected an ORDER BY clause.");
+            var orderBy = sql.Substring(orderByIdx);
+            // [SqlExpression] EffectiveScore => COALESCE(...); [SubqueryAggregate] MilestoneCount => correlated COUNT(...).
+            StringAssert.Contains(orderBy, "COALESCE");
+            StringAssert.Contains(orderBy, "COUNT");
+            StringAssert.Contains(orderBy, "DESC");
         }
 
         [TestMethod]
@@ -397,10 +407,22 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         }
 
         [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
+        }
+
+        [TestMethod]
         public void Distinct_FullEntity_EmitsSelectDistinct()
         {
             // FunkyOrm correctly emits SELECT DISTINCT over the full entity. On PostgreSQL, however, the
-            // full entity carries a raw json-typed metadata column, and PostgreSQL has no equality operator
+            // full entity carries [JsonCollection] properties (MilestonesJson/NotesJson) that emit
+            // json_agg(row_to_json(...)) — a json-typed expression — and PostgreSQL has no equality operator
             // for the json type, so DISTINCT execution fails at the engine level (42883). This is a real,
             // PostgreSQL-specific divergence from SQL Server (where the equivalent test passes): we assert the
             // emitted SQL contains SELECT DISTINCT, and that the engine rejects DISTINCT over json.
@@ -427,8 +449,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             // Full-entity Distinct() combined with ORDER BY a computed attribute. FunkyOrm emits SELECT DISTINCT
             // with the computed COALESCE expression as the ORDER BY key (verified below). As with the prior test,
-            // PostgreSQL rejects DISTINCT over the full entity's raw json metadata column (no equality operator
-            // for json), so execution throws at the engine level. This is a PostgreSQL-specific divergence.
+            // PostgreSQL rejects DISTINCT over the full entity's [JsonCollection] columns (MilestonesJson/NotesJson),
+            // which emit json_agg(row_to_json(...)) — a json-typed expression with no equality operator — so
+            // execution throws at the engine level. This is a PostgreSQL-specific divergence.
             _sb.Clear();
             var ex = Assert.ThrowsException<PostgresException>(() =>
                 SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList());

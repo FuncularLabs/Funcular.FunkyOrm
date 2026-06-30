@@ -161,11 +161,23 @@ namespace Funcular.Data.Orm.MySql.Tests
         [TestMethod]
         public void OrderBy_ThenBy_ComputedAttributes_Composes()
         {
+            _sb.Clear();
             var rows = SeededScorecards()
                 .OrderBy(p => p.EffectiveScore)
                 .ThenByDescending(p => p.MilestoneCount)
                 .ToList();
             Assert.AreEqual(2, rows.Count); // composes + executes
+
+            // The emitted ORDER BY must carry both computed keys: COALESCE (the [SqlExpression]
+            // EffectiveScore) and COUNT (the [SubqueryAggregate] correlated subquery for
+            // MilestoneCount), with the DESC for ThenByDescending.
+            var sql = _sb.ToString().ToUpperInvariant();
+            var orderByIdx = sql.LastIndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(orderByIdx >= 0, "Expected an ORDER BY clause in the emitted SQL.");
+            var orderByClause = sql.Substring(orderByIdx);
+            StringAssert.Contains(orderByClause, "COALESCE");
+            StringAssert.Contains(orderByClause, "COUNT");
+            StringAssert.Contains(orderByClause, "DESC");
         }
 
         [TestMethod]
@@ -276,6 +288,49 @@ namespace Funcular.Data.Orm.MySql.Tests
                 _provider.Query<PersonWithEmployer>()
                     .Select(p => new PersonWithEmployer { EmployerName = p.EmployerName })
                     .ToList());
+        }
+
+        [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecard { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            // Seed two persons whose employer names sort in a known order so OrderBy-by-remote
+            // is exercised against a generated LEFT JOIN. The key point: ordering by a
+            // [RemoteProperty] must emit valid SQL and execute (not throw a FunkyORM/SQL error).
+            var orgA = new Organization { Name = "Aacme" + Guid.NewGuid().ToString("N").Substring(0, 8) };
+            var orgZ = new Organization { Name = "Zzorg" + Guid.NewGuid().ToString("N").Substring(0, 8) };
+            _provider.Insert(orgA);
+            _provider.Insert(orgZ);
+            _provider.Insert(new PersonWithEmployer
+            {
+                FirstName = "Emp", LastName = "A", EmployerId = orgA.Id,
+                DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
+            });
+            _provider.Insert(new PersonWithEmployer
+            {
+                FirstName = "Emp", LastName = "Z", EmployerId = orgZ.Id,
+                DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
+            });
+
+            var asc = _provider.Query<PersonWithEmployer>()
+                .Where(p => p.EmployerName != null)
+                .OrderBy(p => p.EmployerName).ToList();
+            if (asc.Count < 2) Assert.Inconclusive("Need >= 2 rows with a remote employer name.");
+            var desc = _provider.Query<PersonWithEmployer>()
+                .Where(p => p.EmployerName != null)
+                .OrderByDescending(p => p.EmployerName).ToList();
+            Assert.AreEqual(asc.First().EmployerName, desc.Last().EmployerName);
+            Assert.AreEqual(asc.Last().EmployerName, desc.First().EmployerName);
         }
     }
 }

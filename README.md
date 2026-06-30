@@ -339,10 +339,12 @@ db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name })
 ```
 
 **Documented limits (clear errors, by design):**
-- ¹ **PostgreSQL + full-entity `Distinct()` over a `json` column:** PostgreSQL has no equality operator for the `json`
-  type, so `SELECT DISTINCT *` over an entity that exposes a raw `json` column (e.g. the `metadata` column behind
-  `[JsonPath]`) errors at the engine (`42883`). Use a `jsonb` column, or `Distinct()` a column projection instead of
-  the whole entity. **SQL Server, MySQL, and SQLite are unaffected.**
+- ¹ **PostgreSQL + full-entity `Distinct()` on an entity that declares `[JsonCollection]`:** `[JsonCollection]` emits
+  `json_agg(row_to_json(...))`, which returns the **`json`** type — and PostgreSQL has no equality operator for `json`
+  (only `jsonb`), so `SELECT DISTINCT *` can't compare it and errors at the engine (`42883`). (`[JsonPath]` and a `jsonb`
+  source column are *not* the trigger — it's the `[JsonCollection]` aggregate.) Remedy: `Distinct()` a column projection
+  that excludes the `[JsonCollection]` columns, or don't full-entity-`Distinct()` an entity that declares one.
+  **SQL Server, MySQL, and SQLite are unaffected.**
 - **`[RemoteProperty]`/`[RemoteKey]` can't be projected in a custom `.Select(...)`** — they resolve to a joined
   `alias.column` that a custom projection's `FROM` doesn't carry, so projecting one throws `NotSupportedException`
   with a clear message. Query the whole entity, or use a detail class that declares it. (The self-contained
