@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.8.0] - 2026-06-29
+## [3.8.0-beta1] - 2026-06-30
+
+> **Beta:** Row-Level Security & audit context ship as a **beta** feature in this prerelease. The rest of the library is stable; this API may be refined before the 3.8.0 GA based on feedback.
 
 ### Added
 - **Per-request session context for Row-Level Security & audit attribution.** When an app authenticates to the database as a single identity (e.g. a managed identity), FunkyORM can attach the *end-user's* identity to every command by priming caller-defined session-context keys onto the exact connection each command uses — so an RLS predicate can filter by it and audit logs can attribute it. New Core types: `FunkyAuditContext`, `SessionContextEntry`, `IAuditContextAccessor`, `AuditContextOptions`; the app implements the accessor over its own `AsyncLocal`, and the provider's `AuditContext` option (typically set per provider by an ORM factory) controls it. The capability is **generic** — FunkyORM is agnostic about key names/meaning.
