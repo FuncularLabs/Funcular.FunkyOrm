@@ -157,12 +157,20 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
             var asc = _provider.Query<PersonDetailEntity>()
                 .Where(p => p.EmployerHeadquartersCountryName != null)
                 .OrderBy(p => p.EmployerHeadquartersCountryName).ToList();
-            if (asc.Count < 2) Assert.Inconclusive("Need >= 2 people with a remote country name.");
             var desc = _provider.Query<PersonDetailEntity>()
                 .Where(p => p.EmployerHeadquartersCountryName != null)
                 .OrderByDescending(p => p.EmployerHeadquartersCountryName).ToList();
-            Assert.AreEqual(asc.First().EmployerHeadquartersCountryName, desc.Last().EmployerHeadquartersCountryName);
-            Assert.AreEqual(asc.Last().EmployerHeadquartersCountryName, desc.First().EmployerHeadquartersCountryName);
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                var ascNames = asc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                var descNames = desc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
         }
 
         [TestMethod]

@@ -494,10 +494,13 @@ namespace Funcular.Data.Orm.Sqlite
         {
             var parts = new List<string>();
             int depth = 0, start = 0;
+            bool inQuote = false;
             for (int i = 0; i < s.Length; i++)
             {
                 char c = s[i];
-                if (c == '(') depth++;
+                if (c == '\'') inQuote = !inQuote;          // SQL string-literal delimiter ('' escape nets out)
+                else if (inQuote) continue;                 // ignore commas/parens inside a string literal
+                else if (c == '(') depth++;
                 else if (c == ')') { if (depth > 0) depth--; }
                 else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start)); start = i + 1; }
             }

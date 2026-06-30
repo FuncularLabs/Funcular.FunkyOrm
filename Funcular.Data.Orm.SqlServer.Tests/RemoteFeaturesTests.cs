@@ -32,19 +32,29 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
         {
             // Ordering by a [RemoteProperty] sorts by the joined alias.column (the join is already in the SELECT).
+            // Core guarantee (order-independent): the query produces VALID, executable SQL — a broken resolver would
+            // emit an unjoined alias and ToList() would throw. This is asserted always, regardless of seeded rows.
             var asc = _provider.Query<PersonDetailEntity>()
                 .Where(p => p.EmployerHeadquartersCountryName != null)
                 .OrderBy(p => p.EmployerHeadquartersCountryName)
                 .ToList();
-            if (asc.Count < 2)
-                Assert.Inconclusive("Need >= 2 people with a remote country name to assert ordering.");
             var desc = _provider.Query<PersonDetailEntity>()
                 .Where(p => p.EmployerHeadquartersCountryName != null)
                 .OrderByDescending(p => p.EmployerHeadquartersCountryName)
                 .ToList();
-            // Collation-agnostic proof that ordering was applied: ASC.first name == DESC.last name (and vice versa).
-            Assert.AreEqual(asc.First().EmployerHeadquartersCountryName, desc.Last().EmployerHeadquartersCountryName);
-            Assert.AreEqual(asc.Last().EmployerHeadquartersCountryName, desc.First().EmployerHeadquartersCountryName);
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                // DESC ordering of the remote column must be the exact reverse of ASC — checks the WHOLE order
+                // (not just endpoints) and is collation- and tie-agnostic (equal names are interchangeable).
+                var ascNames = asc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                var descNames = desc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
         }
 
         [TestMethod]

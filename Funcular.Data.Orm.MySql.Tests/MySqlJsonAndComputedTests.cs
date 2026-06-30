@@ -325,12 +325,21 @@ namespace Funcular.Data.Orm.MySql.Tests
             var asc = _provider.Query<PersonWithEmployer>()
                 .Where(p => p.EmployerName != null)
                 .OrderBy(p => p.EmployerName).ToList();
-            if (asc.Count < 2) Assert.Inconclusive("Need >= 2 rows with a remote employer name.");
             var desc = _provider.Query<PersonWithEmployer>()
                 .Where(p => p.EmployerName != null)
                 .OrderByDescending(p => p.EmployerName).ToList();
-            Assert.AreEqual(asc.First().EmployerName, desc.Last().EmployerName);
-            Assert.AreEqual(asc.Last().EmployerName, desc.First().EmployerName);
+
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                var ascNames = asc.Select(r => r.EmployerName).ToList();
+                var descNames = desc.Select(r => r.EmployerName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
         }
     }
 }

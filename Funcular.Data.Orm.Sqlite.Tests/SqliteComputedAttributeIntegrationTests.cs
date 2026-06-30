@@ -279,12 +279,12 @@ INSERT INTO project_note (project_id, content, category) VALUES
             Assert.AreEqual(2, rows.Count); // composes + executes
 
             var sql = _sb.ToString().ToUpperInvariant();
-            // First key: [SqlExpression] COALESCE(score, 0)
-            StringAssert.Contains(sql, "COALESCE");
-            // Second key: [SubqueryAggregate] count subquery
-            StringAssert.Contains(sql, "COUNT");
-            // ThenByDescending => DESC must be present
-            StringAssert.Contains(sql, "DESC");
+            var idx = sql.IndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(idx >= 0, "no ORDER BY emitted");
+            var orderBy = sql.Substring(idx);
+            StringAssert.Contains(orderBy, "COALESCE", "primary key [SqlExpression] EffectiveScore missing from ORDER BY");
+            StringAssert.Contains(orderBy, "SELECT COUNT", "secondary key [SubqueryAggregate] MilestoneCount missing from ORDER BY");
+            StringAssert.Contains(orderBy, "DESC", "ThenByDescending direction missing from ORDER BY");
         }
 
         [TestMethod]
