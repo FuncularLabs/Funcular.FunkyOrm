@@ -63,8 +63,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             {
                 Entries = new[]
                 {
-                    new SessionContextEntry("UserId", userId),
-                    new SessionContextEntry("TeamIds", teamIds),
+                    new SessionContextEntry("myapp.user_id", userId),
+                    new SessionContextEntry("myapp.group_ids", teamIds),
                 },
                 AuditSubjectId = userId,
             };
@@ -171,7 +171,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 {
                     accessor.Set(new FunkyAuditContext
                     {
-                        Entries = new[] { new SessionContextEntry("UserId", u), new SessionContextEntry("TeamIds", "") },
+                        Entries = new[] { new SessionContextEntry("myapp.user_id", u), new SessionContextEntry("myapp.group_ids", "") },
                         AuditSubjectId = u,
                     });
                     provider.Insert(new RlsDemo { OwnerId = u, Payload = u });
@@ -194,7 +194,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             var corr = "req-" + NewId();
             _accessor.Current = new FunkyAuditContext
             {
-                Entries = new[] { new SessionContextEntry("UserId", a), new SessionContextEntry("TeamIds", "") },
+                Entries = new[] { new SessionContextEntry("myapp.user_id", a), new SessionContextEntry("myapp.group_ids", "") },
                 AuditSubjectId = a,
                 AuditCorrelationId = corr,
             };
@@ -216,7 +216,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 var a = NewId();
                 accessor.Current = new FunkyAuditContext
                 {
-                    Entries = new[] { new SessionContextEntry("UserId", a), new SessionContextEntry("TeamIds", "") }
+                    Entries = new[] { new SessionContextEntry("myapp.user_id", a), new SessionContextEntry("myapp.group_ids", "") }
                 };
                 lenient.Insert(new RlsDemo { OwnerId = a, Payload = "lenient" });
                 Assert.IsTrue(lenient.GetList<RlsDemo>().All(r => r.OwnerId == a));

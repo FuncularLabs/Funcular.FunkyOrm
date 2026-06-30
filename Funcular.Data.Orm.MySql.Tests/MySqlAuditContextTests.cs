@@ -46,8 +46,8 @@ namespace Funcular.Data.Orm.MySql.Tests
             {
                 Entries = new[]
                 {
-                    new SessionContextEntry("UserId", userId),
-                    new SessionContextEntry("TeamIds", teamIds),
+                    new SessionContextEntry("myapp_user_id", userId),
+                    new SessionContextEntry("myapp_group_ids", teamIds),
                 },
                 AuditSubjectId = userId,
             };

@@ -70,8 +70,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 Entries = new[]
                 {
                     // PostgreSQL custom settings must be dot-namespaced; the app chooses the namespace (app.*).
-                    new SessionContextEntry("app.UserId", userId),
-                    new SessionContextEntry("app.TeamIds", teamIds),
+                    new SessionContextEntry("myapp.user_id", userId),
+                    new SessionContextEntry("myapp.group_ids", teamIds),
                 },
                 AuditSubjectId = userId,
             };

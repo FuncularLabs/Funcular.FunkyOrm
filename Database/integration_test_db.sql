@@ -439,10 +439,10 @@ CREATE FUNCTION dbo.fn_rls_demo(@owner_id NVARCHAR(64))
 RETURNS TABLE WITH SCHEMABINDING AS
 RETURN
     SELECT 1 AS allowed
-    WHERE @owner_id = CONVERT(NVARCHAR(64), SESSION_CONTEXT(N'UserId'))
+    WHERE @owner_id = CONVERT(NVARCHAR(64), SESSION_CONTEXT(N'myapp.user_id'))
        OR EXISTS (
             SELECT 1
-            FROM STRING_SPLIT(CONVERT(NVARCHAR(MAX), SESSION_CONTEXT(N'TeamIds')), ',') AS s
+            FROM STRING_SPLIT(CONVERT(NVARCHAR(MAX), SESSION_CONTEXT(N'myapp.group_ids')), ',') AS s
             WHERE s.value = @owner_id
        );
 GO

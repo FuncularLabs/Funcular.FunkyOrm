@@ -1,12 +1,11 @@
 > **Recent Changes**
-> * **v3.8.0**: 🔐 **Row-Level Security & audit context** — prime per-request end-user identity onto each connection (even when the app connects as one identity) for RLS filtering and audit attribution. Full on SQL Server & PostgreSQL; attribution-only on MySQL. See [Row-Level Security & Audit Context](#row-level-security--audit-context-v38) and the [Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md).
-> * **v3.7.0**: ⚙️ **Stored procedure execution** — `ExecProcedure<T>` / `ExecScalar` / `ExecNonQuery` (+ async), with output parameters and `[Procedure]`/convention name resolution. Full on SQL Server & MySQL; `CALL`-based scalar/non-query on PostgreSQL; not supported on SQLite. See [Database Provider Differences](#database-provider-differences).
-> * **v3.6.0**: 🐬 **MySQL support** — a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector), bundled in the same `Funcular.Data.Orm` package with feature parity across providers.
-> * **v3.5.0**: 🗃️ **SQLite support** — a full file-backed, zero-config `SqliteOrmDataProvider`, bundled in the same package.
-> * **v3.2.1**: 🧩 **All four view-replacing attributes** — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, `[JsonCollection]`.
+> * **v3.5.0-beta1**: 🗃️ **SQLite Support** FunkyORM now supports SQLite with a full `SqliteOrmDataProvider` — file-backed, zero-config embedded databases with full LINQ-to-SQL, transactions, reserved word handling, and connection-string filename resolution. See [Database Provider Differences](#database-provider-differences) for details.
+> * **v3.2.2**: 🔒 **Concurrency-safe connection management** Each non-transactional operation now uses its own dedicated pooled connection, eliminating "reader already associated" errors in concurrent environments like Blazor Server. Transactional operations include a guard that throws a clear error if concurrent usage is detected. See [Concurrency & Connection Management](#concurrency--connection-management).
+> * **v3.2.1**: 🧩 **All 4 view-replacing attributes implemented** — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` let you project computed values, aggregated child counts, and nested JSON arrays directly onto entity properties — no SQL views, no stored procedures, and no raw SQL required. Combine them freely on a single detail entity to build rich read-models (e.g., a project scorecard with a coalesced score, milestone counts by status, and a full milestone list as a JSON array) using standard LINQ queries. Filtering on remote, JSON-extracted, and expression-based properties in WHERE clauses is fully supported.
+> * **v3.1.0**: 🐘 **PostgreSQL Support** FunkyORM now supports PostgreSQL with a full `PostgreSqlOrmDataProvider` — included in the `Funcular.Data.Orm` package. Full LINQ-to-SQL, remote keys/properties, transactions, and reserved word handling — everything you know from the MSSQL provider, now on Postgres. See [Database Provider Differences](#database-provider-differences) for details.
 
 
-# Funcular / Funky ORM: a speedy, lambda-powered .NET micro-ORM for MSSQL, PostgreSQL, MySQL & SQLite
+# Funcular / Funky ORM: a speedy, lambda-powered .NET micro-ORM for MSSQL, PostgreSQL & SQLite
 ![Funcular logo](https://raw.githubusercontent.com/FuncularLabs/Funcular.FunkyOrm/master/funky-orm-lineart-256x256.png)
 
 [![NuGet](https://img.shields.io/nuget/v/Funcular.Data.Orm.svg)](https://www.nuget.org/packages/Funcular.Data.Orm)
@@ -15,7 +14,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/FuncularLabs/Funcular.FunkyOrm/ci.yml?branch=master&label=Tests)](https://github.com/FuncularLabs/Funcular.FunkyOrm/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-> **For AI Agents**: Please refer to [FUNKYORM_AI_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md](Funcular.Data.Orm.PostgreSql/FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md). A SQLite-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_SQLITE.md](Funcular.Data.Orm.Sqlite/FUNKYORM_AI_INSTRUCTIONS_SQLITE.md). A MySQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_MYSQL.md](docs/ai-instructions/FUNKYORM_AI_INSTRUCTIONS_MYSQL.md).
+> **For AI Agents**: Please refer to [FUNKYORM_AI_INSTRUCTIONS.md](Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for strict coding guidelines and "Happy Path" patterns. This file is included in the NuGet package. A PostgreSQL-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md](Funcular.Data.Orm.PostgreSql/FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md). A SQLite-specific supplement is at [FUNKYORM_AI_INSTRUCTIONS_SQLITE.md](Funcular.Data.Orm.Sqlite/FUNKYORM_AI_INSTRUCTIONS_SQLITE.md).
 >
 > **Tip for Consumers**: To help AI agents (Copilot, Cursor, etc.) generate correct FunkyORM code in your project, copy `FUNKYORM_AI_INSTRUCTIONS.md` from the NuGet package to your project root or `.github/` folder. The product-specific filename avoids collisions with instructions from other packages.
 
@@ -78,15 +77,7 @@ var connectionString = "Data Source=myapp.db";
 var provider = new SqliteOrmDataProvider(connectionString);
 ```
 
-**MySQL:**
-```csharp
-using Funcular.Data.Orm.MySql;
-
-var connectionString = "Server=localhost;Port=3306;Database=mydb;User ID=myuser;Password=mypassword;GuidFormat=Char36";
-var provider = new MySqlOrmDataProvider(connectionString);
-```
-
-> **Note:** All four providers implement the same base class and support the same LINQ query API, CRUD operations, remote keys/properties, and transactions. Your entity classes and query code are fully portable between providers.
+> **Note:** All three providers implement the same base class and support the same LINQ query API, CRUD operations, remote keys/properties, and transactions. Your entity classes and query code are fully portable between providers.
 
 ### 3. Define Your Data Models
 
@@ -371,64 +362,30 @@ var tasks = new[]
 var results = await Task.WhenAll(tasks); // Each gets its own pooled connection
 ```
 
-## Row-Level Security & Audit Context (v3.8+)
-
-When your app authenticates to the database as a single identity (a managed identity, service account, or shared login) but you need the **end-user's** identity to ride along on every query — for **Row-Level Security** filtering or **audit attribution** — FunkyORM can prime per-request session context onto the exact connection each command uses.
-
-You supply a per-request `FunkyAuditContext` of **caller-defined** session-context keys (FunkyORM is agnostic about their names/meaning); FunkyORM primes them onto each connection, and your RLS predicate reads them back. It also prepends an optional self-attributing audit comment (opaque identifiers only — never PII) so captured statement text is attributable.
-
-```csharp
-accessor.Set(new FunkyAuditContext
-{
-    Entries = new[]
-    {
-        new SessionContextEntry("myapp.user_id",  userId),   // dot-namespace keys for PostgreSQL
-        new SessionContextEntry("myapp.group_ids", string.Join(",", groupIds)),
-    },
-    AuditSubjectId = userId,             // opaque id only, no name/email/PII
-});
-// PHI providers can be configured fail-closed (throw when no context is present).
-```
-
-Capability is per provider: **SQL Server & PostgreSQL** get RLS filtering *and* attribution; **MySQL** gets attribution only (no native RLS); **SQLite** is a no-op.
-
-> **Full setup, RLS policy examples (SQL Server + PostgreSQL), security notes, and troubleshooting:** see the **[Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md)**.
-
 ## Database Provider Differences
 
 FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. Your entity classes and LINQ queries are portable, but the generated SQL differs to match each platform's conventions.
 
-| Feature | SQL Server | PostgreSQL | MySQL | SQLite |
-| :--- | :--- | :--- | :--- | :--- |
-| **Provider Class** | `SqlServerOrmDataProvider` | `PostgreSqlOrmDataProvider` | `MySqlOrmDataProvider` | `SqliteOrmDataProvider` |
-| **Identifier Quoting** | `[brackets]` | `"double-quotes"` | `` `backticks` `` | `"double-quotes"` (reserved words only) |
-| **Insert Return** | `OUTPUT INSERTED.id` | `RETURNING id` | `LAST_INSERT_ID()` | `SELECT last_insert_rowid()` |
-| **Paging** | `OFFSET…FETCH NEXT` | `LIMIT…OFFSET` | `LIMIT…OFFSET` | `LIMIT…OFFSET` |
-| **String Concat** | `+` | `‖` | `CONCAT()` | `‖` |
-| **Date Parts** | `YEAR()`, `MONTH()`, `DAY()` | `EXTRACT(YEAR FROM …)` | `EXTRACT(YEAR FROM …)` | `strftime('%Y', …)` |
-| **Boolean Type** | `BIT` (0/1) | Native `BOOLEAN` | `TINYINT(1)` (0/1) | `INTEGER` (0/1) |
-| **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` |
-| **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` | `MySqlConnector` (MIT) | `Microsoft.Data.Sqlite` |
-| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` | `JSON_EXTRACT(col, '$.path')` | `json_extract(col, '$.path')` |
-| **Stored Procedure Execution** | ✅ Full (result set, scalar, non-query, output params) | ⚠️ Scalar / non-query via `CALL` (use a `FUNCTION RETURNS TABLE` for result sets) | ✅ Full (result set, scalar, non-query, output params) | ❌ N/A (SQLite has no stored procedures) |
-| **JSON Collection** | `FOR JSON PATH` | `json_agg(row_to_json(…))` | `JSON_ARRAYAGG(JSON_OBJECT(…))` | `json_group_array(json_object(…))` |
+| Feature | SQL Server | PostgreSQL | SQLite |
+| :--- | :--- | :--- | :--- |
+| **Provider Class** | `SqlServerOrmDataProvider` | `PostgreSqlOrmDataProvider` | `SqliteOrmDataProvider` |
+| **Identifier Quoting** | `[brackets]` | `"double-quotes"` | `"double-quotes"` (reserved words only) |
+| **Insert Return** | `OUTPUT INSERTED.id` | `RETURNING id` | `SELECT last_insert_rowid()` |
+| **Paging** | `OFFSET…FETCH NEXT` | `LIMIT…OFFSET` | `LIMIT…OFFSET` |
+| **String Concat** | `+` | `‖` | `‖` |
+| **Date Parts** | `YEAR()`, `MONTH()`, `DAY()` | `EXTRACT(YEAR FROM …)` | `strftime('%Y', …)` |
+| **Boolean Type** | `BIT` (0/1) | Native `BOOLEAN` | `INTEGER` (0/1) |
+| **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` |
+| **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` | `Microsoft.Data.Sqlite` |
+| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` | `json_extract(col, '$.path')` |
+| **Stored Procedures** | ✅ Supported | ❌ Not supported | ❌ Not supported |
+| **JSON Collection** | `FOR JSON PATH` | `json_agg(row_to_json(…))` | `json_group_array(json_object(…))` |
 
 ### PostgreSQL-Specific Notes
 
 - **Naming convention**: PostgreSQL is case-sensitive for quoted identifiers. Unquoted identifiers are folded to lowercase. FunkyORM quotes reserved words automatically (e.g., `"User"`, `"Order"`), and leaves non-reserved names unquoted (matching PostgreSQL's lowercase convention).
 - **Npgsql versions**: The PostgreSQL provider uses Npgsql 9.x for `net8.0` and Npgsql 8.x for `netstandard2.0` (last version with netstandard support).
 - **Timestamps**: The provider sets `AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true)` to ensure `DateTime` values are handled consistently without requiring `timestamptz` conversions.
-
-### MySQL-Specific Notes
-
-- **Driver**: Uses the MIT-licensed `MySqlConnector` (not Oracle's GPL `MySql.Data`), multi-targeting `net8.0` and `netstandard2.0`.
-- **Identity**: MySQL has no `RETURNING` clause; the provider retrieves `AUTO_INCREMENT` ids via `MySqlCommand.LastInsertedId` after insert. Non-identity (Guid/string) keys are supplied by the caller.
-- **GUIDs**: Stored as `CHAR(36)`. Add `GuidFormat=Char36` to the connection string so `Guid` properties round-trip transparently (`BINARY(16)` is also supported via `GuidFormat=Binary16`).
-- **String building**: MySQL's `+` operator performs numeric addition, so string concatenation translates to `CONCAT()`.
-- **Case sensitivity**: Default `_ci` collations make string comparisons case-insensitive (matching SQL Server) — no case-folding workaround is emitted. Use the `MySqlStringComparison.CaseSensitive` constructor option to apply `COLLATE utf8mb4_bin`. Column names are always case-insensitive; **table-name** case sensitivity follows the server's `lower_case_table_names` (case-sensitive on Linux by default), so lowercase table names are recommended for cross-platform portability.
-- **JSON**: Native `JSON` type. `[JsonPath]` uses `JSON_UNQUOTE(JSON_EXTRACT(col, '$.path'))` (with `CAST` for typed extraction), and `[JsonCollection]` uses `JSON_ARRAYAGG(JSON_OBJECT(...))`.
-- **Reserved word quoting**: Uses backtick quoting, applied to identifiers matching MySQL's reserved-word list.
-- **Schemas**: A `[Table(Schema = "x")]` maps to `` `x`.`table` `` (in MySQL, a "schema" is a database).
 
 ### SQLite-Specific Notes
 

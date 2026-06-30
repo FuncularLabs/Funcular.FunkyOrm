@@ -220,6 +220,6 @@ DROP PROCEDURE IF EXISTS sp_funky_session;
 DELIMITER $$
 CREATE PROCEDURE sp_funky_session()
 BEGIN
-    SELECT @UserId AS user_id, @TeamIds AS team_ids;
+    SELECT @myapp_user_id AS user_id, @myapp_group_ids AS team_ids;
 END$$
 DELIMITER ;

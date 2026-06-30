@@ -167,10 +167,10 @@ ALTER TABLE rls_demo FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS rls_demo_policy ON rls_demo;
 CREATE POLICY rls_demo_policy ON rls_demo
-    USING (owner_id = current_setting('app.UserId', true)
-           OR owner_id = ANY (string_to_array(coalesce(current_setting('app.TeamIds', true), ''), ',')))
-    WITH CHECK (owner_id = current_setting('app.UserId', true)
-           OR owner_id = ANY (string_to_array(coalesce(current_setting('app.TeamIds', true), ''), ',')));
+    USING (owner_id = current_setting('myapp.user_id', true)
+           OR owner_id = ANY (string_to_array(coalesce(current_setting('myapp.group_ids', true), ''), ',')))
+    WITH CHECK (owner_id = current_setting('myapp.user_id', true)
+           OR owner_id = ANY (string_to_array(coalesce(current_setting('myapp.group_ids', true), ''), ',')));
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'funky_rls_tester') THEN
