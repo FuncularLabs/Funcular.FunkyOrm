@@ -935,6 +935,10 @@ namespace Funcular.Data.Orm.SqlServer
             if (Transaction != null)
                 throw new InvalidOperationException("Transaction already in progress.");
 
+            // Prime per-request session context once for the transaction's connection, before the
+            // transaction begins. Transactional operations then reuse this same primed connection without
+            // re-priming (immutable keys cannot be set twice on one session).
+            PrimeConnectionWithAuditContext(Connection);
             Transaction = Connection?.BeginTransaction(IsolationLevel.ReadCommitted);
             TransactionName = name ?? string.Empty;
         }
@@ -1019,6 +1023,43 @@ namespace Funcular.Data.Orm.SqlServer
                 Connection.Close();
                 Connection.Dispose();
                 Connection = null;
+            }
+        }
+
+        /// <summary>
+        /// Primes the application's per-request session context onto <paramref name="connection"/> via a
+        /// single <c>sp_set_session_context</c> batch. No-op when the audit feature is disabled, under a
+        /// <see cref="SystemContextScope"/>, or when no context/entries are present; throws when the provider
+        /// requires a context and none is present. Runs on the supplied connection directly — it never opens a
+        /// nested <see cref="ConnectionScope"/> (which would trip the transactional-concurrency guard).
+        /// </summary>
+        protected internal void PrimeConnectionWithAuditContext(IDbConnection connection)
+        {
+            var context = ResolveAuditContextForPriming();
+            if (context == null) return;
+            var entries = context.Entries;
+            if (entries == null || entries.Count == 0) return;
+
+            var sql = new StringBuilder();
+            var parameters = new List<SqlParameter>(entries.Count * 2);
+            var index = 0;
+            foreach (var entry in entries)
+            {
+                sql.Append("EXEC sys.sp_set_session_context @key=@__sck").Append(index)
+                   .Append(", @value=@__scv").Append(index)
+                   .Append(", @read_only=").Append(entry.ReadOnly ? "1" : "0").Append(";");
+                parameters.Add(new SqlParameter("@__sck" + index, entry.Key));
+                parameters.Add(new SqlParameter("@__scv" + index, entry.Value));
+                index++;
+            }
+
+            using (var command = new SqlCommand(sql.ToString(), (SqlConnection)connection))
+            {
+                if (Transaction != null && ReferenceEquals(connection, Connection))
+                    command.Transaction = (SqlTransaction)Transaction;
+                command.Parameters.AddRange(parameters.ToArray());
+                InvokeLogAction(command);
+                command.ExecuteNonQuery();
             }
         }
 
@@ -1542,6 +1583,14 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal SqlCommand BuildSqlCommandObject(string commandText, IDbConnection connection,
             ICollection<SqlParameter> parameters = null, CommandType commandType = CommandType.Text)
         {
+            // Prepend the self-attributing audit comment to text commands (no-op when disabled / no context).
+            if (commandType == CommandType.Text)
+            {
+                var auditPrefix = GetAuditCommentPrefix();
+                if (auditPrefix != null)
+                    commandText = auditPrefix + "\r\n" + commandText;
+            }
+
             var command = new SqlCommand(commandText, (SqlConnection)connection)
             {
                 CommandType = commandType,
@@ -1573,6 +1622,8 @@ namespace Funcular.Data.Orm.SqlServer
             var commandText = $"SELECT * FROM {table}";
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
 
+            // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection,
@@ -2051,8 +2102,21 @@ namespace Funcular.Data.Orm.SqlServer
                     // prevent concurrent reader/command conflicts.
                     var conn = new SqlConnection(provider._connectionString);
                     conn.Open();
-                    _ownedConnection = conn;
                     _isTransactional = false;
+                    // Prime per-request session context onto this fresh pooled connection (it was reset on
+                    // checkout, so the keys can be set once). Fail-closed throws here, before any command;
+                    // dispose the just-opened connection so it does not leak.
+                    try
+                    {
+                        provider.PrimeConnectionWithAuditContext(conn);
+                    }
+                    catch
+                    {
+                        conn.Close();
+                        conn.Dispose();
+                        throw;
+                    }
+                    _ownedConnection = conn;
                 }
             }
 
@@ -2294,6 +2358,8 @@ namespace Funcular.Data.Orm.SqlServer
             string exactMatch = null;
             string fuzzyMatch = null;
 
+            // Table-name resolution is an internal/system operation: prime no identity and never fail-closed.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 var sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";

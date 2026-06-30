@@ -418,3 +418,36 @@ BEGIN
 END;
 GO
 
+
+-- =========================================================================
+-- Row-Level Security demo objects (v3.8.0) — audit/session-context tests.
+-- Standalone table so the policy cannot affect any other test table.
+-- =========================================================================
+DROP SECURITY POLICY IF EXISTS dbo.rls_demo_policy;
+GO
+DROP FUNCTION IF EXISTS dbo.fn_rls_demo;
+GO
+DROP TABLE IF EXISTS rls_demo;
+GO
+CREATE TABLE rls_demo (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    owner_id NVARCHAR(64) NOT NULL,
+    payload NVARCHAR(200) NULL
+);
+GO
+CREATE FUNCTION dbo.fn_rls_demo(@owner_id NVARCHAR(64))
+RETURNS TABLE WITH SCHEMABINDING AS
+RETURN
+    SELECT 1 AS allowed
+    WHERE @owner_id = CONVERT(NVARCHAR(64), SESSION_CONTEXT(N'myapp.user_id'))
+       OR EXISTS (
+            SELECT 1
+            FROM STRING_SPLIT(CONVERT(NVARCHAR(MAX), SESSION_CONTEXT(N'myapp.group_ids')), ',') AS s
+            WHERE s.value = @owner_id
+       );
+GO
+CREATE SECURITY POLICY dbo.rls_demo_policy
+    ADD FILTER PREDICATE dbo.fn_rls_demo(owner_id) ON dbo.rls_demo,
+    ADD BLOCK PREDICATE dbo.fn_rls_demo(owner_id) ON dbo.rls_demo
+    WITH (STATE = ON);
+GO

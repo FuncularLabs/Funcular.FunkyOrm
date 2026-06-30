@@ -385,6 +385,8 @@ namespace Funcular.Data.Orm.MySql
         {
             EnsureConnectionOpen();
             if (Transaction != null) throw new InvalidOperationException("Transaction already in progress.");
+            // Prime per-request session context once for the transaction's connection, before it begins.
+            PrimeConnectionWithAuditContext(Connection);
             Transaction = Connection?.BeginTransaction(IsolationLevel.ReadCommitted);
             TransactionName = name ?? string.Empty;
         }
@@ -445,6 +447,52 @@ namespace Funcular.Data.Orm.MySql
                 Connection.Dispose();
                 Connection = null;
             }
+        }
+
+        /// <summary>
+        /// Primes the application's per-request session context onto <paramref name="connection"/> as MySQL
+        /// session user variables (<c>SET @Key = value</c>) for audit attribution (MySQL has no native RLS).
+        /// Requires <c>AllowUserVariables=true</c> on the connection. Keys must be <c>[A-Za-z0-9_]</c>. No-op
+        /// when disabled, under a <see cref="SystemContextScope"/>, or with no context/entries; throws when a
+        /// context is required and absent. Runs on the supplied connection directly (never a nested scope).
+        /// </summary>
+        protected internal void PrimeConnectionWithAuditContext(IDbConnection connection)
+        {
+            var context = ResolveAuditContextForPriming();
+            if (context == null) return;
+            var entries = context.Entries;
+            if (entries == null || entries.Count == 0) return;
+
+            var sql = new StringBuilder("SET ");
+            var parameters = new List<MySqlParameter>(entries.Count);
+            var index = 0;
+            foreach (var entry in entries)
+            {
+                if (!IsSafeVariableName(entry.Key))
+                    throw new InvalidOperationException(
+                        "MySQL session-context key '" + entry.Key + "' is invalid; keys must match [A-Za-z0-9_].");
+                if (index > 0) sql.Append(", ");
+                sql.Append("@").Append(entry.Key).Append(" = @__scv").Append(index);
+                parameters.Add(new MySqlParameter("@__scv" + index, entry.Value));
+                index++;
+            }
+
+            using (var command = new MySqlCommand(sql.ToString(), (MySqlConnection)connection))
+            {
+                if (Transaction != null && ReferenceEquals(connection, Connection))
+                    command.Transaction = (MySqlTransaction)Transaction;
+                command.Parameters.AddRange(parameters.ToArray());
+                InvokeLogAction(command);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static bool IsSafeVariableName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var c in name)
+                if (!(char.IsLetterOrDigit(c) || c == '_')) return false;
+            return true;
         }
 
         #endregion
@@ -834,6 +882,14 @@ namespace Funcular.Data.Orm.MySql
 
         protected internal MySqlCommand BuildSqlCommandObject(string commandText, IDbConnection connection, ICollection<MySqlParameter> parameters = null, CommandType commandType = CommandType.Text)
         {
+            // Prepend the self-attributing audit comment to text commands (no-op when disabled / no context).
+            if (commandType == CommandType.Text)
+            {
+                var auditPrefix = GetAuditCommentPrefix();
+                if (auditPrefix != null)
+                    commandText = auditPrefix + "\r\n" + commandText;
+            }
+
             var command = new MySqlCommand(commandText, (MySqlConnection)connection)
             {
                 CommandType = commandType,
@@ -1046,6 +1102,8 @@ namespace Funcular.Data.Orm.MySql
             var commandText = $"SELECT * FROM {table} LIMIT 0";
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
 
+            // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, Array.Empty<MySqlParameter>()))
@@ -1327,8 +1385,18 @@ namespace Funcular.Data.Orm.MySql
                 {
                     var conn = new MySqlConnection(provider._connectionString);
                     conn.Open();
-                    _ownedConnection = conn;
                     _isTransactional = false;
+                    try
+                    {
+                        provider.PrimeConnectionWithAuditContext(conn);
+                    }
+                    catch
+                    {
+                        conn.Close();
+                        conn.Dispose();
+                        throw;
+                    }
+                    _ownedConnection = conn;
                 }
             }
 
@@ -1422,6 +1490,8 @@ namespace Funcular.Data.Orm.MySql
             string exactMatch = null;
             string fuzzyMatch = null;
 
+            // Table-name resolution is an internal/system operation: prime no identity and never fail-closed.
+            using (SystemContextScope.Enter())
             using (var connectionScope = new ConnectionScope(this))
             {
                 // MySQL: information_schema.tables; the current database is the "schema".

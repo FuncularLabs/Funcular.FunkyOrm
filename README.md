@@ -1,10 +1,8 @@
 > **Recent Changes**
+> * **v3.8.0-beta1**: 🔐 **Row-Level Security & audit context (beta)** — prime per-request end-user identity onto each connection (even when the app connects as one identity) for RLS filtering and audit attribution. Full on SQL Server & PostgreSQL; attribution-only on MySQL. Shipping as a **beta** feature. See [Row-Level Security & Audit Context](#row-level-security--audit-context-v38) and the [Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md).
 > * **v3.7.0**: ⚙️ **Stored procedure execution** — `ExecProcedure<T>` / `ExecScalar` / `ExecNonQuery` (+ async), with output parameters and `[Procedure]`/convention name resolution. Full on SQL Server & MySQL; `CALL`-based scalar/non-query on PostgreSQL; not supported on SQLite. See [Database Provider Differences](#database-provider-differences).
-> * **v3.6.1**: 🛠️ **Update-in-transaction fix** — `Update`/`UpdateAsync` no longer trip the connection guard inside a `BeginTransaction()` scope.
 > * **v3.6.0**: 🐬 **MySQL support** — a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector), bundled in the same `Funcular.Data.Orm` package with feature parity across providers.
-> * **v3.5.1**: 🛠️ **`[JsonPath]` WHERE-predicate fix** — JSON-extracted properties honored in method-call (`Contains`/`StartsWith`/`IN`) and aggregate predicates.
 > * **v3.5.0**: 🗃️ **SQLite support** — a full file-backed, zero-config `SqliteOrmDataProvider`, bundled in the same package.
-> * **v3.2.2**: 🔒 **Concurrency-safe connections** — each non-transactional operation uses its own pooled connection; transactional misuse fails loudly.
 > * **v3.2.1**: 🧩 **All four view-replacing attributes** — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, `[JsonCollection]`.
 
 
@@ -372,6 +370,29 @@ var tasks = new[]
 };
 var results = await Task.WhenAll(tasks); // Each gets its own pooled connection
 ```
+
+## Row-Level Security & Audit Context (v3.8+)
+
+When your app authenticates to the database as a single identity (a managed identity, service account, or shared login) but you need the **end-user's** identity to ride along on every query — for **Row-Level Security** filtering or **audit attribution** — FunkyORM can prime per-request session context onto the exact connection each command uses.
+
+You supply a per-request `FunkyAuditContext` of **caller-defined** session-context keys (FunkyORM is agnostic about their names/meaning); FunkyORM primes them onto each connection, and your RLS predicate reads them back. It also prepends an optional self-attributing audit comment (opaque identifiers only — never PII) so captured statement text is attributable.
+
+```csharp
+accessor.Set(new FunkyAuditContext
+{
+    Entries = new[]
+    {
+        new SessionContextEntry("myapp.user_id",  userId),   // dot-namespace keys for PostgreSQL
+        new SessionContextEntry("myapp.group_ids", string.Join(",", groupIds)),
+    },
+    AuditSubjectId = userId,             // opaque id only, no name/email/PII
+});
+// PHI providers can be configured fail-closed (throw when no context is present).
+```
+
+Capability is per provider: **SQL Server & PostgreSQL** get RLS filtering *and* attribution; **MySQL** gets attribution only (no native RLS); **SQLite** is a no-op.
+
+> **Full setup, RLS policy examples (SQL Server + PostgreSQL), security notes, and troubleshooting:** see the **[Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md)**.
 
 ## Database Provider Differences
 

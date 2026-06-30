@@ -13,10 +13,10 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <Version>3.7.0</Version>
-    <AssemblyVersion>3.7.0.0</AssemblyVersion>
-    <FileVersion>3.7.0.0</FileVersion>
-    <InformationalVersion>3.7.0</InformationalVersion>
+    <Version>3.8.0-beta1</Version>
+    <AssemblyVersion>3.8.0.0</AssemblyVersion>
+    <FileVersion>3.8.0.0</FileVersion>
+    <InformationalVersion>3.8.0-beta1</InformationalVersion>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 

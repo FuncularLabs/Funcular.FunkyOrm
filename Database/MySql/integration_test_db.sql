@@ -214,3 +214,12 @@ BEGIN
     SET @dummy = 0;
 END$$
 DELIMITER ;
+
+-- Audit/session-context probe (v3.8.0): returns the primed session user variables.
+DROP PROCEDURE IF EXISTS sp_funky_session;
+DELIMITER $$
+CREATE PROCEDURE sp_funky_session()
+BEGIN
+    SELECT @myapp_user_id AS user_id, @myapp_group_ids AS team_ids;
+END$$
+DELIMITER ;
