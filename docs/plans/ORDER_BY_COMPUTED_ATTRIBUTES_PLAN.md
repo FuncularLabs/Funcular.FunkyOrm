@@ -81,10 +81,12 @@ subquery fragments are distinct-ed like any other column) and with `Where`/`Sele
 
 **What works / what doesn't (these examples go in the docs):**
 
-> **Custom-projection caveat (verified by test):** a computed/view-replacing attribute **cannot** be projected in a
-> custom `.Select(...)` — `Select(p => new Project { Priority = p.Priority })` throws `NotSupportedException`
-> (*"Unmapped properties cannot be selected directly"*). So the custom-`.Select` examples below project a **plain**
-> column; computed attributes are used in full-entity queries / `Where` / `OrderBy` instead.
+> **Custom-projection support (verified by test, v3.8.1):** the **self-contained** computed attributes
+> (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`) **can** be projected in a custom `.Select(...)` —
+> `Select(p => new Project { Priority = p.Priority })` emits the resolved SQL aliased as the property and
+> materializes it back (`SelectClauseVisitor` was given the `PropertyToColumnMap`, same fix as WHERE/ORDER BY).
+> `[RemoteProperty]`/`[RemoteKey]` still **cannot** be projected (they need a join the projection's FROM doesn't
+> carry) and throw `NotSupportedException` with a clear message.
 
 ```csharp
 // ✔ works
@@ -94,12 +96,13 @@ db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct();      
 db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct()
                    .OrderBy(p => p.Name);                         // order key IS in the projection
 db.Query<Project>().OrderBy(p => p.EffectiveScore).Distinct();    // full-entity distinct + order by computed attr
+db.Query<Project>().Select(p => new Project { Priority = p.Priority });                      // ✔ projects JSON_VALUE(...) AS Priority (v3.8.1)
 
 // ✘ throws (clear, intentional)
 db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct().Count();           // NotSupportedException (Distinct + aggregate)
 db.Query<Project>().Select(p => new Project { Name = p.Name }).Distinct()
                    .OrderBy(p => p.Score);                        // InvalidOperationException — 'score' not projected
-db.Query<Project>().Select(p => new Project { Priority = p.Priority });                      // NotSupportedException — computed attr can't be custom-Select'd
+db.Query<PersonDetail>().Select(p => new PersonDetail { CountryName = p.CountryName });      // NotSupportedException — [RemoteProperty] needs a join
 ```
 
 > **PostgreSQL caveat (verified by test):** the two **full-entity** `Distinct()` lines above (`Distinct()` and
@@ -128,9 +131,10 @@ attributes. Per provider:
 ## 6. Phasing
 | Phase | Scope | Status |
 |:--|:--|:--|
-| 1 | SQL Server: visitor + query-provider wiring + order-by/distinct tests (lean proof, validate locally) | ✅ done — 200/200 green |
-| 2 | PostgreSQL, MySQL, SQLite (mirror) + tests | in progress |
-| 3 | Docs (README ORDER BY/DISTINCT note + the would/wouldn't examples), changelog `[3.8.1-beta1]`, version bump | in progress |
+| 1 | SQL Server: visitor + query-provider wiring + order-by/distinct/projection tests | ✅ done |
+| 2 | PostgreSQL, MySQL, SQLite (mirror) + tests | ✅ done |
+| 3 | Docs (README + changelog `[3.8.1-beta1]` + AI-instructions), version (already `3.8.1-beta1`) | ✅ done |
+| 4 | **Folded in:** project self-contained computed attrs in a custom `.Select(...)` (4 providers) | ✅ done |
 
 ## 7. Decisions (resolved)
 1. **Include `[SubqueryAggregate]`?** **Yes** — it's free (same `PropertyToColumnMap`) and orderable; a superset of

@@ -188,13 +188,16 @@ namespace Funcular.Data.Orm.Sqlite
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                    var selectTable = _dataProvider.GetTableNameInternal<T>();
+                    var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new SqliteSelectClauseVisitor<T>(
                         SqliteOrmDataProvider.ColumnNamesCache,
                         SqliteOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableNameInternal<T>());
+                        selectTable,
+                        selectRemoteMap);
                     selectVisitor.Visit(lambda.Body);
                     _lastSelectProjection = selectVisitor.SelectClause;
                     _lastSelectParameters = selectVisitor.Parameters;

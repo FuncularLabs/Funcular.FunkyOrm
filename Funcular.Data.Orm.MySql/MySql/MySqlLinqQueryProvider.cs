@@ -190,13 +190,18 @@ namespace Funcular.Data.Orm.MySql
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                    // Resolve computed/view-replacing attrs so self-contained ones ([JsonPath]/[SqlExpression]/
+                    // [SubqueryAggregate]) can be projected; [RemoteProperty] is rejected inside the visitor.
+                    var selectTable = _dataProvider.GetTableNameInternal<T>();
+                    var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new MySqlSelectClauseVisitor<T>(
                         MySqlOrmDataProvider.ColumnNamesCache,
                         MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableNameInternal<T>());
+                        selectTable,
+                        selectRemoteMap);
                     selectVisitor.Visit(lambda.Body);
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);

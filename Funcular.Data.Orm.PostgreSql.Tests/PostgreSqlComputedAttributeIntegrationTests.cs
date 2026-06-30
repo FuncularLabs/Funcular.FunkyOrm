@@ -439,13 +439,26 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         }
 
         [TestMethod]
-        public void Select_ComputedAttribute_NotSupported()
+        public void Select_JsonPath_Projects_AndMaterializes()
         {
-            // Documents the limitation: a computed/view-replacing attribute cannot be projected in a custom .Select(...).
-            Assert.ThrowsException<NotSupportedException>(() =>
-                SeededScorecards()
-                    .Select(p => new ProjectScorecardFull { Priority = p.Priority })
-                    .ToList());
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "PgComputedTest Project")
+                .Select(p => new ProjectScorecardFull { Priority = p.Priority })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual("high", rows[0].Priority);
+        }
+
+        [TestMethod]
+        public void Select_SqlExpressionAndSubquery_Project_AndMaterialize()
+        {
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "PgComputedTest Project")
+                .Select(p => new ProjectScorecardFull { EffectiveScore = p.EffectiveScore, MilestoneCount = p.MilestoneCount })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(85, rows[0].EffectiveScore);
+            Assert.AreEqual(5, rows[0].MilestoneCount);
         }
 
         // ???????????????????????????????????????????????????????????

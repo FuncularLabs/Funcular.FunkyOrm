@@ -537,22 +537,25 @@ var emeaProjects = provider.Query<ProjectScorecard>()
     .ToList();
 ```
 
-**Ordering by computed/remote attributes & `Distinct()` (v3.8.1):** `OrderBy`/`OrderByDescending`/`ThenBy`/
-`ThenByDescending` work on `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[RemoteProperty]`/
+**Computed/remote attributes in `OrderBy`, `Distinct()`, and projections (v3.8.1):** `OrderBy`/`OrderByDescending`/
+`ThenBy`/`ThenByDescending` work on `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[RemoteProperty]`/
 `[RemoteKey]` — FunkyORM sorts by the resolved SQL fragment, not a missing column. `Distinct()` emits
-`SELECT DISTINCT`. Supported on the whole-entity `Query<T>()…` path, all four providers.
+`SELECT DISTINCT`. The self-contained computed attributes (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`)
+can also be projected in a custom `.Select(...)` and materialize back onto the property. Whole-entity
+`Query<T>()…` path, all four providers.
 
 ```csharp
 provider.Query<ProjectScorecard>().OrderByDescending(p => p.MilestoneCount).ThenBy(p => p.EffectiveScore);
 provider.Query<ProjectScorecard>().OrderBy(p => p.Priority);     // ORDER BY the JSON accessor
 provider.Query<ProjectScorecard>().Distinct();                  // SELECT DISTINCT
+provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority = p.Priority }); // projects JSON_VALUE(...) AS Priority
 ```
 
 > **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
 > Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
-> A computed/view-replacing attribute **cannot be projected in a custom `.Select(...)`** —
-> `Select(p => new T { Priority = p.Priority })` throws `NotSupportedException` ("Unmapped properties cannot be
-> selected directly"). Use computed attributes in full-entity queries, `Where`, and `OrderBy` instead.
+> A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
+> projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
+> The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
 > **PostgreSQL only:** full-entity `Distinct()` over an entity exposing a raw `json` column errors at the engine
 > (`42883` — no equality operator for `json`); use `jsonb` or `Distinct()` a column projection. SQL Server/MySQL/SQLite are fine.
 

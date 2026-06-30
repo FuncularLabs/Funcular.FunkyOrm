@@ -240,12 +240,41 @@ namespace Funcular.Data.Orm.MySql.Tests
             Assert.AreEqual(2, rows.Count);
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // Custom .Select(...) projection of self-contained computed
+        // (view-replacing) attributes: [JsonPath], [SqlExpression],
+        // [SubqueryAggregate] now project and materialize.
+        // ─────────────────────────────────────────────────────────────
+
         [TestMethod]
-        public void Select_ComputedAttribute_NotSupported()
+        public void Select_JsonPath_Projects_AndMaterializes()
         {
-            Assert.ThrowsException<NotSupportedException>(() =>
-                SeededScorecards()
-                    .Select(p => new ProjectScorecard { Priority = p.Priority })
+            var rows = _provider.Query<ProjectScorecard>()
+                .Where(p => p.Name == _projectName)
+                .Select(p => new ProjectScorecard { Priority = p.Priority })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(3, rows[0].Priority); // seeded metadata '$.priority' == 3 (SqlType=int)
+        }
+
+        [TestMethod]
+        public void Select_SqlExpressionAndSubquery_Project_AndMaterialize()
+        {
+            var rows = _provider.Query<ProjectScorecard>()
+                .Where(p => p.Name == _projectName)
+                .Select(p => new ProjectScorecard { EffectiveScore = p.EffectiveScore, MilestoneCount = p.MilestoneCount })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(80, rows[0].EffectiveScore);   // COALESCE(score, 0) over seeded score 80
+            Assert.AreEqual(3, rows[0].MilestoneCount);    // seeded 3 milestones
+        }
+
+        [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>()
+                    .Select(p => new PersonWithEmployer { EmployerName = p.EmployerName })
                     .ToList());
         }
     }

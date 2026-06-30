@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using Microsoft.Data.SqlClient;
 using Funcular.Data.Orm.SqlServer;
+using Funcular.Data.Orm.Attributes;
 
 namespace Funcular.Data.Orm.Visitors
 {
@@ -20,6 +21,7 @@ namespace Funcular.Data.Orm.Visitors
         private readonly ParameterGenerator _parameterGenerator;
         private readonly SqlExpressionTranslator _translator;
         private readonly string _tableName;
+        private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
 
         /// <summary>
         /// Gets the generated SQL SELECT clause.
@@ -44,12 +46,14 @@ namespace Funcular.Data.Orm.Visitors
             ICollection<PropertyInfo> unmappedProperties,
             ParameterGenerator parameterGenerator,
             SqlExpressionTranslator translator,
-            string tableName = null)
+            string tableName = null,
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
             : base(columnNames, unmappedProperties)
         {
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
             _translator = translator ?? throw new ArgumentNullException(nameof(translator));
             _tableName = tableName;
+            _propertyToColumnMap = propertyToColumnMap;
         }
 
         /// <summary>
@@ -167,7 +171,22 @@ namespace Funcular.Data.Orm.Visitors
                     return;
                 }
                 if (property != null && IsUnmappedProperty(property))
+                {
+                    // [RemoteProperty]/[RemoteKey] resolve to alias.column and require a JOIN that a custom
+                    // projection's FROM does not carry — reject with a clear message rather than emit SQL that
+                    // references a missing alias. Query the whole entity, or use a detail class that declares it.
+                    if (property.GetCustomAttribute<RemoteAttributeBase>() != null)
+                        throw new NotSupportedException(
+                            $"A [RemoteProperty]/[RemoteKey] ('{property.Name}') cannot be projected in a custom Select(...); it requires a join. Query the whole entity, or use a detail class that declares it.");
+                    // Self-contained computed attribute ([JsonPath]/[SqlExpression]/[SubqueryAggregate]): emit its
+                    // resolved SQL fragment; the enclosing member-init binding appends the " AS <Name>" alias.
+                    if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
+                    {
+                        _selectBuilder.Append(resolved);
+                        return;
+                    }
                     throw new NotSupportedException("Unmapped properties cannot be selected directly.");
+                }
             }
 
             // Captured closure value

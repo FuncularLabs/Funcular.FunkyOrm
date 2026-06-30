@@ -152,6 +152,15 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
         }
 
         [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>()
+                    .Select(p => new PersonDetailEntity { EmployerHeadquartersCountryName = p.EmployerHeadquartersCountryName })
+                    .ToList());
+        }
+
+        [TestMethod]
         public void CanFilterByRemoteProperty()
         {
             var country = new CountryEntity { Name = "FilterCountry_" + Guid.NewGuid() };

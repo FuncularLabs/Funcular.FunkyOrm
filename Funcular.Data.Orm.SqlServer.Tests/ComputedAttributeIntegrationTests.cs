@@ -298,6 +298,31 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Select_JsonPath_Projects_AndMaterializes()
+        {
+            // v3.8.1: a [JsonPath] computed attribute can be projected in a custom Select and materializes back.
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "ComputedTest Project")
+                .Select(p => new ProjectScorecardFull { Priority = p.Priority }) // [JsonPath]
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual("high", rows[0].Priority, "computed [JsonPath] value did not materialize onto the property");
+        }
+
+        [TestMethod]
+        public void Select_SqlExpressionAndSubquery_Project_AndMaterialize()
+        {
+            // [SqlExpression] and [SubqueryAggregate] project in a custom Select and materialize.
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "ComputedTest Project")
+                .Select(p => new ProjectScorecardFull { EffectiveScore = p.EffectiveScore, MilestoneCount = p.MilestoneCount })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(85, rows[0].EffectiveScore, "[SqlExpression] did not materialize");
+            Assert.AreEqual(5, rows[0].MilestoneCount, "[SubqueryAggregate] did not materialize");
+        }
+
+        [TestMethod]
         public void Distinct_FullEntity_EmitsSelectDistinct()
         {
             // Whole-entity Distinct() (no custom projection): SELECT DISTINCT over all columns incl. computed.
@@ -330,16 +355,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.AreEqual(2, rows.Count);
         }
 
-        [TestMethod]
-        public void Select_ComputedAttribute_NotSupported()
-        {
-            // Documents a real limitation: a computed/"view-replacing" attribute cannot be projected in a
-            // custom .Select(...). They work in full-entity queries, Where(...), and OrderBy(...), but not here.
-            Assert.ThrowsException<NotSupportedException>(() =>
-                SeededScorecards()
-                    .Select(p => new ProjectScorecardFull { Priority = p.Priority }) // [JsonPath] — unsupported in Select
-                    .ToList());
-        }
 
         [TestMethod]
         public void SubqueryAggregate_MilestonesCompleted_Returns2()

@@ -29,6 +29,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            // A [RemoteProperty] resolves to alias.column and needs a JOIN a custom projection's FROM doesn't
+            // carry, so projecting it is rejected with a clear error (unlike self-contained computed attrs).
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>()
+                    .Select(p => new PersonDetailEntity { EmployerHeadquartersCountryName = p.EmployerHeadquartersCountryName })
+                    .ToList());
+        }
+
+        [TestMethod]
         public void RemoteKey_IsPopulated_OnQuery()
         {
             // Arrange

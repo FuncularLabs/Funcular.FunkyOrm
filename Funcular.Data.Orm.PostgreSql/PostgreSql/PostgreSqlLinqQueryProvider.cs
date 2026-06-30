@@ -190,13 +190,16 @@ namespace Funcular.Data.Orm.PostgreSql
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                    var selectTable = _dataProvider.GetTableNameInternal<T>();
+                    var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new PostgreSqlSelectClauseVisitor<T>(
                         PostgreSqlOrmDataProvider.ColumnNamesCache,
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableNameInternal<T>());
+                        selectTable,
+                        selectRemoteMap);
                     selectVisitor.Visit(lambda.Body);
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);

@@ -46,5 +46,15 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             Assert.IsTrue(results.Count > 0);
             Assert.IsTrue(results.All(p => p.EmployerHeadquartersCountryName == targetName));
         }
+
+        [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            // A [RemoteProperty] requires a join a custom projection's FROM does not carry — reject clearly.
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>()
+                    .Select(p => new PersonDetailEntity { EmployerHeadquartersCountryName = p.EmployerHeadquartersCountryName })
+                    .ToList());
+        }
     }
 }
