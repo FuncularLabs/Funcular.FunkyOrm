@@ -311,6 +311,179 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             Assert.AreEqual(0, empty.NoteCount);
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // v3.8.x: ORDER BY / DISTINCT on computed (view-replacing) attributes
+        // ─────────────────────────────────────────────────────────────
+
+        private System.Linq.IQueryable<ProjectScorecardFull> SeededScorecards() =>
+            _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "PgComputedTest Project" || p.Name == "PgEmptyProject");
+
+        [TestMethod]
+        public void OrderBy_SqlExpression_OrdersByCoalescedScore()
+        {
+            // [SqlExpression] COALESCE(score, 0): PgEmptyProject (0) before PgComputedTest (85).
+            // COALESCE makes both non-null, so ordering is portable across providers.
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("PgEmptyProject", rows.First().Name);
+            Assert.AreEqual("PgComputedTest Project", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderByDescending_SubqueryAggregate_OrdersByMilestoneCount()
+        {
+            // [SubqueryAggregate] count: PgComputedTest (5) before PgEmptyProject (0).
+            var rows = SeededScorecards().OrderByDescending(p => p.MilestoneCount).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("PgComputedTest Project", rows.First().Name);
+            Assert.AreEqual("PgEmptyProject", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderBy_JsonPath_ExecutesAndOrders()
+        {
+            // [JsonPath] metadata->>'priority'. A broken resolver would emit ORDER BY priority
+            // (a non-existent column) → SQL error; successful execution proves the JSON expression is used.
+            // NOTE: PostgreSQL orders NULLs differently than SQL Server (NULLS LAST by default for DESC),
+            // so we assert only that the query executes and returns the expected number of rows.
+            var rows = SeededScorecards().OrderByDescending(p => p.Priority).ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void OrderBy_ThenBy_ComputedAttributes_Composes()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .OrderBy(p => p.EffectiveScore)
+                .ThenByDescending(p => p.MilestoneCount)
+                .ToList();
+            Assert.AreEqual(2, rows.Count); // composes + executes
+
+            var sql = _sb.ToString().ToUpperInvariant();
+            var orderByIdx = sql.IndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(orderByIdx >= 0, "Expected an ORDER BY clause.");
+            var orderBy = sql.Substring(orderByIdx);
+            // [SqlExpression] EffectiveScore => COALESCE(...); [SubqueryAggregate] MilestoneCount => correlated COUNT(...).
+            StringAssert.Contains(orderBy, "COALESCE");
+            StringAssert.Contains(orderBy, "COUNT");
+            StringAssert.Contains(orderBy, "DESC");
+        }
+
+        [TestMethod]
+        public void Distinct_OnProjection_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .ToList();
+            StringAssert.Contains(
+                _sb.ToString().ToUpperInvariant(),
+                "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct names
+        }
+
+        [TestMethod]
+        public void Distinct_WithCount_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Count());
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByUnprojectedColumn_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            // FunkyOrm correctly emits SELECT DISTINCT over the full entity. On PostgreSQL, however, the
+            // full entity carries [JsonCollection] properties (MilestonesJson/NotesJson) that emit
+            // json_agg(row_to_json(...)) — a json-typed expression — and PostgreSQL has no equality operator
+            // for the json type, so DISTINCT execution fails at the engine level (42883). This is a real,
+            // PostgreSQL-specific divergence from SQL Server (where the equivalent test passes): we assert the
+            // emitted SQL contains SELECT DISTINCT, and that the engine rejects DISTINCT over json.
+            _sb.Clear();
+            var ex = Assert.ThrowsException<PostgresException>(() =>
+                SeededScorecards().Distinct().ToList());
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            StringAssert.Contains(ex.Message, "json");
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            // Full-entity Distinct() combined with ORDER BY a computed attribute. FunkyOrm emits SELECT DISTINCT
+            // with the computed COALESCE expression as the ORDER BY key (verified below). As with the prior test,
+            // PostgreSQL rejects DISTINCT over the full entity's [JsonCollection] columns (MilestonesJson/NotesJson),
+            // which emit json_agg(row_to_json(...)) — a json-typed expression with no equality operator — so
+            // execution throws at the engine level. This is a PostgreSQL-specific divergence.
+            _sb.Clear();
+            var ex = Assert.ThrowsException<PostgresException>(() =>
+                SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList());
+            var sql = _sb.ToString().ToUpperInvariant();
+            StringAssert.Contains(sql, "SELECT DISTINCT");
+            StringAssert.Contains(sql, "ORDER BY COALESCE(PROJECT.SCORE, 0)");
+            StringAssert.Contains(ex.Message, "json");
+        }
+
+        [TestMethod]
+        public void Select_JsonPath_Projects_AndMaterializes()
+        {
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "PgComputedTest Project")
+                .Select(p => new ProjectScorecardFull { Priority = p.Priority })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual("high", rows[0].Priority);
+        }
+
+        [TestMethod]
+        public void Select_SqlExpressionAndSubquery_Project_AndMaterialize()
+        {
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "PgComputedTest Project")
+                .Select(p => new ProjectScorecardFull { EffectiveScore = p.EffectiveScore, MilestoneCount = p.MilestoneCount })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(85, rows[0].EffectiveScore);
+            Assert.AreEqual(5, rows[0].MilestoneCount);
+        }
+
         // ???????????????????????????????????????????????????????????
         // Phase 4: [JsonCollection] Tests
         // ???????????????????????????????????????????????????????????

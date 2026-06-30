@@ -14,6 +14,8 @@ namespace Funcular.Data.Orm.MySql.Tests
     {
         private string _projectName;
         private int _projectId;
+        private string _emptyProjectName;
+        private int _emptyProjectId;
 
         [TestInitialize]
         public void Setup()
@@ -49,7 +51,27 @@ namespace Funcular.Data.Orm.MySql.Tests
             {
                 _provider.Insert(new ProjectMilestone { ProjectId = _projectId, Title = title, Status = status });
             }
+
+            // "Empty" comparison project: NULL score, no JSON priority, no milestones.
+            _emptyProjectName = "Empty" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            var emptyProject = new Project
+            {
+                Name = _emptyProjectName,
+                OrganizationId = org.Id,
+                Score = null,
+                Budget = null,
+                Metadata = "{}",
+                DateUtcCreated = DateTime.UtcNow,
+                DateUtcModified = DateTime.UtcNow
+            };
+            _provider.Insert(emptyProject);
+            _emptyProjectId = emptyProject.Id;
         }
+
+        /// <summary>Filters to exactly the two seeded projects (seeded + empty) by Name.</summary>
+        private System.Linq.IQueryable<ProjectScorecard> SeededScorecards() =>
+            _provider.Query<ProjectScorecard>()
+                .Where(p => p.Name == _projectName || p.Name == _emptyProjectName);
 
         [TestMethod]
         public void JsonPath_Select_ExtractsScalars()
@@ -110,6 +132,214 @@ namespace Funcular.Data.Orm.MySql.Tests
             Assert.IsFalse(string.IsNullOrEmpty(card.MilestonesJson));
             StringAssert.Contains(card.MilestonesJson, "M1");
             StringAssert.Contains(card.MilestonesJson, "completed");
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // ORDER BY / DISTINCT on computed (view-replacing) attributes
+        // ─────────────────────────────────────────────────────────────
+
+        [TestMethod]
+        public void OrderBy_SqlExpression_OrdersByCoalescedScore()
+        {
+            // [SqlExpression] COALESCE(score, 0): empty (0) before seeded (80). Portable, no NULLs.
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual(_emptyProjectName, rows.First().Name);
+            Assert.AreEqual(_projectName, rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderByDescending_SubqueryAggregate_OrdersByMilestoneCount()
+        {
+            // [SubqueryAggregate] count: seeded (3) before empty (0).
+            var rows = SeededScorecards().OrderByDescending(p => p.MilestoneCount).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual(_projectName, rows.First().Name);
+            Assert.AreEqual(_emptyProjectName, rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderBy_ThenBy_ComputedAttributes_Composes()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .OrderBy(p => p.EffectiveScore)
+                .ThenByDescending(p => p.MilestoneCount)
+                .ToList();
+            Assert.AreEqual(2, rows.Count); // composes + executes
+
+            // The emitted ORDER BY must carry both computed keys: COALESCE (the [SqlExpression]
+            // EffectiveScore) and COUNT (the [SubqueryAggregate] correlated subquery for
+            // MilestoneCount), with the DESC for ThenByDescending.
+            var sql = _sb.ToString().ToUpperInvariant();
+            var orderByIdx = sql.LastIndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(orderByIdx >= 0, "Expected an ORDER BY clause in the emitted SQL.");
+            var orderByClause = sql.Substring(orderByIdx);
+            StringAssert.Contains(orderByClause, "COALESCE");
+            StringAssert.Contains(orderByClause, "COUNT");
+            StringAssert.Contains(orderByClause, "DESC");
+        }
+
+        [TestMethod]
+        public void OrderBy_JsonPath_ExecutesAndOrders()
+        {
+            // [JsonPath] JSON_VALUE(metadata,'$.priority'). A broken resolver would emit ORDER BY priority
+            // (a non-existent column) → SQL error. We only assert it executes & returns both rows; MySQL
+            // NULL ordering (NULLs first ASC / last DESC) makes positional assertions non-portable.
+            var rows = SeededScorecards().OrderByDescending(p => p.Priority).ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_OnProjection_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecard { Name = p.Name })
+                .Distinct()
+                .ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct names
+        }
+
+        [TestMethod]
+        public void Distinct_WithCount_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecard { Name = p.Name })
+                    .Distinct()
+                    .Count());
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByUnprojectedColumn_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecard { Name = p.Name })
+                    .Distinct()
+                    .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards().Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecard { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Custom .Select(...) projection of self-contained computed
+        // (view-replacing) attributes: [JsonPath], [SqlExpression],
+        // [SubqueryAggregate] now project and materialize.
+        // ─────────────────────────────────────────────────────────────
+
+        [TestMethod]
+        public void Select_JsonPath_Projects_AndMaterializes()
+        {
+            var rows = _provider.Query<ProjectScorecard>()
+                .Where(p => p.Name == _projectName)
+                .Select(p => new ProjectScorecard { Priority = p.Priority })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(3, rows[0].Priority); // seeded metadata '$.priority' == 3 (SqlType=int)
+        }
+
+        [TestMethod]
+        public void Select_SqlExpressionAndSubquery_Project_AndMaterialize()
+        {
+            var rows = _provider.Query<ProjectScorecard>()
+                .Where(p => p.Name == _projectName)
+                .Select(p => new ProjectScorecard { EffectiveScore = p.EffectiveScore, MilestoneCount = p.MilestoneCount })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(80, rows[0].EffectiveScore);   // COALESCE(score, 0) over seeded score 80
+            Assert.AreEqual(3, rows[0].MilestoneCount);    // seeded 3 milestones
+        }
+
+        [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>()
+                    .Select(p => new PersonWithEmployer { EmployerName = p.EmployerName })
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecard { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            // Seed two persons whose employer names sort in a known order so OrderBy-by-remote
+            // is exercised against a generated LEFT JOIN. The key point: ordering by a
+            // [RemoteProperty] must emit valid SQL and execute (not throw a FunkyORM/SQL error).
+            var orgA = new Organization { Name = "Aacme" + Guid.NewGuid().ToString("N").Substring(0, 8) };
+            var orgZ = new Organization { Name = "Zzorg" + Guid.NewGuid().ToString("N").Substring(0, 8) };
+            _provider.Insert(orgA);
+            _provider.Insert(orgZ);
+            _provider.Insert(new PersonWithEmployer
+            {
+                FirstName = "Emp", LastName = "A", EmployerId = orgA.Id,
+                DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
+            });
+            _provider.Insert(new PersonWithEmployer
+            {
+                FirstName = "Emp", LastName = "Z", EmployerId = orgZ.Id,
+                DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
+            });
+
+            var asc = _provider.Query<PersonWithEmployer>()
+                .Where(p => p.EmployerName != null)
+                .OrderBy(p => p.EmployerName).ToList();
+            var desc = _provider.Query<PersonWithEmployer>()
+                .Where(p => p.EmployerName != null)
+                .OrderByDescending(p => p.EmployerName).ToList();
+
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                var ascNames = asc.Select(r => r.EmployerName).ToList();
+                var descNames = desc.Select(r => r.EmployerName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
         }
     }
 }

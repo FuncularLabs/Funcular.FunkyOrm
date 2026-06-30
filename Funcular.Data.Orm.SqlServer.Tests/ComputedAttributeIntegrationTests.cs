@@ -6,7 +6,7 @@ using Microsoft.Data.SqlClient;
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     /// <summary>
-    /// Integration tests for Phases 2�4: [SqlExpression], [SubqueryAggregate], [JsonCollection].
+    /// Integration tests for Phases 2�4: [SqlExpression], [SubqueryAggregate], [JsonCollection].
     /// Uses the <see cref="ProjectScorecardFull"/> detail class.
     /// </summary>
     [TestClass]
@@ -216,6 +216,167 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsNotNull(result);
             Assert.AreEqual(5, result.MilestoneCount, "Should have 5 milestones");
         }
+
+        // ─────────────────────────────────────────────────────────────
+        // v3.8.1: ORDER BY / DISTINCT on computed (view-replacing) attributes
+        // ─────────────────────────────────────────────────────────────
+
+        private System.Linq.IQueryable<ProjectScorecardFull> SeededScorecards() =>
+            _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "ComputedTest Project" || p.Name == "EmptyProject");
+
+        [TestMethod]
+        public void OrderBy_SqlExpression_OrdersByCoalescedScore()
+        {
+            // [SqlExpression] COALESCE(score, 0): EmptyProject (0) before ComputedTest (85).
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("EmptyProject", rows.First().Name);
+            Assert.AreEqual("ComputedTest Project", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderByDescending_SubqueryAggregate_OrdersByMilestoneCount()
+        {
+            // [SubqueryAggregate] count: ComputedTest (5) before EmptyProject (0).
+            var rows = SeededScorecards().OrderByDescending(p => p.MilestoneCount).ToList();
+            Assert.AreEqual("ComputedTest Project", rows.First().Name);
+            Assert.AreEqual("EmptyProject", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderBy_JsonPath_ExecutesAndOrders()
+        {
+            // [JsonPath] JSON_VALUE(metadata,'$.priority'). A broken resolver would emit ORDER BY priority
+            // (a non-existent column) → SQL error; successful execution proves the JSON expression is used.
+            var rows = SeededScorecards().OrderByDescending(p => p.Priority).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("ComputedTest Project", rows.First().Name); // "high" sorts before NULL (DESC)
+        }
+
+        [TestMethod]
+        public void OrderBy_ThenBy_ComputedAttributes_Composes()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .OrderBy(p => p.EffectiveScore)
+                .ThenByDescending(p => p.MilestoneCount)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+            // Assert BOTH ordering keys reach the emitted ORDER BY (a count-only check can't observe a dropped ThenBy).
+            var sql = _sb.ToString().ToUpperInvariant();
+            var idx = sql.IndexOf("ORDER BY", StringComparison.Ordinal);
+            Assert.IsTrue(idx >= 0, "no ORDER BY emitted");
+            var orderBy = sql.Substring(idx);
+            StringAssert.Contains(orderBy, "COALESCE", "primary key [SqlExpression] EffectiveScore missing from ORDER BY");
+            StringAssert.Contains(orderBy, "SELECT COUNT", "secondary key [SubqueryAggregate] MilestoneCount missing from ORDER BY");
+            StringAssert.Contains(orderBy, "DESC", "ThenByDescending direction missing from ORDER BY");
+        }
+
+        [TestMethod]
+        public void Distinct_Projection_Paging_WithoutOrderBy_Throws()
+        {
+            // Distinct + custom projection + paging with no explicit OrderBy would inject a default ORDER BY id
+            // (not in the projection) → clear InvalidOperationException rather than a raw DB error.
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Skip(1)
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void Distinct_OnProjection_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .ToList();
+            StringAssert.Contains(_sb.ToString(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct names
+        }
+
+        [TestMethod]
+        public void Distinct_WithCount_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Count());
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByUnprojectedColumn_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+        }
+
+        [TestMethod]
+        public void Select_JsonPath_Projects_AndMaterializes()
+        {
+            // v3.8.1: a [JsonPath] computed attribute can be projected in a custom Select and materializes back.
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "ComputedTest Project")
+                .Select(p => new ProjectScorecardFull { Priority = p.Priority }) // [JsonPath]
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual("high", rows[0].Priority, "computed [JsonPath] value did not materialize onto the property");
+        }
+
+        [TestMethod]
+        public void Select_SqlExpressionAndSubquery_Project_AndMaterialize()
+        {
+            // [SqlExpression] and [SubqueryAggregate] project in a custom Select and materialize.
+            var rows = _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "ComputedTest Project")
+                .Select(p => new ProjectScorecardFull { EffectiveScore = p.EffectiveScore, MilestoneCount = p.MilestoneCount })
+                .ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(85, rows[0].EffectiveScore, "[SqlExpression] did not materialize");
+            Assert.AreEqual(5, rows[0].MilestoneCount, "[SubqueryAggregate] did not materialize");
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_EmitsSelectDistinct()
+        {
+            // Whole-entity Distinct() (no custom projection): SELECT DISTINCT over all columns incl. computed.
+            _sb.Clear();
+            var rows = SeededScorecards().Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct projects
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByProjectedColumn_Executes()
+        {
+            // Positive counterpart to the guard: the ORDER BY key IS in the projection, so no throw.
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .OrderBy(p => p.Name)
+                .ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void Distinct_FullEntity_OrderByComputed_Executes()
+        {
+            // Full-entity Distinct() combined with ORDER BY a computed attribute (no custom projection).
+            // The computed column is part of SELECT DISTINCT *, so the resolved expression is a valid ORDER BY key.
+            _sb.Clear();
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).Distinct().ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count);
+        }
+
 
         [TestMethod]
         public void SubqueryAggregate_MilestonesCompleted_Returns2()

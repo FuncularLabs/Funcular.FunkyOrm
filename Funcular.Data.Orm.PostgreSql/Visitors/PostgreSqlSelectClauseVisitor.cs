@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using Funcular.Data.Orm.Attributes;
 using Npgsql;
 
 namespace Funcular.Data.Orm.PostgreSql.Visitors
@@ -18,6 +19,7 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
         private readonly PostgreSqlParameterGenerator _parameterGenerator;
         private readonly PostgreSqlExpressionTranslator _translator;
         private readonly string _tableName;
+        private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
 
         public string SelectClause => _selectBuilder.ToString();
         public List<NpgsqlParameter> Parameters => _parameters;
@@ -27,12 +29,14 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
             ICollection<PropertyInfo> unmappedProperties,
             PostgreSqlParameterGenerator parameterGenerator,
             PostgreSqlExpressionTranslator translator,
-            string tableName = null)
+            string tableName = null,
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
             : base(columnNames, unmappedProperties)
         {
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
             _translator = translator ?? throw new ArgumentNullException(nameof(translator));
             _tableName = tableName;
+            _propertyToColumnMap = propertyToColumnMap;
         }
 
         public override void Visit(Expression expression)
@@ -94,7 +98,19 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
                     return;
                 }
                 if (property != null && IsUnmappedProperty(property))
+                {
+                    // [RemoteProperty]/[RemoteKey] resolve to alias.column and require a JOIN that a custom
+                    // projection's FROM does not carry — reject clearly. Self-contained computed attrs resolve via the map.
+                    if (property.GetCustomAttribute<RemoteAttributeBase>() != null)
+                        throw new NotSupportedException(
+                            $"A [RemoteProperty]/[RemoteKey] ('{property.Name}') cannot be projected in a custom Select(...); it requires a join. Query the whole entity, or use a detail class that declares it.");
+                    if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
+                    {
+                        _selectBuilder.Append(resolved);
+                        return;
+                    }
                     throw new NotSupportedException("Unmapped properties cannot be selected directly.");
+                }
             }
             if (node.Expression is ConstantExpression constantExpression)
             {

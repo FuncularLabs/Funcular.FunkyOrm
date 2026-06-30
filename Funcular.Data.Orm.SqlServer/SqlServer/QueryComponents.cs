@@ -72,6 +72,11 @@ namespace Funcular.Data.Orm.SqlServer
         public bool IsAggregate { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether the query should emit SELECT DISTINCT.
+        /// </summary>
+        public bool IsDistinct { get; set; }
+
+        /// <summary>
         /// Gets or sets the outermost method call expression (e.g., Any, All, Count, etc.).
         /// </summary>
         public MethodCallExpression OuterMethodCall { get; set; }

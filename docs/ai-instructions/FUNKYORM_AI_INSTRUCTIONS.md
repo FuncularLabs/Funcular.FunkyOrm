@@ -537,6 +537,29 @@ var emeaProjects = provider.Query<ProjectScorecard>()
     .ToList();
 ```
 
+**Computed/remote attributes in `OrderBy`, `Distinct()`, and projections (v3.8.1):** `OrderBy`/`OrderByDescending`/
+`ThenBy`/`ThenByDescending` work on `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[RemoteProperty]`/
+`[RemoteKey]` — FunkyORM sorts by the resolved SQL fragment, not a missing column. `Distinct()` emits
+`SELECT DISTINCT`. The self-contained computed attributes (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`)
+can also be projected in a custom `.Select(...)` and materialize back onto the property. Whole-entity
+`Query<T>()…` path, all four providers.
+
+```csharp
+provider.Query<ProjectScorecard>().OrderByDescending(p => p.MilestoneCount).ThenBy(p => p.EffectiveScore);
+provider.Query<ProjectScorecard>().OrderBy(p => p.Priority);     // ORDER BY the JSON accessor
+provider.Query<ProjectScorecard>().Distinct();                  // SELECT DISTINCT
+provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority = p.Priority }); // projects JSON_VALUE(...) AS Priority
+```
+
+> **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
+> Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
+> A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
+> projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
+> The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
+> **PostgreSQL only:** full-entity `Distinct()` on an entity declaring `[JsonCollection]` errors at the engine
+> (`42883` — `json_agg(row_to_json(...))` is `json`-typed and `json` has no equality operator). `[JsonPath]`/`jsonb`
+> columns are fine. Remedy: `Distinct()` a column projection excluding the `[JsonCollection]` columns. SQL Server/MySQL/SQLite are fine.
+
 **Combining `[JsonPath]` with `[RemoteProperty]` on the same Detail class:**
 
 ```csharp

@@ -31,6 +31,12 @@ namespace Funcular.Data.Orm.MySql
         public string SelectClause { get; set; }
         public string AggregateClause { get; set; }
         public bool IsAggregate { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the query should emit SELECT DISTINCT.
+        /// </summary>
+        public bool IsDistinct { get; set; }
+
         public MethodCallExpression OuterMethodCall { get; set; }
     }
 }

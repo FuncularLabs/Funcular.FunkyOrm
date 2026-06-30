@@ -46,5 +46,37 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             Assert.IsTrue(results.Count > 0);
             Assert.IsTrue(results.All(p => p.EmployerHeadquartersCountryName == targetName));
         }
+
+        [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            var asc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderBy(p => p.EmployerHeadquartersCountryName).ToList();
+            var desc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderByDescending(p => p.EmployerHeadquartersCountryName).ToList();
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                var ascNames = asc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                var descNames = desc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
+        }
+
+        [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            // A [RemoteProperty] requires a join a custom projection's FROM does not carry — reject clearly.
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>()
+                    .Select(p => new PersonDetailEntity { EmployerHeadquartersCountryName = p.EmployerHeadquartersCountryName })
+                    .ToList());
+        }
     }
 }

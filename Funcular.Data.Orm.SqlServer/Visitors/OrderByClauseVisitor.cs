@@ -45,11 +45,41 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         /// <param name="columnNames">Cached column name mappings from property keys to SQL column names.</param>
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
+        private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
+
         public OrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
-            ICollection<PropertyInfo> unmappedProperties)
+            ICollection<PropertyInfo> unmappedProperties,
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
             : base(columnNames, unmappedProperties)
         {
+            _propertyToColumnMap = propertyToColumnMap;
+        }
+
+        /// <summary>
+        /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute
+        /// (<c>[JsonPath]</c>, <c>[RemoteProperty]</c>/<c>[RemoteKey]</c>, <c>[SqlExpression]</c>,
+        /// <c>[SubqueryAggregate]</c>) this is the resolved expression (JSON accessor, <c>alias.column</c>,
+        /// expression, or correlated subquery) from the remote-join map; otherwise the plain column name.
+        /// </summary>
+        private string ResolveOrderColumn(PropertyInfo property)
+        {
+            if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
+                return resolved;
+            return GetColumnName(property);
+        }
+
+        /// <summary>
+        /// Whether a property can be ordered by: a plain mapped column, or a "view-replacing" / remote
+        /// attribute present in the resolution map. Computed attributes are not base-table columns (so the
+        /// <see cref="BaseExpressionVisitor{T}.IsUnmappedProperty"/> column check excludes them), but they are
+        /// orderable via their resolved SQL fragment — so the map takes precedence over the unmapped gate.
+        /// </summary>
+        private bool IsOrderableProperty(PropertyInfo property)
+        {
+            if (_propertyToColumnMap != null && _propertyToColumnMap.ContainsKey(property.Name))
+                return true;
+            return !IsUnmappedProperty(property);
         }
 
         /// <summary>
@@ -116,9 +146,9 @@ namespace Funcular.Data.Orm.Visitors
             if (expression is MemberExpression memberExpression)
             {
                 var property = memberExpression.Member as PropertyInfo;
-                if (property != null && !IsUnmappedProperty(property))
+                if (property != null && IsOrderableProperty(property))
                 {
-                    var columnName = GetColumnName(property);
+                    var columnName = ResolveOrderColumn(property);
                     _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
                     return;
                 }
@@ -127,9 +157,9 @@ namespace Funcular.Data.Orm.Visitors
             {
                 // e.g., conversions: p => (object)p.SomeProp; handle underlying member
                 var property = unaryMember.Member as PropertyInfo;
-                if (property != null && !IsUnmappedProperty(property))
+                if (property != null && IsOrderableProperty(property))
                 {
-                    var columnName = GetColumnName(property);
+                    var columnName = ResolveOrderColumn(property);
                     _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
                     return;
                 }
@@ -166,9 +196,9 @@ namespace Funcular.Data.Orm.Visitors
                 case MemberExpression mem when mem.Member.MemberType == MemberTypes.Property && mem.Member.Name == "HasValue" && mem.Expression is MemberExpression inner:
                     {
                         var prop = inner.Member as PropertyInfo;
-                        if (prop != null && !IsUnmappedProperty(prop))
+                        if (prop != null && IsOrderableProperty(prop))
                         {
-                            var col = GetColumnName(prop);
+                            var col = ResolveOrderColumn(prop);
                             return $"{col} IS NOT NULL";
                         }
                         break;
@@ -216,8 +246,8 @@ namespace Funcular.Data.Orm.Visitors
                         if (memberExpr.Expression is ParameterExpression)
                         {
                             var property = memberExpr.Member as PropertyInfo;
-                            if (property != null && !IsUnmappedProperty(property))
-                                return GetColumnName(property);
+                            if (property != null && IsOrderableProperty(property))
+                                return ResolveOrderColumn(property);
                             throw new NotSupportedException($"Member {memberExpr.Member.Name} is not a mapped property.");
                         }
 
@@ -234,9 +264,9 @@ namespace Funcular.Data.Orm.Visitors
                             if (inner.Expression is ParameterExpression)
                             {
                                 var innerProp = inner.Member as PropertyInfo;
-                                if (innerProp != null && !IsUnmappedProperty(innerProp))
+                                if (innerProp != null && IsOrderableProperty(innerProp))
                                 {
-                                    return GetColumnName(innerProp);
+                                    return ResolveOrderColumn(innerProp);
                                 }
                             }
                         }

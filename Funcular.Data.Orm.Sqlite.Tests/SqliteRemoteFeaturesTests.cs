@@ -152,6 +152,37 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
         }
 
         [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            var asc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderBy(p => p.EmployerHeadquartersCountryName).ToList();
+            var desc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderByDescending(p => p.EmployerHeadquartersCountryName).ToList();
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                var ascNames = asc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                var descNames = desc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
+        }
+
+        [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>()
+                    .Select(p => new PersonDetailEntity { EmployerHeadquartersCountryName = p.EmployerHeadquartersCountryName })
+                    .ToList());
+        }
+
+        [TestMethod]
         public void CanFilterByRemoteProperty()
         {
             var country = new CountryEntity { Name = "FilterCountry_" + Guid.NewGuid() };

@@ -165,10 +165,13 @@ namespace Funcular.Data.Orm.Sqlite
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
+                    var orderByTable = _dataProvider.GetTableNameInternal<T>();
+                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
                     var orderByVisitor = new SqliteOrderByClauseVisitor<T>(
                         SqliteOrmDataProvider.ColumnNamesCache,
                         SqliteOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                        orderByRemoteMap);
                     orderByVisitor.Visit(currentCall);
                     orderByClause = orderByVisitor.OrderByClause;
                 }
@@ -185,16 +188,23 @@ namespace Funcular.Data.Orm.Sqlite
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                    var selectTable = _dataProvider.GetTableNameInternal<T>();
+                    var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new SqliteSelectClauseVisitor<T>(
                         SqliteOrmDataProvider.ColumnNamesCache,
                         SqliteOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableNameInternal<T>());
+                        selectTable,
+                        selectRemoteMap);
                     selectVisitor.Visit(lambda.Body);
                     _lastSelectProjection = selectVisitor.SelectClause;
                     _lastSelectParameters = selectVisitor.Parameters;
+                }
+                else if (currentCall.Method.Name == "Distinct")
+                {
+                    components.IsDistinct = true;
                 }
             }
 
@@ -207,6 +217,11 @@ namespace Funcular.Data.Orm.Sqlite
             }
             // Directly assign
             _lastOrderByClause = orderByClause;
+
+            if (components.IsDistinct && components.IsAggregate)
+                throw new NotSupportedException(
+                    "Distinct() combined with an aggregate (e.g. Count) is not supported in this version. " +
+                    "Apply the aggregate without Distinct, or materialize the distinct rows and count client-side.");
 
             return components;
         }
@@ -351,6 +366,39 @@ namespace Funcular.Data.Orm.Sqlite
                 }
             }
 
+            if (components.IsDistinct)
+            {
+                // Under DISTINCT with a custom projection, paging without an explicit ORDER BY is non-deterministic.
+                if (!string.IsNullOrEmpty(_lastSelectProjection) && string.IsNullOrEmpty(_lastOrderByClause)
+                    && (components.Skip.HasValue || components.Take.HasValue))
+                {
+                    throw new InvalidOperationException(
+                        "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit OrderBy whose keys are in the projection.");
+                }
+
+                // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
+                if (!string.IsNullOrEmpty(_lastSelectProjection) && !string.IsNullOrEmpty(_lastOrderByClause))
+                {
+                    var selectLower = _lastSelectProjection.ToLowerInvariant();
+                    var orderBody = _lastOrderByClause.Substring("ORDER BY".Length);
+                    foreach (var rawTerm in SplitTopLevelCommas(orderBody))
+                    {
+                        var col = rawTerm.Trim();
+                        if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
+                        else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
+                        if (col.Length == 0) continue;
+                        if (!selectLower.Contains(col.ToLowerInvariant()))
+                            throw new InvalidOperationException(
+                                $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
+                                "Select(...) list. Add it to the projection, or remove Distinct().");
+                    }
+                }
+
+                var trimmedSelect = selectPart.TrimStart();
+                if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
+                    selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
+            }
+
             var whereInFromIdx = FindOuterKeywordIndex(fromPart, " WHERE ");
             if (whereInFromIdx >= 0)
             {
@@ -440,6 +488,24 @@ namespace Funcular.Data.Orm.Sqlite
                     }
                 }
             }
+        }
+
+        private static List<string> SplitTopLevelCommas(string s)
+        {
+            var parts = new List<string>();
+            int depth = 0, start = 0;
+            bool inQuote = false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '\'') inQuote = !inQuote;          // SQL string-literal delimiter ('' escape nets out)
+                else if (inQuote) continue;                 // ignore commas/parens inside a string literal
+                else if (c == '(') depth++;
+                else if (c == ')') { if (depth > 0) depth--; }
+                else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start)); start = i + 1; }
+            }
+            parts.Add(s.Substring(start));
+            return parts;
         }
 
         private static int FindOuterKeywordIndex(string sql, string keyword)

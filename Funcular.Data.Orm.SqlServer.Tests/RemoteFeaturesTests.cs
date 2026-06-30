@@ -29,6 +29,46 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void OrderBy_RemoteProperty_OrdersByJoinedColumn()
+        {
+            // Ordering by a [RemoteProperty] sorts by the joined alias.column (the join is already in the SELECT).
+            // Core guarantee (order-independent): the query produces VALID, executable SQL — a broken resolver would
+            // emit an unjoined alias and ToList() would throw. This is asserted always, regardless of seeded rows.
+            var asc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderBy(p => p.EmployerHeadquartersCountryName)
+                .ToList();
+            var desc = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null)
+                .OrderByDescending(p => p.EmployerHeadquartersCountryName)
+                .ToList();
+            Assert.IsNotNull(asc);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual(asc.Count, desc.Count);
+            if (asc.Count >= 2)
+            {
+                // DESC ordering of the remote column must be the exact reverse of ASC — checks the WHOLE order
+                // (not just endpoints) and is collation- and tie-agnostic (equal names are interchangeable).
+                var ascNames = asc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                var descNames = desc.Select(r => r.EmployerHeadquartersCountryName).ToList();
+                ascNames.Reverse();
+                CollectionAssert.AreEqual(ascNames, descNames,
+                    "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
+            }
+        }
+
+        [TestMethod]
+        public void Select_RemoteProperty_InCustomProjection_Throws()
+        {
+            // A [RemoteProperty] resolves to alias.column and needs a JOIN a custom projection's FROM doesn't
+            // carry, so projecting it is rejected with a clear error (unlike self-contained computed attrs).
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>()
+                    .Select(p => new PersonDetailEntity { EmployerHeadquartersCountryName = p.EmployerHeadquartersCountryName })
+                    .ToList());
+        }
+
+        [TestMethod]
         public void RemoteKey_IsPopulated_OnQuery()
         {
             // Arrange

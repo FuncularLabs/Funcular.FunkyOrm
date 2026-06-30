@@ -167,10 +167,13 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
+                    var orderByTable = _dataProvider.GetTableNameInternal<T>();
+                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
                     var orderByVisitor = new PostgreSqlOrderByClauseVisitor<T>(
                         PostgreSqlOrmDataProvider.ColumnNamesCache,
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                        orderByRemoteMap);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }
@@ -187,18 +190,30 @@ namespace Funcular.Data.Orm.PostgreSql
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+                    var selectTable = _dataProvider.GetTableNameInternal<T>();
+                    var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new PostgreSqlSelectClauseVisitor<T>(
                         PostgreSqlOrmDataProvider.ColumnNamesCache,
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        _dataProvider.GetTableNameInternal<T>());
+                        selectTable,
+                        selectRemoteMap);
                     selectVisitor.Visit(lambda.Body);
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);
                 }
+                else if (currentCall.Method.Name == "Distinct")
+                {
+                    components.IsDistinct = true;
+                }
             }
+
+            if (components.IsDistinct && components.IsAggregate)
+                throw new NotSupportedException(
+                    "Distinct() combined with an aggregate (e.g. Count) is not supported in this version. " +
+                    "Apply the aggregate without Distinct, or materialize the distinct rows and count client-side.");
 
             return components;
         }
@@ -313,7 +328,7 @@ namespace Funcular.Data.Orm.PostgreSql
         private string BuildQueryComponents(QueryComponents components)
         {
             var baseCommand = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
-            // Find the outer " FROM " — the one not nested inside parentheses (subqueries).
+            // Find the outer " FROM " ï¿½ the one not nested inside parentheses (subqueries).
             var outerFromIdx = FindOuterKeywordIndex(baseCommand, " FROM ");
             string selectPart, fromPart;
             if (outerFromIdx >= 0)
@@ -330,6 +345,38 @@ namespace Funcular.Data.Orm.PostgreSql
             if (!string.IsNullOrEmpty(components.SelectClause))
             {
                 selectPart = $"SELECT {components.SelectClause}";
+            }
+
+            if (components.IsDistinct)
+            {
+                if (!string.IsNullOrEmpty(components.SelectClause))
+                {
+                    if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
+                        throw new InvalidOperationException(
+                            "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit " +
+                            "OrderBy whose keys are in the projection.");
+
+                    if (!string.IsNullOrEmpty(components.OrderByClause))
+                    {
+                        var selectLower = components.SelectClause.ToLowerInvariant();
+                        var orderBody = components.OrderByClause.Substring("ORDER BY".Length);
+                        foreach (var rawTerm in SplitTopLevelCommas(orderBody))
+                        {
+                            var col = rawTerm.Trim();
+                            if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
+                            else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
+                            if (col.Length == 0) continue;
+                            if (!selectLower.Contains(col.ToLowerInvariant()))
+                                throw new InvalidOperationException(
+                                    $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
+                                    "Select(...) list. Add it to the projection, or remove Distinct().");
+                        }
+                    }
+                }
+
+                var trimmedSelect = selectPart.TrimStart();
+                if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
+                    selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
             }
 
             // If fromPart contains a WHERE clause from the base command, strip it
@@ -457,6 +504,24 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
             }
             return -1;
+        }
+
+        private static List<string> SplitTopLevelCommas(string s)
+        {
+            var parts = new List<string>();
+            int depth = 0, start = 0;
+            bool inQuote = false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '\'') inQuote = !inQuote;          // SQL string-literal delimiter ('' escape nets out)
+                else if (inQuote) continue;                 // ignore commas/parens inside a string literal
+                else if (c == '(') depth++;
+                else if (c == ')') { if (depth > 0) depth--; }
+                else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start)); start = i + 1; }
+            }
+            parts.Add(s.Substring(start));
+            return parts;
         }
     }
 }

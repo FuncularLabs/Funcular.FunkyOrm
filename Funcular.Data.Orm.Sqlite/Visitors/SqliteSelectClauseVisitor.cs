@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using Funcular.Data.Orm.Attributes;
 using Microsoft.Data.Sqlite;
 
 namespace Funcular.Data.Orm.Sqlite.Visitors
@@ -18,6 +19,7 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         private readonly SqliteParameterGenerator _parameterGenerator;
         private readonly SqliteExpressionTranslator _translator;
         private readonly string _tableName;
+        private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
 
         public string SelectClause => _selectBuilder.ToString();
         public List<SqliteParameter> Parameters => _parameters;
@@ -27,12 +29,14 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
             ICollection<PropertyInfo> unmappedProperties,
             SqliteParameterGenerator parameterGenerator,
             SqliteExpressionTranslator translator,
-            string tableName = null)
+            string tableName = null,
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
             : base(columnNames, unmappedProperties)
         {
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
             _translator = translator ?? throw new ArgumentNullException(nameof(translator));
             _tableName = tableName;
+            _propertyToColumnMap = propertyToColumnMap;
         }
 
         public override void Visit(Expression expression)
@@ -103,6 +107,22 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                     if (!string.IsNullOrEmpty(_tableName)) columnName = $"{_tableName}.{columnName}";
                     _selectBuilder.Append(columnName);
                     return;
+                }
+                if (property != null && IsUnmappedProperty(property))
+                {
+                    // Unmapped property in a custom projection. A [RemoteProperty]/[RemoteKey]
+                    // requires a join and cannot be projected directly. Self-contained computed
+                    // attributes ([JsonPath]/[SqlExpression]/[SubqueryAggregate]) resolve via the map.
+                    if (property.GetCustomAttribute<RemoteAttributeBase>() != null)
+                        throw new NotSupportedException($"A [RemoteProperty]/[RemoteKey] ('{property.Name}') cannot be projected in a custom Select(...); it requires a join. Query the whole entity, or use a detail class that declares it.");
+
+                    if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
+                    {
+                        _selectBuilder.Append(resolved);
+                        return;
+                    }
+
+                    throw new NotSupportedException("Unmapped properties cannot be selected directly.");
                 }
             }
             if (node.Expression is ConstantExpression constantExpression)
