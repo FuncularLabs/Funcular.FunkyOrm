@@ -60,6 +60,10 @@ namespace Funcular.Data.Orm.MySql.Tests.Domain
         [SqlExpression("CONCAT({Name}, ' (score=', COALESCE({Score}, 0), ')')")]
         public string Label { get; set; }
 
+        /// <summary>Numeric COALESCE expression used for portable ORDER BY tests (no NULLs).</summary>
+        [SqlExpression("COALESCE({Score}, 0)")]
+        public int EffectiveScore { get; set; }
+
         [SubqueryAggregate(typeof(ProjectMilestone), nameof(ProjectMilestone.ProjectId), AggregateFunction.Count)]
         public int MilestoneCount { get; set; }
 

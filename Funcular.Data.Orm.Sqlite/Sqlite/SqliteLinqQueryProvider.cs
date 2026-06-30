@@ -165,10 +165,13 @@ namespace Funcular.Data.Orm.Sqlite
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
+                    var orderByTable = _dataProvider.GetTableNameInternal<T>();
+                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
                     var orderByVisitor = new SqliteOrderByClauseVisitor<T>(
                         SqliteOrmDataProvider.ColumnNamesCache,
                         SqliteOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                        orderByRemoteMap);
                     orderByVisitor.Visit(currentCall);
                     orderByClause = orderByVisitor.OrderByClause;
                 }
@@ -196,6 +199,10 @@ namespace Funcular.Data.Orm.Sqlite
                     _lastSelectProjection = selectVisitor.SelectClause;
                     _lastSelectParameters = selectVisitor.Parameters;
                 }
+                else if (currentCall.Method.Name == "Distinct")
+                {
+                    components.IsDistinct = true;
+                }
             }
 
             // Store order by
@@ -207,6 +214,11 @@ namespace Funcular.Data.Orm.Sqlite
             }
             // Directly assign
             _lastOrderByClause = orderByClause;
+
+            if (components.IsDistinct && components.IsAggregate)
+                throw new NotSupportedException(
+                    "Distinct() combined with an aggregate (e.g. Count) is not supported in this version. " +
+                    "Apply the aggregate without Distinct, or materialize the distinct rows and count client-side.");
 
             return components;
         }
@@ -349,6 +361,31 @@ namespace Funcular.Data.Orm.Sqlite
                 {
                     components.Parameters.AddRange(_lastSelectParameters);
                 }
+            }
+
+            if (components.IsDistinct)
+            {
+                // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
+                if (!string.IsNullOrEmpty(_lastSelectProjection) && !string.IsNullOrEmpty(_lastOrderByClause))
+                {
+                    var selectLower = _lastSelectProjection.ToLowerInvariant();
+                    var orderBody = _lastOrderByClause.Substring("ORDER BY".Length);
+                    foreach (var rawTerm in orderBody.Split(','))
+                    {
+                        var col = rawTerm.Trim();
+                        if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
+                        else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
+                        if (col.Length == 0) continue;
+                        if (!selectLower.Contains(col.ToLowerInvariant()))
+                            throw new InvalidOperationException(
+                                $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
+                                "Select(...) list. Add it to the projection, or remove Distinct().");
+                    }
+                }
+
+                var trimmedSelect = selectPart.TrimStart();
+                if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
+                    selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
             }
 
             var whereInFromIdx = FindOuterKeywordIndex(fromPart, " WHERE ");

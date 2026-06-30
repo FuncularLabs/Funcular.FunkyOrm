@@ -231,6 +231,87 @@ INSERT INTO project_note (project_id, content, category) VALUES
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ORDER BY on computed/remote attributes + DISTINCT
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        private System.Linq.IQueryable<ProjectScorecardFull> SeededScorecards() =>
+            _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "SqliteComputedTest Project" || p.Name == "SqliteEmptyProject");
+
+        [TestMethod]
+        public void OrderBy_SqlExpression_OrdersByCoalescedScore()
+        {
+            // [SqlExpression] COALESCE(score, 0): SqliteEmptyProject (0) before SqliteComputedTest (85).
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("SqliteEmptyProject", rows.First().Name);
+            Assert.AreEqual("SqliteComputedTest Project", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderByDescending_SubqueryAggregate_OrdersByMilestoneCount()
+        {
+            // [SubqueryAggregate] count: SqliteComputedTest (5) before SqliteEmptyProject (0).
+            var rows = SeededScorecards().OrderByDescending(p => p.MilestoneCount).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("SqliteComputedTest Project", rows.First().Name);
+            Assert.AreEqual("SqliteEmptyProject", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderBy_JsonPath_ExecutesAndOrders()
+        {
+            // [JsonPath] json_extract(metadata,'$.priority'). A broken resolver would emit ORDER BY priority
+            // (a non-existent column) → SQL error; successful execution proves the json_extract expression is used.
+            // NULL-ordering is engine-specific, so only assert execution + row count, not position relative to NULL.
+            var rows = SeededScorecards().OrderByDescending(p => p.Priority).ToList();
+            Assert.AreEqual(2, rows.Count);
+        }
+
+        [TestMethod]
+        public void OrderBy_ThenBy_ComputedAttributes_Composes()
+        {
+            var rows = SeededScorecards()
+                .OrderBy(p => p.EffectiveScore)
+                .ThenByDescending(p => p.MilestoneCount)
+                .ToList();
+            Assert.AreEqual(2, rows.Count); // composes + executes
+        }
+
+        [TestMethod]
+        public void Distinct_OnProjection_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .ToList();
+            StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct names
+        }
+
+        [TestMethod]
+        public void Distinct_WithCount_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Count());
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByUnprojectedColumn_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // Phase 4: [JsonCollection] Tests
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

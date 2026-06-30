@@ -33,11 +33,40 @@ namespace Funcular.Data.Orm.MySql.Visitors
             }
         }
 
+        private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
+
         public MySqlOrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
-            ICollection<PropertyInfo> unmappedProperties)
+            ICollection<PropertyInfo> unmappedProperties,
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
             : base(columnNames, unmappedProperties)
         {
+            _propertyToColumnMap = propertyToColumnMap;
+        }
+
+        /// <summary>
+        /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute
+        /// ([JsonPath], [RemoteProperty]/[RemoteKey], [SqlExpression], [SubqueryAggregate]) this is the
+        /// resolved expression from the remote-join map; otherwise the plain column name.
+        /// </summary>
+        private string ResolveOrderColumn(PropertyInfo property)
+        {
+            if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
+                return resolved;
+            return GetColumnName(property);
+        }
+
+        /// <summary>
+        /// Whether a property can be ordered by: a plain mapped column, or a "view-replacing" / remote
+        /// attribute present in the resolution map. Computed attributes are not base-table columns (so the
+        /// unmapped-column check excludes them), but they are orderable via their resolved SQL fragment —
+        /// so the map takes precedence over the unmapped gate.
+        /// </summary>
+        private bool IsOrderableProperty(PropertyInfo property)
+        {
+            if (_propertyToColumnMap != null && _propertyToColumnMap.ContainsKey(property.Name))
+                return true;
+            return !IsUnmappedProperty(property);
         }
 
         public override void Visit(Expression expression)
@@ -82,9 +111,9 @@ namespace Funcular.Data.Orm.MySql.Visitors
             if (expression is MemberExpression memberExpression)
             {
                 var property = memberExpression.Member as PropertyInfo;
-                if (property != null && !IsUnmappedProperty(property))
+                if (property != null && IsOrderableProperty(property))
                 {
-                    var columnName = GetColumnName(property);
+                    var columnName = ResolveOrderColumn(property);
                     _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
                     return;
                 }
@@ -92,9 +121,9 @@ namespace Funcular.Data.Orm.MySql.Visitors
             else if (expression is UnaryExpression unary && unary.Operand is MemberExpression unaryMember)
             {
                 var property = unaryMember.Member as PropertyInfo;
-                if (property != null && !IsUnmappedProperty(property))
+                if (property != null && IsOrderableProperty(property))
                 {
-                    var columnName = GetColumnName(property);
+                    var columnName = ResolveOrderColumn(property);
                     _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
                     return;
                 }
@@ -124,8 +153,8 @@ namespace Funcular.Data.Orm.MySql.Visitors
                 case MemberExpression mem when mem.Member.MemberType == MemberTypes.Property && mem.Member.Name == "HasValue" && mem.Expression is MemberExpression inner:
                     {
                         var prop = inner.Member as PropertyInfo;
-                        if (prop != null && !IsUnmappedProperty(prop))
-                            return $"{GetColumnName(prop)} IS NOT NULL";
+                        if (prop != null && IsOrderableProperty(prop))
+                            return $"{ResolveOrderColumn(prop)} IS NOT NULL";
                         break;
                     }
                 case BinaryExpression bin:
@@ -158,8 +187,8 @@ namespace Funcular.Data.Orm.MySql.Visitors
                         if (memberExpr.Expression is ParameterExpression)
                         {
                             var property = memberExpr.Member as PropertyInfo;
-                            if (property != null && !IsUnmappedProperty(property))
-                                return GetColumnName(property);
+                            if (property != null && IsOrderableProperty(property))
+                                return ResolveOrderColumn(property);
                             throw new NotSupportedException($"Member {memberExpr.Member.Name} is not a mapped property.");
                         }
                         if (memberExpr.Expression is ConstantExpression constExpr)
@@ -172,8 +201,8 @@ namespace Funcular.Data.Orm.MySql.Visitors
                             if (inner.Expression is ParameterExpression)
                             {
                                 var innerProp = inner.Member as PropertyInfo;
-                                if (innerProp != null && !IsUnmappedProperty(innerProp))
-                                    return GetColumnName(innerProp);
+                                if (innerProp != null && IsOrderableProperty(innerProp))
+                                    return ResolveOrderColumn(innerProp);
                             }
                         }
                         try

@@ -242,10 +242,15 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
+                    // Resolve remote/JSON/expression/subquery-aggregate properties so ordering by a
+                    // "view-replacing" property emits its resolved SQL (the joins are already in the SELECT).
+                    var orderByTable = _dataProvider.GetTableNameInternal<T>();
+                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
                     var orderByVisitor = new OrderByClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNamesCache,
                         SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
+                            t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                        orderByRemoteMap);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }
@@ -273,7 +278,16 @@ namespace Funcular.Data.Orm.SqlServer
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);
                 }
+                else if (currentCall.Method.Name == "Distinct")
+                {
+                    components.IsDistinct = true;
+                }
             }
+
+            if (components.IsDistinct && components.IsAggregate)
+                throw new NotSupportedException(
+                    "Distinct() combined with an aggregate (e.g. Count) is not supported in this version. " +
+                    "Apply the aggregate without Distinct, or materialize the distinct rows and count client-side.");
 
             return components;
         }
@@ -463,7 +477,7 @@ namespace Funcular.Data.Orm.SqlServer
         private string BuildQueryComponents(QueryComponents components)
         {
             var baseCommand = _selectClause ?? _dataProvider.CreateGetOneOrSelectCommandText<T>();
-            // Find the outer " FROM " — the one not nested inside parentheses (subqueries).
+            // Find the outer " FROM " ï¿½ the one not nested inside parentheses (subqueries).
             var outerFromIdx = FindOuterFromIndex(baseCommand);
             string selectPart, fromPart;
             if (outerFromIdx >= 0)
@@ -481,7 +495,32 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 selectPart = $"SELECT {components.SelectClause}";
             }
-            
+
+            if (components.IsDistinct)
+            {
+                // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
+                if (!string.IsNullOrEmpty(components.SelectClause) && !string.IsNullOrEmpty(components.OrderByClause))
+                {
+                    var selectLower = components.SelectClause.ToLowerInvariant();
+                    var orderBody = components.OrderByClause.Substring("ORDER BY".Length);
+                    foreach (var rawTerm in orderBody.Split(','))
+                    {
+                        var col = rawTerm.Trim();
+                        if (col.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 4).Trim();
+                        else if (col.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase)) col = col.Substring(0, col.Length - 5).Trim();
+                        if (col.Length == 0) continue;
+                        if (!selectLower.Contains(col.ToLowerInvariant()))
+                            throw new InvalidOperationException(
+                                $"Under Distinct(), every ORDER BY key must be part of the projection. '{col}' is not in the " +
+                                "Select(...) list. Add it to the projection, or remove Distinct().");
+                    }
+                }
+
+                var trimmedSelect = selectPart.TrimStart();
+                if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
+                    selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
+            }
+
             // If fromPart contains a WHERE clause from the base command, strip it
             // (only the outer WHERE, not one inside subqueries)
             var whereInFromIdx = FindOuterKeywordIndex(fromPart, " WHERE ");

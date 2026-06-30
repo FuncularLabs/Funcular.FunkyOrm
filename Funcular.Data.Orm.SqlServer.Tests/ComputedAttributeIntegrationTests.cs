@@ -6,7 +6,7 @@ using Microsoft.Data.SqlClient;
 namespace Funcular.Data.Orm.SqlServer.Tests
 {
     /// <summary>
-    /// Integration tests for Phases 2�4: [SqlExpression], [SubqueryAggregate], [JsonCollection].
+    /// Integration tests for Phases 2�4: [SqlExpression], [SubqueryAggregate], [JsonCollection].
     /// Uses the <see cref="ProjectScorecardFull"/> detail class.
     /// </summary>
     [TestClass]
@@ -215,6 +215,86 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
             Assert.IsNotNull(result);
             Assert.AreEqual(5, result.MilestoneCount, "Should have 5 milestones");
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // v3.8.1: ORDER BY / DISTINCT on computed (view-replacing) attributes
+        // ─────────────────────────────────────────────────────────────
+
+        private System.Linq.IQueryable<ProjectScorecardFull> SeededScorecards() =>
+            _provider.Query<ProjectScorecardFull>()
+                .Where(p => p.Name == "ComputedTest Project" || p.Name == "EmptyProject");
+
+        [TestMethod]
+        public void OrderBy_SqlExpression_OrdersByCoalescedScore()
+        {
+            // [SqlExpression] COALESCE(score, 0): EmptyProject (0) before ComputedTest (85).
+            var rows = SeededScorecards().OrderBy(p => p.EffectiveScore).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("EmptyProject", rows.First().Name);
+            Assert.AreEqual("ComputedTest Project", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderByDescending_SubqueryAggregate_OrdersByMilestoneCount()
+        {
+            // [SubqueryAggregate] count: ComputedTest (5) before EmptyProject (0).
+            var rows = SeededScorecards().OrderByDescending(p => p.MilestoneCount).ToList();
+            Assert.AreEqual("ComputedTest Project", rows.First().Name);
+            Assert.AreEqual("EmptyProject", rows.Last().Name);
+        }
+
+        [TestMethod]
+        public void OrderBy_JsonPath_ExecutesAndOrders()
+        {
+            // [JsonPath] JSON_VALUE(metadata,'$.priority'). A broken resolver would emit ORDER BY priority
+            // (a non-existent column) → SQL error; successful execution proves the JSON expression is used.
+            var rows = SeededScorecards().OrderByDescending(p => p.Priority).ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual("ComputedTest Project", rows.First().Name); // "high" sorts before NULL (DESC)
+        }
+
+        [TestMethod]
+        public void OrderBy_ThenBy_ComputedAttributes_Composes()
+        {
+            var rows = SeededScorecards()
+                .OrderBy(p => p.EffectiveScore)
+                .ThenByDescending(p => p.MilestoneCount)
+                .ToList();
+            Assert.AreEqual(2, rows.Count); // composes + executes
+        }
+
+        [TestMethod]
+        public void Distinct_OnProjection_EmitsSelectDistinct()
+        {
+            _sb.Clear();
+            var rows = SeededScorecards()
+                .Select(p => new ProjectScorecardFull { Name = p.Name })
+                .Distinct()
+                .ToList();
+            StringAssert.Contains(_sb.ToString(), "SELECT DISTINCT");
+            Assert.AreEqual(2, rows.Count); // two distinct names
+        }
+
+        [TestMethod]
+        public void Distinct_WithCount_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .Count());
+        }
+
+        [TestMethod]
+        public void Distinct_OrderByUnprojectedColumn_Throws()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
+                    .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
         }
 
         [TestMethod]

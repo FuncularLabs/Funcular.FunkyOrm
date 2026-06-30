@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.1-beta1] - 2026-06-30
+
+> **Gap closure.** Ordering and `DISTINCT` were the remaining places where the "view-replacing" / remote attributes weren't yet first-class. This rounds out the query surface that already supported them in `Where(...)` predicates (3.5.1) and projections. Ships beta while 3.8.0's RLS is still in beta.
+
+### Added
+- **`OrderBy` / `OrderByDescending` / `ThenBy` / `ThenByDescending` on computed & remote attributes.** Ordering by a `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, or `[RemoteProperty]`/`[RemoteKey]` property now sorts by the *resolved* SQL fragment (the JSON accessor, the expression, the correlated subquery, or the joined `alias.column`) instead of erroring on a non-existent base-table column. The whole-entity `Query<T>()…OrderBy(…)` path is fully supported across all four providers. The required joins are already emitted by the SELECT for any entity declaring these attributes, so ordering reuses them (aliases are deterministic).
+- **`Distinct()` support.** A `Distinct()` in the LINQ chain emits `SELECT DISTINCT …`, and composes with `Where`, `Select`, computed attributes, and `OrderBy`.
+
+### Changed
+- The per-provider `OrderByClauseVisitor` now resolves each ordering member through the remote-join `PropertyToColumnMap` first (falling back to the plain column), and treats a map-resolvable property as orderable even though it is not a base-table column.
+
+### Limitations / guards (intentional, with clear errors)
+- **`Distinct().Count()`** (any aggregate after `Distinct`) throws `NotSupportedException` — postponed to a later cut; count client-side or drop `Distinct` for now.
+- **`Distinct()` + `OrderBy(x => x.NotProjected)` under a custom `.Select(...)`** throws `InvalidOperationException` naming the offending key — SQL requires every `ORDER BY` key to be in the `SELECT DISTINCT` list. (Full-entity `Distinct()` is unaffected.)
+- **Custom `.Select(...)` that drops a `[RemoteProperty]`'s join and then orders by it** is out of scope (documented). `[JsonPath]` / `[SqlExpression]` / `[SubqueryAggregate]` are self-contained and order correctly even under a custom projection.
+
 ## [3.8.0-beta1] - 2026-06-30
 
 > **Beta:** Row-Level Security & audit context ship as a **beta** feature in this prerelease. The rest of the library is stable; this API may be refined before the 3.8.0 GA based on feedback.

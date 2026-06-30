@@ -537,6 +537,22 @@ var emeaProjects = provider.Query<ProjectScorecard>()
     .ToList();
 ```
 
+**Ordering by computed/remote attributes & `Distinct()` (v3.8.1):** `OrderBy`/`OrderByDescending`/`ThenBy`/
+`ThenByDescending` work on `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[RemoteProperty]`/
+`[RemoteKey]` — FunkyORM sorts by the resolved SQL fragment, not a missing column. `Distinct()` emits
+`SELECT DISTINCT`. Supported on the whole-entity `Query<T>()…` path, all four providers.
+
+```csharp
+provider.Query<ProjectScorecard>().OrderByDescending(p => p.MilestoneCount).ThenBy(p => p.EffectiveScore);
+provider.Query<ProjectScorecard>().OrderBy(p => p.Priority);     // ORDER BY the JSON accessor
+provider.Query<ProjectScorecard>().Distinct();                  // SELECT DISTINCT
+```
+
+> **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
+> Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
+> A custom `.Select(...)` that drops a `[RemoteProperty]` join and then orders by it is unsupported (the
+> self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` still order correctly under projection).
+
 **Combining `[JsonPath]` with `[RemoteProperty]` on the same Detail class:**
 
 ```csharp

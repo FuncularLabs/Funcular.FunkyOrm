@@ -1,4 +1,5 @@
 > **Recent Changes**
+> * **v3.8.1-beta1**: 🔃 **`OrderBy` on view-replacing attributes + `Distinct()`** — order by `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[RemoteProperty]` (sorts by the resolved SQL, not a missing column), and `Distinct()` → `SELECT DISTINCT`. Gap closure across all four providers. See [JSON & Computed Column Attributes](#6-json--computed-column-attributes).
 > * **v3.8.0-beta1**: 🔐 **Row-Level Security & audit context (beta)** — prime per-request end-user identity onto each connection (even when the app connects as one identity) for RLS filtering and audit attribution. Full on SQL Server & PostgreSQL; attribution-only on MySQL. Shipping as a **beta** feature. See [Row-Level Security & Audit Context](#row-level-security--audit-context-v38) and the [Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md).
 > * **v3.7.0**: ⚙️ **Stored procedure execution** — `ExecProcedure<T>` / `ExecScalar` / `ExecNonQuery` (+ async), with output parameters and `[Procedure]`/convention name resolution. Full on SQL Server & MySQL; `CALL`-based scalar/non-query on PostgreSQL; not supported on SQLite. See [Database Provider Differences](#database-provider-differences).
 > * **v3.6.0**: 🐬 **MySQL support** — a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector), bundled in the same `Funcular.Data.Orm` package with feature parity across providers.
@@ -308,6 +309,32 @@ public class ProjectScorecard : ProjectEntity
 ```
 
 All four work in `Get<T>`, `Query<T>`, `GetList<T>`, and **WHERE clauses**. See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
+
+#### Ordering by computed/remote attributes & `Distinct()` (v3.8.1)
+
+`OrderBy` / `OrderByDescending` / `ThenBy` / `ThenByDescending` can target `[JsonPath]`, `[SqlExpression]`,
+`[SubqueryAggregate]`, and `[RemoteProperty]`/`[RemoteKey]` — FunkyORM sorts by the *resolved* SQL (the JSON
+accessor, the expression, the correlated subquery, or the joined `alias.column`), not a non-existent column.
+`Distinct()` emits `SELECT DISTINCT`. Both work on the whole-entity `Query<T>()…` path across all four providers.
+
+```csharp
+// Order by computed attributes (whole-entity query)
+db.Query<ProjectScorecard>().OrderByDescending(p => p.MilestoneCount).ThenBy(p => p.EffectiveScore);
+db.Query<ProjectScorecard>().OrderBy(p => p.Priority);              // sorts by the JSON_VALUE / json_extract
+
+// DISTINCT
+db.Query<ProjectScorecard>().Distinct();                            // SELECT DISTINCT <all columns>
+db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority = p.Priority }).Distinct();
+db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority = p.Priority })
+                            .Distinct().OrderBy(p => p.Priority);   // order key is in the projection — OK
+```
+
+**Documented limits (clear errors, by design):**
+- `Distinct().Count()` throws `NotSupportedException` (count client-side, or drop `Distinct`) — postponed to a later cut.
+- Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by a column *not* in the projection throws
+  `InvalidOperationException` (SQL requires the order key in the `DISTINCT` list).
+- A custom `.Select(...)` that drops a `[RemoteProperty]`'s join and then orders by it is unsupported;
+  `[JsonPath]` / `[SqlExpression]` / `[SubqueryAggregate]` are self-contained and order correctly regardless.
 
 ## Concurrency & Connection Management
 
