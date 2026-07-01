@@ -438,6 +438,23 @@ var recent = provider.Query<CallListQueryRow>()
 > and failed at the engine. `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` filters (self-contained, no
 > join) were unaffected.
 
+**⚠️ Limitation — reverse (one-to-many) remote filters.** If a `[RemoteKey]`/`[RemoteProperty]` resolves through a
+*reverse* join (joining on a child's foreign key, e.g. `Country ← Address ← PersonAddress → Person`), the join
+fans the base rows out one-per-child. Filtering **`Count`/`Sum`/`Average`** (or `All`) by such a property would
+therefore return an inflated number, so FunkyORM **throws `NotSupportedException`** instead — aggregate in memory:
+
+```csharp
+// ✗ throws NotSupportedException — reverse [RemoteKey] filter would fan out and inflate the count
+provider.Query<CountryReverseDetail>().Where(c => c.RelatedPersonId == 5).Count();
+
+// ✓ do this instead — materialize, then aggregate in memory
+provider.Query<CountryReverseDetail>().Where(c => c.RelatedPersonId == 5).ToList().Count;
+
+// ✓ still fine: Any/Min/Max over a reverse join (fan-out-safe), and ALL forward (many-to-one) remote filters
+provider.Query<CountryReverseDetail>().Where(c => c.RelatedPersonId == 5).Any();
+provider.Query<PersonDetail>().Where(p => p.EmployerHqCountryName == "USA").Count();
+```
+
 ### Advanced Querying: IN and LIKE
 We support powerful filtering patterns that translate to efficient SQL.
 

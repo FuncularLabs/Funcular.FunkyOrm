@@ -481,6 +481,13 @@ namespace Funcular.Data.Orm.Sqlite
             public List<string> IndividualJoinClauses { get; set; }
             public string ExtraColumns { get; set; }
             public Dictionary<string, string> PropertyToColumnMap { get; set; }
+            /// <summary>
+            /// True when any resolved remote join is a reverse (one-to-many) join — i.e. it joins on a child's
+            /// foreign key rather than the target's primary key, so it can fan out the base rows. Aggregates
+            /// filtered by such a property are rejected (see BuildAggregateClause) because the fan-out would
+            /// inflate Count/Sum/Average.
+            /// </summary>
+            public bool HasReverseJoin { get; set; }
         }
 
         internal ResolvedRemoteJoinInfo ResolveRemoteJoins<T>(string tableName)
@@ -534,6 +541,7 @@ namespace Funcular.Data.Orm.Sqlite
 
                 foreach (var step in resolvedPath.Joins)
                 {
+                    if (step.IsReverse) info.HasReverseJoin = true; // one-to-many hop — can fan out base rows
                     string targetTableName = GetTableNameByType(step.TargetTableType);
                     string targetTableCleanName = targetTableName.Trim('"');
 
