@@ -141,5 +141,23 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Sum(p => p.Id);
             Assert.AreEqual(expected, actual);
         }
+
+        [TestMethod]
+        public void Select_ScalarProjection_ThrowsClearNotSupported()
+        {
+            // BUG B: a top-level projection to a scalar isn't materialized. Fail with a clear message
+            // rather than the old obscure InvalidCastException.
+            var ex = Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "top-level Select");
+            StringAssert.Contains(ex.Message, "ToList");
+        }
+
+        [TestMethod]
+        public void Select_AnonymousProjection_ThrowsClearNotSupported()
+        {
+            Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => new { p.Id }).ToList());
+        }
     }
 }

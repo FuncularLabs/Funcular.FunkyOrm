@@ -358,11 +358,13 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Async Execution Helpers
 
-        private void HandleSqlException<T>(SqlException ex)
+        private void HandleSqlException<T>(SqlException ex) => HandleSqlException(typeof(T), ex);
+
+        private void HandleSqlException(Type type, SqlException ex)
         {
             if (ex.Number == 208) // Invalid object name
             {
-                var typeName = typeof(T).Name;
+                var typeName = type.Name;
                 var snakeCase = IgnoreUnderscoreAndCaseStringComparer.ToLowerSnakeCase(typeName);
 
                 var message = $"The table or view for entity '{typeName}' was not found in the database. " +
@@ -1132,7 +1134,20 @@ namespace Funcular.Data.Orm.SqlServer
 
                 var resolvedPath = resolver.Resolve(typeof(T), remoteType, keyPath);
 
-                string currentAlias = tableName; 
+                // Discover the schema of every table in the remote path BEFORE resolving its columns, so join
+                // keys and the final column map to real DB names (snake_case-aware) instead of the naive
+                // property-name fallback. Deterministic regardless of whether the target type was materialized
+                // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
+                // guarded (_mappedTypes) schema-only read per type.
+                foreach (var step in resolvedPath.Joins)
+                {
+                    DiscoverColumns(step.SourceTableType);
+                    DiscoverColumns(step.TargetTableType);
+                }
+                if (resolvedPath.TargetProperty?.DeclaringType != null)
+                    DiscoverColumns(resolvedPath.TargetProperty.DeclaringType);
+
+                string currentAlias = tableName;
 
                 foreach (var step in resolvedPath.Joins)
                 {
@@ -1622,13 +1637,15 @@ namespace Funcular.Data.Orm.SqlServer
 #else
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        protected void DiscoverColumns<T>()
-        {
-            if (_mappedTypes.Contains(typeof(T))) return;
+        protected void DiscoverColumns<T>() => DiscoverColumns(typeof(T));
 
-            var table = GetTableName<T>();
+        protected void DiscoverColumns(Type type)
+        {
+            if (_mappedTypes.Contains(type)) return;
+
+            var table = GetTableNameByType(type);
             var commandText = $"SELECT * FROM {table}";
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
+            var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray());
 
             // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
             using (SystemContextScope.Enter())
@@ -1672,12 +1689,12 @@ namespace Funcular.Data.Orm.SqlServer
                                 }
                             }
 
-                            _mappedTypes.Add(typeof(T));
+                            _mappedTypes.Add(type);
                         }
                     }
                     catch (SqlException ex)
                     {
-                        HandleSqlException<T>(ex);
+                        HandleSqlException(type, ex);
                         throw;
                     }
                 }

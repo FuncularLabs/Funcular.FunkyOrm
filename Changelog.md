@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.3-beta1] - 2026-07-01
+
+### Fixed
+- **Cold-cache: a `[RemoteProperty]`/`[RemoteKey]` target column resolved to a naive, unqualified property name until that target type was materialized elsewhere in the process.** Resolving a remote join fell back to `property.Name.ToLowerInvariant()` (e.g. `displayname`, `calldate`) — no snake_case conversion — for the remote target's column whenever that target type's schema hadn't yet been discovered. This surfaced in **every** clause the remote column appears in (SELECT / WHERE / ORDER BY / aggregate): from a *cold* process, `Query<WideDto>().ToList()` (and the filter/aggregate paths) threw `Invalid column name 'displayname'`; priming the target type first (`Query<Target>().Take(1).ToList()`) masked it. Root cause: the target type's column mapping was only populated on first materialization of that type. Fixed in all four providers by discovering the schema of every table in the remote path (and the target property's declaring type) **deterministically at join-resolution time** in `ResolveRemoteJoins`, before columns are resolved. That single point feeds SELECT, WHERE, ORDER BY, and the aggregate path, so all clauses now emit the real `alias.snake_case_column` regardless of cache-priming order.
+
+### Changed
+- **A top-level `Select(...)` projecting to a type other than the queried entity now throws a clear `NotSupportedException`.** `Query<T>().Select(x => x.ScalarColumn)` — or a projection to an anonymous type / a different DTO — previously materialized `T` and then failed at the result path with an obscure `InvalidCastException` ("Unable to cast `T` to `IEnumerable<…>`"). FunkyORM materializes the source entity `T`; only `Select(x => new T { … })` (the same entity, a column subset) is supported. The guard fails fast with a message pointing you to either project to the same entity, or materialize first and project in memory (`query.ToList().Select(...)`). Applied in all four providers.
+
 ## [3.8.2-beta1] - 2026-07-01
 
 ### Fixed

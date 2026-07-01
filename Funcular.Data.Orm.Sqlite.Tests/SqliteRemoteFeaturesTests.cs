@@ -198,6 +198,24 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
         }
 
         [TestMethod]
+        public void Select_ScalarProjection_ThrowsClearNotSupported()
+        {
+            // BUG B (3.8.3): a top-level projection to a scalar isn't materialized. Fail with a clear message
+            // rather than the old obscure InvalidCastException.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "top-level Select");
+            StringAssert.Contains(ex.Message, "ToList");
+        }
+
+        [TestMethod]
+        public void Select_AnonymousProjection_ThrowsClearNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => new { p.Id }).ToList());
+        }
+
+        [TestMethod]
         public void CanFilterByRemoteProperty()
         {
             var country = new CountryEntity { Name = "FilterCountry_" + Guid.NewGuid() };

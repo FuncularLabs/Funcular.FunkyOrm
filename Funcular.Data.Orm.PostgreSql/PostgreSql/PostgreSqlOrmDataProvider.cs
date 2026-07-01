@@ -203,11 +203,13 @@ namespace Funcular.Data.Orm.PostgreSql
 
         #region Async Execution Helpers
 
-        private void HandlePostgresException<T>(Npgsql.PostgresException ex)
+        private void HandlePostgresException<T>(Npgsql.PostgresException ex) => HandlePostgresException(typeof(T), ex);
+
+        private void HandlePostgresException(Type type, Npgsql.PostgresException ex)
         {
             if (ex.SqlState == "42P01") // undefined_table
             {
-                var typeName = typeof(T).Name;
+                var typeName = type.Name;
                 var snakeCase = IgnoreUnderscoreAndCaseStringComparer.ToLowerSnakeCase(typeName);
                 var message = $"The table or view for entity '{typeName}' was not found in the database. " +
                               $"Ensure that the table exists and is named correctly. " +
@@ -583,6 +585,20 @@ namespace Funcular.Data.Orm.PostgreSql
                 string[] keyPath = attr.KeyPath;
 
                 var resolvedPath = resolver.Resolve(typeof(T), remoteType, keyPath);
+
+                // Discover the schema of every table in the remote path BEFORE resolving its columns, so join
+                // keys and the final column map to real DB names (snake_case-aware) instead of the naive
+                // property-name fallback. Deterministic regardless of whether the target type was materialized
+                // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
+                // guarded (_mappedTypes) schema-only read per type.
+                foreach (var step in resolvedPath.Joins)
+                {
+                    DiscoverColumns(step.SourceTableType);
+                    DiscoverColumns(step.TargetTableType);
+                }
+                if (resolvedPath.TargetProperty?.DeclaringType != null)
+                    DiscoverColumns(resolvedPath.TargetProperty.DeclaringType);
+
                 string currentAlias = tableName;
 
                 foreach (var step in resolvedPath.Joins)
@@ -1080,13 +1096,15 @@ namespace Funcular.Data.Orm.PostgreSql
 
         #endregion
 
-        protected void DiscoverColumns<T>()
+        protected void DiscoverColumns<T>() => DiscoverColumns(typeof(T));
+
+        protected void DiscoverColumns(Type type)
         {
-            if (_mappedTypes.Contains(typeof(T))) return;
-            var table = GetTableName<T>();
+            if (_mappedTypes.Contains(type)) return;
+            var table = GetTableNameByType(type);
             // PostgreSQL: Use LIMIT 0 instead of TOP 0
             var commandText = $"SELECT * FROM {table} LIMIT 0";
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
+            var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray());
 
             // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
             using (SystemContextScope.Enter())
@@ -1120,10 +1138,10 @@ namespace Funcular.Data.Orm.PostgreSql
                                     ColumnNamesCache[key] = Dialect.EncloseIdentifier(actualColumnName);
                                 }
                             }
-                            _mappedTypes.Add(typeof(T));
+                            _mappedTypes.Add(type);
                         }
                     }
-                    catch (Npgsql.PostgresException ex) { HandlePostgresException<T>(ex); throw; }
+                    catch (Npgsql.PostgresException ex) { HandlePostgresException(type, ex); throw; }
                 }
             }
         }

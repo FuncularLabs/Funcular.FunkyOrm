@@ -553,6 +553,10 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 
 > **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
 > Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
+> A **top-level `Select` projecting to a type other than `T`** (a scalar column, an anonymous type, or another
+> DTO) → `NotSupportedException` (v3.8.3). FunkyORM materializes `T`; only `Select(x => new T { ... })` (same
+> entity, column subset) is translated. Reshape in memory (`query.ToList().Select(...)`), or map a `[Table]`
+> DTO to the same table and query *that* type directly for a DB-side column subset.
 > A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
 > projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
 > The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
