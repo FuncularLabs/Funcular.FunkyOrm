@@ -511,7 +511,7 @@ public class ProjectScorecard : ProjectEntity
 }
 ```
 
-**Querying and filtering (works in Get, Query, GetList, and WHERE clauses):**
+**Querying and filtering (works in Get, Query, GetList, WHERE predicates, OrderBy, and aggregate filters like `Count`/`Any`/`Sum`):**
 
 ```csharp
 // Get by ID — JSON values extracted automatically
@@ -953,7 +953,7 @@ public class ProjectScorecard : ProjectEntity
 3.  **Null metadata is safe** — when the JSON column is NULL, `[JsonPath]` properties resolve to null.
 4.  **No `.Value` on nullable properties** — same rule as all nullable properties in LINQ.
 5.  **Use `{PropertyName}` tokens in `[SqlExpression]`** — never hard-code column names. The framework handles naming conventions, aliases, and provider differences.
-6.  **All four attributes are implemented** — use `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` freely on Detail classes. All work in `Get<T>`, `Query<T>`, `GetList<T>`, and WHERE clauses on both SQL Server and PostgreSQL.
+6.  **All four attributes are implemented** — use `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` freely on Detail classes. They resolve in `Get<T>`, `Query<T>`, `GetList<T>`, `Where(...)` predicates, `OrderBy(...)`, and aggregate filters (`Count`/`Any`/`Sum`/…) across all four providers (SQL Server, PostgreSQL, MySQL, SQLite). (`[JsonCollection]` is projection-only — not a filter/order target.)
 7.  **When a user asks to eliminate a SQL view**, evaluate which attributes from the taxonomy can replace each column in the view. A combination of `[RemoteProperty]`, `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` can typically replace the entire view.
 
 ---

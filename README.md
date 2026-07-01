@@ -309,7 +309,7 @@ public class ProjectScorecard : ProjectEntity
 }
 ```
 
-All four work in `Get<T>`, `Query<T>`, `GetList<T>`, and **WHERE clauses**. See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
+All four work in `Get<T>`, `Query<T>`, and `GetList<T>`; the scalar three (`[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`) — and `[RemoteProperty]`/`[RemoteKey]` — also resolve in **WHERE predicates**, **ORDER BY**, and **aggregate filters** (`Count`/`Any`/`Sum`/…). See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
 
 #### `OrderBy`, `Distinct()`, and projecting computed/remote attributes (v3.8.1)
 
