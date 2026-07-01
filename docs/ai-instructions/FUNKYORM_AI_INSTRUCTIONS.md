@@ -561,6 +561,9 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 > aggregate in memory (`query.Where(...).ToList().Count()`). Forward (many-to-one) remote filters work, and
 > `Any`/`Min`/`Max` over a reverse join are allowed (fan-out-safe). Detect "reverse" by the `[RemoteKey]`/
 > `[RemoteProperty]` path pointing from a parent table back through a child's foreign key.
+> The guard is **entity-wide** (conservative/fail-safe): if a detail entity declares *any* reverse remote
+> property, a fan-out-sensitive aggregate filtered by *any* of its remote properties is rejected — split
+> forward-only lookups onto a separate detail class if you need `Count`/`Sum` over them.
 > **PostgreSQL only:** full-entity `Distinct()` on an entity declaring `[JsonCollection]` errors at the engine
 > (`42883` — `json_agg(row_to_json(...))` is `json`-typed and `json` has no equality operator). `[JsonPath]`/`jsonb`
 > columns are fine. Remedy: `Distinct()` a column projection excluding the `[JsonCollection]` columns. SQL Server/MySQL/SQLite are fine.
