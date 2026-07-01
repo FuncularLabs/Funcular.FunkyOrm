@@ -334,6 +334,12 @@ namespace Funcular.Data.Orm.SqlServer
             string aggregateClause = null;
             var parameters = existingParameters != null ? new List<SqlParameter>(existingParameters) : new List<SqlParameter>();
             string table = _dataProvider.GetTableNameInternal<T>();
+            // Remote/view-replacing attributes contribute LEFT JOINs that the WHERE (predicate or upstream
+            // .Where) may reference. Resolve them unconditionally and inject them into every aggregate's FROM,
+            // mirroring the non-aggregate path (BuildQueryComponents). The joins are 1:1 (LEFT JOIN on fk = pk),
+            // so they never change COUNT/EXISTS/SUM results.
+            var remoteInfo = _dataProvider.ResolveRemoteJoins<T>(table);
+            string joins = remoteInfo.JoinClauses ?? string.Empty;
 
             string methodName = methodCall.Method.Name;
             bool isAny = methodName == "Any";
@@ -354,15 +360,13 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
-                    var tableName = _dataProvider.GetTableNameInternal<T>();
-                    var remoteInfo = _dataProvider.ResolveRemoteJoins<T>(tableName);
                     var whereVisitor = new WhereClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNamesCache,
                         SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
-                        tableName,
+                        table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
 
@@ -391,7 +395,7 @@ namespace Funcular.Data.Orm.SqlServer
 
                 if (isCount)
                 {
-                    aggregateClause = $"SELECT COUNT(*) FROM {table}";
+                    aggregateClause = $"SELECT COUNT(*) FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause))
                     {
@@ -412,7 +416,7 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 else if (isAny)
                 {
-                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}";
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause))
                     {
@@ -434,7 +438,7 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 else if (isAll)
                 {
-                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}";
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause))
                     {
@@ -481,7 +485,9 @@ namespace Funcular.Data.Orm.SqlServer
                     throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
                 }
                 var aggregateFunction = methodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : methodCall.Method.Name.ToUpper();
-                aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {table}";
+                // Qualify the selector with the base table: once remote joins are present, a bare column
+                // (e.g. `id`) is ambiguous against joined tables that share the name.
+                aggregateClause = $"SELECT {aggregateFunction}({table}.{columnExpression}) FROM {table}{joins}";
                 if (!string.IsNullOrEmpty(whereClause))
                 {
                     aggregateClause += $"\r\nWHERE {whereClause}";

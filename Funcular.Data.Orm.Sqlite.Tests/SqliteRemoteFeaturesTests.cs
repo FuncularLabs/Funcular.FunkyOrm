@@ -302,5 +302,45 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
             }
             catch { _provider.RollbackTransaction(); throw; }
         }
+
+        [TestMethod]
+        public void Count_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Count;
+            var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Count();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Count_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Count;
+            var actual = _provider.Query<PersonDetailEntity>().Count(p => p.EmployerHeadquartersCountryName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Any_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Any();
+            var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Any();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void All_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>().ToList().All(p => p.EmployerHeadquartersCountryName != null);
+            var actual = _provider.Query<PersonDetailEntity>().All(p => p.EmployerHeadquartersCountryName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Sum_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Sum(p => p.Id);
+            var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Sum(p => p.Id);
+            Assert.AreEqual(expected, actual);
+        }
     }
 }

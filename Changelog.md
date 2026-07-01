@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.2-beta1] - 2026-07-01
+
+### Fixed
+- **Aggregates (`Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average`) omitted the remote JOIN clauses.** An aggregate filtered by a `[RemoteProperty]`/`[RemoteKey]` — e.g. `Query<T>().Where(r => r.RemoteProp == x).Count()` or `Query<T>().Count(r => r.RemoteProp == x)` — built `SELECT COUNT(*) FROM {table}` (and the `EXISTS`/numeric equivalents) **without** the `LEFT JOIN`s the WHERE needs, so the predicate referenced an undefined join alias and the query failed at the engine (SQL Server `4104 "multi-part identifier … could not be bound"`; PostgreSQL "missing FROM-clause entry"; etc.). `BuildAggregateClause` resolved the remote joins but used only their column map and discarded `JoinClauses`; the upstream `.Where(...)` joins were dropped entirely. Fixed in all four providers by resolving the remote joins unconditionally and injecting them into every aggregate's `FROM`, mirroring the non-aggregate query path. This is a pre-existing defect (predates the 3.8.x line); `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` filters were unaffected (self-contained, no join).
+- **Numeric-aggregate selector is now base-table-qualified** (`SUM(person.id)` rather than `SUM(id)`). Once the remote joins are present, a bare column is ambiguous against joined tables that share the name — SQL Server errored (`Ambiguous column name`), and SQLite silently bound to the wrong table. Qualifying with the base table fixes both; no effect on join-free entities.
+
 ## [3.8.1-beta1] - 2026-06-30
 
 > **Gap closure.** Ordering and `DISTINCT` were the remaining places where the "view-replacing" / remote attributes weren't yet first-class. This rounds out the query surface that already supported them in `Where(...)` predicates (3.5.1) and projections. Ships beta while 3.8.0's RLS is still in beta.

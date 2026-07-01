@@ -58,6 +58,60 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Count_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            // Regression: aggregate over a [RemoteProperty] filter previously omitted the JOIN → SqlException 4104.
+            // Compare to the materialized count: proves the join is emitted (no 4104) AND is 1:1 (correct count).
+            var expected = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).ToList().Count;
+            var actual = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).Count();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Count_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            // The predicate-inside-aggregate form: Count(p => remoteProp ...).
+            var expected = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).ToList().Count;
+            var actual = _provider.Query<PersonDetailEntity>()
+                .Count(p => p.EmployerHeadquartersCountryName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Any_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).ToList().Any();
+            var actual = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).Any();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void All_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            var expected = _provider.Query<PersonDetailEntity>().ToList()
+                .All(p => p.EmployerHeadquartersCountryName != null);
+            var actual = _provider.Query<PersonDetailEntity>()
+                .All(p => p.EmployerHeadquartersCountryName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Sum_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            // Numeric-aggregate branch, filtered by a [RemoteProperty]: the JOIN must be present for the WHERE.
+            var expected = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).ToList().Sum(p => p.Id);
+            var actual = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.EmployerHeadquartersCountryName != null).Sum(p => p.Id);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
         public void Select_RemoteProperty_InCustomProjection_Throws()
         {
             // A [RemoteProperty] resolves to alias.column and needs a JOIN a custom projection's FROM doesn't
