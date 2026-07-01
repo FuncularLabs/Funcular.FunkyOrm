@@ -1108,41 +1108,64 @@ namespace Funcular.Data.Orm.PostgreSql
 
             // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
             using (SystemContextScope.Enter())
-            using (var connectionScope = new ConnectionScope(this))
             {
-                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, Array.Empty<NpgsqlParameter>()))
+                // When a transaction is open we must NOT open a nested ConnectionScope: the transactional-scope
+                // guard forbids re-entrant scopes. Schema discovery runs while a command is being *built* —
+                // before the outer operation executes its reader — so the transactional connection is idle and
+                // can be borrowed directly. Outside a transaction, use a dedicated scope as before. (Cold remote-
+                // attribute resolution reaches here from inside an operation's own scope; without this branch it
+                // would throw under a transaction.)
+                if (Transaction != null)
                 {
-                    try
-                    {
-                        using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
-                        {
-                            ICollection<string> columnNamesList = new List<string>();
-#if NET8_0_OR_GREATER
-                            var columnSchema = reader.GetColumnSchema();
-                            foreach (var dbColumn in columnSchema) columnNamesList.Add(dbColumn.ColumnName);
-#else
-                            var schemaTable = reader.GetSchemaTable();
-                            foreach (DataRow row in schemaTable?.Rows)
-                                columnNamesList.Add(row["ColumnName"].ToString());
-#endif
-                            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-                            foreach (var property in properties)
-                            {
-                                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-                                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                                string actualColumnName = columnAttr?.Name ??
-                                    columnNamesList.FirstOrDefault(c => comparer.Equals(c, property.Name));
-                                if (actualColumnName != null)
-                                {
-                                    var key = property.ToDictionaryKey();
-                                    ColumnNamesCache[key] = Dialect.EncloseIdentifier(actualColumnName);
-                                }
-                            }
-                            _mappedTypes.Add(type);
-                        }
-                    }
-                    catch (Npgsql.PostgresException ex) { HandlePostgresException(type, ex); throw; }
+                    DiscoverColumnsOnConnection(type, commandText, properties, GetConnection());
                 }
+                else
+                {
+                    using (var connectionScope = new ConnectionScope(this))
+                        DiscoverColumnsOnConnection(type, commandText, properties, connectionScope.Connection);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs the schema-only reader for <paramref name="type"/> on the supplied connection and populates the
+        /// column-name cache. Factored out of <see cref="DiscoverColumns(Type)"/> so discovery can either open a
+        /// dedicated <see cref="ConnectionScope"/> (no transaction) or reuse the ambient transactional connection.
+        /// </summary>
+        private void DiscoverColumnsOnConnection(Type type, string commandText, ICollection<PropertyInfo> properties, IDbConnection connection)
+        {
+            using (var command = BuildSqlCommandObject(commandText, connection, Array.Empty<NpgsqlParameter>()))
+            {
+                try
+                {
+                    using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
+                    {
+                        ICollection<string> columnNamesList = new List<string>();
+#if NET8_0_OR_GREATER
+                        var columnSchema = reader.GetColumnSchema();
+                        foreach (var dbColumn in columnSchema) columnNamesList.Add(dbColumn.ColumnName);
+#else
+                        var schemaTable = reader.GetSchemaTable();
+                        foreach (DataRow row in schemaTable?.Rows)
+                            columnNamesList.Add(row["ColumnName"].ToString());
+#endif
+                        var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+                        foreach (var property in properties)
+                        {
+                            if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
+                            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+                            string actualColumnName = columnAttr?.Name ??
+                                columnNamesList.FirstOrDefault(c => comparer.Equals(c, property.Name));
+                            if (actualColumnName != null)
+                            {
+                                var key = property.ToDictionaryKey();
+                                ColumnNamesCache[key] = Dialect.EncloseIdentifier(actualColumnName);
+                            }
+                        }
+                        _mappedTypes.Add(type);
+                    }
+                }
+                catch (Npgsql.PostgresException ex) { HandlePostgresException(type, ex); throw; }
             }
         }
 

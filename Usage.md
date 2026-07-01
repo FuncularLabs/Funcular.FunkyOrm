@@ -521,9 +521,12 @@ var scots = provider.Query<Person>()
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
 
 ```csharp
-// The ternary becomes a SQL CASE inside the WHERE clause
+// The ternary becomes a SQL CASE inside the WHERE clause.
+// Hoist the cutoff to a local — a method call like DateTime.Now.AddYears(-18) inlined in the
+// predicate isn't translatable; a captured value parameterizes cleanly.
+var cutoff = DateTime.Now.AddYears(-18);
 var adults = provider.Query<Person>()
-    .Where(p => (p.Birthdate < DateTime.Now.AddYears(-18) ? "Adult" : "Minor") == "Adult")
+    .Where(p => (p.Birthdate < cutoff ? "Adult" : "Minor") == "Adult")
     .ToList();
 ```
 > To return a `CASE`-computed **value** as a column, declare a `[SqlExpression]` computed attribute on your entity (it resolves to the `CASE` fragment in `SELECT`/`WHERE`/`ORDER BY`). A top-level `Select(p => new { … })` that computes a value is not supported — see [Projections](#projections-select).

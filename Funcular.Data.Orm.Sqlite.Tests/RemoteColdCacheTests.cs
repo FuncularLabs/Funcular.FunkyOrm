@@ -10,13 +10,15 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.Sqlite.Tests
 {
     /// <summary>
-    /// Regression test for the 3.8.3 cold-cache remote-column bug: a [RemoteProperty]'s target column was
-    /// resolved via the naive property-name fallback (e.g. "coldvalue") until the target type was itself
-    /// materialized somewhere in the process, so a fresh process emitted an invalid column and threw.
-    /// <para>
-    /// The target entity <see cref="ColdTarget"/> is used ONLY here and is NEVER queried directly, so its
-    /// schema is genuinely "cold" whenever this test runs — deterministically exercising the fix.
-    /// </para>
+    /// Remote-join column-resolution smoke test for the SQLite provider. NOTE: unlike SQL Server / PostgreSQL /
+    /// MySQL, SQLite does NOT have the 3.8.3 cold-cache BUG A. Those providers infer a remote target's column
+    /// names from the DB schema (populated lazily by <c>DiscoverColumns</c>), so a cold target fell back to the
+    /// naive <c>property.Name.ToLower()</c>. The SQLite provider resolves columns from explicit <c>[Column]</c>
+    /// attributes (no schema-inference fallback), so the correct name is baked into the attribute and the
+    /// discovery order is irrelevant — this test passes with or without the 3.8.3 discovery loop. It is kept as
+    /// a smoke test that a `[Table]` DTO joining via `[RemoteProperty]` to a `[Column]`-mapped snake_case target
+    /// resolves and executes; it is NOT a BUG A regression guard. (The discovery loop is still applied in the
+    /// SQLite provider for cross-provider consistency; it is a harmless no-op there.)
     /// </summary>
     [TestClass]
     public class RemoteColdCacheTests
@@ -92,9 +94,8 @@ namespace Funcular.Data.Orm.Sqlite.Tests
         [TestMethod]
         public void RemoteProperty_ColdTarget_ResolvesSnakeCaseColumn_AndExecutes()
         {
-            // Pre-fix (cold): the remote target's schema was not discovered before its columns were resolved,
-            // so the join/WHERE could emit an unresolved column and throw "no such column".
-            // Post-fix: ResolveRemoteJoins discovers the target schema first → real "cold_value" → succeeds.
+            // Verifies the remote join resolves the [Column]-mapped snake_case target column and executes.
+            // (SQLite resolves via [Column], so this is a smoke test, not a cold-cache regression — see class doc.)
             _sb.Clear();
             var rows = _provider.Query<ColdSource>()
                 .Where(s => s.RemoteColdValue != null)
@@ -102,9 +103,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests
                 .ToList();
 
             var sql = _sb.ToString();
-            StringAssert.Contains(sql, "cold_value", "remote column must resolve to the real snake_case column");
-            Assert.IsFalse(sql.Contains("coldvalue"),
-                "remote column must NOT be the naive 'coldvalue' fallback (cold-cache BUG A regression)");
+            StringAssert.Contains(sql, "cold_value", "remote column must resolve to the [Column]-mapped snake_case column");
             Assert.AreEqual(3, rows.Count, "all three seeded source rows have a non-null remote value");
         }
     }

@@ -1649,54 +1649,76 @@ namespace Funcular.Data.Orm.SqlServer
 
             // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
             using (SystemContextScope.Enter())
-            using (var connectionScope = new ConnectionScope(this))
             {
-                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection,
-                           Array.Empty<SqlParameter>()))
+                // When a transaction is open we must NOT open a nested ConnectionScope: the transactional-scope
+                // guard forbids re-entrant scopes (it can't tell benign nesting from concurrent misuse). Schema
+                // discovery runs while a command is being *built* — before the outer operation executes its
+                // reader — so the transactional connection is idle and can be borrowed directly. Outside a
+                // transaction, use a dedicated scope as before. (Cold remote-attribute resolution reaches here
+                // from inside an operation's own scope; without this branch it would throw under a transaction.)
+                if (Transaction != null)
                 {
-                    try
-                    {
-                        using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
-                        {
+                    DiscoverColumnsOnConnection(type, commandText, properties, GetConnection());
+                }
+                else
+                {
+                    using (var connectionScope = new ConnectionScope(this))
+                        DiscoverColumnsOnConnection(type, commandText, properties, connectionScope.Connection);
+                }
+            }
+        }
 
-                            ICollection<string> columnNames = new List<string>();
+        /// <summary>
+        /// Runs the schema-only reader for <paramref name="type"/> on the supplied connection and populates the
+        /// column-name cache. Factored out of <see cref="DiscoverColumns(Type)"/> so discovery can either open a
+        /// dedicated <see cref="ConnectionScope"/> (no transaction) or reuse the ambient transactional connection.
+        /// </summary>
+        private void DiscoverColumnsOnConnection(Type type, string commandText, ICollection<PropertyInfo> properties, IDbConnection connection)
+        {
+            using (var command = BuildSqlCommandObject(commandText, connection, Array.Empty<SqlParameter>()))
+            {
+                try
+                {
+                    using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
+                    {
+
+                        ICollection<string> columnNames = new List<string>();
 #if NET8_0_OR_GREATER
-                            var columnSchema = reader.GetColumnSchema();
-                            foreach (var dbColumn in columnSchema)
-                            {
-                                columnNames.Add(dbColumn.ColumnName);
-                            }
-#else
-                            var schemaTable = reader.GetSchemaTable();
-                            foreach (DataRow row in schemaTable?.Rows)
-                            {
-                                columnNames.Add(row["ColumnName"].ToString());
-                            }
-#endif
-                            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-                            foreach (var property in properties)
-                            {
-                                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-
-                                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                                string actualColumnName = columnAttr?.Name ??
-                                                          columnNames.FirstOrDefault(c =>
-                                                                  comparer.Equals(c, property.Name));
-                                if (actualColumnName != null)
-                                {
-                                    var key = property.ToDictionaryKey();
-                                    ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
-                                }
-                            }
-
-                            _mappedTypes.Add(type);
+                        var columnSchema = reader.GetColumnSchema();
+                        foreach (var dbColumn in columnSchema)
+                        {
+                            columnNames.Add(dbColumn.ColumnName);
                         }
+#else
+                        var schemaTable = reader.GetSchemaTable();
+                        foreach (DataRow row in schemaTable?.Rows)
+                        {
+                            columnNames.Add(row["ColumnName"].ToString());
+                        }
+#endif
+                        var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+                        foreach (var property in properties)
+                        {
+                            if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
+
+                            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+                            string actualColumnName = columnAttr?.Name ??
+                                                      columnNames.FirstOrDefault(c =>
+                                                              comparer.Equals(c, property.Name));
+                            if (actualColumnName != null)
+                            {
+                                var key = property.ToDictionaryKey();
+                                ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
+                            }
+                        }
+
+                        _mappedTypes.Add(type);
                     }
-                    catch (SqlException ex)
-                    {
-                        HandleSqlException(type, ex);
-                        throw;
-                    }
+                }
+                catch (SqlException ex)
+                {
+                    HandleSqlException(type, ex);
+                    throw;
                 }
             }
         }

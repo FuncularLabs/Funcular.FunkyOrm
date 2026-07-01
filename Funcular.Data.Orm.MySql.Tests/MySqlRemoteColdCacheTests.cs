@@ -119,8 +119,11 @@ namespace Funcular.Data.Orm.MySql.Tests
 
             var sql = _sb.ToString();
             StringAssert.Contains(sql, "cold_value", "remote column must resolve to the real snake_case column");
-            Assert.IsFalse(sql.Contains("coldvalue"),
-                "remote column must NOT be the naive 'coldvalue' fallback (cold-cache BUG A regression)");
+            // The naive fallback emits the target column *qualified* as `.ColdValue` (PascalCase, case-sensitive).
+            // Check the dot-qualified form so we don't match the correct SELECT alias `AS RemoteColdValue`, which
+            // also contains the substring "ColdValue".
+            Assert.IsFalse(sql.Contains(".ColdValue"),
+                "remote column must NOT be the naive '.ColdValue' property-name fallback (cold-cache BUG A regression)");
             Assert.AreEqual(3, rows.Count, "all three seeded source rows have a non-null remote value");
         }
     }
