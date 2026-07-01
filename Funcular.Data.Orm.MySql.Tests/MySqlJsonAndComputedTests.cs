@@ -341,5 +341,70 @@ namespace Funcular.Data.Orm.MySql.Tests
                     "DESC ordering of a [RemoteProperty] should be the exact reverse of ASC.");
             }
         }
+
+        /// <summary>
+        /// Seeds two organizations and two persons (one linked to an employer, one without) so that
+        /// aggregates filtered by the [RemoteProperty] EmployerName exercise the generated LEFT JOIN.
+        /// </summary>
+        private void SeedPersonsWithEmployers()
+        {
+            var org = new Organization { Name = "Agg" + Guid.NewGuid().ToString("N").Substring(0, 8) };
+            _provider.Insert(org);
+            _provider.Insert(new PersonWithEmployer
+            {
+                FirstName = "Has", LastName = "Employer", EmployerId = org.Id,
+                DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
+            });
+            _provider.Insert(new PersonWithEmployer
+            {
+                FirstName = "No", LastName = "Employer", EmployerId = null,
+                DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
+            });
+        }
+
+        [TestMethod]
+        public void Count_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            SeedPersonsWithEmployers();
+            var expected = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).ToList().Count;
+            var actual = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).Count();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Count_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            SeedPersonsWithEmployers();
+            var expected = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).ToList().Count;
+            var actual = _provider.Query<PersonWithEmployer>().Count(p => p.EmployerName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Any_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            SeedPersonsWithEmployers();
+            var expected = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).ToList().Any();
+            var actual = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).Any();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void All_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            SeedPersonsWithEmployers();
+            var expected = _provider.Query<PersonWithEmployer>().ToList().All(p => p.EmployerName != null);
+            var actual = _provider.Query<PersonWithEmployer>().All(p => p.EmployerName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Sum_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            SeedPersonsWithEmployers();
+            var expected = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).ToList().Sum(p => p.Id);
+            var actual = _provider.Query<PersonWithEmployer>().Where(p => p.EmployerName != null).Sum(p => p.Id);
+            Assert.AreEqual(expected, actual);
+        }
     }
 }

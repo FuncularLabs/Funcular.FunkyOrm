@@ -25,6 +25,47 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Count_NoFilter_OnReverseEntity_MatchesBaseCount()
+        {
+            // A reverse [RemoteKey] entity with NO remote filter must not append the fan-out join — the aggregate
+            // stays on the base table. (Appending it unconditionally over-counted; this guards that regression.)
+            var baseCount = _provider.Query<CountryEntity>().Count();
+            var reverseCount = _provider.Query<CountryReverseDetailEntity>().Count();
+            Assert.AreEqual(baseCount, reverseCount);
+        }
+
+        [TestMethod]
+        public void Count_FilteredByReverseRemoteKey_ThrowsNotSupported()
+        {
+            // Choice (A): filtering Count by a reverse (one-to-many) [RemoteKey] would fan out → clear exception.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<CountryReverseDetailEntity>()
+                    .Where(c => c.PersonId == 1)
+                    .Count());
+            StringAssert.Contains(ex.Message, "reverse");
+            StringAssert.Contains(ex.Message, "ToList");
+        }
+
+        [TestMethod]
+        public void Sum_FilteredByReverseRemoteKey_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<CountryReverseDetailEntity>()
+                    .Where(c => c.PersonId == 1)
+                    .Sum(c => c.Id));
+        }
+
+        [TestMethod]
+        public void Any_FilteredByReverseRemoteKey_Executes()
+        {
+            // Any is fan-out-safe (EXISTS), so it is ALLOWED over a reverse join — must execute, not throw.
+            var result = _provider.Query<CountryReverseDetailEntity>()
+                .Where(c => c.PersonId == 1)
+                .Any();
+            Assert.IsTrue(result || !result); // executed without throwing
+        }
+
+        [TestMethod]
         public void CanFilterByReverseRemoteKey()
         {
             // 1. Setup Data

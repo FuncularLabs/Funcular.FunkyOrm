@@ -511,7 +511,7 @@ public class ProjectScorecard : ProjectEntity
 }
 ```
 
-**Querying and filtering (works in Get, Query, GetList, and WHERE clauses):**
+**Querying and filtering (works in Get, Query, GetList, WHERE predicates, OrderBy, and aggregate filters like `Count`/`Any`/`Sum`):**
 
 ```csharp
 // Get by ID — JSON values extracted automatically
@@ -556,6 +556,14 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 > A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
 > projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
 > The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
+> **Reverse (one-to-many) `[RemoteKey]`/`[RemoteProperty]` filters on `Count`/`All`/`Sum`/`Average`** throw
+> `NotSupportedException` (v3.8.2) — the reverse join fans out and would inflate the result; materialize and
+> aggregate in memory (`query.Where(...).ToList().Count()`). Forward (many-to-one) remote filters work, and
+> `Any`/`Min`/`Max` over a reverse join are allowed (fan-out-safe). Detect "reverse" by the `[RemoteKey]`/
+> `[RemoteProperty]` path pointing from a parent table back through a child's foreign key.
+> The guard is **entity-wide** (conservative/fail-safe): if a detail entity declares *any* reverse remote
+> property, a fan-out-sensitive aggregate filtered by *any* of its remote properties is rejected — split
+> forward-only lookups onto a separate detail class if you need `Count`/`Sum` over them.
 > **PostgreSQL only:** full-entity `Distinct()` on an entity declaring `[JsonCollection]` errors at the engine
 > (`42883` — `json_agg(row_to_json(...))` is `json`-typed and `json` has no equality operator). `[JsonPath]`/`jsonb`
 > columns are fine. Remedy: `Distinct()` a column projection excluding the `[JsonCollection]` columns. SQL Server/MySQL/SQLite are fine.
@@ -953,7 +961,7 @@ public class ProjectScorecard : ProjectEntity
 3.  **Null metadata is safe** — when the JSON column is NULL, `[JsonPath]` properties resolve to null.
 4.  **No `.Value` on nullable properties** — same rule as all nullable properties in LINQ.
 5.  **Use `{PropertyName}` tokens in `[SqlExpression]`** — never hard-code column names. The framework handles naming conventions, aliases, and provider differences.
-6.  **All four attributes are implemented** — use `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` freely on Detail classes. All work in `Get<T>`, `Query<T>`, `GetList<T>`, and WHERE clauses on both SQL Server and PostgreSQL.
+6.  **All four attributes are implemented** — use `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` freely on Detail classes. They resolve in `Get<T>`, `Query<T>`, `GetList<T>`, `Where(...)` predicates, `OrderBy(...)`, and aggregate filters (`Count`/`Any`/`Sum`/…) across all four providers (SQL Server, PostgreSQL, MySQL, SQLite). (`[JsonCollection]` is projection-only — not a filter/order target.)
 7.  **When a user asks to eliminate a SQL view**, evaluate which attributes from the taxonomy can replace each column in the view. A combination of `[RemoteProperty]`, `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` can typically replace the entire view.
 
 ---

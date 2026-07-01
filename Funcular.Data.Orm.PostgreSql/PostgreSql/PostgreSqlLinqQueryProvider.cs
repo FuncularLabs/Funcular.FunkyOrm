@@ -5,6 +5,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using Npgsql;
 using Funcular.Data.Orm.PostgreSql.Visitors;
+using Funcular.Data.Orm.Attributes;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Diagnostics;
 
@@ -223,6 +224,12 @@ namespace Funcular.Data.Orm.PostgreSql
             string aggregateClause = null;
             var parameters = existingParameters != null ? new List<NpgsqlParameter>(existingParameters) : new List<NpgsqlParameter>();
             string table = _dataProvider.GetTableNameInternal<T>();
+            // Remote attributes contribute LEFT JOINs the WHERE may reference. We append them to the aggregate
+            // FROM only when the WHERE actually references a remote column (a plain / no-filter aggregate stays on
+            // the base table), and REJECT the aggregate when it would need a reverse (one-to-many) join that could
+            // inflate the result. `joins` is set per-branch via ResolveAggregateJoins.
+            var remoteInfo = _dataProvider.ResolveRemoteJoins<T>(table);
+            string joins = string.Empty;
 
             string methodName = methodCall.Method.Name;
             bool isAny = methodName == "Any";
@@ -241,13 +248,11 @@ namespace Funcular.Data.Orm.PostgreSql
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
-                    var tableName = _dataProvider.GetTableNameInternal<T>();
-                    var remoteInfo = _dataProvider.ResolveRemoteJoins<T>(tableName);
                     var whereVisitor = new PostgreSqlWhereClauseVisitor<T>(
                         PostgreSqlOrmDataProvider.ColumnNamesCache,
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
-                        parameterGenerator, translator, tableName,
+                        parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
@@ -270,9 +275,15 @@ namespace Funcular.Data.Orm.PostgreSql
                     }
                 }
 
+                // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
+                // join for Count/All (fan-out-sensitive), allow it for Any (EXISTS is fan-out-safe).
+                joins = ResolveAggregateJoins(
+                    (whereClause ?? string.Empty) + "\n" + (modifiedWhereClause ?? string.Empty),
+                    remoteInfo, fanOutSafe: isAny);
+
                 if (isCount)
                 {
-                    aggregateClause = $"SELECT COUNT(*) FROM {table}";
+                    aggregateClause = $"SELECT COUNT(*) FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause)) combinedWhere += whereClause;
                     if (hasPredicate) { if (!string.IsNullOrEmpty(combinedWhere)) combinedWhere += " AND "; combinedWhere += modifiedWhereClause; }
@@ -280,7 +291,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
                 else if (isAny)
                 {
-                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}";
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause)) combinedWhere += whereClause;
                     if (hasPredicate) { if (!string.IsNullOrEmpty(combinedWhere)) combinedWhere += " AND "; combinedWhere += modifiedWhereClause; }
@@ -289,7 +300,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
                 else if (isAll)
                 {
-                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}";
+                    aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause)) { combinedWhere += whereClause; if (hasPredicate) combinedWhere += " AND "; }
                     if (hasPredicate) combinedWhere += $"NOT ({modifiedWhereClause})";
@@ -313,13 +324,59 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
                 else throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
 
+                // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
+                // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
+                joins = ResolveAggregateJoins(whereClause, remoteInfo,
+                    fanOutSafe: methodName == "Min" || methodName == "Max");
                 var aggregateFunction = methodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : methodCall.Method.Name.ToUpper();
-                aggregateClause = $"SELECT {aggregateFunction}({columnExpression}) FROM {table}";
+                // Qualify the selector with the base table: once remote joins are present, a bare column
+                // (e.g. `id`) is ambiguous against joined tables that share the name.
+                aggregateClause = $"SELECT {aggregateFunction}({table}.{columnExpression}) FROM {table}{joins}";
                 if (!string.IsNullOrEmpty(whereClause)) aggregateClause += $"\r\nWHERE {whereClause}";
             }
 
             if (existingParameters != null) { existingParameters.Clear(); existingParameters.AddRange(parameters); }
             return aggregateClause;
+        }
+
+        // Clear, agent- and developer-facing message for the reverse-remote-join aggregate limitation (choice A).
+        private const string ReverseAggregateNotSupportedMessage =
+            "Aggregating with a filter on a reverse ([RemoteKey]/[RemoteProperty]) one-to-many join is not supported: " +
+            "the join fans out each base row once per matching child, which would inflate Count/Sum/Average. " +
+            "Materialize the query and aggregate in memory instead — e.g. query.Where(...).ToList().Count() (or .Sum(...)). " +
+            "Forward (many-to-one) remote joins are unaffected, as are Any/Min/Max over reverse joins.";
+
+        /// <summary>
+        /// Returns the LEFT JOIN clauses to append to an aggregate's FROM, or empty when the aggregate's WHERE does
+        /// not reference a remote (join-backed) column. Throws <see cref="NotSupportedException"/> when the required
+        /// join is a reverse (one-to-many) join and the aggregate is fan-out-sensitive (Count/All/Sum/Average).
+        /// </summary>
+        private string ResolveAggregateJoins(string aggregateWhere, PostgreSqlOrmDataProvider.ResolvedRemoteJoinInfo remoteInfo, bool fanOutSafe)
+        {
+            if (!WhereReferencesRemoteColumn(aggregateWhere, remoteInfo))
+                return string.Empty; // no remote column filtered → base-table aggregate, no join needed
+            if (remoteInfo.HasReverseJoin && !fanOutSafe)
+                throw new NotSupportedException(ReverseAggregateNotSupportedMessage);
+            return remoteInfo.JoinClauses ?? string.Empty;
+        }
+
+        /// <summary>
+        /// True when the WHERE text references the resolved column of any [RemoteProperty]/[RemoteKey] on T — i.e. a
+        /// column that only exists via a LEFT JOIN. Self-contained attributes ([JsonPath]/[SqlExpression]/
+        /// [SubqueryAggregate]) resolve inline and never need a join, so they are excluded.
+        /// </summary>
+        private static bool WhereReferencesRemoteColumn(string whereText, PostgreSqlOrmDataProvider.ResolvedRemoteJoinInfo remoteInfo)
+        {
+            if (string.IsNullOrEmpty(whereText) || remoteInfo.PropertyToColumnMap == null) return false;
+            foreach (var prop in typeof(T).GetProperties())
+            {
+                if (prop.GetCustomAttribute<RemoteAttributeBase>() == null) continue;
+                if (remoteInfo.PropertyToColumnMap.TryGetValue(prop.Name, out var col)
+                    && !string.IsNullOrEmpty(col)
+                    && whereText.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

@@ -422,6 +422,44 @@ FROM [Person]
 WHERE [Gender] = @p0
 ```
 
+**Filtering aggregates by computed & remote attributes:** aggregates honor the same view-replacing
+attributes as any other query. You can `Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average` filtered by a
+`[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, or `[RemoteProperty]`/`[RemoteKey]` — the generated
+aggregate SQL includes the JSON/expression resolution and any remote `JOIN` the filter needs.
+
+```csharp
+// Count rows whose (remote, JOIN-backed) attribute matches — the aggregate emits the LEFT JOIN it needs.
+var recent = provider.Query<CallListQueryRow>()
+    .Where(r => r.DateUtcCall >= fromUtc)   // [RemoteProperty] → call_0.call_date
+    .Count();
+```
+
+> Fixed in **v3.8.2**: before that, a `[RemoteProperty]`/`[RemoteKey]` filter on an aggregate omitted the JOIN
+> and failed at the engine. `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` filters (self-contained, no
+> join) were unaffected.
+
+**⚠️ Limitation — reverse (one-to-many) remote filters.** If a `[RemoteKey]`/`[RemoteProperty]` resolves through a
+*reverse* join (joining on a child's foreign key, e.g. `Country ← Address ← PersonAddress → Person`), the join
+fans the base rows out one-per-child. Filtering **`Count`/`Sum`/`Average`** (or `All`) by such a property would
+therefore return an inflated number, so FunkyORM **throws `NotSupportedException`** instead — aggregate in memory:
+
+```csharp
+// ✗ throws NotSupportedException — reverse [RemoteKey] filter would fan out and inflate the count
+provider.Query<CountryReverseDetail>().Where(c => c.RelatedPersonId == 5).Count();
+
+// ✓ do this instead — materialize, then aggregate in memory
+provider.Query<CountryReverseDetail>().Where(c => c.RelatedPersonId == 5).ToList().Count;
+
+// ✓ still fine: Any/Min/Max over a reverse join (fan-out-safe), and ALL forward (many-to-one) remote filters
+provider.Query<CountryReverseDetail>().Where(c => c.RelatedPersonId == 5).Any();
+provider.Query<PersonDetail>().Where(p => p.EmployerHqCountryName == "USA").Count();
+```
+
+> The guard is **entity-wide**: if a detail class declares *any* reverse remote property, a fan-out-sensitive
+> aggregate (`Count`/`All`/`Sum`/`Average`) filtered by *any* of that class's remote properties is rejected —
+> even a forward one. If you need `Count`/`Sum` over a forward remote property, keep it on a detail class that
+> doesn't also declare a reverse one.
+
 ### Advanced Querying: IN and LIKE
 We support powerful filtering patterns that translate to efficient SQL.
 

@@ -505,6 +505,13 @@ namespace Funcular.Data.Orm.MySql
             public List<string> IndividualJoinClauses { get; set; }
             public string ExtraColumns { get; set; }
             public Dictionary<string, string> PropertyToColumnMap { get; set; }
+
+            /// <summary>
+            /// True when any resolved remote path traverses a reverse (one-to-many) join. Aggregates
+            /// filtered by such a property are rejected (see BuildAggregateClause) because the fan-out would
+            /// inflate COUNT/SUM/AVG.
+            /// </summary>
+            public bool HasReverseJoin { get; set; }
         }
 
         internal ResolvedRemoteJoinInfo ResolveRemoteJoins<T>(string tableName)
@@ -558,6 +565,7 @@ namespace Funcular.Data.Orm.MySql
 
                 foreach (var step in resolvedPath.Joins)
                 {
+                    if (step.IsReverse) info.HasReverseJoin = true; // one-to-many hop — can fan out base rows
                     string targetTableName = GetTableNameByType(step.TargetTableType);
                     // Use backtick-stripped name for aliases
                     string targetTableCleanName = targetTableName.Trim('`');

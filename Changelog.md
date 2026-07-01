@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.2-beta1] - 2026-07-01
+
+### Fixed
+- **Aggregates (`Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average`) filtered by a `[RemoteProperty]`/`[RemoteKey]` failed at the engine.** `Query<T>().Where(r => r.RemoteProp == x).Count()` (or `Count(r => r.RemoteProp == x)`) built `SELECT COUNT(*) FROM {table}` (and the `EXISTS`/numeric equivalents) **without** the `LEFT JOIN`s the WHERE needs, so the predicate referenced an undefined join alias (SQL Server `4104 "multi-part identifier … could not be bound"`; PostgreSQL "missing FROM-clause entry"). `BuildAggregateClause` resolved the remote joins but kept only their column map and discarded `JoinClauses`. Fixed in all four providers by injecting the remote joins into the aggregate's `FROM` **when the WHERE references a remote column**. Pre-existing defect (predates 3.8.x). `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` filters were unaffected (self-contained, no join).
+- **Numeric-aggregate selector is now base-table-qualified** (`SUM(person.id)` rather than `SUM(id)`). Once remote joins are present, a bare column is ambiguous against joined tables that share the name — SQL Server errored (`Ambiguous column name`) and SQLite silently bound to the wrong table. No effect on join-free entities.
+
+### Limitations
+- **Reverse (one-to-many) `[RemoteKey]`/`[RemoteProperty]` filters on `Count`/`All`/`Sum`/`Average` throw `NotSupportedException`.** A *reverse* remote join (joining on a child's foreign key rather than the target's primary key — e.g. `Country ← Address ← PersonAddress → Person`) fans the base rows out one-per-child, which would inflate those aggregates. Rather than return a silently-wrong number, FunkyORM throws a clear exception directing you to **materialize and aggregate in memory** (`query.Where(...).ToList().Count()` / `.Sum(...)`). Unaffected: forward (many-to-one) remote filters; `Any`/`Min`/`Max` over reverse joins (fan-out-safe); and any aggregate that doesn't filter on a remote column.
+
 ## [3.8.1-beta1] - 2026-06-30
 
 > **Gap closure.** Ordering and `DISTINCT` were the remaining places where the "view-replacing" / remote attributes weren't yet first-class. This rounds out the query surface that already supported them in `Where(...)` predicates (3.5.1) and projections. Ships beta while 3.8.0's RLS is still in beta.

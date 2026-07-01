@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
             _provider?.Dispose();
         }
 
+        // Seed one full forward chain (Country → Address → Organization → Person) so a person's
+        // [RemoteProperty] EmployerHeadquartersCountryName is non-null — keeps the aggregate tests below
+        // non-vacuous (they'd otherwise compare 0 == 0 when run without other seeders).
+        private void SeedForwardRemoteChain()
+        {
+            var country = new CountryEntity { Name = "AggCountry_" + Guid.NewGuid() };
+            _provider.Insert(country);
+            var address = new AddressEntity { Line1 = "1 Agg St", City = "AggCity", StateCode = "NY", PostalCode = "10001", CountryId = country.Id };
+            _provider.Insert(address);
+            var org = new OrganizationEntity { Name = "AggOrg_" + Guid.NewGuid(), HeadquartersAddressId = address.Id };
+            _provider.Insert(org);
+            var person = new PersonEntity { FirstName = "Agg", LastName = "Test_" + Guid.NewGuid().ToString().Substring(0, 8), EmployerId = org.Id };
+            _provider.Insert(person);
+        }
+
         [TestMethod]
         public async Task RemoteKey_FullChainPopulation_ImplicitAndExplicit()
         {
@@ -301,6 +316,102 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
                 _provider.CommitTransaction();
             }
             catch { _provider.RollbackTransaction(); throw; }
+        }
+
+        [TestMethod]
+        public void Count_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            SeedForwardRemoteChain();
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Count;
+            var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Count();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Count_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            SeedForwardRemoteChain();
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Count;
+            var actual = _provider.Query<PersonDetailEntity>().Count(p => p.EmployerHeadquartersCountryName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Any_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            SeedForwardRemoteChain();
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Any();
+            var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Any();
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void All_WithRemotePropertyPredicate_MatchesMaterialized()
+        {
+            SeedForwardRemoteChain();
+            var expected = _provider.Query<PersonDetailEntity>().ToList().All(p => p.EmployerHeadquartersCountryName != null);
+            var actual = _provider.Query<PersonDetailEntity>().All(p => p.EmployerHeadquartersCountryName != null);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Sum_FilteredByRemoteProperty_MatchesMaterialized()
+        {
+            SeedForwardRemoteChain();
+            var expected = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).ToList().Sum(p => p.Id);
+            var actual = _provider.Query<PersonDetailEntity>().Where(p => p.EmployerHeadquartersCountryName != null).Sum(p => p.Id);
+            Assert.AreEqual(expected, actual);
+        }
+
+        // Reverse ([RemoteKey] one-to-many) fixture: Country <- Address (via CountryId) <- PersonAddress
+        // (via AddressId) -> Person (via PersonId). The resolver finds this path automatically from Person.Id.
+        [System.ComponentModel.DataAnnotations.Schema.Table("country")]
+        public class CountryReverseDetailEntity : CountryEntity
+        {
+            [Funcular.Data.Orm.Attributes.RemoteKey(typeof(Funcular.Data.Orm.Sqlite.Tests.Domain.Objects.Person.Person),
+                keyPath: new[] { nameof(Funcular.Data.Orm.Sqlite.Tests.Domain.Objects.Person.Person.Id) })]
+            public int PersonId { get; set; }
+        }
+
+        [TestMethod]
+        public void Count_NoFilter_OnReverseEntity_MatchesBaseCount()
+        {
+            // A reverse [RemoteKey] entity with NO remote filter must not append the fan-out join — the aggregate
+            // stays on the base table. (Appending it unconditionally over-counted; this guards that regression.)
+            var baseCount = _provider.Query<CountryEntity>().Count();
+            var reverseCount = _provider.Query<CountryReverseDetailEntity>().Count();
+            Assert.AreEqual(baseCount, reverseCount);
+        }
+
+        [TestMethod]
+        public void Count_FilteredByReverseRemoteKey_ThrowsNotSupported()
+        {
+            // Choice (A): filtering Count by a reverse (one-to-many) [RemoteKey] would fan out → clear exception.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<CountryReverseDetailEntity>()
+                    .Where(c => c.PersonId == 1)
+                    .Count());
+            StringAssert.Contains(ex.Message, "reverse");
+            StringAssert.Contains(ex.Message, "ToList");
+        }
+
+        [TestMethod]
+        public void Sum_FilteredByReverseRemoteKey_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<CountryReverseDetailEntity>()
+                    .Where(c => c.PersonId == 1)
+                    .Sum(c => c.Id));
+        }
+
+        [TestMethod]
+        public void Any_FilteredByReverseRemoteKey_Executes()
+        {
+            // Any is fan-out-safe (EXISTS), so it is ALLOWED over a reverse join — must execute, not throw.
+            var result = _provider.Query<CountryReverseDetailEntity>()
+                .Where(c => c.PersonId == 1)
+                .Any();
+            Assert.IsTrue(result || !result); // executed without throwing
         }
     }
 }
