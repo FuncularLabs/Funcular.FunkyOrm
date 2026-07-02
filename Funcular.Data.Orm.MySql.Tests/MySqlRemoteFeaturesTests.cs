@@ -91,14 +91,11 @@ namespace Funcular.Data.Orm.MySql.Tests
         }
 
         [TestMethod]
-        public void Select_ScalarProjection_ThrowsClearNotSupported()
+        public void Select_ScalarProjection_ReturnsListOfScalar()
         {
-            // BUG B: a top-level projection to a scalar isn't materialized. Fail with a clear message
-            // rather than the old obscure InvalidCastException.
-            var ex = Assert.ThrowsException<NotSupportedException>(() =>
-                _provider.Query<PersonWithEmployer>().Select(p => p.Id).ToList());
-            StringAssert.Contains(ex.Message, "top-level Select");
-            StringAssert.Contains(ex.Message, "ToList");
+            // v3.9: a top-level scalar projection Select(x => x.Member) now returns List<memberType>.
+            var ids = _provider.Query<PersonWithEmployer>().Select(p => p.Id).ToList();
+            Assert.IsInstanceOfType(ids, typeof(System.Collections.Generic.List<int>));
         }
 
         [TestMethod]
@@ -106,6 +103,25 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             Assert.ThrowsException<NotSupportedException>(() =>
                 _provider.Query<PersonWithEmployer>().Select(p => new { p.Id }).ToList());
+        }
+
+        [TestMethod]
+        public void Select_ScalarProjection_ThenComposingLambdaOperators_ThrowClearNotSupported()
+        {
+            // A lambda-bearing operator applied AFTER a scalar projection is rejected at parse with a clean
+            // NotSupportedException (not an InvalidCastException from a Func<T,...> hard-cast).
+            var where = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().Select(p => p.Id).Where(x => x > 0).ToList());
+            StringAssert.Contains(where.Message, "Where");
+            var all = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().Select(p => p.Id).All(x => x > 0));
+            StringAssert.Contains(all.Message, "All");
+            var orderBy = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().Select(p => p.Id).OrderBy(x => x).ToList());
+            StringAssert.Contains(orderBy.Message, "OrderBy");
+            var chained = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().Select(p => p.Id).Select(x => x + 1).ToList());
+            StringAssert.Contains(chained.Message, "Select");
         }
 
         [TestMethod]

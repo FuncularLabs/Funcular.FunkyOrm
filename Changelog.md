@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.9.0-beta1] - 2026-07-02
+
+### Added
+- **Top-level scalar projection: `Query<T>().Select(x => x.Member)` now returns `List<memberType>`.** Previously only `Select(x => new T { … })` (a same-entity column subset) was translated; the natural scalar spelling threw `NotSupportedException`. It now emits the **narrow `SELECT`** for that single member (as if `new T { Member = x.Member }`), materializes `T`, then projects the member in memory — so `Select(x => x.Id)` yields `List<int>`. Composes with `Where` + `OrderBy` (including a `[RemoteProperty]` join column) + `Skip`/`Take`, deferring the unprojected wide columns until after the Top-N (the performant call-list pattern: filter/order/page by a joined column, read back only the key). The member may be an own column or a self-contained computed attribute (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`). Applied in all four providers.
+- **The scalar `Select` must be the outermost operator.** A lambda-bearing operator applied **after** it (`Where`/`OrderBy`/`ThenBy`/`All`/`Any(pred)`/`Count(pred)`/`First(pred)`/chained `Select`) — or a reducing terminal (`Count`/`First`/`Sum`/`ElementAt`/…) — throws a clear `NotSupportedException`; the projected sequence is no longer the entity. Filter/order/page **before** the projection, or materialize and compose in memory. Constant-arg operators (`Take`/`Skip`/`Distinct`) after it still compose.
+- **Still not translated** (clear `NotSupportedException`): top-level projection to an **anonymous type** or a **different DTO**, an **identity** `Select(x => x)`, a **computed expression**, and a scalar of a **`[RemoteProperty]` value** (order/filter by the remote column and project the key instead). Reshape those in memory: `query.ToList().Select(...)`.
+
 ## [3.8.5-beta1] - 2026-07-02
 
 ### Changed

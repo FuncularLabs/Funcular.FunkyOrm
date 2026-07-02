@@ -12,10 +12,10 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;mysql;mariadb;entity;lambda;query</PackageTags>
     <Title>Funcular.FunkyORM.MySql</Title>
-    <Version>3.8.5-beta1</Version>
-    <AssemblyVersion>3.8.5.0</AssemblyVersion>
-    <FileVersion>3.8.5.0</FileVersion>
-    <InformationalVersion>3.8.5-beta1</InformationalVersion>
+    <Version>3.9.0-beta1</Version>
+    <AssemblyVersion>3.9.0.0</AssemblyVersion>
+    <FileVersion>3.9.0.0</FileVersion>
+    <InformationalVersion>3.9.0-beta1</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>

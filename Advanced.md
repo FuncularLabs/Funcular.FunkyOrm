@@ -52,18 +52,37 @@ members, that **defers computing the unprojected columns until after the Top-N**
 a computed or joined column but only need a key back, this is dramatically faster than materializing the whole
 entity — and it's the supported way to do it. (You get back a `T` with only the projected members populated.)
 
-**Doesn't work** — a *top-level* `Select` that projects to anything other than the queried entity throws
-`NotSupportedException` (with a message pointing you to the fix):
+**Scalar projection works too (v3.9).** A top-level `Select(x => x.Member)` returns `List<memberType>` — it
+emits the narrow `SELECT` for that one member, materializes the entity, and projects it in memory:
 ```csharp
-provider.Query<Person>().Select(p => p.Id).ToList();               // ❌ scalar projection
+var ids = provider.Query<Person>()
+    .Where(p => p.EmployerCountryName != null)     // filter by a [RemoteProperty]
+    .OrderByDescending(p => p.EmployerCountryName)  // order by it
+    .Skip(0).Take(25)
+    .Select(p => p.Id)                             // ✅ project only the key → List<int>
+    .ToList();
+```
+The member can be an own column or a self-contained computed attr (`[JsonPath]`/`[SqlExpression]`/
+`[SubqueryAggregate]`).
+
+**The scalar `Select` must be the *outermost* operator.** Filter, order, and page **before** it (as above); a
+lambda-bearing operator applied **after** it (`.Where(x => …)`, `.OrderBy(x => …)`, `.All`/`.Any(pred)`/
+`.Count(pred)`/`.First(pred)`, a chained `.Select`) throws a clear `NotSupportedException` — the projected
+sequence is no longer the entity, so it isn't translated. Reducing terminals (`.Count()`, `.First()`, `.Sum()`,
+`.ElementAt`, …) after it likewise throw. Do those in memory after `.ToList()`, or aggregate off the base query.
+Constant-arg operators (`.Take`/`.Skip`/`.Distinct`) after the scalar `Select` still compose.
+
+**Still doesn't work** — these throw `NotSupportedException`:
+```csharp
 provider.Query<Person>().Select(p => new { p.FirstName }).ToList(); // ❌ anonymous type
 provider.Query<Person>().Select(p => new PersonDto { ... }).ToList(); // ❌ different DTO
 provider.Query<Person>().Select(p => p).ToList();                  // ❌ identity projection (just drop the Select)
+provider.Query<Person>().Select(p => p.EmployerCountryName).ToList(); // ❌ scalar of a [RemoteProperty] VALUE
 ```
-Fix any of these by materializing first (`.ToList()`) and projecting in memory, or by querying a dedicated
-`[Table]` DTO. Also: a **`[RemoteProperty]` cannot be referenced inside a custom `Select`** — it resolves to a
-joined `alias.column` that a projection's `FROM` doesn't carry, so it throws `NotSupportedException`. Query the
-whole entity instead.
+Reshape into an anonymous type or another DTO by materializing first (`.ToList()`) and projecting in memory, or
+by querying a dedicated `[Table]` DTO. A **`[RemoteProperty]` value can't be projected** (own the join column
+in the WHERE/ORDER BY, but project the key) — it resolves to a joined `alias.column` a projection's `FROM`
+doesn't carry.
 
 ---
 

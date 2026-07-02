@@ -48,6 +48,13 @@ namespace Funcular.Data.Orm.Sqlite
 
             var components = ParseExpression(expression, parameterGenerator, translator);
 
+            // Top-level scalar projection Select(x => x.Member): materialize the entity (narrow SELECT) then
+            // project the member in memory → List<memberType>.
+            if (components.ScalarSelector != null)
+            {
+                return ExecuteScalarProjection<TResult>(components, expression);
+            }
+
             bool isCollection = typeof(IEnumerable<T>).IsAssignableFrom(typeof(TResult)) && typeof(TResult) != typeof(T);
 
             TResult executeResult;
@@ -63,6 +70,44 @@ namespace Funcular.Data.Orm.Sqlite
 
             Debug.WriteLine($"Execute result: {executeResult}");
             return executeResult;
+        }
+
+        /// <summary>
+        /// Executes a top-level scalar projection (<c>Select(x =&gt; x.Member)</c>): materializes the entity via the
+        /// narrow SELECT built for the member, then applies the selector in memory to produce
+        /// <c>List&lt;memberType&gt;</c> (assignable to the caller's <c>List&lt;memberType&gt;</c> /
+        /// <c>IEnumerable&lt;memberType&gt;</c>).
+        /// </summary>
+        private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
+        {
+            // A scalar projection yields List<memberType>; that is only valid when the caller expects a collection
+            // (ToList/enumeration → TResult is IEnumerable<memberType>/List<memberType>). ANY reducing terminal
+            // (First/Single/Count/Any/Sum/LongCount/ElementAt/Contains/Aggregate/…) produces a different TResult —
+            // reject uniformly BY RESULT TYPE rather than an operator blocklist. (Parameterless numeric aggregates
+            // are caught earlier in ParseExpression before their missing selector argument is dereferenced.)
+            var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
+            if (!typeof(TResult).IsAssignableFrom(listType))
+            {
+                var op = (expression as MethodCallExpression)?.Method.Name;
+                var opText = (op != null && op != "Select") ? $" followed by {op}()" : "";
+                throw new NotSupportedException(
+                    $"A scalar projection Select(x => x.Member){opText} is only supported for a list/enumeration " +
+                    $"result in this version. Materialize then apply the operator in memory " +
+                    $"(query.Select(x => x.Member).ToList()...), or aggregate off the base query.");
+            }
+
+            string commandText = BuildQueryComponents(components);
+            var entities = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
+
+            // Compile the selector to Func<T, object> (boxes the member value), then fill a typed List<memberType>.
+            var param = components.ScalarSelector.Parameters[0];
+            var boxed = Expression.Lambda<Func<T, object>>(
+                Expression.Convert(components.ScalarSelector.Body, typeof(object)), param).Compile();
+
+            var list = (System.Collections.IList)Activator.CreateInstance(listType);
+            foreach (var e in entities)
+                list.Add(boxed(e));
+            return (TResult)(object)list;
         }
 
         private QueryComponents ParseExpression(Expression expression, SqliteParameterGenerator parameterGenerator, SqliteExpressionTranslator translator)
@@ -104,6 +149,24 @@ namespace Funcular.Data.Orm.Sqlite
                     throw new NotSupportedException(
                         "GroupBy is not supported in this version — it is not translated to SQL. Materialize " +
                         "first and group in memory: query.ToList().GroupBy(...).");
+                }
+
+                // A scalar projection changes the element type from T to the projected member. The chain is walked
+                // inner→outer, so if ScalarSelector is already set we are now processing an operator OUTER of the
+                // scalar Select. Any such operator carrying a lambda over the projected element (Where/OrderBy/
+                // predicate- or selector-bearing aggregates/chained Select) would be hard-cast to Func<T,...> and
+                // throw an obscure InvalidCastException. Reject the whole class here with one clear message (same
+                // pattern as the result-type and GroupBy guards). Constant-arg operators (Skip/Take/Distinct) are
+                // unaffected and still compose.
+                if (components.ScalarSelector != null && currentCall.Arguments.Count >= 2
+                    && (currentCall.Arguments[1] is LambdaExpression
+                        || (currentCall.Arguments[1] is UnaryExpression scalarComposeUnary && scalarComposeUnary.Operand is LambdaExpression)))
+                {
+                    throw new NotSupportedException(
+                        $"A scalar projection Select(x => x.Member) must be the outermost query operator; applying " +
+                        $"{currentCall.Method.Name}(...) after it is not translated. Filter, order, or aggregate BEFORE " +
+                        $"the projection, or materialize and compose in memory: " +
+                        $"query.Select(x => x.Member).ToList().{currentCall.Method.Name}(...).");
                 }
 
                 if (currentCall.Method.Name == "Where")
@@ -193,23 +256,50 @@ namespace Funcular.Data.Orm.Sqlite
                 }
                 else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
+                    // A parameterless numeric aggregate after a scalar projection has no selector argument — guard
+                    // it here before BuildAggregateClause dereferences Arguments[1].
+                    if (components.ScalarSelector != null)
+                        throw new NotSupportedException(
+                            $"A scalar projection Select(x => x.Member) followed by {currentCall.Method.Name}() is " +
+                            $"not supported in this version. Aggregate off the base query " +
+                            $"(e.g. query.{currentCall.Method.Name}(x => x.Member)), or materialize and apply in " +
+                            $"memory: query.Select(x => x.Member).ToList().{currentCall.Method.Name}().");
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
-
-                    // FunkyORM materializes the source entity type T. A top-level Select projecting to a DIFFERENT
-                    // element type (a scalar column, an anonymous type, or another DTO) is not materialized — only
-                    // Select(x => new T { ... }) (same entity, subset of columns) is supported. Fail clearly here
-                    // rather than letting the result path throw an obscure InvalidCastException at materialization.
-                    if (!(lambda.Body is MemberInitExpression mi && mi.Type == typeof(T)))
+                    // FunkyORM materializes the source entity type T. Supported top-level projections:
+                    //   (a) Select(x => new T { ... }) — same entity, column subset (narrow SELECT); and
+                    //   (b) Select(x => x.Member)      — a single mapped member (v3.9): emit the narrow SELECT for
+                    //       that member, materialize T, then read the member in memory (see Execute).
+                    // Anonymous types / other DTOs / expression bodies are not translated — fail clearly rather
+                    // than emit a full-entity SELECT and throw an obscure InvalidCastException at materialization.
+                    Expression selectBody;
+                    if (lambda.Body is MemberInitExpression mi && mi.Type == typeof(T))
+                    {
+                        selectBody = mi;
+                    }
+                    else if (lambda.Body is MemberExpression scalarMember
+                             && scalarMember.Expression is ParameterExpression
+                             && scalarMember.Member is PropertyInfo sp && sp.CanWrite)
+                    {
+                        // Project as if `new T { Member = x.Member }` for the SQL + materialization, then apply the
+                        // original selector in memory to yield List<memberType>.
+                        selectBody = Expression.MemberInit(Expression.New(typeof(T)),
+                            Expression.Bind(scalarMember.Member, scalarMember));
+                        components.ScalarSelector = lambda;
+                        components.ScalarMemberType = scalarMember.Type;
+                    }
+                    else
+                    {
                         throw new NotSupportedException(
-                            $"A top-level Select projecting to a type other than {typeof(T).Name} (e.g. a scalar " +
-                            $"column, an anonymous type, or another DTO) is not supported in this version. Project to " +
-                            $"the same entity — Select(x => new {typeof(T).Name} {{ ... }}) — and read the field(s) you " +
-                            $"need, or materialize first and project in memory: query.ToList().Select(...).");
+                            $"A top-level Select must project to {typeof(T).Name} — a column subset, " +
+                            $"Select(x => new {typeof(T).Name} {{ ... }}) — or to a single mapped member, " +
+                            $"Select(x => x.Member). An anonymous type, another DTO, or a computed expression is not " +
+                            $"supported; materialize first and project in memory: query.ToList().Select(...).");
+                    }
 
                     var selectTable = _dataProvider.GetTableNameInternal<T>();
                     var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
@@ -221,7 +311,7 @@ namespace Funcular.Data.Orm.Sqlite
                         translator,
                         selectTable,
                         selectRemoteMap);
-                    selectVisitor.Visit(lambda.Body);
+                    selectVisitor.Visit(selectBody);
                     _lastSelectProjection = selectVisitor.SelectClause;
                     _lastSelectParameters = selectVisitor.Parameters;
                 }
