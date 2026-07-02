@@ -17,10 +17,10 @@
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
     <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>3.8.4-beta1</Version>
-    <AssemblyVersion>3.8.4.0</AssemblyVersion>
-    <FileVersion>3.8.4.0</FileVersion>
-    <InformationalVersion>3.8.4-beta1</InformationalVersion>
+    <Version>3.8.5-beta1</Version>
+    <AssemblyVersion>3.8.5.0</AssemblyVersion>
+    <FileVersion>3.8.5.0</FileVersion>
+    <InformationalVersion>3.8.5-beta1</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>

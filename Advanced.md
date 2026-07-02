@@ -45,6 +45,13 @@ var names = provider.Query<Person>()
 var summaries = provider.Query<PersonSummary>().ToList();   // PersonSummary : [Table("person")] with a few props
 ```
 
+**The performance idiom.** `Select(x => new T { Key = x.Key })` doesn't just work — it emits a **narrow
+`SELECT`** of only the projected column(s) and composes with `Where` + `OrderBy` (including a `[RemoteProperty]`
+join column) + `Skip`/`Take`. On a wide entity with many `[JsonPath]`/`[SqlExpression]`/`[RemoteProperty]`
+members, that **defers computing the unprojected columns until after the Top-N**. When you filter/order/page by
+a computed or joined column but only need a key back, this is dramatically faster than materializing the whole
+entity — and it's the supported way to do it. (You get back a `T` with only the projected members populated.)
+
 **Doesn't work** — a *top-level* `Select` that projects to anything other than the queried entity throws
 `NotSupportedException` (with a message pointing you to the fix):
 ```csharp
@@ -139,9 +146,12 @@ public string HeadquartersCountryName { get; set; }
 ```
 Each forward foreign-key property in the path resolves to its target type **by name** — `ParentId` → `Parent`,
 including suffix matches (`EmployerOrganizationId` → `Organization`) and an `Entity` suffix on the type
-(`CountryId` → `CountryEntity`). If a foreign key's name doesn't match its target type, put
-`[RemoteLink(typeof(TargetType))]` on that property to name the target explicitly (that's how, for example, an
-`EmployerId` links to an `Organization`). An unresolvable foreign key throws `PathNotFoundException`.
+(`CountryId` → `CountryEntity`). **As of v3.8.5, the foreign key on the *final* hop — the one that lands on the
+target — can be named anything;** the explicit `typeof(...)` you pass to `[RemoteProperty]` is authoritative for
+it. Only *intermediate* foreign keys in a multi-hop path must convention-match, or carry
+`[RemoteLink(typeof(TargetType))]` to name their target explicitly (that's how, for example, an intermediate
+`EmployerId` links to an `Organization`). An unresolvable *intermediate* foreign key throws
+`PathNotFoundException`.
 
 **Forward links (many-to-one) are fully supported:** reading in a whole-entity query, `Where`, `OrderBy`,
 forward-remote-filtered aggregates, and multi-hop paths all work. Remote reads inside a `BeginTransaction`
