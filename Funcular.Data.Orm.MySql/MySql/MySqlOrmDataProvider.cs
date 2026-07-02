@@ -574,8 +574,12 @@ namespace Funcular.Data.Orm.MySql
                     DiscoverColumns(step.SourceTableType);
                     DiscoverColumns(step.TargetTableType);
                 }
-                if (resolvedPath.TargetProperty?.DeclaringType != null)
-                    DiscoverColumns(resolvedPath.TargetProperty.DeclaringType);
+                // Discover the concrete [Table]-annotated target ENTITY's schema (remoteType), NOT the value
+                // property's DeclaringType. When the remote value column is declared on a BASE class of the
+                // target (e.g. Uid on EntityBase, Call : EntityBase), DeclaringType is that base — which has no
+                // [Table] — and discovering it emits `SELECT * FROM entitybase` → "Invalid object name". The
+                // target table already contains inherited columns physically, so remoteType covers them.
+                DiscoverColumns(remoteType);
 
                 string currentAlias = tableName;
 
