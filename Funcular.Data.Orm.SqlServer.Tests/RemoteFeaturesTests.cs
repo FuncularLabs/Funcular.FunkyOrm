@@ -14,7 +14,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         // Seed one full forward chain (Country → Address → Organization → Person) so a person's
         // [RemoteProperty] EmployerHeadquartersCountryName is non-null — keeps the aggregate tests below
         // non-vacuous (they'd otherwise compare 0 == 0 when run without other seeders).
-        private void SeedForwardRemoteChain()
+        private string SeedForwardRemoteChain()
         {
             var country = new CountryEntity { Name = "AggCountry_" + Guid.NewGuid() };
             _provider.Insert(country);
@@ -24,6 +24,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             _provider.Insert(org);
             var person = new PersonEntity { FirstName = "Agg", LastName = "Test_" + Guid.NewGuid().ToString().Substring(0, 8), EmployerId = org.Id };
             _provider.Insert(person);
+            return country.Name; // unique marker so tests can filter to just this seeded chain
         }
 
         [TestMethod]
@@ -126,13 +127,33 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         [TestMethod]
         public void Sum_FilteredByRemoteProperty_MatchesMaterialized()
         {
-            SeedForwardRemoteChain();
             // Numeric-aggregate branch, filtered by a [RemoteProperty]: the JOIN must be present for the WHERE.
+            // Filter to THIS seeded chain's unique country so SUM(id) stays bounded (summing all matching rows
+            // over a large/accumulated person table would overflow int32 — a test artifact, not a code issue).
+            var country = SeedForwardRemoteChain();
             var expected = _provider.Query<PersonDetailEntity>()
-                .Where(p => p.EmployerHeadquartersCountryName != null).ToList().Sum(p => p.Id);
+                .Where(p => p.EmployerHeadquartersCountryName == country).ToList().Sum(p => p.Id);
             var actual = _provider.Query<PersonDetailEntity>()
-                .Where(p => p.EmployerHeadquartersCountryName != null).Sum(p => p.Id);
+                .Where(p => p.EmployerHeadquartersCountryName == country).Sum(p => p.Id);
             Assert.AreEqual(expected, actual);
+        }
+
+        [TestMethod]
+        public void Select_ScalarProjection_ThrowsClearNotSupported()
+        {
+            // BUG B (3.8.3): a top-level projection to a scalar isn't materialized. Fail with a clear message
+            // rather than the old obscure InvalidCastException.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "top-level Select");
+            StringAssert.Contains(ex.Message, "ToList");
+        }
+
+        [TestMethod]
+        public void Select_AnonymousProjection_ThrowsClearNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => new { p.Id }).ToList());
         }
 
         [TestMethod]

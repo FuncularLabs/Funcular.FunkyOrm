@@ -358,11 +358,13 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Protected Async Execution Helpers
 
-        private void HandleSqlException<T>(SqlException ex)
+        private void HandleSqlException<T>(SqlException ex) => HandleSqlException(typeof(T), ex);
+
+        private void HandleSqlException(Type type, SqlException ex)
         {
             if (ex.Number == 208) // Invalid object name
             {
-                var typeName = typeof(T).Name;
+                var typeName = type.Name;
                 var snakeCase = IgnoreUnderscoreAndCaseStringComparer.ToLowerSnakeCase(typeName);
 
                 var message = $"The table or view for entity '{typeName}' was not found in the database. " +
@@ -1132,7 +1134,20 @@ namespace Funcular.Data.Orm.SqlServer
 
                 var resolvedPath = resolver.Resolve(typeof(T), remoteType, keyPath);
 
-                string currentAlias = tableName; 
+                // Discover the schema of every table in the remote path BEFORE resolving its columns, so join
+                // keys and the final column map to real DB names (snake_case-aware) instead of the naive
+                // property-name fallback. Deterministic regardless of whether the target type was materialized
+                // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
+                // guarded (_mappedTypes) schema-only read per type.
+                foreach (var step in resolvedPath.Joins)
+                {
+                    DiscoverColumns(step.SourceTableType);
+                    DiscoverColumns(step.TargetTableType);
+                }
+                if (resolvedPath.TargetProperty?.DeclaringType != null)
+                    DiscoverColumns(resolvedPath.TargetProperty.DeclaringType);
+
+                string currentAlias = tableName;
 
                 foreach (var step in resolvedPath.Joins)
                 {
@@ -1622,64 +1637,88 @@ namespace Funcular.Data.Orm.SqlServer
 #else
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        protected void DiscoverColumns<T>()
-        {
-            if (_mappedTypes.Contains(typeof(T))) return;
+        protected void DiscoverColumns<T>() => DiscoverColumns(typeof(T));
 
-            var table = GetTableName<T>();
+        protected void DiscoverColumns(Type type)
+        {
+            if (_mappedTypes.Contains(type)) return;
+
+            var table = GetTableNameByType(type);
             var commandText = $"SELECT * FROM {table}";
-            var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray());
+            var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray());
 
             // Schema discovery is an internal/system operation: prime no identity and never fail-closed.
             using (SystemContextScope.Enter())
-            using (var connectionScope = new ConnectionScope(this))
             {
-                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection,
-                           Array.Empty<SqlParameter>()))
+                // When a transaction is open we must NOT open a nested ConnectionScope: the transactional-scope
+                // guard forbids re-entrant scopes (it can't tell benign nesting from concurrent misuse). Schema
+                // discovery runs while a command is being *built* — before the outer operation executes its
+                // reader — so the transactional connection is idle and can be borrowed directly. Outside a
+                // transaction, use a dedicated scope as before. (Cold remote-attribute resolution reaches here
+                // from inside an operation's own scope; without this branch it would throw under a transaction.)
+                if (Transaction != null)
                 {
-                    try
-                    {
-                        using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
-                        {
+                    DiscoverColumnsOnConnection(type, commandText, properties, GetConnection());
+                }
+                else
+                {
+                    using (var connectionScope = new ConnectionScope(this))
+                        DiscoverColumnsOnConnection(type, commandText, properties, connectionScope.Connection);
+                }
+            }
+        }
 
-                            ICollection<string> columnNames = new List<string>();
+        /// <summary>
+        /// Runs the schema-only reader for <paramref name="type"/> on the supplied connection and populates the
+        /// column-name cache. Factored out of <see cref="DiscoverColumns(Type)"/> so discovery can either open a
+        /// dedicated <see cref="ConnectionScope"/> (no transaction) or reuse the ambient transactional connection.
+        /// </summary>
+        private void DiscoverColumnsOnConnection(Type type, string commandText, ICollection<PropertyInfo> properties, IDbConnection connection)
+        {
+            using (var command = BuildSqlCommandObject(commandText, connection, Array.Empty<SqlParameter>()))
+            {
+                try
+                {
+                    using (var reader = command.ExecuteReader(CommandBehavior.SchemaOnly))
+                    {
+
+                        ICollection<string> columnNames = new List<string>();
 #if NET8_0_OR_GREATER
-                            var columnSchema = reader.GetColumnSchema();
-                            foreach (var dbColumn in columnSchema)
-                            {
-                                columnNames.Add(dbColumn.ColumnName);
-                            }
-#else
-                            var schemaTable = reader.GetSchemaTable();
-                            foreach (DataRow row in schemaTable?.Rows)
-                            {
-                                columnNames.Add(row["ColumnName"].ToString());
-                            }
-#endif
-                            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-                            foreach (var property in properties)
-                            {
-                                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-
-                                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                                string actualColumnName = columnAttr?.Name ??
-                                                          columnNames.FirstOrDefault(c =>
-                                                                  comparer.Equals(c, property.Name));
-                                if (actualColumnName != null)
-                                {
-                                    var key = property.ToDictionaryKey();
-                                    ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
-                                }
-                            }
-
-                            _mappedTypes.Add(typeof(T));
+                        var columnSchema = reader.GetColumnSchema();
+                        foreach (var dbColumn in columnSchema)
+                        {
+                            columnNames.Add(dbColumn.ColumnName);
                         }
+#else
+                        var schemaTable = reader.GetSchemaTable();
+                        foreach (DataRow row in schemaTable?.Rows)
+                        {
+                            columnNames.Add(row["ColumnName"].ToString());
+                        }
+#endif
+                        var comparer = new IgnoreUnderscoreAndCaseStringComparer();
+                        foreach (var property in properties)
+                        {
+                            if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
+
+                            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+                            string actualColumnName = columnAttr?.Name ??
+                                                      columnNames.FirstOrDefault(c =>
+                                                              comparer.Equals(c, property.Name));
+                            if (actualColumnName != null)
+                            {
+                                var key = property.ToDictionaryKey();
+                                ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
+                            }
+                        }
+
+                        _mappedTypes.Add(type);
                     }
-                    catch (SqlException ex)
-                    {
-                        HandleSqlException<T>(ex);
-                        throw;
-                    }
+                }
+                catch (SqlException ex)
+                {
+                    HandleSqlException(type, ex);
+                    throw;
                 }
             }
         }

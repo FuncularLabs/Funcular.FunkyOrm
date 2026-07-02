@@ -89,5 +89,31 @@ namespace Funcular.Data.Orm.MySql.Tests
             Assert.IsNotNull(fetched);
             Assert.IsNull(fetched.EmployerName, "LEFT JOIN with no FK should yield a null remote property.");
         }
+
+        [TestMethod]
+        public void Select_ScalarProjection_ThrowsClearNotSupported()
+        {
+            // BUG B: a top-level projection to a scalar isn't materialized. Fail with a clear message
+            // rather than the old obscure InvalidCastException.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().Select(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "top-level Select");
+            StringAssert.Contains(ex.Message, "ToList");
+        }
+
+        [TestMethod]
+        public void Select_AnonymousProjection_ThrowsClearNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().Select(p => new { p.Id }).ToList());
+        }
+
+        [TestMethod]
+        public void GroupBy_IsNotTranslated_ThrowsNotSupported()
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().GroupBy(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "GroupBy");
+        }
     }
 }

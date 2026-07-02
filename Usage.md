@@ -2,6 +2,8 @@
 
 Welcome to the **Funcular.FunkyOrm** usage guide! This document is your "Dummies" book for getting up and running with the framework. It covers everything from basic setup to advanced querying, error handling, and why you might prefer this over the big dogs like Entity Framework or the raw metal of Dapper.
 
+> Looking for the exact boundary of what the query engine translates — which projections, computed-attribute, aggregate, and remote-property constructs work and which throw? See **[Advanced Usage: What Works, What Doesn't](Advanced.md)**.
+
 ## Why FunkyORM?
 
 Look, we get it. You've got choices.
@@ -397,12 +399,14 @@ LIMIT 10 OFFSET 10
 ```
 
 ### Projections (`Select`)
-Don't need the whole object? Just grab what you need.
+Reshaping results into an anonymous type, a scalar, or a different DTO is done **in memory**, after materializing the entity — a top-level `Select(...)` to a different shape is not translated to SQL and throws `NotSupportedException`:
 ```csharp
 var names = provider.Query<Person>()
-    .Select(p => new { p.FirstName, p.LastName })
-    .ToList();
+    .Where(p => p.LastName.StartsWith("Sm"))
+    .ToList()                                       // materialize Person rows from the DB
+    .Select(p => new { p.FirstName, p.LastName });  // reshape client-side (LINQ-to-objects)
 ```
+> **Want the database to return only a subset of columns?** Map a `[Table("person")]` DTO to the same table declaring just the properties you need, and query *that* type directly (the "wide table / column subset" pattern). FunkyORM materializes the type you query, so `Query<PersonSummary>()` selects only its columns.
 
 ### Aggregates (`Count`, `Any`, `Max`, etc.)
 **Performance Tip**: Always chain these off `.Query<T>()` directly so the database does the work.
@@ -516,17 +520,18 @@ var scots = provider.Query<Person>()
 ```
 
 ### Advanced: Ternary Operators
-We support C# ternary operators in queries! They translate to SQL `CASE` statements.
+We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
 
 ```csharp
-var status = provider.Query<Person>()
-    .Select(p => new 
-    { 
-        Name = p.FirstName, 
-        AgeGroup = p.Birthdate < DateTime.Now.AddYears(-18) ? "Adult" : "Minor" 
-    })
+// The ternary becomes a SQL CASE inside the WHERE clause.
+// Hoist the cutoff to a local — a method call like DateTime.Now.AddYears(-18) inlined in the
+// predicate isn't translatable; a captured value parameterizes cleanly.
+var cutoff = DateTime.Now.AddYears(-18);
+var adults = provider.Query<Person>()
+    .Where(p => (p.Birthdate < cutoff ? "Adult" : "Minor") == "Adult")
     .ToList();
 ```
+> To return a `CASE`-computed **value** as a column, declare a `[SqlExpression]` computed attribute on your entity (it resolves to the `CASE` fragment in `SELECT`/`WHERE`/`ORDER BY`). A top-level `Select(p => new { … })` that computes a value is not supported — see [Projections](#projections-select).
 
 ---
 

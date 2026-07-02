@@ -96,6 +96,16 @@ namespace Funcular.Data.Orm.Sqlite
                     components.OuterMethodCall = currentCall.Method.Name;
                 }
 
+                if (currentCall.Method.Name == "GroupBy")
+                {
+                    // GroupBy is not translated to SQL. Fail clearly here rather than letting the result path
+                    // materialize T and then throw an obscure InvalidCastException (same class as the top-level
+                    // Select guard). Group in memory after materializing.
+                    throw new NotSupportedException(
+                        "GroupBy is not supported in this version — it is not translated to SQL. Materialize " +
+                        "first and group in memory: query.ToList().GroupBy(...).");
+                }
+
                 if (currentCall.Method.Name == "Where")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
@@ -189,6 +199,18 @@ namespace Funcular.Data.Orm.Sqlite
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
+
+                    // FunkyORM materializes the source entity type T. A top-level Select projecting to a DIFFERENT
+                    // element type (a scalar column, an anonymous type, or another DTO) is not materialized — only
+                    // Select(x => new T { ... }) (same entity, subset of columns) is supported. Fail clearly here
+                    // rather than letting the result path throw an obscure InvalidCastException at materialization.
+                    if (!(lambda.Body is MemberInitExpression mi && mi.Type == typeof(T)))
+                        throw new NotSupportedException(
+                            $"A top-level Select projecting to a type other than {typeof(T).Name} (e.g. a scalar " +
+                            $"column, an anonymous type, or another DTO) is not supported in this version. Project to " +
+                            $"the same entity — Select(x => new {typeof(T).Name} {{ ... }}) — and read the field(s) you " +
+                            $"need, or materialize first and project in memory: query.ToList().Select(...).");
+
                     var selectTable = _dataProvider.GetTableNameInternal<T>();
                     var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new SqliteSelectClauseVisitor<T>(

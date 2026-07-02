@@ -431,6 +431,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 SeededScorecards().Distinct().ToList());
             StringAssert.Contains(_sb.ToString().ToUpperInvariant(), "SELECT DISTINCT");
             StringAssert.Contains(ex.Message, "json");
+            Assert.AreEqual("42883", ex.SqlState, "no equality operator for json → undefined_function (42883)");
         }
 
         [TestMethod]
