@@ -48,6 +48,13 @@ namespace Funcular.Data.Orm.MySql
 
             var components = ParseExpression(expression, parameterGenerator, translator);
 
+            // Top-level scalar projection Select(x => x.Member): materialize the entity (narrow SELECT) then
+            // project the member in memory → List<memberType>.
+            if (components.ScalarSelector != null)
+            {
+                return ExecuteScalarProjection<TResult>(components, expression);
+            }
+
             bool isCollection = typeof(IEnumerable<T>).IsAssignableFrom(typeof(TResult)) && typeof(TResult) != typeof(T);
 
             TResult executeResult;
@@ -63,6 +70,29 @@ namespace Funcular.Data.Orm.MySql
 
             Debug.WriteLine($"Execute result: {executeResult}");
             return executeResult;
+        }
+
+        /// <summary>
+        /// Executes a top-level scalar projection (<c>Select(x =&gt; x.Member)</c>): materializes the entity via the
+        /// narrow SELECT built for the member, then applies the selector in memory to produce
+        /// <c>List&lt;memberType&gt;</c> (assignable to the caller's <c>List&lt;memberType&gt;</c> /
+        /// <c>IEnumerable&lt;memberType&gt;</c>).
+        /// </summary>
+        private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
+        {
+            string commandText = BuildQueryComponents(components);
+            var entities = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
+
+            // Compile the selector to Func<T, object> (boxes the member value), then fill a typed List<memberType>.
+            var param = components.ScalarSelector.Parameters[0];
+            var boxed = Expression.Lambda<Func<T, object>>(
+                Expression.Convert(components.ScalarSelector.Body, typeof(object)), param).Compile();
+
+            var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
+            var list = (System.Collections.IList)Activator.CreateInstance(listType);
+            foreach (var e in entities)
+                list.Add(boxed(e));
+            return (TResult)(object)list;
         }
 
         private QueryComponents ParseExpression(Expression expression, MySqlParameterGenerator parameterGenerator, MySqlExpressionTranslator translator)
@@ -201,16 +231,36 @@ namespace Funcular.Data.Orm.MySql
                 else if (currentCall.Method.Name == "Select")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
-                    // FunkyORM materializes the source entity type T. A top-level Select projecting to a DIFFERENT
-                    // element type (a scalar column, an anonymous type, or another DTO) is not materialized — only
-                    // Select(x => new T { ... }) (same entity, subset of columns) is supported. Fail clearly here
-                    // rather than letting the result path throw an obscure InvalidCastException at materialization.
-                    if (!(lambda.Body is MemberInitExpression mi && mi.Type == typeof(T)))
+                    // FunkyORM materializes the source entity type T. Supported top-level projections:
+                    //   (a) Select(x => new T { ... }) — same entity, column subset (narrow SELECT); and
+                    //   (b) Select(x => x.Member)      — a single mapped member (v3.9): emit the narrow SELECT for
+                    //       that member, materialize T, then read the member in memory (see Execute).
+                    // Anonymous types / other DTOs / expression bodies are not translated — fail clearly rather
+                    // than emit a full-entity SELECT and throw an obscure InvalidCastException at materialization.
+                    Expression selectBody;
+                    if (lambda.Body is MemberInitExpression mi && mi.Type == typeof(T))
+                    {
+                        selectBody = mi;
+                    }
+                    else if (lambda.Body is MemberExpression scalarMember
+                             && scalarMember.Expression is ParameterExpression
+                             && scalarMember.Member is PropertyInfo sp && sp.CanWrite)
+                    {
+                        // Project as if `new T { Member = x.Member }` for the SQL + materialization, then apply the
+                        // original selector in memory to yield List<memberType>.
+                        selectBody = Expression.MemberInit(Expression.New(typeof(T)),
+                            Expression.Bind(scalarMember.Member, scalarMember));
+                        components.ScalarSelector = lambda;
+                        components.ScalarMemberType = scalarMember.Type;
+                    }
+                    else
+                    {
                         throw new NotSupportedException(
-                            $"A top-level Select projecting to a type other than {typeof(T).Name} (e.g. a scalar " +
-                            $"column, an anonymous type, or another DTO) is not supported in this version. Project to " +
-                            $"the same entity — Select(x => new {typeof(T).Name} {{ ... }}) — and read the field(s) you " +
-                            $"need, or materialize first and project in memory: query.ToList().Select(...).");
+                            $"A top-level Select must project to {typeof(T).Name} — a column subset, " +
+                            $"Select(x => new {typeof(T).Name} {{ ... }}) — or to a single mapped member, " +
+                            $"Select(x => x.Member). An anonymous type, another DTO, or a computed expression is not " +
+                            $"supported; materialize first and project in memory: query.ToList().Select(...).");
+                    }
                     // Resolve computed/view-replacing attrs so self-contained ones ([JsonPath]/[SqlExpression]/
                     // [SubqueryAggregate]) can be projected; [RemoteProperty] is rejected inside the visitor.
                     var selectTable = _dataProvider.GetTableNameInternal<T>();
@@ -223,7 +273,7 @@ namespace Funcular.Data.Orm.MySql
                         translator,
                         selectTable,
                         selectRemoteMap);
-                    selectVisitor.Visit(lambda.Body);
+                    selectVisitor.Visit(selectBody);
                     components.SelectClause = selectVisitor.SelectClause;
                     components.Parameters.AddRange(selectVisitor.Parameters);
                 }

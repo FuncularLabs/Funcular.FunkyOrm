@@ -143,14 +143,11 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         }
 
         [TestMethod]
-        public void Select_ScalarProjection_ThrowsClearNotSupported()
+        public void Select_ScalarProjection_ReturnsListOfScalar()
         {
-            // BUG B: a top-level projection to a scalar isn't materialized. Fail with a clear message
-            // rather than the old obscure InvalidCastException.
-            var ex = Assert.ThrowsException<System.NotSupportedException>(() =>
-                _provider.Query<PersonDetailEntity>().Select(p => p.Id).ToList());
-            StringAssert.Contains(ex.Message, "top-level Select");
-            StringAssert.Contains(ex.Message, "ToList");
+            // v3.9: a top-level scalar projection Select(x => x.Member) now returns List<memberType>.
+            var ids = _provider.Query<PersonDetailEntity>().Select(p => p.Id).ToList();
+            Assert.IsInstanceOfType(ids, typeof(System.Collections.Generic.List<int>));
         }
 
         [TestMethod]

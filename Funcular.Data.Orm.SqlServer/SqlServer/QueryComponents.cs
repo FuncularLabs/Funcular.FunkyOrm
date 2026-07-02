@@ -80,5 +80,17 @@ namespace Funcular.Data.Orm.SqlServer
         /// Gets or sets the outermost method call expression (e.g., Any, All, Count, etc.).
         /// </summary>
         public MethodCallExpression OuterMethodCall { get; set; }
+
+        /// <summary>
+        /// For a top-level scalar projection <c>Select(x =&gt; x.Member)</c>: the selector lambda. When set, the
+        /// engine emits the narrow SELECT for the projected member, materializes the entity, then applies this
+        /// selector in memory to yield <c>List&lt;<see cref="ScalarMemberType"/>&gt;</c>.
+        /// </summary>
+        public LambdaExpression ScalarSelector { get; set; }
+
+        /// <summary>
+        /// The projected member's type for a scalar projection (the element type of the returned list).
+        /// </summary>
+        public System.Type ScalarMemberType { get; set; }
     }
 }

@@ -39,14 +39,19 @@ SQL-translated.
 > `[RemoteProperty]` members), this **defers computing the unprojected columns until after the Top-N** — a large
 > win when you filter/order/page by a computed or joined column but only need a key back (e.g. a call-list page:
 > order by a joined date, select only the id). This is the supported way to project a column subset while
-> ordering by *any* mapped column. (The natural spellings — `Select(x => x.Key)` / anonymous / other-DTO — are
-> **not** translated; see ❌ below.)
+> ordering by *any* mapped column. A top-level **scalar** projection `Select(x => x.Key)` is also supported
+> (v3.9) and returns `List<keyType>` — see ✅ below. Anonymous types and other DTOs are still not translated.
+
+### ✅ Also works — scalar projection (v3.9)
+| Construct | Notes |
+|---|---|
+| `Query<T>().Select(x => x.Member)` | Returns `List<memberType>` (e.g. `Select(x => x.Id)` → `List<int>`). Emits the narrow SELECT for that member, materializes `T`, projects in memory. Composes with `Where`/`OrderBy`(remote)/paging. Member may be an own column or a self-contained computed attr (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`). |
 
 ### ❌ Doesn't work — and what to emit instead
 | Construct | Fails with | Do this instead |
 |---|---|---|
-| `Query<T>().Select(x => x.ScalarColumn)` | `NotSupportedException` — "top-level Select projecting to a type other than `T`" (v3.8.3) | `Query<T>()...ToList().Select(x => x.ScalarColumn)` |
-| `Query<T>().Select(x => new { x.A, x.B })` (anonymous) | `NotSupportedException` (v3.8.3) | `...ToList().Select(x => new { x.A, x.B })` |
+| `Query<T>().Select(x => x.RemoteProp)` — scalar of a **`[RemoteProperty]`** value | `NotSupportedException` — a remote value isn't projectable (needs a join the projection's `FROM` can't carry) | Order/filter by it and project the key: `Select(x => x.OwnKey)`; or query the whole entity |
+| `Query<T>().Select(x => new { x.A, x.B })` (anonymous) | `NotSupportedException` | `...ToList().Select(x => new { x.A, x.B })` |
 | `Query<T>().Select(x => new OtherDto { ... })` (different DTO) | `NotSupportedException` (v3.8.3) | Query the DTO directly if it maps a table, or reshape in memory |
 | `Query<T>().Select(x => x)` (identity) | `NotSupportedException` (body is not a `new T { }` initializer) | Drop the `Select` — `Query<T>()` already returns `T` |
 | `Query<T>().Select(x => new T { R = x.RemoteProp })` — a **`[RemoteProperty]`/`[RemoteKey]`** in a custom projection | `NotSupportedException` — the remote value resolves to a joined `alias.column` a custom projection's `FROM` doesn't carry | Query the whole entity (`Query<T>()`), or put the remote attribute on a detail entity you query directly |
