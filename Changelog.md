@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.4-beta1] - 2026-07-02
+
+### Fixed
+- **Regression from 3.8.3: a `[RemoteProperty]`/`[RemoteKey]` whose remote *value* column is declared on a base class of the target entity threw `Invalid object name '<basetype>'`.** 3.8.3's cold-cache fix discovered the remote target's schema eagerly at join-resolution time, but keyed that discovery off the value property's `DeclaringType`. When the value column is inherited (e.g. `Uid` declared on `EntityBase`, with `Call : EntityBase`), `DeclaringType` is the base class — which has no `[Table]` — so discovery ran `SELECT * FROM entitybase` and failed at `Query<T>()`/`FindAsync<T>()` time (deterministic; not helped by priming). Fixed in all four providers by discovering the concrete `[Table]`-annotated target entity type (the type passed to the attribute) instead of the value property's declaring type — the target table already contains inherited columns physically. Join-key resolution was never affected (only the value-column discovery step). Inherited-remote-value-column regression test added per provider.
+
 ## [3.8.3-beta1] - 2026-07-01
 
 ### Fixed
