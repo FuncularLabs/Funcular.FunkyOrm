@@ -80,5 +80,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.ThrowsException<NotSupportedException>(() =>
                 _provider.Query<PersonDetailEntity>().Select(p => new { p.Id }).ToList());
         }
+
+        [TestMethod]
+        public void ScalarProjection_WithFirst_ThrowsClearNotSupported()
+        {
+            // v3.9 scope: scalar projection is for ToList/enumeration; a single-result operator after it is
+            // guarded (no mis-cast). Use .Select(x=>x.Id).ToList().First() or query.First().Id.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).First());
+            StringAssert.Contains(ex.Message, "First");
+        }
     }
 }

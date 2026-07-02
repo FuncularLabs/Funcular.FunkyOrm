@@ -80,6 +80,18 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
         {
+            // v3.9 scalar projection yields a list; a single-result operator after it (First/Single/Last/…)
+            // expects the element type, not List<memberType> — guard it clearly rather than mis-cast.
+            var outerName = (expression as MethodCallExpression)?.Method.Name;
+            if (outerName == "First" || outerName == "FirstOrDefault" || outerName == "Single"
+                || outerName == "SingleOrDefault" || outerName == "Last" || outerName == "LastOrDefault")
+            {
+                throw new NotSupportedException(
+                    $"A scalar projection Select(x => x.Member) followed by {outerName}() is not supported in " +
+                    $"this version. Use query.Select(x => x.Member).ToList().{outerName}(), or read the member off " +
+                    $"a single entity: query.{outerName}().Member.");
+            }
+
             string commandText = BuildQueryComponents(components);
             var entities = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
 
