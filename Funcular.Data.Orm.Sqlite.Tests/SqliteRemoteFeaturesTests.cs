@@ -216,6 +216,14 @@ CREATE TABLE IF NOT EXISTS person_address (id INTEGER PRIMARY KEY AUTOINCREMENT,
         }
 
         [TestMethod]
+        public void GroupBy_IsNotTranslated_ThrowsNotSupported()
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().GroupBy(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "GroupBy");
+        }
+
+        [TestMethod]
         public void CanFilterByRemoteProperty()
         {
             var country = new CountryEntity { Name = "FilterCountry_" + Guid.NewGuid() };

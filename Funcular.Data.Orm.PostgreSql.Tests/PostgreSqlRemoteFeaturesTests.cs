@@ -159,5 +159,13 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             Assert.ThrowsException<System.NotSupportedException>(() =>
                 _provider.Query<PersonDetailEntity>().Select(p => new { p.Id }).ToList());
         }
+
+        [TestMethod]
+        public void GroupBy_IsNotTranslated_ThrowsNotSupported()
+        {
+            var ex = Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().GroupBy(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "GroupBy");
+        }
     }
 }

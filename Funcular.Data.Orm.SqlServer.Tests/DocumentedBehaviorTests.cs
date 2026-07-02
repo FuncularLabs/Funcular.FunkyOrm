@@ -62,13 +62,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.IsNotNull(rows); // executes without throwing
         }
 
-        // §3 Aggregates — ❌ GroupBy is not translated (backs the docs' GroupBy row).
-        // It currently surfaces at materialization as InvalidCastException; group in memory instead.
+        // §3 Aggregates — ❌ GroupBy is not translated (backs the docs' GroupBy row): clear NotSupportedException.
         [TestMethod]
-        public void GroupBy_IsNotTranslated_Throws()
+        public void GroupBy_IsNotTranslated_ThrowsNotSupported()
         {
-            Assert.ThrowsException<InvalidCastException>(() =>
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
                 _provider.Query<PersonEntity>().GroupBy(p => p.Gender).ToList());
+            StringAssert.Contains(ex.Message, "GroupBy");
+            StringAssert.Contains(ex.Message, "ToList");
         }
 
         // §3 Aggregates — ❌ non-simple-member selector

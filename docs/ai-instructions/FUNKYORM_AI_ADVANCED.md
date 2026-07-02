@@ -94,7 +94,7 @@ resolves to an inline SQL fragment (JSON accessor, expression, correlated subque
 | `Count` / `All` / `Sum` / `Average` filtered by a **reverse** (one-to-many) `[RemoteKey]`/`[RemoteProperty]` | `NotSupportedException` (message contains "reverse" and "ToList") | The reverse join fans base rows out one-per-child, inflating the result. Materialize and aggregate in memory: `Query<T>().Where(...).ToList().Count()` / `.Sum(...)`. |
 | `Distinct().Count()` | `NotSupportedException` | Count client-side. |
 | Aggregate selector that is an expression, not a simple member — e.g. `.Sum(x => x.A + x.B)` | `NotSupportedException` — aggregate selectors must be a single mapped column, not an expression | Sum a mapped column, or compute in memory. |
-| `GroupBy(...)` | **Not translated** — currently surfaces as `InvalidCastException` at materialization | Group in memory: `Query<T>().ToList().GroupBy(...)`. |
+| `GroupBy(...)` | `NotSupportedException` — not translated to SQL | Group in memory: `Query<T>().ToList().GroupBy(...)`. |
 
 ### ✅ Allowed over a reverse join (fan-out-safe)
 `Any` (compiles to `EXISTS`), `Min`, `Max` — these are unaffected by fan-out and execute normally. A

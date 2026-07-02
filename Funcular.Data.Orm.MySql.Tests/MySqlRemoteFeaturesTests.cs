@@ -107,5 +107,13 @@ namespace Funcular.Data.Orm.MySql.Tests
             Assert.ThrowsException<NotSupportedException>(() =>
                 _provider.Query<PersonWithEmployer>().Select(p => new { p.Id }).ToList());
         }
+
+        [TestMethod]
+        public void GroupBy_IsNotTranslated_ThrowsNotSupported()
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonWithEmployer>().GroupBy(p => p.Id).ToList());
+            StringAssert.Contains(ex.Message, "GroupBy");
+        }
     }
 }

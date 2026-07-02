@@ -94,6 +94,16 @@ namespace Funcular.Data.Orm.PostgreSql
                     components.OuterMethodCall = currentCall;
                 }
 
+                if (currentCall.Method.Name == "GroupBy")
+                {
+                    // GroupBy is not translated to SQL. Fail clearly here rather than letting the result path
+                    // materialize T and then throw an obscure InvalidCastException (same class as the top-level
+                    // Select guard). Group in memory after materializing.
+                    throw new NotSupportedException(
+                        "GroupBy is not supported in this version — it is not translated to SQL. Materialize " +
+                        "first and group in memory: query.ToList().GroupBy(...).");
+                }
+
                 if (currentCall.Method.Name == "Where")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;

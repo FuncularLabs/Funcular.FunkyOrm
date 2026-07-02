@@ -111,8 +111,8 @@ var n = provider.Query<Person>().Where(p => p.EmployerCountryName == "USA").Coun
   work over a reverse join.)
 - `Distinct().Count()` — count in memory.
 - An aggregate selector that isn't a simple column (`.Sum(x => x.A + x.B)`) — sum a mapped column, or in memory.
-- `GroupBy(...)` is **not translated** (it currently surfaces as an `InvalidCastException`) — materialize and
-  group in memory: `query.ToList().GroupBy(...)`.
+- `GroupBy(...)` is **not translated** — it throws a clear `NotSupportedException`. Materialize and group in
+  memory: `query.ToList().GroupBy(...)`.
 
 > **A word on `SUM` and overflow.** `Sum(x => x.SomeIntColumn)` returns an `int`, and the database computes it
 > as an `int`. Over a large table the running total can exceed `int.MaxValue` and the database raises an
