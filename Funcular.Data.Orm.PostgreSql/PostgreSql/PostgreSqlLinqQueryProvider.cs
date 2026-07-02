@@ -80,19 +80,20 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
         {
-            // v3.9 scalar projection yields a list; a single-result operator (First/Single/Last/…) or an aggregate
-            // terminal (Count/Any/All/Sum/Average/Min/Max) after it expects a non-list result — guard it clearly
-            // rather than mis-cast to List<memberType>.
-            var outerName = (expression as MethodCallExpression)?.Method.Name;
-            if (outerName == "First" || outerName == "FirstOrDefault" || outerName == "Single"
-                || outerName == "SingleOrDefault" || outerName == "Last" || outerName == "LastOrDefault"
-                || outerName == "Count" || outerName == "Any" || outerName == "All" || outerName == "Sum"
-                || outerName == "Average" || outerName == "Min" || outerName == "Max")
+            // A scalar projection yields List<memberType>; that is only valid when the caller expects a collection
+            // (ToList/enumeration → TResult is IEnumerable<memberType>/List<memberType>). ANY reducing terminal
+            // (First/Single/Count/Any/Sum/LongCount/ElementAt/Contains/Aggregate/…) produces a different TResult —
+            // reject uniformly BY RESULT TYPE rather than an operator blocklist. (Parameterless numeric aggregates
+            // are caught earlier in ParseExpression before their missing selector argument is dereferenced.)
+            var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
+            if (!typeof(TResult).IsAssignableFrom(listType))
             {
+                var op = (expression as MethodCallExpression)?.Method.Name;
+                var opText = (op != null && op != "Select") ? $" followed by {op}()" : "";
                 throw new NotSupportedException(
-                    $"A scalar projection Select(x => x.Member) followed by {outerName}() is not supported in " +
-                    $"this version. Aggregate off the base query (e.g. query.{outerName}(...)), or materialize and " +
-                    $"apply in memory: query.Select(x => x.Member).ToList().{outerName}().");
+                    $"A scalar projection Select(x => x.Member){opText} is only supported for a list/enumeration " +
+                    $"result in this version. Materialize then apply the operator in memory " +
+                    $"(query.Select(x => x.Member).ToList()...), or aggregate off the base query.");
             }
 
             string commandText = BuildQueryComponents(components);
@@ -103,7 +104,6 @@ namespace Funcular.Data.Orm.PostgreSql
             var boxed = Expression.Lambda<Func<T, object>>(
                 Expression.Convert(components.ScalarSelector.Body, typeof(object)), param).Compile();
 
-            var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
             var list = (System.Collections.IList)Activator.CreateInstance(listType);
             foreach (var e in entities)
                 list.Add(boxed(e));

@@ -106,6 +106,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void ScalarProjection_WithReducingTerminals_ThrowNotSupported()
+        {
+            // Result-type guard catches ALL reducing terminals, not just a blocklist: LongCount/ElementAt/
+            // Contains/Aggregate must throw NotSupportedException (not InvalidCastException).
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).LongCount());
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).ElementAt(0));
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Contains(1));
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Aggregate((a, b) => a + b));
+        }
+
+        [TestMethod]
         public void ScalarProjection_WithParameterlessSum_ThrowsClearNotSupported()
         {
             // Regression: parameterless Sum/Average/Min/Max after a scalar projection must throw a clear
