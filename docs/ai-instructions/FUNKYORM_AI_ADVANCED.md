@@ -45,11 +45,13 @@ SQL-translated.
 ### ✅ Also works — scalar projection (v3.9)
 | Construct | Notes |
 |---|---|
-| `Query<T>().Select(x => x.Member)` | Returns `List<memberType>` (e.g. `Select(x => x.Id)` → `List<int>`). Emits the narrow SELECT for that member, materializes `T`, projects in memory. Composes with `Where`/`OrderBy`(remote)/paging. Member may be an own column or a self-contained computed attr (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`). |
+| `Query<T>().Select(x => x.Member)` | Returns `List<memberType>` (e.g. `Select(x => x.Id)` → `List<int>`). Emits the narrow SELECT for that member, materializes `T`, projects in memory. Composes with `Where`/`OrderBy`(remote)/paging placed **before** it. Member may be an own column or a self-contained computed attr (`[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`). The scalar `Select` must be the **outermost** operator. |
 
 ### ❌ Doesn't work — and what to emit instead
 | Construct | Fails with | Do this instead |
 |---|---|---|
+| `Query<T>().Select(x => x.Member).Where/OrderBy/All/Any(pred)/Count(pred)/First(pred)/Select(...)` — a **lambda operator AFTER a scalar Select** | `NotSupportedException` naming the operator ("scalar projection … must be the outermost query operator") — the projected sequence is no longer `T`, so it isn't translated | Put `Where`/`OrderBy`/paging **before** the scalar `Select`; or `Select(x => x.Member).ToList()` then compose in memory. Constant-arg `Take`/`Skip`/`Distinct` after it are fine. |
+| `Query<T>().Select(x => x.Member).Count()/First()/Sum()/ElementAt/…` — a **reducing terminal AFTER a scalar Select** | `NotSupportedException` (result-type guard) | `Select(x => x.Member).ToList().Count()`/… , or aggregate off the base query (`Query<T>().Count()`) |
 | `Query<T>().Select(x => x.RemoteProp)` — scalar of a **`[RemoteProperty]`** value | `NotSupportedException` — a remote value isn't projectable (needs a join the projection's `FROM` can't carry) | Order/filter by it and project the key: `Select(x => x.OwnKey)`; or query the whole entity |
 | `Query<T>().Select(x => new { x.A, x.B })` (anonymous) | `NotSupportedException` | `...ToList().Select(x => new { x.A, x.B })` |
 | `Query<T>().Select(x => new OtherDto { ... })` (different DTO) | `NotSupportedException` (v3.8.3) | Query the DTO directly if it maps a table, or reshape in memory |

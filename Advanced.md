@@ -65,6 +65,13 @@ var ids = provider.Query<Person>()
 The member can be an own column or a self-contained computed attr (`[JsonPath]`/`[SqlExpression]`/
 `[SubqueryAggregate]`).
 
+**The scalar `Select` must be the *outermost* operator.** Filter, order, and page **before** it (as above); a
+lambda-bearing operator applied **after** it (`.Where(x => …)`, `.OrderBy(x => …)`, `.All`/`.Any(pred)`/
+`.Count(pred)`/`.First(pred)`, a chained `.Select`) throws a clear `NotSupportedException` — the projected
+sequence is no longer the entity, so it isn't translated. Reducing terminals (`.Count()`, `.First()`, `.Sum()`,
+`.ElementAt`, …) after it likewise throw. Do those in memory after `.ToList()`, or aggregate off the base query.
+Constant-arg operators (`.Take`/`.Skip`/`.Distinct`) after the scalar `Select` still compose.
+
 **Still doesn't work** — these throw `NotSupportedException`:
 ```csharp
 provider.Query<Person>().Select(p => new { p.FirstName }).ToList(); // ❌ anonymous type
