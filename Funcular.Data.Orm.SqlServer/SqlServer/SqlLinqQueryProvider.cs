@@ -121,17 +121,20 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
         {
-            // v3.9 scalar projection yields a list (ToList/enumeration). A single-result operator after the
-            // projection (First/Single/Last/…) expects the element type, not List<memberType> — guard it clearly
-            // rather than mis-cast. (Materialize then apply in memory, or read the member off a single entity.)
+            // v3.9 scalar projection yields a list (ToList/enumeration). A single-result operator (First/Single/
+            // Last/…) or an aggregate terminal (Count/Any/All/Sum/Average/Min/Max) after the projection expects a
+            // non-list result — guard it clearly rather than mis-cast to List<memberType>. Aggregate off the base
+            // query instead (query.Count(), query.Where(...).Sum(x => x.N)); or materialize then apply in memory.
             var outerName = (expression as MethodCallExpression)?.Method.Name;
             if (outerName == "First" || outerName == "FirstOrDefault" || outerName == "Single"
-                || outerName == "SingleOrDefault" || outerName == "Last" || outerName == "LastOrDefault")
+                || outerName == "SingleOrDefault" || outerName == "Last" || outerName == "LastOrDefault"
+                || outerName == "Count" || outerName == "Any" || outerName == "All" || outerName == "Sum"
+                || outerName == "Average" || outerName == "Min" || outerName == "Max")
             {
                 throw new NotSupportedException(
                     $"A scalar projection Select(x => x.Member) followed by {outerName}() is not supported in " +
-                    $"this version. Use query.Select(x => x.Member).ToList().{outerName}(), or read the member off " +
-                    $"a single entity: query.{outerName}().Member.");
+                    $"this version. Aggregate off the base query (e.g. query.{outerName}(...)), or materialize and " +
+                    $"apply in memory: query.Select(x => x.Member).ToList().{outerName}().");
             }
 
             string commandText = BuildQueryComponents(components);
@@ -738,7 +741,13 @@ namespace Funcular.Data.Orm.SqlServer
 
             if (!string.IsNullOrEmpty(components.OrderByClause) || components.Skip.HasValue || components.Take.HasValue)
             {
-                commandText += $"\r\n{(components.OrderByClause ?? "ORDER BY id")}";
+                // Default (paging) order-by. Qualify `id` with the base table when the query has joins — bare `id`
+                // is ambiguous across LEFT JOIN-ed remote tables that also have an `id` column (SQL Server errors
+                // "Ambiguous column name 'id'"). Single-table queries keep the unqualified form.
+                string defaultOrderBy = commandText.IndexOf(" JOIN ", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? $"ORDER BY {_dataProvider.GetTableNameInternal<T>()}.id"
+                    : "ORDER BY id";
+                commandText += $"\r\n{(components.OrderByClause ?? defaultOrderBy)}";
             }
 
             if (components.Skip.HasValue || components.Take.HasValue)

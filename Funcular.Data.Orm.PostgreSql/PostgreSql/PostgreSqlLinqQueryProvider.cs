@@ -80,16 +80,19 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
         {
-            // v3.9 scalar projection yields a list; a single-result operator after it (First/Single/Last/…)
-            // expects the element type, not List<memberType> — guard it clearly rather than mis-cast.
+            // v3.9 scalar projection yields a list; a single-result operator (First/Single/Last/…) or an aggregate
+            // terminal (Count/Any/All/Sum/Average/Min/Max) after it expects a non-list result — guard it clearly
+            // rather than mis-cast to List<memberType>.
             var outerName = (expression as MethodCallExpression)?.Method.Name;
             if (outerName == "First" || outerName == "FirstOrDefault" || outerName == "Single"
-                || outerName == "SingleOrDefault" || outerName == "Last" || outerName == "LastOrDefault")
+                || outerName == "SingleOrDefault" || outerName == "Last" || outerName == "LastOrDefault"
+                || outerName == "Count" || outerName == "Any" || outerName == "All" || outerName == "Sum"
+                || outerName == "Average" || outerName == "Min" || outerName == "Max")
             {
                 throw new NotSupportedException(
                     $"A scalar projection Select(x => x.Member) followed by {outerName}() is not supported in " +
-                    $"this version. Use query.Select(x => x.Member).ToList().{outerName}(), or read the member off " +
-                    $"a single entity: query.{outerName}().Member.");
+                    $"this version. Aggregate off the base query (e.g. query.{outerName}(...)), or materialize and " +
+                    $"apply in memory: query.Select(x => x.Member).ToList().{outerName}().");
             }
 
             string commandText = BuildQueryComponents(components);
@@ -545,9 +548,16 @@ namespace Funcular.Data.Orm.PostgreSql
             if (!string.IsNullOrEmpty(components.WhereClause))
                 commandText += $"\r\nWHERE {components.WhereClause}";
 
-            // PostgreSQL: keep ORDER BY fallback for deterministic paging
+            // PostgreSQL: keep ORDER BY fallback for deterministic paging. Qualify `id` with the base table when
+            // the query has joins — bare `id` is ambiguous across LEFT JOIN-ed remote tables (PostgreSQL errors
+            // "column reference \"id\" is ambiguous"). Single-table queries keep the unqualified form.
             if (!string.IsNullOrEmpty(components.OrderByClause) || components.Skip.HasValue || components.Take.HasValue)
-                commandText += $"\r\n{(components.OrderByClause ?? "ORDER BY id")}";
+            {
+                string defaultOrderBy = commandText.IndexOf(" JOIN ", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? $"ORDER BY {_dataProvider.GetTableNameInternal<T>()}.id"
+                    : "ORDER BY id";
+                commandText += $"\r\n{(components.OrderByClause ?? defaultOrderBy)}";
+            }
 
             // PostgreSQL: use LIMIT/OFFSET instead of OFFSET...FETCH
             if (components.Take.HasValue)

@@ -82,6 +82,30 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void ScalarProjection_NonKeyMember_Paged_OnJoinEntity_Works()
+        {
+            // Regression for the ambiguous default ORDER BY: projecting a NON-key member with paging on a
+            // remote-join entity used to throw SqlException "Ambiguous column name 'id'".
+            var sb = new StringBuilder();
+            _provider.Log = s => sb.AppendLine(s);
+            List<string> initials = _provider.Query<PersonDetailEntity>()
+                .Take(25)
+                .Select(p => p.MiddleInitial)
+                .ToList();
+            var sql = sb.ToString();
+            StringAssert.Contains(sql, "ORDER BY person.id", "default order-by must be base-table-qualified when joins are present");
+            Assert.IsInstanceOfType(initials, typeof(List<string>));
+        }
+
+        [TestMethod]
+        public void ScalarProjection_WithCount_ThrowsClearNotSupported()
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Count());
+            StringAssert.Contains(ex.Message, "Count");
+        }
+
+        [TestMethod]
         public void ScalarProjection_WithFirst_ThrowsClearNotSupported()
         {
             // v3.9 scope: scalar projection is for ToList/enumeration; a single-result operator after it is
