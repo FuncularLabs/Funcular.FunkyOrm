@@ -240,6 +240,14 @@ namespace Funcular.Data.Orm.MySql
                 }
                 else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
+                    // A parameterless numeric aggregate after a scalar projection has no selector argument — guard
+                    // it here before BuildAggregateClause dereferences Arguments[1].
+                    if (components.ScalarSelector != null)
+                        throw new NotSupportedException(
+                            $"A scalar projection Select(x => x.Member) followed by {currentCall.Method.Name}() is " +
+                            $"not supported in this version. Aggregate off the base query " +
+                            $"(e.g. query.{currentCall.Method.Name}(x => x.Member)), or materialize and apply in " +
+                            $"memory: query.Select(x => x.Member).ToList().{currentCall.Method.Name}().");
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }

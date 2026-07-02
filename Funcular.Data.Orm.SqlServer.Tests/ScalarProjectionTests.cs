@@ -106,6 +106,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void ScalarProjection_WithParameterlessSum_ThrowsClearNotSupported()
+        {
+            // Regression: parameterless Sum/Average/Min/Max after a scalar projection must throw a clear
+            // NotSupportedException, not ArgumentOutOfRangeException from BuildAggregateClause.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Sum());
+            StringAssert.Contains(ex.Message, "Sum");
+        }
+
+        [TestMethod]
         public void ScalarProjection_WithFirst_ThrowsClearNotSupported()
         {
             // v3.9 scope: scalar projection is for ToList/enumeration; a single-result operator after it is
