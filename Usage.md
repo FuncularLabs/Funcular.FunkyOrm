@@ -2,6 +2,8 @@
 
 Welcome to the **Funcular.FunkyOrm** usage guide! This document is your "Dummies" book for getting up and running with the framework. It covers everything from basic setup to advanced querying, error handling, and why you might prefer this over the big dogs like Entity Framework or the raw metal of Dapper.
 
+> Looking for the exact boundary of what the query engine translates — which projections, computed-attribute, aggregate, and remote-property constructs work and which throw? See **[Advanced Usage: What Works, What Doesn't](Advanced.md)**.
+
 ## Why FunkyORM?
 
 Look, we get it. You've got choices.

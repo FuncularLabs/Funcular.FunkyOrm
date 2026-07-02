@@ -3,6 +3,10 @@
 > **Target Audience**: AI Agents (GitHub Copilot, Cursor, Gemini, GPT, Claude, etc.) assisting developers who use FunkyORM.
 >
 > **Package**: `Funcular.Data.Orm` (includes SQL Server, PostgreSQL, and SQLite providers)
+>
+> **Companion**: `FUNKYORM_AI_ADVANCED.md` (also in the package) is the authoritative works/doesn't-work matrix
+> for **projections, computed attributes, aggregates, and remote properties** — read it before generating any
+> query that uses `Select` projections, aggregates over remote-linked entities, or `Distinct`.
 
 ----
 

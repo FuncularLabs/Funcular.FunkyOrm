@@ -85,8 +85,17 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
+    <None Include="..\docs\ai-instructions\FUNKYORM_AI_ADVANCED.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\Advanced.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
     <!-- contentFiles entries ensure these land in the consumer's project directory for Copilot agent discovery -->
     <Content Include="..\docs\ai-instructions\FUNKYORM_AI_INSTRUCTIONS.md" Pack="true" PackagePath="contentFiles\any\any\FUNKYORM_AI_INSTRUCTIONS.md" BuildAction="None" CopyToOutput="false" Link="FUNKYORM_AI_INSTRUCTIONS.md" />
+    <Content Include="..\docs\ai-instructions\FUNKYORM_AI_ADVANCED.md" Pack="true" PackagePath="contentFiles\any\any\FUNKYORM_AI_ADVANCED.md" BuildAction="None" CopyToOutput="false" Link="FUNKYORM_AI_ADVANCED.md" />
     <Content Include="..\docs\ai-instructions\FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md" Pack="true" PackagePath="contentFiles\any\any\FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md" BuildAction="None" CopyToOutput="false" Link="FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md" />
     <Content Include="..\docs\ai-instructions\FUNKYORM_AI_INSTRUCTIONS_SQLITE.md" Pack="true" PackagePath="contentFiles\any\any\FUNKYORM_AI_INSTRUCTIONS_SQLITE.md" BuildAction="None" CopyToOutput="false" Link="FUNKYORM_AI_INSTRUCTIONS_SQLITE.md" />
     <Content Include="..\docs\ai-instructions\FUNKYORM_AI_INSTRUCTIONS_MYSQL.md" Pack="true" PackagePath="contentFiles\any\any\FUNKYORM_AI_INSTRUCTIONS_MYSQL.md" BuildAction="None" CopyToOutput="false" Link="FUNKYORM_AI_INSTRUCTIONS_MYSQL.md" />

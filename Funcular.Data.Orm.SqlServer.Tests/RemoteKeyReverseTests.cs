@@ -66,6 +66,38 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void Min_FilteredByReverseRemoteKey_IsAllowed()
+        {
+            // Min is fan-out-safe → must NOT be rejected as a reverse join. (Empty sequence is acceptable; the
+            // point is it isn't a NotSupportedException.)
+            try { var _ = _provider.Query<CountryReverseDetailEntity>().Where(c => c.PersonId == 1).Min(c => c.Id); }
+            catch (NotSupportedException) { Assert.Fail("Min over a reverse join must be allowed (fan-out-safe)."); }
+            catch (InvalidOperationException) { /* no matching rows — fine, not a rejection */ }
+        }
+
+        [TestMethod]
+        public void Max_FilteredByReverseRemoteKey_IsAllowed()
+        {
+            try { var _ = _provider.Query<CountryReverseDetailEntity>().Where(c => c.PersonId == 1).Max(c => c.Id); }
+            catch (NotSupportedException) { Assert.Fail("Max over a reverse join must be allowed (fan-out-safe)."); }
+            catch (InvalidOperationException) { /* no matching rows — fine, not a rejection */ }
+        }
+
+        [TestMethod]
+        public void All_FilteredByReverseRemoteKey_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<CountryReverseDetailEntity>().All(c => c.PersonId == 1));
+        }
+
+        [TestMethod]
+        public void Average_FilteredByReverseRemoteKey_ThrowsNotSupported()
+        {
+            Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<CountryReverseDetailEntity>().Where(c => c.PersonId == 1).Average(c => c.Id));
+        }
+
+        [TestMethod]
         public void CanFilterByReverseRemoteKey()
         {
             // 1. Setup Data

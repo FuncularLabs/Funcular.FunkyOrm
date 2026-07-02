@@ -43,4 +43,16 @@
     </ProjectReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\docs\ai-instructions\FUNKYORM_AI_ADVANCED.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\Advanced.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <Content Include="..\docs\ai-instructions\FUNKYORM_AI_ADVANCED.md" Pack="true" PackagePath="contentFiles\any\any\FUNKYORM_AI_ADVANCED.md" BuildAction="None" CopyToOutput="false" Link="FUNKYORM_AI_ADVANCED.md" />
+  </ItemGroup>
+
 </Project>
