@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.8.5-beta1] - 2026-07-02
+
+### Changed
+- **The explicit `[RemoteProperty(typeof(X), …)]` target is now authoritative on the final hop.** In an *explicit* remote path, `ResolveExplicit` resolved every foreign-key hop by name inference and only *validated* the declared target type at the end — so a single-hop remote whose FK property name didn't convention-match the target (e.g. `[RemoteProperty(typeof(Call), nameof(CallRefId), nameof(Call.Uid))]`) threw `PathNotFoundException`. Now the FK that lands on the target may be named anything; the explicit `typeof(...)` wins for that final hop. Only *intermediate* FKs in a multi-hop path still convention-match or carry `[RemoteLink]`. Backward-compatible by construction — existing working paths (whose last hop already equals the declared target) are byte-for-byte unchanged. All four providers.
+
+### Documentation
+- **Documented the narrow-projection idiom.** `Query<T>().Select(x => new T { Key = x.Key })` emits a **narrow `SELECT`** of just the projected column(s) and composes with `Where` + `OrderBy` (including a `[RemoteProperty]` join column) + `Skip`/`Take` — deferring the unprojected computed/remote columns until after the Top-N. This is the supported, performant way to project a column subset while filtering/ordering/paging by *any* mapped column (e.g. a call-list page ordered by a joined column, returning only the id). Added to `Advanced.md` / `FUNKYORM_AI_ADVANCED.md` and locked with a regression test. (Top-level `Select(x => x.Scalar)` / anonymous / other-DTO remain unsupported — see the projection section.)
+
 ## [3.8.4-beta1] - 2026-07-02
 
 ### Fixed

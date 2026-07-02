@@ -33,6 +33,15 @@ SQL-translated.
 | `Query<T>().ToList().Select(x => new { x.A, x.B })` | Reshape to anonymous / scalar / other DTO **in memory** (LINQ-to-objects) after materializing. |
 | Define a `[Table("t")]` DTO with only the columns you need, then `Query<ThatDto>()` | DB-side column subset — you query the narrower type directly. |
 
+> **Narrow-projection idiom (performance — use this).** `Query<T>().Select(x => new T { Key = x.Key })` emits a
+> **narrow `SELECT`** of just the projected column(s) and composes with `Where` + `OrderBy` (including a
+> `[RemoteProperty]` join column) + `Skip`/`Take`. On a wide entity (many `[JsonPath]`/`[SqlExpression]`/
+> `[RemoteProperty]` members), this **defers computing the unprojected columns until after the Top-N** — a large
+> win when you filter/order/page by a computed or joined column but only need a key back (e.g. a call-list page:
+> order by a joined date, select only the id). This is the supported way to project a column subset while
+> ordering by *any* mapped column. (The natural spellings — `Select(x => x.Key)` / anonymous / other-DTO — are
+> **not** translated; see ❌ below.)
+
 ### ❌ Doesn't work — and what to emit instead
 | Construct | Fails with | Do this instead |
 |---|---|---|
@@ -131,11 +140,12 @@ public string HeadquartersCountryName { get; set; }
 
 **Naming convention:** each **forward** FK property in the path resolves to its target type **by name** —
 `ParentId` → `Parent`, including suffix matches (`EmployerOrganizationId` → `Organization`) and an `Entity`
-suffix on the type (`CountryId` → `CountryEntity`). If a FK's name does **not** match its target type, put
-`[RemoteLink(typeof(TargetType))]` on that FK property to name the target explicitly — that is how, for
-example, an `EmployerId` FK is linked to an `Organization`. An unresolvable FK throws `PathNotFoundException`
-("Could not determine target type for FK …"); duplicate simple type names across the assembly can throw
-`AmbiguousMatchException`.
+suffix on the type (`CountryId` → `CountryEntity`). **The FK on the *final* hop — the one that lands on the
+target — may be named anything (v3.8.5): the explicit `[RemoteProperty(typeof(X))]` argument is authoritative
+for it.** Only *intermediate* FKs in a multi-hop path must convention-match, or carry `[RemoteLink(typeof(T))]`
+to name their target explicitly (that is how, for example, an `EmployerId` intermediate FK is linked to an
+`Organization`). An unresolvable *intermediate* FK throws `PathNotFoundException`; duplicate simple type names
+across the assembly can throw `AmbiguousMatchException`.
 
 ### Forward (many-to-one) — ✅ fully supported
 | Construct | Notes |

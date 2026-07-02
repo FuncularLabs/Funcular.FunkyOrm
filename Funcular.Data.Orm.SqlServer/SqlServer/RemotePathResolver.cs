@@ -193,6 +193,14 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     // Forward Join
                     var targetType = GetForeignKeyTarget(fkProp);
+                    // Explicit-target authority on the FINAL hop (§2): the FK that lands on the target may be
+                    // named anything — the [RemoteProperty(typeof(X))] argument names the destination. On the last
+                    // hop before the target property, honor the explicit remoteType when name-inference diverges
+                    // (or resolves to nothing). Only overrides on divergence, so an agreeing name/[RemoteLink] is
+                    // unchanged and existing (working) multi-hop paths — whose last hop already equals remoteType —
+                    // are byte-for-byte unaffected.
+                    if (i == keyPath.Length - 2 && targetType != remoteType)
+                        targetType = remoteType;
                     if (targetType == null)
                         throw new PathNotFoundException($"Could not determine target type for FK {fkName} on {currentType.Name}");
 

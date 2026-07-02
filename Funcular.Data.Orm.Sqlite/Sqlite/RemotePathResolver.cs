@@ -134,6 +134,10 @@ namespace Funcular.Data.Orm.Sqlite
                 if (fkProp != null)
                 {
                     var targetType = GetForeignKeyTarget(fkProp);
+                    // §2: explicit-target authority on the final hop — honor remoteType when the FK name diverges
+                    // (or resolves to nothing). Only overrides on divergence, so working paths are unaffected.
+                    if (i == keyPath.Length - 2 && targetType != remoteType)
+                        targetType = remoteType;
                     if (targetType == null)
                         throw new PathNotFoundException($"Could not determine target type for FK {fkName} on {currentType.Name}");
                     joins.Add(new JoinStep { SourceTableType = currentType, TargetTableType = targetType, ForeignKeyProperty = fkName, TargetKeyProperty = "Id", IsReverse = false });
