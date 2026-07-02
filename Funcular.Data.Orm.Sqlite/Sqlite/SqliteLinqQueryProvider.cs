@@ -151,6 +151,24 @@ namespace Funcular.Data.Orm.Sqlite
                         "first and group in memory: query.ToList().GroupBy(...).");
                 }
 
+                // A scalar projection changes the element type from T to the projected member. The chain is walked
+                // inner→outer, so if ScalarSelector is already set we are now processing an operator OUTER of the
+                // scalar Select. Any such operator carrying a lambda over the projected element (Where/OrderBy/
+                // predicate- or selector-bearing aggregates/chained Select) would be hard-cast to Func<T,...> and
+                // throw an obscure InvalidCastException. Reject the whole class here with one clear message (same
+                // pattern as the result-type and GroupBy guards). Constant-arg operators (Skip/Take/Distinct) are
+                // unaffected and still compose.
+                if (components.ScalarSelector != null && currentCall.Arguments.Count >= 2
+                    && (currentCall.Arguments[1] is LambdaExpression
+                        || (currentCall.Arguments[1] is UnaryExpression scalarComposeUnary && scalarComposeUnary.Operand is LambdaExpression)))
+                {
+                    throw new NotSupportedException(
+                        $"A scalar projection Select(x => x.Member) must be the outermost query operator; applying " +
+                        $"{currentCall.Method.Name}(...) after it is not translated. Filter, order, or aggregate BEFORE " +
+                        $"the projection, or materialize and compose in memory: " +
+                        $"query.Select(x => x.Member).ToList().{currentCall.Method.Name}(...).");
+                }
+
                 if (currentCall.Method.Name == "Where")
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;

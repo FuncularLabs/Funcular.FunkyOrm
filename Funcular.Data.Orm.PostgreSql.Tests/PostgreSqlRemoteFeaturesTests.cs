@@ -158,6 +158,25 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         }
 
         [TestMethod]
+        public void Select_ScalarProjection_ThenComposingLambdaOperators_ThrowClearNotSupported()
+        {
+            // A lambda-bearing operator applied AFTER a scalar projection is rejected at parse with a clean
+            // NotSupportedException (not an InvalidCastException from a Func<T,...> hard-cast).
+            var where = Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Where(x => x > 0).ToList());
+            StringAssert.Contains(where.Message, "Where");
+            var all = Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).All(x => x > 0));
+            StringAssert.Contains(all.Message, "All");
+            var orderBy = Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).OrderBy(x => x).ToList());
+            StringAssert.Contains(orderBy.Message, "OrderBy");
+            var chained = Assert.ThrowsException<System.NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Select(x => x + 1).ToList());
+            StringAssert.Contains(chained.Message, "Select");
+        }
+
+        [TestMethod]
         public void GroupBy_IsNotTranslated_ThrowsNotSupported()
         {
             var ex = Assert.ThrowsException<System.NotSupportedException>(() =>

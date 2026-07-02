@@ -139,5 +139,54 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 _provider.Query<PersonDetailEntity>().Select(p => p.Id).First());
             StringAssert.Contains(ex.Message, "First");
         }
+
+        [TestMethod]
+        public void ScalarProjection_ThenComposingLambdaOperators_ThrowClearNotSupported()
+        {
+            // Composition class: any lambda-bearing operator applied AFTER a scalar projection (element type is now
+            // the member, not T) used to hard-cast to Func<T,...> and throw InvalidCastException. All must now throw
+            // a clean NotSupportedException naming the offending operator.
+            var where = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Where(x => x > 0).ToList());
+            StringAssert.Contains(where.Message, "Where");
+
+            var all = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).All(x => x > 0));
+            StringAssert.Contains(all.Message, "All");
+
+            var anyPred = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Any(x => x > 0));
+            StringAssert.Contains(anyPred.Message, "Any");
+
+            var countPred = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Count(x => x > 0));
+            StringAssert.Contains(countPred.Message, "Count");
+
+            var orderBy = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).OrderBy(x => x).ToList());
+            StringAssert.Contains(orderBy.Message, "OrderBy");
+
+            var firstPred = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).First(x => x > 0));
+            StringAssert.Contains(firstPred.Message, "First");
+
+            var chainedSelect = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<PersonDetailEntity>().Select(p => p.Id).Select(x => x + 1).ToList());
+            StringAssert.Contains(chainedSelect.Message, "Select");
+        }
+
+        [TestMethod]
+        public void ScalarProjection_ThenConstantArgOperators_StillCompose()
+        {
+            // The composition guard targets lambda-bearing operators only. Constant-arg operators after a scalar
+            // projection (Take/Skip/Distinct) still compose and return List<memberType>.
+            List<int> ids = _provider.Query<PersonDetailEntity>()
+                .Where(p => p.Id > 0)
+                .Select(p => p.Id)
+                .Take(5)
+                .ToList();
+            Assert.IsInstanceOfType(ids, typeof(List<int>));
+            Assert.IsTrue(ids.Count <= 5);
+        }
     }
 }
