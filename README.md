@@ -1,11 +1,15 @@
-> **Recent Changes**
-> * **v3.8.2-beta1**: 🐛 **Fix: aggregates dropped remote JOINs** — `Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average` filtered by a `[RemoteProperty]`/`[RemoteKey]` (e.g. `Query<T>().Where(r => r.RemoteProp == x).Count()`) built the aggregate `FROM` without the required `LEFT JOIN`, failing at the engine. Fixed across all four providers (pre-existing defect).
-> * **v3.8.1-beta1**: 🔃 **View-replacing attributes in `OrderBy`, `Distinct()`, and projections** — order by `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]`/`[RemoteProperty]` (sorts by the resolved SQL, not a missing column), `Distinct()` → `SELECT DISTINCT`, and project the self-contained computed attributes in a custom `.Select(...)`. Gap closure across all four providers. See [JSON & Computed Column Attributes](#6-json--computed-column-attributes).
-> * **v3.8.0-beta1**: 🔐 **Row-Level Security & audit context (beta)** — prime per-request end-user identity onto each connection (even when the app connects as one identity) for RLS filtering and audit attribution. Full on SQL Server & PostgreSQL; attribution-only on MySQL. Shipping as a **beta** feature. See [Row-Level Security & Audit Context](#row-level-security--audit-context-v38) and the [Audit Context Runbook](docs/guides/AUDIT_CONTEXT_RUNBOOK.md).
-> * **v3.7.0**: ⚙️ **Stored procedure execution** — `ExecProcedure<T>` / `ExecScalar` / `ExecNonQuery` (+ async), with output parameters and `[Procedure]`/convention name resolution. Full on SQL Server & MySQL; `CALL`-based scalar/non-query on PostgreSQL; not supported on SQLite. See [Database Provider Differences](#database-provider-differences).
-> * **v3.6.0**: 🐬 **MySQL support** — a full `MySqlOrmDataProvider` (MIT-licensed MySqlConnector), bundled in the same `Funcular.Data.Orm` package with feature parity across providers.
-> * **v3.5.0**: 🗃️ **SQLite support** — a full file-backed, zero-config `SqliteOrmDataProvider`, bundled in the same package.
-> * **v3.2.1**: 🧩 **All four view-replacing attributes** — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, `[JsonCollection]`.
+> **Recent Changes** — see [Changelog.md](Changelog.md) for full details.
+> * **v3.9.0**: 🎯 **Top-level scalar projection** — `Select(x => x.Member)` returns `List<memberType>` via a narrow `SELECT`; composes with filter / order-by (incl. a remote column) / paging.
+> * **v3.8.5-beta1**: 🎯 Explicit remote target authoritative on the final FK hop; documented the narrow-projection idiom.
+> * **v3.8.4-beta1**: 🐛 Fix: a `[RemoteProperty]` value column declared on a base class no longer throws `Invalid object name`.
+> * **v3.8.3-beta1**: 🐛 Fix: cold-cache remote column names; clear `NotSupportedException` for `GroupBy` and non-entity top-level `Select`.
+> * **v3.8.2-beta1**: 🐛 Fix: remote-filtered aggregates (`Count`/`Any`/`Sum`/…) now inject the required `LEFT JOIN`.
+> * **v3.8.1-beta1**: 🔃 View-replacing attributes in `OrderBy`, `Distinct()`, and projections.
+> * **v3.8.0-beta1**: 🔐 Row-Level Security & audit context (beta) — per-request end-user identity for RLS filtering and attribution.
+> * **v3.7.0**: ⚙️ Stored procedure execution — `ExecProcedure` / `ExecScalar` / `ExecNonQuery` (+ async).
+> * **v3.6.0**: 🐬 MySQL support — bundled in the same `Funcular.Data.Orm` package.
+> * **v3.5.0**: 🗃️ SQLite support — file-backed, zero-config, bundled in the same package.
+> * **v3.2.1**: 🧩 All four view-replacing attributes — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, `[JsonCollection]`.
 
 
 # Funcular / Funky ORM: a speedy, lambda-powered .NET micro-ORM for MSSQL, PostgreSQL, MySQL & SQLite
