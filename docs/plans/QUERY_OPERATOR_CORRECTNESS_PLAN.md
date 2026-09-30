@@ -2,48 +2,55 @@
 
 > **Goal**: Fix the two query-translation defects logged after 3.9.0 — [#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12)
 > (unqualified own-column `ORDER BY` on remote-join entities) and [#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)
-> (LINQ operators silently ignored or mistranslated) — across all four providers, test-first. Target release:
-> **v3.10.0** (branch `development/3.10`). This is a **prerequisite for the sponsored-tutorial program**: a
-> tutorial audience coming from EF will reach for `SingleOrDefault`, `Average`, and the narrow-projection
-> paging idiom on day one.
+> (LINQ operators silently ignored or mistranslated) — across all four providers, test-first.
+> - **v3.10.0** (branch `development/3.10`) ships the critical fixes. §1–§9 cover it.
+> - **v3.10.1** ships aggregate correctness (D9). Its design is still being settled with the owner (§10).
+>
+> This is a **prerequisite for the sponsored-tutorial program**. A tutorial audience coming from EF will reach
+> for `SingleOrDefault` and the narrow-projection paging idiom on day one.
 
 > **Status (2026-09-30)**:
-> - D1–D7 approved by the owner.
-> - **D8–D11 are new, raised by the Task 0 review, and need owner sign-off before Task 1.**
-> - Task 0 is otherwise complete.
+> - All decisions D1–D12 are made by the owner.
+> - D9's detailed design (3.10.1) is in progress: the owner's direction is recorded in §10, with open
+>   questions.
+> - Task 0 is waiting on a clean fix-verification of this revision.
 
-> **Revision 2 (Task 0 test-plan review, 2026-09-30) — what changed:**
-> A non-author reviewer found 25 issues at `30d3a6d`: 1 blocker, 8 major, 16 minor. Blame: AC-GAP 10,
-> TEST-GAP 11, PLAN-GAP 4. All are accepted; the disposition is in §9. In summary:
-> - **Scope grows by four silent-wrong-result classes the reviewer found**, each confirmed against source by
->   the author. Each has a new decision (D8–D11), new ACs and tasks:
->   - operators after `Skip`/`Take` are mistranslated (D8, AC13-10);
->   - aggregate overloads return wrong or truncated values (D9, AC13-11);
->   - a second `OrderBy` reverses sort priority (D10, AC13-12);
->   - SQLite leaks projection state between executions, and an ORDER BY ternary null-check is always false
->     (D11, AC13-13, AC12-8).
-> - `Single*` no longer rides the paging path. It uses a row limit (`TOP 2` / `LIMIT 2`), so it injects no
->   `ORDER BY id`: some entities have no `id` column, and a synthesized order would trip the `Distinct`
->   projection guard.
-> - AC13-4's "not even schema discovery" was false: `Query<T>()` discovers schema eagerly and unlogged.
->   The AC is reworded, the D2 rationale is corrected, and the mutation killer is replaced.
-> - Test-design fixes: `Cast` tests had no teeth (`Queryable.Cast` short-circuits); the classification sweep
->   was a tautology; AC13-8 was unprovable as written; oracle determinism rules were missing.
->   Plus mutation rows, net48/DotNet9 runs, compile stubs for red tests, and DB-free visitor tests.
-> - §1.1: "first LINQ provider" corrected. An `IQueryProvider` existed at `1a96b3d` (2025-03-30); the
->   `0.1.1-alpha.2` → `3.9.0` NuGet range still holds, because `0.1.1-alpha.1` was never published.
-> - Effort: ~5–6 → **~8–9 working days**.
+> **Revision 3 (Task 0 fix-verification r2, 2026-09-30) — what changed:**
+> The r2 reviewer found 21 issues at `e19a7ae`: 0 blocker, 6 major, 15 minor. 16 were introduced by
+> Revision 2. Blame: AC-GAP 5, TEST-GAP 7, HOUSE-RULE 1, PLAN-GAP 8. Following the house rule after repeated
+> fix-introduced findings, the two unsound designs were **redesigned rather than patched**:
+> - **D10 (second `OrderBy`) is now "reject"** (owner decision). This removes the stable-sort stitching, the
+>   tie-seeded tests and the repeated-column problem.
+> - **D9 (aggregates) moves to v3.10.1** (owner decision D12). The r2 findings about `Average` precision
+>   (SQLite `ROUND`, MySQL scale 4), `ChangeType` failures, and missing test-schema columns become inputs to
+>   §10.
 >
-> **Revision 1 (Task 0 results, 2026-09-30):** cross-provider verification (§1.3); SQLite paging on
-> remote-join entities broken; D4 resolved with native local PostgreSQL; PG baselines; harness rules;
-> affected-version range.
+> The remaining findings are folded in:
+> - identity `OfType` over nullable elements is rejected, because LINQ drops nulls;
+> - the spine walk is fully specified (element-type resolution, root terminal, `TSource` check);
+> - SQLite `Skip` without `Take` gets its own fix (AC13-14);
+> - negative `Skip`/`Take` handling;
+> - the `Take(0)` short-circuit is pinned;
+> - #12 tests assert SQL text and use projections that omit the key, so they can't pass by alias binding;
+> - SQLite resets all per-parse state;
+> - one literal pinned set across frameworks;
+> - net48 compile constraints;
+> - the dead scalar-aggregate guard and its stale comment are removed;
+> - ternary null checks in either operand order;
+> - duplicate `ThenBy` keys are deduplicated.
+>
+> The disposition is in §9.2. **3.10.0 effort: ~6 working days.**
+>
+> **Earlier revisions:**
+> - **Revision 2** — Task 0 test-plan review r1: 25 findings, disposition in §9.1.
+> - **Revision 1** — cross-provider premise verification.
 
 ---
 
 ## 1. Verified premises
 
-Both issues were filed from code reading. Before planning, throwaway probes ran each shape against live
-databases on all four providers. The probes were deleted afterwards; their cases become the red tests in §4.
+Before planning, throwaway probes ran each shape against live databases on all four providers, then were
+deleted. Their cases become the red tests in §4.
 
 ### 1.1 #13 is broader and more severe than filed (SQL Server shown; §1.3 for the others)
 
@@ -65,32 +72,30 @@ databases on all four providers. The probes were deleted afterwards; their cases
 | *(sanity)* `First()`, `FirstOrDefault(pred)`, `Min(sel)`, `AsQueryable()` | — | correct | — |
 
 **Root cause:**
-- `ParseExpression` translates a fixed set of operator **names** and silently skips every other
-  `MethodCallExpression` in the chain.
+- `ParseExpression` translates a fixed set of operator **names** and silently skips every other call in the
+  chain.
 - `ExecuteQuery` then reads the first row for any non-collection `TResult`.
-- `Single*` are never matched.
+- `Single*` is never matched.
 - The `First/Last` predicate branch requires `Arguments.Count == 2`, so parameterless `Last()` falls through
   to "read first row".
 
 **Severity: critical (silent wrong row).** `Query<User>().SingleOrDefault(u => u.Email == email)` returns
-an arbitrary *different* user. In a consuming app that is an authorization flaw, not just a bug.
+an arbitrary *different* user. In a consuming app that is an authorization flaw.
 
 **Affected versions:** every NuGet release from `0.1.1-alpha.2` (the first published version) through
-`3.9.0`. `Single*` has never been matched in any version of the LINQ provider: no commit before the 3.9
-scalar-projection guards mentions it. An earlier `IQueryProvider` existed at `1a96b3d` (2025-03-30), but it
-predates every published package.
+`3.9.0`. `Single*` has never been matched in any version of the LINQ provider. An earlier `IQueryProvider`
+at `1a96b3d` (2025-03-30) predates every published package.
 
-**Found by the Task 0 review, confirmed against source by the author:**
-- Aggregates ignore paging: `BuildAggregateClause` never reads `Skip`/`Take`.
+**Also confirmed from source by the Task 0 reviews:**
+- Aggregates ignore paging (`BuildAggregateClause` never reads `Skip`/`Take`).
 - `Where` and predicate terminals after `Skip`/`Take` are ANDed into `WHERE`, so they run before paging.
-- Repeated `Skip`/`Take` overwrite each other instead of composing.
-- `Average` over a `decimal`/`float` selector throws `InvalidCastException`.
-- Nullable `Min`/`Max`/`Average` on an empty set throws (LINQ-to-objects returns `null`).
-- *Unverified — Task 1 red test:* SQL Server `AVG(int)` truncates.
+- Repeated `Skip`/`Take` overwrite each other.
 - `OrderBy(a).OrderBy(b)` emits `ORDER BY a, b`.
-- SQLite `_lastSelectProjection`/`_lastSelectParameters` are only ever set, so a reused root inherits a
-  stale narrow projection.
-- An ORDER BY ternary `x.M == null` emits `col = NULL`, which is never true.
+- SQLite `_lastSelectProjection`/`_lastSelectParameters` are never reset.
+- An ORDER BY ternary `x.M == null` emits `col = NULL`.
+- SQLite emits `OFFSET` without `LIMIT` for `Skip`-only queries, which SQLite's grammar rejects
+  (*Task 1 red test*).
+- Aggregate result conversion is wrong for several overloads; that's 3.10.1 (§10).
 
 ### 1.2 #12 is narrower than filed on SQL Server, PostgreSQL and MySQL (broader on SQLite — see §1.3)
 
@@ -103,20 +108,18 @@ predates every published package.
 | `OrderBy(p => p.FirstName)` + `Select(p => p.Id)` | ✅ works — only because no joined table has `first_name` |
 | `Where(p => p.Id > 0)` + default paging | ✅ WHERE emits `person.id`; default order is `person.id` (3.9 round-1 fix) |
 
-**Real trigger:** an own-column `OrderBy`/`ThenBy` combined with a **narrow projection** on a remote-join
-entity, when any joined table has a column of the same name. That is exactly the performant call-list idiom
-documented in 3.8.5/3.9.
+**Real trigger:** an own-column `OrderBy`/`ThenBy` combined with a **narrow projection that doesn't include
+the key** on a remote-join entity, when any joined table has a column of the same name. When the key *is*
+projected, the unqualified name binds to the select alias and works by accident.
 
-**Consumer exposure:** Sentinel.MVP `main` (pinned to 3.9.0-beta1) uses this exact shape in
-`CallListOrder.Apply` → `.ThenBy(r => r.CallId)` → `Skip/Take` → `Select(r => new CallListQueryRow { CallId = r.CallId })`.
-- It works **only because** `CallId` maps to `call_id` and no joined table has that name. A new sort key on
-  a shared name (`id`, `uid`, `dateutc_created`) would crash that page.
-- No Sentinel code uses a #13 operator on a FunkyORM query, and none composes an operator after
-  `Skip`/`Take`. The three multiline hits are in-memory LINQ over lists.
+**Consumer exposure:** Sentinel.MVP `main` (pinned to 3.9.0-beta1) uses this exact shape in `CallListOrder.Apply`.
+- It works only because `CallId` maps to `call_id` and no joined table has that name.
+- No Sentinel code uses a #13 operator on a FunkyORM query or composes an operator after `Skip`/`Take`.
+- Its `OrderBy` chains contain one `OrderBy` each, so D10 doesn't affect it.
 
 ### 1.3 Cross-provider verification (Task 0, 2026-09-30)
 
-Same shapes on PostgreSQL (local PG 18), MySQL, and SQLite. Each probe seeded three marker-tagged rows
+Same shapes on PostgreSQL (local PG 18), MySQL and SQLite. Each probe seeded three marker-tagged rows
 (target = the third) and was deleted afterwards. The join entity is `PersonDetailEntity` (PG, SQLite) or
 `PersonWithEmployer` (MySQL); every joined table has an `id` column.
 
@@ -131,164 +134,178 @@ Same shapes on PostgreSQL (local PG 18), MySQL, and SQLite. Each probe seeded th
 | #12 full entity `OrderBy(Id)` | ✅ | ✅ | ✅ | ❌ `ambiguous column name: id` |
 | #12 subset / scalar projection + `OrderBy(Id)` | ❌ | ❌ `42702` | ❌ | ❌ |
 | #12 remote `OrderBy` + `ThenBy(Id)` + subset | ❌ | ❌ | ❌ | ❌ |
-| AC12-7 default paging (`Take`) on join entity | ✅ `person.id` | ✅ `person.id` | ✅ `person.id` | ❌ `ambiguous column name: rowid` |
+| Default paging (`Take`) on join entity | ✅ `person.id` | ✅ `person.id` | ✅ `person.id` | ❌ `ambiguous column name: rowid` |
 
-**Consequence for SQLite:** on 3.9.0, *any* `Skip`/`Take` on an entity with remote attributes fails,
-whether or not the query has an explicit order.
+**Consequence for SQLite:** on 3.9.0, any `Skip`/`Take` on an entity with remote attributes fails, and
+`Skip` without `Take` fails on any entity.
 
-### 1.4 Code facts the design relies on (verified by author and reviewer)
+### 1.4 Code facts the design relies on (verified by author and reviewers)
 
-- **Order-by visitors.** Each provider has its own (`OrderByClauseVisitor`, `PostgreSqlOrderByClauseVisitor`,
-  `MySqlOrderByClauseVisitor`, `SqliteOrderByClauseVisitor`). All four resolve own columns only through a
-  private `ResolveOrderColumn` → bare `GetColumnName(property)`. Every ORDER BY path goes through it:
-  member, Convert-wrapped member, `CASE` `HasValue` test, `CASE` value branches, `.Value` nesting.
-- **Prior-ordering recursion.** At an `OrderBy*`/`ThenBy*` node the visitor recurses into any previous
-  ordering call, **including a previous `OrderBy`** (OrderByClauseVisitor.cs:117-134), and appends the new key
-  after it. That is the root of D10.
-- **WHERE and SELECT already qualify.** All four WHERE visitors qualify own columns as
-  `{_tableName}.{column}` (unquoted). `SelectClauseVisitor` emits `person.id AS Id`.
-- **Two visitor call sites per provider** in `*LinqQueryProvider.ParseExpression`:
-  - the `OrderBy/ThenBy` branch, which passes the remote map;
-  - the `Last/LastOrDefault(pred)` synthesized `ORDER BY Id DESC`, which passes no map.
-
-  `GenerateOrderByClause` in three providers is dead code and stays untouched.
-- **"Has joins" test.** `ResolvedRemoteJoinInfo.IndividualJoinClauses` has the same name in all four. It is
-  non-empty exactly when `CreateGetOneOrSelectCommandText` emits joins. WHERE-induced joins are the same
-  list.
-- **Eager schema discovery.** `Query<T>()` calls `CreateGetOneOrSelectCommandText<T>()` eagerly. That runs
-  `ResolveTableName`, `DiscoverColumns` and remote-type discovery with raw commands that **don't log**. So
-  "no SQL executed" can only be observed as "no *query or aggregate* command logged after the `IQueryable` is
+- **Order-by visitors.**
+  - Each provider has its own. All four resolve own columns only through a private `ResolveOrderColumn` →
+    bare `GetColumnName(property)`; every ORDER BY path goes through it.
+  - Each term is already stored as `(ColumnName, IsDescending)`, so inverting terms needs no text parsing.
+  - The visitor recurses into a prior ordering call, including a prior `OrderBy`, and stops at
+    non-ordering calls (OrderByClauseVisitor.cs:117-134).
+- **WHERE and SELECT already qualify.** All four WHERE visitors qualify own columns as `{_tableName}.{column}`;
+  `SelectClauseVisitor` emits `person.id AS Id`.
+- **Two visitor call sites per provider.** The `OrderBy/ThenBy` branch passes the remote map; the
+  `Last/LastOrDefault(pred)` synthesized order passes none. `GenerateOrderByClause` (three providers) is dead
+  code.
+- **"Has joins" test.** `ResolvedRemoteJoinInfo.IndividualJoinClauses` has the same name in all four and is
+  non-empty exactly when joins are emitted.
+- **Eager schema discovery.** `Query<T>()` discovers schema eagerly with raw commands that **don't log**. So
+  "no SQL executed" is observable only as "no *query or aggregate* command logged after the `IQueryable` is
   obtained".
-- **Default paging order.** SQLite's is a bare `ORDER BY rowid`; the other three qualify `id` with a text
-  check for `" JOIN "`. That default hard-codes the column name `id`, so it's wrong for entities whose key
-  isn't `id`. It is pre-existing, and `Single*` must not start routing through it (see D1/§5.2.3).
-- **Aggregates.** `BuildAggregateClause` ignores `Skip`/`Take` (all four). `HandleAggregateQuery` converts by
-  a selector-type switch (`int`/`long`/`double`/`decimal`/`DateTime(?)`). `Average` always returns
-  `Convert.ToDouble` boxed to `TResult`, and a `NULL` result throws for `Average`/`Min`/`Max`.
-- **SQLite state fields.** SQLite keeps `_lastOrderByClause` (overwritten on every parse), plus
-  `_lastSelectProjection` and `_lastSelectParameters`, which are **set only in the Select branch and never
-  reset**. The early return for an operator-free expression happens before any reset.
-- **Execution entry point.** There's no async LINQ surface; `Execute<TResult>` is the only entry point per
-  provider. The obsolete `Query<T>(predicate)` doesn't go through the LINQ provider.
-- **`Queryable.Cast<TResult>`** returns the source unchanged when it's already `IQueryable<TResult>`, so an
-  identity or covariant `Cast` creates no expression node. `OfType` always creates one.
+- **The query root** is `Expression.Constant(this)`, typed as the provider's queryable class, e.g.
+  `SqlQueryable<T>` (SqlQueryable.cs:17). After `OrderBy` the node type is `IOrderedQueryable<T>`. Element
+  types must therefore be resolved through the `IEnumerable<>` interface.
+- **`Skip`/`Take` arguments** are always a `ConstantExpression`, so their values are known during parsing.
+- **Default paging order.** SQLite's is a bare `ORDER BY rowid`; the other three qualify `id` with a
+  `" JOIN "` text check. It hard-codes the column name `id` (pre-existing, §8).
+- **SQLite paging SQL** emits `LIMIT n` and `OFFSET m` separately (SqliteLinqQueryProvider.cs:592-595), so a
+  `Skip`-only query emits `OFFSET` with no `LIMIT`.
+- **Aggregates (unchanged in 3.10.0 except `LongCount`).**
+  - `BuildAggregateClause` ignores `Skip`/`Take`.
+  - SQL Server, PostgreSQL and MySQL convert by a selector-type switch; SQLite switches on `TResult` with a
+    `ChangeType` fallback (:623-634).
+  - `Average` returns `Convert.ToDouble` everywhere.
+  - SQLite wraps `AVG` in `ROUND(…, 10)` (:461-462).
+- **SQLite per-parse state.** `_lastOrderByClause` (overwritten after each loop), plus `_lastSelectProjection`
+  and `_lastSelectParameters` (set only in the Select branch, never reset). The early return for an
+  operator-free expression (:119) happens before any assignment.
+- **Scalar-projection guards.** The guard for a parameterless numeric aggregate after a scalar projection
+  (SqlLinqQueryProvider.cs:339-346; the same in the siblings) becomes dead once the pre-pass rejects
+  non-generic `Sum()`/`Average()`, and the comment at :128-129 then becomes false.
+- **`Queryable.Cast<TResult>`** returns the source unchanged when it's already `IQueryable<TResult>`, so no
+  node is created. `OfType` always creates a node and, like `Enumerable.OfType`, **drops nulls**.
+- **Core `InternalsVisibleTo`** already covers `SqlServer.Tests`, `.DotNet9` and `.NetFramework`.
+- **The net48 test project** is an old-style csproj compiled as C# 7.3. net48's `Queryable` lacks
+  `Chunk`/`DistinctBy`/`MinBy`/`Order`/`Take(Range)`/the default-value overloads.
 
 ---
 
-## 2. Decisions
+## 2. Decisions (all made by the owner, 2026-09-30)
 
-| # | Status | Decision | Recommendation | Why |
-|---|---|---|---|---|
-| **D1** | ✅ approved | `Single`/`SingleOrDefault`/`Last`/`LastOrDefault`/`LongCount`: implement or reject? | **Implement.** *(Rev 2: `Single*` uses a row limit, not the paging path — §5.2.3.)* | EF muscle memory. Rejecting would turn silent-wrong into loud-but-unhelpful for the most common calls. |
-| **D2** | ✅ approved | Allow-list form | **Exact-overload allow-list in Core** (`QueryOperatorPolicy`), run as a **pre-pass over the method spine** before any translation. | Name-only lists miss overload traps that exist today: indexed `Where` → `InvalidCastException`; comparers ignored; `Take(Range)` → `InvalidCastException`; `FirstOrDefault(defaultValue)` ignores the default. One Core policy removes the four-way mirror-drift risk. *(Rev 2 correction: the pre-pass guarantees no query or aggregate command runs. Schema discovery already happened at `Query<T>()` and is unaffected.)* |
-| **D3** | ✅ approved | Version / branch | **3.10.0** on `development/3.10`; `3.10.0-beta1`, promoted to stable after a Sentinel call-list smoke test. | Behavior change. The PG workflow only runs on `development/**`. |
-| **D4** | ✅ approved, resolved | Local PostgreSQL | Native PostgreSQL 18 via the suite's fallback connection; CI `postgres:17`. | Red→green observed on every provider without a push per cycle. |
-| **D5** | ✅ approved | `Cast<T>()` / `OfType<T>()` | **Identity only** is a no-op; other types are rejected. *(Rev 2: "identity" means the **source element type** of that call, not the entity type, so `Select(p => p.Id).OfType<int>()` is allowed.)* | Identity is correct today; non-identity is silently wrong. |
-| **D6** | ✅ approved | `Last*`/`ElementAt*` with paging | `Last*` after `Skip`/`Take`: reject. `ElementAt*`: reject. *(Rev 2: `Single*` after paging is governed by D8.)* | Inverting an ORDER BY under an OFFSET reads the wrong window. |
-| **D7** | ✅ approved | Disclosure | Changelog + README "upgrade strongly recommended"; owner decides on a GitHub Security Advisory. | "Returns a different user's row." |
-| **D8** | ⏳ **needs sign-off** | Operators composed **after** `Skip`/`Take` | **Reject by position** in the same Core pre-pass. After the first `Skip`/`Take` on the spine, only these may follow: one `Take` directly after a `Skip` (the canonical `Skip(n).Take(k)`), `Select`, parameterless `First*`/`Single*`, and identity `Cast`/`OfType`. Everything else throws `NotSupportedException` naming the operator and "after Skip/Take": `Where`, any `OrderBy*`/`ThenBy*`, `Distinct`, any aggregate, predicate-bearing terminals, `Last*`, a second `Skip`, and `Take` before `Skip`. **`Take(0)`** short-circuits to an empty sequence without SQL. | Today these silently compute over the wrong rows, e.g. `Take(5).Count()` counts everything. Translating them needs subqueries; rejecting matches D2/D6 and costs nothing that works today. No FunkyORM test or Sentinel query composes after paging. `Take(0)` currently hits SQL Server's `FETCH NEXT 0` error. |
-| **D9** | ⏳ **needs sign-off** | Aggregate overload correctness | **Fix, not reject.**<br>• Convert every aggregate result to the called overload's `TResult` generically (nullable-aware); this replaces the selector-type switch.<br>• Nullable `Min`/`Max`/`Average` on an empty set return `null`.<br>• `Average` over integer selectors computes in floating point: SQL Server `AVG(CAST(x AS FLOAT))`; confirm the others in Task 1.<br>• `Average`/`Sum` over `decimal`/`float` return their own type. | `Average(p => p.Age)` is too common to reject, and it's wrong on SQL Server today (truncates — Task 1 confirms) and throws for `decimal`. The generic conversion also fixes SQL Server `int?` selectors and `string` `Min`/`Max`. |
-| **D10** | ⏳ **needs sign-off** | `OrderBy(a).OrderBy(b)` semantics | **LINQ-to-objects semantics**: a later `OrderBy*` becomes primary and earlier keys become tie-breakers in their original order. `OrderBy(a).ThenBy(c).OrderBy(b)` → `ORDER BY b, a, c`. | Today it emits `ORDER BY a, b`, which is wrong under both LINQ-to-objects and EF (which drops the earlier keys). The LINQ-to-objects form is deterministic and can be checked by the oracle. |
-| **D11** | ⏳ **needs sign-off** | Two adjacent silent-wrong-result bugs in files we're touching | **Fix in scope.**<br>• SQLite resets all per-parse state (`_lastSelectProjection`, `_lastSelectParameters`, `_lastOrderByClause`) at the top of every parse, before the early return.<br>• ORDER BY ternary null tests emit `IS NULL`/`IS NOT NULL`. | Both are in files this plan already edits and lifts to 85% coverage. Leaving them would make the oracle and ternary tests fail for unrelated reasons. |
+| # | Decision | Outcome |
+|---|---|---|
+| **D1** | `Single`/`SingleOrDefault`/`Last`/`LastOrDefault`/`LongCount` | **Implement.** `Single*` uses a row limit, not the paging path (§5.2.3). |
+| **D2** | Allow-list form | **Exact-overload allow-list in Core** (`QueryOperatorPolicy`), run as a **pre-pass over the method spine** before translation. It guarantees that no query or aggregate command runs for a rejected chain; schema discovery at `Query<T>()` is unaffected. |
+| **D3** | Version / branch | **3.10.0** on `development/3.10`; beta first, stable after a Sentinel call-list smoke test. |
+| **D4** | Local PostgreSQL | Native PostgreSQL 18 via the suite's fallback connection; CI uses `postgres:17`. |
+| **D5** | `Cast`/`OfType` | **Identity only.** The generic argument must equal the call's source element type.<br>• `Cast`: allowed as a no-op.<br>• `OfType`: allowed as a no-op only when the element type is the entity `T` (rows are never null) or a non-nullable value type.<br>• Everything else is rejected: `OfType` over a nullable or reference scalar would have to drop nulls, and the message says to use `Where(x => x.M != null)` before the projection. |
+| **D6** | `Last*`/`ElementAt*` with paging | Reject both. |
+| **D7** | Disclosure | Changelog + README "upgrade strongly recommended"; the owner decides on a GitHub Security Advisory. |
+| **D8** | Operators after `Skip`/`Take` | **Reject by position** in the Core pre-pass. Allowed after the first `Skip`/`Take`:<br>• one `Take` directly after a `Skip`;<br>• `Select`;<br>• parameterless `First*`/`Single*`;<br>• identity `OfType` (per D5).<br>Everything else is rejected before any query runs.<br>`Take(n ≤ 0)` returns an empty sequence without SQL. `Skip(n < 0)` is treated as `Skip(0)`. |
+| **D9** | Aggregate correctness | **Moved to 3.10.1** (D12). The owner accepts the recommended direction with changes; details and open questions are in §10. In 3.10.0, aggregates keep their 3.9 behavior, except `LongCount` (new) and rejection of the non-generic `Sum()`/`Average()` overloads, which already threw in 3.9. |
+| **D10** | A second `OrderBy*` after an earlier `OrderBy*`/`ThenBy*` anywhere on the spine | **Reject**, in the Core pre-pass. The message says to use `ThenBy`, or put the primary key first. |
+| **D11** | SQLite state and ternary nulls | **Fix in scope.**<br>• SQLite resets **every** per-parse field (including the new `OrderByTerms`) at the top of every parse, before the early return.<br>• ORDER BY ternary null tests emit `IS NULL`/`IS NOT NULL`, with `null` on either side of the comparison. |
+| **D12** | Release sequencing | **Split.** 3.10.0 ships everything in this document except D9; 3.10.1 ships D9 (§10). |
 
 ---
 
-## 3. Acceptance criteria
+## 3. Acceptance criteria (v3.10.0)
 
-These will be posted back to #12 and #13 once D8–D11 are signed off. Unless stated otherwise, each AC holds
-for **all four providers**.
+These will be posted to #12 and #13 once this revision is verified clean. Each AC holds for **all four
+providers** unless stated.
 
 ### #12 — own-column ORDER BY on remote-join entities
 
-- **AC12-1** On an entity with remote joins, **every combination** of the following executes and returns
-  rows in the requested order, with own columns emitted as `{baseTable}.{column}`:
-  - operator: `OrderBy`/`OrderByDescending`/`ThenBy`/`ThenByDescending` over an own mapped column;
-  - shape: full entity, subset projection `Select(x => new T { … })`, or scalar projection `Select(x => x.M)`;
+- **AC12-1** On an entity with remote joins, every combination below emits own columns as
+  `{baseTable}.{column}` (asserted on the SQL text) and returns rows in the requested order:
+  - operator: `OrderBy`/`OrderByDescending`, or `ThenBy`/`ThenByDescending` after a remote-member `OrderBy`,
+    over an own column;
+  - shape: full entity, subset projection that **omits the key**, or scalar projection of a different member;
   - paging: with or without `Skip`/`Take`.
-- **AC12-2** Ordering by a remote/computed member emits **exactly** its resolved fragment (e.g.
-  `[country_0].name`), with no base-table prefix, unchanged from 3.9.0.
-- **AC12-3** For an entity **without** remote joins, the generated SQL is byte-identical to 3.9.0.
+- **AC12-2** Ordering by a remote/computed member emits exactly its resolved fragment, with no base-table
+  prefix, unchanged from 3.9.0.
+- **AC12-3** For an entity without remote joins, the generated SQL is byte-identical to 3.9.0.
 - **AC12-4** A ternary/`CASE` ordering over own columns on a join entity is qualified inside the `CASE`.
-- **AC12-5** The ORDER BY synthesized for `Last*` (AC13-2) is qualified on join entities and works with a
-  narrow projection (when the ordering key is projected — see AC13-2).
-- **AC12-6** On the **join entity**, `Distinct()` + custom projection + own-column `OrderBy`:
+- **AC12-5** The ORDER BY synthesized for `Last*` (AC13-2) is qualified on join entities, including with a
+  narrow projection that omits the key (no `Distinct`).
+- **AC12-6** On the join entity, `Distinct()` + custom projection + own-column `OrderBy`:
   - executes when the key is in the projection;
   - still throws the existing `InvalidOperationException` when it isn't.
-- **AC12-7** *(SQLite; red in Task 0)* `Skip`/`Take` on a join entity with no explicit order executes, for
-  the full entity and for a subset projection.
-- **AC12-8** *(D11)* An ORDER BY ternary whose test is `x.M == null` / `x.M != null` orders rows the same way
-  LINQ-to-objects does (`IS NULL` / `IS NOT NULL`).
+- **AC12-7** *(SQLite)* `Skip`/`Take` on a join entity with no explicit order executes, for the full entity
+  and for a subset projection.
+- **AC12-8** An ORDER BY ternary whose test compares a member with `null`, with `null` on either side
+  (`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`), orders rows the way LINQ-to-objects does.
+- **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
+  dropped; they can never break a tie, so the order is unchanged.
 
 ### #13 — operator correctness
 
 - **AC13-1** `Single`/`SingleOrDefault` match LINQ-to-objects:
-  - The predicate, if any, is applied as SQL `WHERE`.
+  - The predicate, if any, is applied as `WHERE`.
   - Zero rows: `Single` throws `InvalidOperationException`; `SingleOrDefault` returns `null`.
   - Two or more rows: both throw `InvalidOperationException`.
-  - **Parameterless** `Single*` composes with prior `Where`/`OrderBy`/`Skip`/`Take`, including `Take(1)`
-    (reads one row, never throws "more than one") and `Take(0)` (AC13-10).
-  - With no user `Skip`/`Take`, `Single*` emits **no synthesized `ORDER BY`**. It uses `TOP 2` (SQL Server)
-    or `LIMIT 2` (others), so it works on entities whose key column isn't `id`.
-  - `Single*` after `Distinct()` + custom projection works.
+  - With no user `Skip`/`Take`, it emits `TOP 2` / `LIMIT 2` and **no synthesized `ORDER BY`**. It works on
+    an entity whose key column isn't `id`, and after `Distinct()` + custom projection.
+  - **Parameterless** `Single*` after user paging reads `min(Take ?? 2, 2)` rows: `Skip(n)` only,
+    `Skip(n).Take(k)`, and `Take(1)` (never throws "more than one").
 - **AC13-2** `Last`/`LastOrDefault` (with and without a predicate) match LINQ-to-objects:
-  - **Explicit order.** They honor the full explicit ordering, with every term inverted: own, remote/computed,
-    and `CASE` terms, including after D10 reordering.
-  - **No order.** They default to `Id DESC`. The existing "no `Id` property" `InvalidOperationException` is
-    kept.
+  - **Explicit order.** Every term of the `OrderBy`+`ThenBy` chain is inverted: own, remote/computed and
+    `CASE` terms.
+  - **No order.** They default to a qualified `Id DESC`. The existing "no `Id` property" error is kept.
   - **Empty.** `Last` throws; `LastOrDefault` returns `null`.
   - **After `Skip`/`Take`.** Rejected (D6/D8).
   - **After `Distinct()` + custom projection with no explicit order.** Throws `NotSupportedException` naming
-    `Last` and saying an explicit `OrderBy` on a projected key is required. With such an order, it works.
+    `Last`. With an explicit order on a projected key, it works.
 - **AC13-3** `LongCount()` and `LongCount(pred)` return an `Int64` equal to `Count`. SQL Server emits
-  `COUNT_BIG(*)`. A predicate over a reverse (one-to-many) remote key is rejected exactly like `Count`.
-- **AC13-4** Every operator on the method spine that isn't an allowed `Queryable` overload throws
-  `NotSupportedException` naming the operator. That covers non-`Queryable` methods and non-generic
-  `Queryable` overloads such as `Sum(IQueryable<int>)`. **No query or aggregate command is executed**: `Log`
-  receives nothing after the `IQueryable` is obtained. **Lambdas nested inside allowed operators aren't
-  inspected**, so `Where(p => ids.Contains(p.Id))` still works. The rejection table (§4.2) covers, at
-  minimum:
+  `COUNT_BIG(*)`. A predicate over a reverse remote key is rejected like `Count`.
+- **AC13-4** Every spine node that isn't an allowed `Queryable` overload throws `NotSupportedException`
+  naming the operator, and **no query or aggregate command is executed**: `Log` receives nothing after the
+  `IQueryable` is obtained. That includes:
+  - non-`Queryable` methods;
+  - non-generic `Queryable` overloads;
+  - spine methods whose `TSource` doesn't match the source element type (e.g. `Cast<object>().Where(…)`);
+  - non-call, non-root nodes.
+
+  Lambdas nested inside allowed operators aren't inspected, so `Where(p => ids.Contains(p.Id))` still works.
+  The rejection table covers, at minimum:
   - **Ordering and slicing:** `Reverse`, `TakeWhile`, `SkipWhile`, `TakeLast`, `SkipLast`, `ElementAt`,
     `ElementAtOrDefault`, `Order`, `OrderDescending`.
   - **Set, join and sequence:** `DefaultIfEmpty`, `Concat`, `Union`, `Intersect`, `Except`, `Zip`,
     `SelectMany`, `Join`, `GroupJoin`, `Append`, `Prepend`, `SequenceEqual`, `Chunk`.
   - **Reducing:** `Contains`, `Aggregate`, `DistinctBy`, `MinBy`, `MaxBy`, and parameterless `Min()`/`Max()`
     on an entity.
-  - **Type filters:** non-identity `Cast`/`OfType`.
-  - **Unsupported overloads of allowed operators:** indexed `Where`/`Select`; comparer overloads; default-value
-    overloads of `First*`/`Single*`/`Last*`; `Take(Range)`; non-generic scalar `Sum()`/`Average()`.
-- **AC13-5** Every shape that worked correctly in 3.9.0 still works identically: all four existing suites
-  stay green, and there is one oracle row per allowed overload family (§4.2 lists each row with its expected
-  outcome).
-- **AC13-6** *(D5)* `OfType<X>()` where `X` is the call's source element type is a no-op. That includes
-  `Select(p => p.Id).OfType<int>()`. Non-identity `Cast`/`OfType` throw.
-- **AC13-7** The allow-list is pinned. A test asserts the exact set of allowed overloads (count +
-  signatures). A reflection sweep drives the classifier (`IsAllowed(MethodInfo)`) over **every** public
-  `Queryable` method in the running framework and compares the result with the pinned set. The sweep runs on
-  net8 **and net48**.
-- **AC13-8** **Allowed** operators keep their specific messages: the post-scalar-projection composition
-  message, the scalar result-type guard, and `GroupBy`'s dedicated text ("GroupBy is not supported in this
-  version"). **Rejected** operators get the policy message even after a scalar `Select`. Precedence: pre-pass
-  (policy and position) → parse-loop guards → execute-time guards.
-- **AC13-9** `Advanced.md` and `FUNKYORM_AI_ADVANCED.md` carry a works/doesn't-work **operator table**,
-  including the "nothing after `Skip`/`Take`" rule. Changelog and README "Recent Changes" record the fixes and
-  behavior changes.
-- **AC13-10** *(D8)* An operator composed after `Skip`/`Take` is either translated correctly or throws
-  `NotSupportedException` before any query command runs:
-  - **Allowed after paging:** `Skip(n).Take(k)`, `Select`, parameterless `First*`/`Single*`, and identity
-    `OfType`.
-  - **Rejected after paging:** any aggregate (`Count`/`LongCount`/`Any`/`All`/`Sum`/`Average`/`Min`/`Max`),
-    `Where`, predicate-bearing `First*`/`Single*`, `Last*`, `OrderBy*`/`ThenBy*`, `Distinct`, a second
-    `Skip`/`Take`, and `Take(n).Skip(m)`.
-  - `Take(0)` returns an empty sequence without SQL: `First`/`Single` throw; `*OrDefault` returns `null`.
-- **AC13-11** *(D9)* `Sum`/`Average`/`Min`/`Max` match LINQ-to-objects for every allowed selector type, on
-  non-empty and empty sets:
-  - selector types: `int`, `int?`, `long`, `long?`, `float`, `float?`, `double`, `double?`, `decimal`,
-    `decimal?`; plus `DateTime`, `DateTime?` and `string` for `Min`/`Max`;
-  - return type and value both match, including `Average` of `{1, 2}` = `1.5` on SQL Server.
-- **AC13-12** *(D10)* `OrderBy(a).OrderBy(b)` and `OrderBy(a).ThenBy(c).OrderBy(b)` return rows in
-  LINQ-to-objects order, and `Last*` after them inverts that order.
-- **AC13-13** *(D11, SQLite)* A query doesn't inherit a projection, parameters, or ordering from an earlier
-  execution on the same `Query<T>()` root.
+  - **Type filters:** non-identity `Cast`/`OfType`, and `OfType` over a nullable element (D5).
+  - **Unsupported overloads of allowed operators:** indexed `Where`/`Select`; comparer overloads;
+    default-value overloads; `Take(Range)`; non-generic `Sum()`/`Average()`.
+- **AC13-5** Every shape that worked correctly in 3.9.0 still works identically. All four existing suites
+  stay green, and there's one oracle row per allowed family. Aggregate rows are limited to shapes correct in
+  3.9.0 on all four providers: `Count`, `Any`/`All`, and `Sum`/`Min`/`Max` over `int`, on non-empty sets. No
+  `Average` rows: SQLite's `ROUND(…, 10)` alters even `double` averages. The rest is 3.10.1.
+- **AC13-6** *(D5)* Identity `OfType<X>()` is a no-op on the entity (at the root and after `OrderBy`) and on a
+  non-nullable scalar (`Select(p => p.Id).OfType<int>()`). `OfType` over a nullable or reference scalar,
+  non-identity `OfType`, and non-identity `Cast` throw.
+- **AC13-7** One **literal** pinned set of allowed overloads (count + signatures) is asserted identically on
+  net8, net48 and net9. A sweep drives the classifier (`IsAllowed`) over every public `Queryable` method in
+  the running framework and compares it with that literal set.
+- **AC13-8** Allowed operators keep their specific messages: the post-scalar-projection composition message,
+  the scalar result-type guard, and `GroupBy`'s dedicated text. Rejected operators get the policy message,
+  even after a scalar `Select`. Precedence: pre-pass (policy, position, D10) → parse-loop guards →
+  execute-time guards.
+- **AC13-9** `Advanced.md` and `FUNKYORM_AI_ADVANCED.md` carry the operator table, including the paging rule,
+  the second-`OrderBy` rule and the `Last`/`Distinct` note. A doc test checks the table against
+  `SupportedOperators`. Changelog and README record the fixes, the behavior changes, and the aggregate known
+  issues deferred to 3.10.1.
+- **AC13-10** *(D8)* After `Skip`/`Take`:
+  - **Allowed and correct:** `Skip(n).Take(k)`, `Select` (subset or scalar), parameterless
+    `First*`/`Single*`, and identity `OfType` on the entity.
+  - **Rejected before any query:** every aggregate, `Where`, predicate-bearing `First*`/`Single*`, `Last*`,
+    `OrderBy*`, `Distinct`, a second `Skip`/`Take`, and `Take(n).Skip(m)`.
+  - **Empty results without SQL:** `Take(n ≤ 0)` returns an empty sequence, whether it's the full entity,
+    a subset projection, a scalar projection, or `Skip(n).Take(0)`. `First`/`Single` then throw and
+    `*OrDefault` returns `null`.
+  - `Skip(n < 0)` behaves as `Skip(0)`.
+- **AC13-11** *(deferred to 3.10.1 — §10.)*
+- **AC13-12** *(D10)* `OrderBy*` after any earlier `OrderBy*`/`ThenBy*` on the spine throws
+  `NotSupportedException` before any query runs, including across `Where`/`Select`/`Distinct` in between.
+- **AC13-13** *(D11, SQLite)* A query doesn't inherit a projection, parameters, ordering or `OrderByTerms`
+  from an earlier execution on the same `Query<T>()` root, including when the later query is the bare root.
+- **AC13-14** *(SQLite)* `Skip(n)` without `Take` executes: it emits `LIMIT -1 OFFSET n`. That covers
+  `Skip(n).ToList()`, `Skip(n).First()` and `Skip(n).Single()`.
 
 ---
 
@@ -296,134 +313,142 @@ for **all four providers**.
 
 ### 4.1 Harness
 
-- **Discriminating seed data.** Every semantics test inserts its own rows, tagged with a per-test GUID
-  marker, and scopes every query with `Where(p => p.LastName == marker)`.
-  - The target row is **neither the first nor the last by id**. For `Last`, the order key is **not `Id`**,
-    and its last row is not the max id.
+- **Discriminating seed data.**
+  - Each semantics test inserts its own marker-tagged rows and scopes every query with
+    `Where(p => p.LastName == marker)`.
+  - The target row is neither the first nor the last by id. For `Last`, the order key is not `Id`, and its
+    last row isn't the max id.
   - Each test states which wrong answer it rules out.
-  - Aggregate/count tests have a count > 0, so "returns `default`" can't pass.
-- **Oracle assertion.** `AssertMatchesLinqToObjects(Func<IQueryable<T>, object> shape)` runs the shape
-  against a **fresh** `provider.Query<T>()`. It also runs it against
-  `provider.Query<T>().Where(marker).ToList().OrderBy(p => p.Id).AsQueryable()`: a fresh root, with the base
-  list sorted by `Id`. It compares results (by id / by value / by exception type).
+  - Counts are > 0.
+- **#12 ordering assertions.**
+  - Rows are seeded so that `FirstName` order equals `Id` order (`"a"`, `"b"`, `"c"`).
+  - AC12-1/AC12-5 subset rows project `FirstName` only, never the key, and assert the `FirstName` sequence.
+    On 3.9.0 these fail at runtime (ambiguous column), not just on the SQL text.
+  - Every #12 test **also** asserts the qualified SQL fragment.
+- **Oracle assertion.** `AssertMatchesLinqToObjects(shape)` runs the shape against a **fresh**
+  `Query<T>()` and against `provider.Query<T>().Where(marker).ToList().OrderBy(p => p.Id).AsQueryable()`.
+  It compares by id, by value, or by exception type.
 - **Oracle determinism rules.**
-  - Every oracle shape that depends on order has a **total order on unique, non-null keys**.
-  - Null-key ordering (PG sorts NULLs last on ASC; LINQ-to-objects sorts them first) and collation-vs-ordinal
-    string ordering are covered only by separate, explicit, per-provider tests. The oracle never covers them.
-  - Remote LEFT-JOIN keys are seeded non-null in oracle rows.
-- **Fresh root per shape.** Never reuse one `Query<T>()` root across shapes or oracle sides. AC13-13 is the
-  one deliberate exception.
-- **SQL capture.** `provider.Log` → `StringBuilder`. For AC13-4 "nothing executed", clear the builder
-  **after** obtaining the `IQueryable`, then assert it's still empty. Schema discovery at `Query<T>()`
-  doesn't log.
-- **Per-provider join entity.** SQL Server / PostgreSQL / SQLite use `PersonDetailEntity` (joins
-  `organization`, `address`, `country`); MySQL uses `PersonWithEmployer` (joins `organization`). Every joined
-  table has an `id` column.
-- **Entity without an `id` column** (AC13-1 row-limit test). If a suite has no such entity, Task 1 adds one:
-  a table keyed `<table>_id`, which the conventions already support.
-- **Cleanup deletes run in a transaction.** `Delete<T>(predicate)` requires an active transaction.
-- **Subset projections don't populate `Id`.** Compare projected members, never `Id`. Project the ordering
-  key too where order matters.
-- **SQLite** creates its own temp database in `[ClassInitialize]`. Task 1 adds a shared schema helper.
-- **DB-free tests don't inherit a DB fixture:** `QueryOperatorPolicyTests` and the direct visitor tests.
+  - Order-dependent shapes have a total order on the **composite key tuple**.
+  - Null keys and collation-vs-ordinal string order are never oracle-compared; they get explicit
+    per-provider tests.
+  - Remote LEFT-JOIN keys are seeded non-null.
+- **Fresh root per shape.** One `Query<T>()` root is never reused, except by the AC13-13 tests, which do it
+  on purpose.
+- **SQL capture.** For "nothing executed": obtain the `IQueryable`, clear `Log`'s builder, run the shape,
+  then assert the builder is empty.
+- **Test entities.**
+  - Join entity: `PersonDetailEntity` (SQL Server/PG/SQLite) or `PersonWithEmployer` (MySQL); every joined
+    table has an `id` column.
+  - A **no-`id` entity** (a table keyed `<table>_id`) is added in Task 1 (§6) to the schema scripts and the
+    local databases.
+- **Cleanup** deletes run in a transaction. **Subset projections** don't populate `Id`.
+- **SQLite** gets a shared temp-DB schema helper.
+- **DB-free tests don't inherit a DB fixture.**
+- **net48-linked tests** compile as C# 7.3, and refer to post-net48 `Queryable` members by name (reflection)
+  or inside `#if NET6_0_OR_GREATER`.
 
 ### 4.2 AC → test matrix
 
 **Test classes:**
-- Per provider, in each of the four test projects (prefixed `PostgreSql`/`MySql`/`Sqlite` in the siblings):
-  `OrderByQualificationTests`, `QueryOperatorSemanticsTests`, `QueryOperatorRejectionTests`,
-  `AggregateSemanticsTests`, and `OrderByVisitorDirectTests` (DB-free).
-- `QueryOperatorPolicyTests` is DB-free and exercises Core. It lives in `Funcular.Data.Orm.SqlServer.Tests`,
-  **and is linked into `Funcular.Data.Orm.SqlServer.Tests.NetFramework` (net48) and `.DotNet9`**.
+- Per provider (prefixed in the siblings): `OrderByQualificationTests`, `QueryOperatorSemanticsTests`,
+  `QueryOperatorRejectionTests`, and `OrderByVisitorDirectTests` (DB-free).
+- `QueryOperatorPolicyTests` (Core, DB-free) lives in `SqlServer.Tests` and is linked into `.NetFramework`
+  and `.DotNet9`.
 
 | AC | Test(s) | Project(s) |
 |---|---|---|
-| AC12-1 | `[DataTestMethod] OwnColumnOrdering_OnJoinEntity_Executes_InOrder` over {OrderBy, OrderByDesc, ThenBy-after-remote, ThenByDesc-after-remote} × {full, subset, scalar} × {paged, unpaged} (24 rows) | all 4 |
+| AC12-1 | `[DataTestMethod] OwnColumnOrdering_OnJoinEntity_QualifiedSql_ExecutesInOrder` — {OrderBy, OrderByDesc, ThenBy-after-remote, ThenByDesc-after-remote} × {full, subset-without-key, scalar-of-FirstName} × {paged, unpaged} (24 rows) | all 4 |
 | AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix`, `ComputedMemberOrderBy_EmitsExpression_Unchanged` | all 4 |
-| AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390` (golden string, `PersonEntity`) | all 4 |
-| AC12-4 | `TernaryOrderBy_OwnColumns_OnJoinEntity_QualifiedInsideCase` (non-null test expression) | all 4 |
-| AC12-5 | `Last_OnJoinEntity_NarrowProjectionWithKey_SynthesizedOrderQualified` | all 4 |
+| AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390` | all 4 |
+| AC12-4 | `TernaryOrderBy_OwnColumns_OnJoinEntity_QualifiedInsideCase` | all 4 |
+| AC12-5 | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (asserts `{table}.id DESC` and the returned `FirstName`) | all 4 |
 | AC12-6 | `Distinct_Projection_JoinEntity_OrderByKeyInProjection_Executes`, `Distinct_Projection_JoinEntity_OrderByKeyNotInProjection_ThrowsExisting` | all 4 |
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
-| AC12-8 | `TernaryOrderBy_NullCheck_MatchesOracle`, `TernaryOrderBy_NotNullCheck_MatchesOracle` | all 4 |
-| AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_AfterWhereOrderBySkipTake_Parameterless_MatchesOracle`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works` | all 4 |
+| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`} | all 4 |
+| AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence) | all 4 |
+| AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws`, `Single_AfterSkipTake_Parameterless_MatchesOracle` | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig` | all 4 |
-| AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 shape, including `ScalarProjection_ParameterlessSum`), `Allowed_PredicateWithCollectionContains_NotRejected`, `NonQueryableSpineMethod_Rejected` | all 4 |
-| AC13-5 | `[DataTestMethod] Allowed_Operator_MatchesOracle` — one row per allowed family, each with its expected outcome listed in the data row; plus the four full existing suites | all 4 |
-| AC13-6 | `OfType_Identity_IsNoOp`, `OfType_Identity_AfterScalarProjection_IsNoOp`, `OfType_NonIdentity_Throws`, `Cast_NonIdentity_UnrelatedType_Throws` (e.g. `Cast<AddressEntity>()` on a person query); DB-free `Cast_IdentityNode_HandBuilt_IsAllowed` | all 4 + Core |
-| AC13-7 | `SupportedOperators_ExactSetPinned`, `ClassifierSweep_EveryQueryableMethod_MatchesPinnedSet`, `NonQueryableOverload_IsRejected` | Core (net8, net48, net9) |
-| AC13-8 | `GroupBy_Rejected_KeepsDedicatedMessage` (asserts "GroupBy is not supported in this version"); existing scalar composition and reducing-terminal tests; **new in the three siblings:** `ScalarProjection_WithReducingTerminals_ThrowNotSupported`; `ScalarProjection_WithSingleOrLast_ThrowsNotSupported` (asserts which message wins per the AC13-8 precedence); `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` (`Select(p => p.Id).Where(x => x > 0).Reverse()`) | all 4 |
-| AC13-9 | Doc review in the Task 12 gauntlet (not executable; recorded as such) | — |
-| AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, ThenBy, Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip}; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault()}; `Take0_ReturnsEmpty_NoQuery`, `Take0_First_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery` | all 4 |
-| AC13-11 | `[DataTestMethod] Aggregate_MatchesOracle` over {Sum, Average, Min, Max} × the AC13-11 type list × {non-empty, empty}, asserting value **and** runtime type; `Average_IntSelector_OneAndTwo_IsOnePointFive` | all 4 |
-| AC13-12 | `OrderBy_ThenOrderByAgain_MatchesOracle`, `OrderBy_ThenBy_ThenOrderBy_MatchesOracle`, `Last_AfterDoubleOrderBy_MatchesOracle` | all 4 |
-| AC13-13 | `SqliteRoot_ReusedAfterProjection_FullEntityNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_NoInheritedOrder`, `SqliteRoot_ReusedAfterParameterizedProjection_NoDuplicateParameters` | SQLite |
+| AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 shape, including `ScalarProjection_ParameterlessSum` and `CovariantCastObject_ThenWhere`), `Allowed_PredicateWithCollectionContains_NotRejected`, `NonQueryableSpineMethod_Rejected`, `NonCallNonRootSpineNode_Rejected` (DB-free, hand-built `Convert` node) | all 4 + Core |
+| AC13-5 | `[DataTestMethod] Allowed_Operator_MatchesOracle` (one row per allowed family, with its expected outcome); the four existing suites | all 4 |
+| AC13-6 | `OfType_Identity_AtRoot_IsNoOp`, `OfType_Identity_AfterOrderBy_IsNoOp`, `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp`, `OfType_Identity_OverNullableScalar_Rejected` (seeded nulls), `OfType_NonIdentity_Throws`, `Cast_NonIdentity_UnrelatedType_Throws`; DB-free `Cast_IdentityNode_HandBuilt_IsAllowed` | all 4 + Core |
+| AC13-7 | `SupportedOperators_ExactLiteralSetPinned`, `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet`, `NonQueryableOverload_IsRejected` | Core on net8, net48, net9 |
+| AC13-8 | `GroupBy_Rejected_KeepsDedicatedMessage`; existing scalar tests; new in the siblings: `ScalarProjection_WithReducingTerminals_ThrowNotSupported`; `ScalarProjection_WithSingleOrLast_ThrowsNotSupported`; `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` (`Select(p => p.Id).Where(x => x > 0).Reverse()`) | all 4 |
+| AC13-9 | `OperatorDocTable_MatchesSupportedOperators` (reads the table from both docs); prose reviewed in the gauntlet | SqlServer.Tests |
+| AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, OrderByDescending, Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip}; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault(), OfType-identity, Skip-only.First()}; `[DataTestMethod] TakeNonPositive_ReturnsEmpty_NoQuery` over {Take(0) full, Take(0) subset, Take(0) scalar, Skip(2).Take(0), Take(-1)}; `Take0_First_Throws_NoQuery`, `Take0_FirstOrDefault_ReturnsNull_NoQuery`, `Take0_Single_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery`; `SkipNegative_BehavesAsSkipZero` | all 4 |
+| AC13-12 | `[DataTestMethod] OrderBy_AfterEarlierOrdering_Rejected_BeforeAnyQuery` over {OrderBy.OrderBy, OrderBy.ThenBy.OrderByDescending, OrderBy.Where.OrderBy, OrderBy.Select.OrderBy, OrderBy.Distinct.OrderBy} | all 4 |
+| AC13-13 | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder`, `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc`, `SqliteRoot_ReusedAfterParameterizedProjection_NoDuplicateParameters` | SQLite |
+| AC13-14 | `SkipOnly_ToList_Executes`, `SkipOnly_First_ReturnsExpectedRow` (SQLite red; regression rows in the others) | all 4 |
 
 ### 4.3 Interface coverage (new/changed members → tests)
 
 | Member | Tests that call it on purpose |
 |---|---|
-| Core `QueryOperatorPolicy.EnsureSupported(Expression spine)` *(new, public)* | `QueryOperatorPolicyTests.*`, every `Rejected_*`/`Allowed_*`/`Operator_AfterPaging_*` row |
-| Core `QueryOperatorPolicy.IsAllowed(MethodInfo)` *(new, internal seam, `InternalsVisibleTo` the test projects)* | `ClassifierSweep_EveryQueryableMethod_MatchesPinnedSet`, `NonQueryableOverload_IsRejected` |
-| Core `QueryOperatorPolicy.SupportedOperators` *(new, public read-only)* | `SupportedOperators_ExactSetPinned`; the docs table (Task 11) |
-| `*OrderByClauseVisitor` ctor — new optional `tableQualifier` | AC12 tests; `SingleTableEntity_…ByteIdentical` (null path); `OrderByVisitorDirectTests` |
-| `*OrderByClauseVisitor.OrderByTerms` *(new)* | `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterDoubleOrderBy_MatchesOracle`, direct tests |
-| `*OrderByClauseVisitor` prior-`OrderBy` handling (D10) | AC13-12 tests, direct tests |
-| `*OrderByClauseVisitor` ternary null test (D11) | AC12-8 tests, direct tests |
-| `QueryComponents.Terminal` *(new enum)*, `.RowLimit` *(new)*, `.OrderByTerms` *(new)* | AC13-1, AC13-2, AC13-10 tests |
-| `*LinqQueryProvider.ParseExpression` (pre-pass wiring; Single/Last/LongCount branches) | AC13-* |
-| `*LinqQueryProvider.BuildQueryComponents` (row limit; SQLite `rowid` qualification) | AC13-1, AC12-7 |
-| `*LinqQueryProvider.ExecuteQuery` (cardinality, `Take(0)` short-circuit) | AC13-1, AC13-10 |
-| `*LinqQueryProvider.BuildAggregateClause` (LongCount; `AVG` cast) | AC13-3, AC13-11 |
-| `*LinqQueryProvider.HandleAggregateQuery` (generic `TResult` conversion, nullable-empty) | AC13-11 |
+| Core `QueryOperatorPolicy.EnsureSupported(Expression expression)` *(new, public, `void`)* | `QueryOperatorPolicyTests.*`; every `Rejected_*`/`Allowed_*`/`Operator_AfterPaging_*`/`OrderBy_AfterEarlierOrdering_*` row |
+| Core `QueryOperatorPolicy.IsAllowed(MethodInfo)` *(new, internal)* | `ClassifierSweep_*`, `NonQueryableOverload_IsRejected` |
+| Core `QueryOperatorPolicy.SupportedOperators` *(new, public read-only)* | `SupportedOperators_ExactLiteralSetPinned`, `OperatorDocTable_MatchesSupportedOperators` |
+| `*OrderByClauseVisitor` ctor — optional `tableQualifier` | AC12 tests; `OrderByVisitorDirectTests` |
+| `*OrderByClauseVisitor.OrderByTerms` *(new)* + duplicate removal | AC13-2 inversion tests; `ThenBy_SameKeyTwice_Executes`; direct tests |
+| `*OrderByClauseVisitor` ternary null handling | AC12-8; direct tests |
+| `QueryComponents.Terminal`, `.RowLimit`, `.OrderByTerms`, `.IsEmptyByTake` *(new)* | AC13-1, AC13-2, AC13-10 |
+| `*LinqQueryProvider.ParseExpression` (pre-pass call; Single/Last/LongCount branches; negative `Skip` clamp; empty-`Take` flag) | AC13-* |
+| `*LinqQueryProvider.Execute` / `ExecuteScalarProjection` (empty-`Take` short-circuit) | AC13-10 `Take0_*`, `TakeNonPositive_*` |
+| `*LinqQueryProvider.BuildQueryComponents` (row limit; SQLite `rowid` qualification; SQLite `LIMIT -1 OFFSET`) | AC13-1, AC12-7, AC13-14 |
+| `*LinqQueryProvider.ExecuteQuery` (cardinality) | AC13-1 |
+| `*LinqQueryProvider.BuildAggregateClause` / `HandleAggregateQuery` (`LongCount` only) | AC13-3 |
 | `SqliteLinqQueryProvider` state reset | AC13-13 |
 
 ### 4.4 Mutations each key test must kill (run them; record the result in the handoff)
 
 | Mutation | Test that must fail |
 |---|---|
-| Revert `ResolveOrderColumn` to bare `GetColumnName` | AC12-1 projection rows (runtime ambiguous column) |
+| Revert `ResolveOrderColumn` to bare `GetColumnName` | AC12-1 subset-without-key and scalar rows (runtime ambiguous column) |
 | Apply the qualifier in the map-hit branch too | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix` |
-| Qualify unconditionally (drop the "has joins" condition) | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390` |
-| Don't pass the qualifier at the `Last*` synthesized site | `Last_OnJoinEntity_NarrowProjectionWithKey_SynthesizedOrderQualified` |
+| Qualify unconditionally | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390` |
+| Don't pass the qualifier at the `Last*` site | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (runtime + SQL text) |
 | SQLite default order back to bare `rowid` | `DefaultPaging_OnJoinEntity_Executes` |
+| SQLite `OFFSET` without `LIMIT` | `SkipOnly_ToList_Executes` (SQLite) |
+| Ternary null test back to `= NULL` / only one operand order handled | `TernaryOrderBy_NullComparison_MatchesOracle` rows |
+| No duplicate-key removal | `ThenBy_SameKeyTwice_Executes` (SQL Server; *red expected — error 169 to be confirmed in Task 1*) |
 | `Single*`: drop predicate→WHERE | `Single_Predicate_ReturnsTargetNotFirst` |
-| `Single*`: row limit 1 instead of 2 | `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws` |
-| `Single*`: always limit 2, ignoring a user `Take(1)` | `Single_AfterTake1_OverManyRows_ReturnsRow` (`Take ?? 2` vs `min(Take, 2)` is an equivalent mutant for `Take ≥ 2`; noted) |
+| `Single*`: limit 1 instead of 2 | `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws` |
+| `Single*`: ignore a user `Take(1)` | `Single_AfterTake1_OverManyRows_ReturnsRow` (`Take ?? 2` and `min(Take, 2)` are equivalent for `Take ≥ 2`; noted) |
+| `Single*`: no cap after `Skip`-only | `Single_AfterSkipOnly_OverManyRows_Throws` passes only by reading ≥ 2 rows; the SQL-shape assert checks the cap |
 | `Single*`: route through the paging path (injects `ORDER BY id`) | `Single_NoUserOrder_EmitsRowLimit_NoIdOrder`, `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works` |
 | `SingleOrDefault` throws on empty | `SingleOrDefault_Predicate_NoMatch_ReturnsNull` |
-| `Last*`: don't invert | `Last_AfterOrderByNonIdKey_ReturnsLastInOrder` |
-| `Last*`: ignore explicit order, always `Id DESC` | `Last_AfterOrderByNonIdKey_ReturnsLastInOrder` (last row ≠ max id) |
+| `Last*`: don't invert / ignore explicit order | `Last_AfterOrderByNonIdKey_ReturnsLastInOrder` |
 | `Last*`: invert only the first term | `Last_AfterOrderByThenByDescending_InvertsEveryTerm` |
-| `Last*`: invert own-column terms only (skip `CASE`/remote) | `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder` |
-| `LongCount` missing from the `OuterMethodCall` name list (returns `0L`) | `LongCount_EqualsCount_ReturnsInt64` (count > 0) |
-| `LongCount` boxed as `Int32` | `LongCount_EqualsCount_ReturnsInt64` (asserts `long`) |
-| Emit `COUNT(*)` on SQL Server | `LongCount_EmitsCountBig` |
-| Add `Reverse` to the allow-list | `Rejected_…[Reverse]`, `SupportedOperators_ExactSetPinned` |
+| `Last*`: invert own-column terms only | `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder` |
+| `LongCount` missing from the `OuterMethodCall` list (returns `0L`) | `LongCount_EqualsCount_ReturnsInt64` |
+| `LongCount` boxed as `Int32` / `COUNT(*)` on SQL Server | `LongCount_EqualsCount_ReturnsInt64` / `LongCount_EmitsCountBig` |
+| Add `Reverse` to the allow-list | `Rejected_…[Reverse]`, `SupportedOperators_ExactLiteralSetPinned` |
 | Match by name instead of overload | `Rejected_…[IndexedWhere]`, `[OrderByWithComparer]`, `[DistinctWithComparer]`, `[TakeRange]` |
-| `GetGenericMethodDefinition()` without the `IsGenericMethod` check | `NonQueryableOverload_IsRejected`, `Rejected_…[ScalarProjection_ParameterlessSum]` (crash, not NotSupported) |
-| Policy visits the whole tree (not just the spine) | `Allowed_PredicateWithCollectionContains_NotRejected` |
-| Allow non-`Queryable` spine methods by default | `NonQueryableSpineMethod_Rejected` |
-| Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesPinnedSet` |
-| Run the policy inside the loop instead of as a pre-pass | `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` |
-| Drop the `GroupBy` special message | `GroupBy_Rejected_KeepsDedicatedMessage` |
-| Identity check uses the entity type instead of the source element type | `OfType_Identity_AfterScalarProjection_IsNoOp` |
-| Reject all `Cast`/`OfType` | `OfType_Identity_IsNoOp`, `Cast_IdentityNode_HandBuilt_IsAllowed` |
+| `GetGenericMethodDefinition()` without `IsGenericMethod` | `NonQueryableOverload_IsRejected`, `Rejected_…[ScalarProjection_ParameterlessSum]` |
+| Skip the `TSource` = source-element check | `Rejected_…[CovariantCastObject_ThenWhere]` (`InvalidCastException` instead of the policy message) |
+| Treat any non-call node as the root | `NonCallNonRootSpineNode_Rejected` |
+| Policy visits the whole tree | `Allowed_PredicateWithCollectionContains_NotRejected` |
+| Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
+| Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
+| Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
+| Policy inside the loop instead of a pre-pass | `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` |
+| Drop the `GroupBy` message | `GroupBy_Rejected_KeepsDedicatedMessage` |
+| Identity check against the entity type instead of the source element type | `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp` |
+| Identity `OfType` allowed over a nullable scalar | `OfType_Identity_OverNullableScalar_Rejected` |
+| Reject all `Cast`/`OfType` | `OfType_Identity_AtRoot_IsNoOp`, `Cast_IdentityNode_HandBuilt_IsAllowed` |
 | Allow any `Cast`/`OfType` | `OfType_NonIdentity_Throws`, `Cast_NonIdentity_UnrelatedType_Throws` |
 | Drop the positional guard | `Operator_AfterPaging_Rejected_BeforeAnyQuery` rows |
-| Positional guard also rejects `Skip(n).Take(k)` | `Operator_AfterPaging_Allowed_MatchesOracle[Skip.Take]` + existing paging tests |
-| `Take(0)` sent to the DB | `Take0_*_NoQuery` |
-| Average without the float cast (SQL Server) | `Average_IntSelector_OneAndTwo_IsOnePointFive` |
-| Keep the selector-type switch (no generic conversion) | `Aggregate_MatchesOracle[Average,decimal]`, `[Max,string]`, `[Sum,int?]` (SQL Server) |
-| Nullable-empty throws instead of returning `null` | `Aggregate_MatchesOracle[Min,int?,empty]` |
-| Visitor recurses through a prior `OrderBy` (3.9.0 behavior) | `OrderBy_ThenOrderByAgain_MatchesOracle` |
-| Ternary null test back to `= NULL` | `TernaryOrderBy_NullCheck_MatchesOracle` |
-| SQLite: reset only `_lastOrderByClause` | `SqliteRoot_ReusedAfterProjection_FullEntityNotNarrowed` |
+| Positional guard rejects `Skip.Take` or `Skip`-only `First` | `Operator_AfterPaging_Allowed_MatchesOracle` rows |
+| `Take(0)` sent to the DB | `TakeNonPositive_ReturnsEmpty_NoQuery` rows |
+| Empty-`Take` short-circuit only on the entity path | `TakeNonPositive_…[Take(0) scalar]` |
+| No negative-`Skip` clamp | `SkipNegative_BehavesAsSkipZero` |
+| Allow a second `OrderBy` / only check adjacent calls | `OrderBy_AfterEarlierOrdering_Rejected_BeforeAnyQuery` rows (incl. across `Where`/`Select`/`Distinct`) |
+| SQLite reset placed after the early return | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder` |
+| SQLite reset omits `OrderByTerms` | `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc` |
 
 ### 4.5 Coverage (coverlet already referenced in all four test projects)
 
-Baseline measured 2026-09-30 (`dotnet test --collect:"XPlat Code Coverage"`, cobertura `line-rate`):
+Baseline measured 2026-09-30 (cobertura `line-rate`):
 
 | Touched file | SQL Server | SQLite | MySQL | PostgreSQL |
 |---|---|---|---|---|
@@ -432,21 +457,17 @@ Baseline measured 2026-09-30 (`dotnet test --collect:"XPlat Code Coverage"`, cob
 | `QueryComponents.cs` / `*QueryComponents.cs` | 100% / 84.2% | 100% / 87.5% | 100% / 100% | 100% / 100% |
 | Core `QueryOperatorPolicy.cs` | new | | | |
 
-All touched files must reach **≥ 85%**. Some visitor branches can't be reached through `ParseExpression`: the
-`VisitMethodCall` else-throw and the `VisitExpression` default. Task 10 therefore adds **DB-free direct visitor
-tests**; the visitors are public. The Core file's coverage comes from `QueryOperatorPolicyTests` plus the
-provider suites. Per-file numbers (or the cobertura XML) go into the PR.
+All touched files must reach **≥ 85%**. Visitor branches that can't be reached through `ParseExpression` are
+covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
 
 ### 4.6 Opt-in suites and frameworks
 
-- **SQL Server:** `FUNKY_CONNECTION` (.\SQL2019). **MySQL:** `FUNKY_MYSQL_CONNECTION`. Both are set locally.
-- **SQLite:** file-backed, always runs.
-- **PostgreSQL:** the suite's fallback connection reaches the native PostgreSQL 18 service; all 143 PG tests
-  run locally. The CI PG workflow (`postgres:17`) runs only on push to `development/**`.
-- **net48 / net9:** `QueryOperatorPolicyTests` and the existing SQL Server suite run in
-  `Funcular.Data.Orm.SqlServer.Tests.NetFramework` and `.DotNet9` locally. Core's netstandard2.0 build reflects
-  over net48's `System.Core`, and the package ships net48. The CI net48 job is commented out (ci.yml:89-93),
-  so the local run is the gate; results are recorded in the PR.
+- **SQL Server:** `FUNKY_CONNECTION`. **MySQL:** `FUNKY_MYSQL_CONNECTION`. Both are set locally.
+- **SQLite:** file-backed.
+- **PostgreSQL:** the fallback connection reaches the native PostgreSQL 18 service. CI runs `postgres:17`
+  only on push to `development/**`.
+- **net48 / net9:** `QueryOperatorPolicyTests` and the existing SQL Server suite run locally in `.NetFramework`
+  and `.DotNet9`. The CI net48 job is commented out, so this local run is the gate; results go in the PR.
 
 ---
 
@@ -454,239 +475,335 @@ provider suites. Per-file numbers (or the cobertura XML) go into the PR.
 
 ### 5.1 #12 — qualify own columns in ORDER BY when joins exist
 
-1. **Visitor.** Each provider's order-by visitor gains an optional ctor parameter
-   `string tableQualifier = null`. `ResolveOrderColumn` becomes:
-   - map hit → resolved fragment, unchanged, never prefixed;
-   - otherwise, if `tableQualifier != null` → `$"{tableQualifier}.{GetColumnName(p)}"`;
-   - otherwise → `GetColumnName(p)`.
-
-   Every ORDER BY path goes through `ResolveOrderColumn`, so this one change covers them all.
-2. **Call sites.** Both sites in each `ParseExpression` resolve
-   `var remote = _dataProvider.ResolveRemoteJoins<T>(table)` once and pass:
-   - `remote.PropertyToColumnMap`;
-   - `tableQualifier: remote.IndividualJoinClauses?.Count > 0 ? table : null`.
-
-   The `Last*` site starts passing the map too.
+1. **Visitor.** Each provider's order-by visitor gains an optional `string tableQualifier = null`.
+   `ResolveOrderColumn` resolves:
+   - map hit → resolved fragment, unchanged and never prefixed;
+   - otherwise, if `tableQualifier != null` → `{tableQualifier}.{column}`;
+   - otherwise → the bare column.
+2. **Call sites.** Both sites resolve `ResolveRemoteJoins<T>(table)` once and pass the map, plus
+   `tableQualifier = IndividualJoinClauses?.Count > 0 ? table : null`.
 3. **SQLite default order.** SQLite's default `ORDER BY rowid` becomes `ORDER BY {table}.rowid` when the
-   command has joins, the same text check the other three use for `id`.
-4. **D11 ternary.** Ternary tests `x.M == null` / `x.M != null` emit `{col} IS NULL` / `IS NOT NULL`.
+   command has joins.
+4. **D11 ternary.** A comparison between a member and `null`, in either operand order, emits `{col} IS NULL` /
+   `IS NOT NULL`.
+5. **Duplicate keys.** A later term whose fragment equals an earlier term's is dropped (AC12-9).
 
-*Rejected alternatives:*
-- **Always qualify:** changes single-table SQL for no benefit.
-- **String-rewrite the ORDER BY in `BuildQueryComponents`:** fragile.
-
-### 5.2 #13 — Core pre-pass, then correct `Single*`/`Last*`/`LongCount`/aggregates/ordering
+### 5.2 #13 — Core pre-pass, then correct `Single*`/`Last*`/`LongCount`
 
 1. **Core `QueryOperatorPolicy`** (`Funcular.Data.Orm.Core/Linq/QueryOperatorPolicy.cs`).
-   - **Spine only.** The walk follows `MethodCallExpression.Arguments[0]` from the outermost call down to the
-     root. Lambdas and other arguments are never visited, so `Where(p => ids.Contains(p.Id))` is untouched.
-   - **Classification.** `IsAllowed(MethodInfo m)` computes the key
-     `m.IsGenericMethod ? m.GetGenericMethodDefinition() : m`, then:
-     - non-`Queryable` declaring type → rejected;
-     - key not in the static allowed set → rejected.
+   - **Spine walk.** Start at the outermost node and follow `MethodCallExpression.Arguments[0]` to the root.
+     - **Terminal:** a `ConstantExpression` whose value is an `IQueryable`, i.e. the provider's own root.
+     - Any other non-call node → reject.
+     - Each node is classified **before** its `Arguments[0]` is read.
+     - Lambdas and other arguments are never visited.
+   - **Element type** of a node = the `T` in the `IEnumerable<T>` interface of its `Type`. That works for
+     `SqlQueryable<T>`, `IQueryable<T>` and `IOrderedQueryable<T>` alike.
+   - **Classification.** `IsAllowed(MethodInfo m)` uses the key
+     `m.IsGenericMethod ? m.GetGenericMethodDefinition() : m`. It rejects non-`Queryable` declaring types, and
+     keys outside a static allowed set built from `typeof(Queryable).GetMethods()` by name plus shape:
+     - one `Expression<Func<TSource, …>>` lambda;
+     - `Skip`/`Take` take `int`;
+     - no comparer, default-value or `Range` parameters.
 
-     The allowed set is built once from `typeof(Queryable).GetMethods()` by name plus a shape predicate: one
-     `Expression<Func<TSource, …>>` lambda; `Skip`/`Take` take `int`; no comparer, default-value, or `Range`
-     parameters. Non-generic `Queryable` overloads are never in the set.
+     Non-generic overloads are never in the set.
+   - **`TSource` check.** For an allowed generic method, the first generic argument must equal its source's
+     element type.
    - **Allowed operators:**
      - `Where`, `Select`;
      - `OrderBy`, `OrderByDescending`, `ThenBy`, `ThenByDescending`;
      - `Skip`, `Take`, `Distinct`;
-     - `First`, `FirstOrDefault`, `Single`, `SingleOrDefault`, `Last`, `LastOrDefault` (with and without
-       predicate);
-     - `Any` (with and without predicate), `All`;
-     - `Count` and `LongCount` (with and without predicate);
-     - `Sum`, `Average`, `Min`, `Max` (generic, with selector);
-     - `OfType`/`Cast`, only when the generic argument equals the call's **source element type**
-       (`Arguments[0].Type`'s `IQueryable<>` argument).
-   - **Positional rules (D8).** Applied inner→outer in the same walk, after the first `Skip`/`Take`, per
-     AC13-10.
+     - `First*`, `Single*`, `Last*` (with and without predicate);
+     - `Any`, `All`, `Count`, `LongCount`;
+     - `Sum`, `Average`, `Min`, `Max` (generic, with selector; behavior unchanged until 3.10.1);
+     - identity `Cast`/`OfType` per D5.
+   - **Positional rules**, applied inner→outer:
+     - D8, after the first `Skip`/`Take`;
+     - D10: an `OrderBy`/`OrderByDescending` after any earlier ordering call is rejected.
    - **Messages.**
      - `GroupBy` keeps its dedicated message.
-     - Any other rejected operator: `"{Op}(...) is not translated to SQL in this version. Materialize first
-       and apply it in memory: query.ToList().{Op}(...)."`
-     - Positional rejections: `"{Op}(...) after Skip/Take is not translated …"`.
-2. **Wiring.** Each provider's `ParseExpression` calls `QueryOperatorPolicy.EnsureSupported(expression)`
-   **first**. For SQLite, that's after the state reset (D11) and before the early return. The inline
-   `GroupBy` check becomes unreachable and is removed. The scalar composition and result-type guards stay;
-   precedence follows AC13-8.
-3. **`Single*` (row limit, not paging).**
+     - Other rejected operators: `"{Op}(...) is not translated to SQL in this version. Materialize first and
+       apply it in memory: query.ToList().{Op}(...)."`
+     - Positional (D8): `"{Op}(...) after Skip/Take is not translated …"`.
+     - D10: `"A second OrderBy is not translated; use ThenBy, or put the primary key first."`
+     - Nullable `OfType`: the message points to `Where(x => x.M != null)` before the projection.
+   - `EnsureSupported` returns `void`. It only throws.
+2. **Wiring.**
+   - Each provider's `ParseExpression` calls `QueryOperatorPolicy.EnsureSupported(expression)` first. For
+     SQLite, that's after the state reset (D11) and before the early return.
+   - Remove the now-dead inline `GroupBy` check and the parameterless-aggregate-after-scalar guard
+     (SqlLinqQueryProvider.cs:339-346 and the sibling copies).
+   - Fix the stale comment at :128-129 and the sibling copies.
+   - The scalar composition and result-type guards stay (precedence per AC13-8).
+3. **`Single*` (row limit).**
    - The First/Last predicate branch generalizes to `First*`/`Single*`/`Last*` × {with, without predicate}.
      It routes the predicate to WHERE and sets `components.Terminal`.
-   - **No user `Skip`/`Take`:** set `components.RowLimit = 2`. `BuildQueryComponents` emits
-     `SELECT TOP (2)` (or `SELECT DISTINCT TOP (2)`) on SQL Server, and `LIMIT 2` on the others. No ORDER BY
-     is synthesized; the user's order, if any, is kept.
-   - **User `Take`:** `Take = min(Take, 2)` on the existing paging path (the user already opted into its
-     ordering).
-   - It reads up to two rows through the list path, then applies LINQ cardinality:
-     - 0 rows: `Single` throws "no (matching) element(s)"; `SingleOrDefault` returns `null`;
-     - 2 rows: both throw "more than one element".
+   - **No user `Skip`/`Take`:** `RowLimit = 2`. SQL Server emits `SELECT TOP (2)` / `SELECT DISTINCT TOP (2)`;
+     the others emit `LIMIT 2` after any ORDER BY. No ORDER BY is synthesized.
+   - **User `Skip` or `Take`:** `Take = min(Take ?? 2, 2)` on the existing paging path.
+   - It reads up to two rows through the list path, then applies LINQ cardinality.
 4. **`Last*`.**
-   - The visitor exposes `OrderByTerms`, a structured `(fragment, isDescending)` list covering own, remote,
-     and `CASE` terms. `QueryComponents.OrderByTerms` carries it; SQLite carries it alongside its reset
-     fields.
-   - `Last*` inverts every term. With no terms it synthesizes `{qualified id} DESC` (the "no `Id` property"
-     error is kept).
-   - It uses `RowLimit = 1` (`TOP 1` / `LIMIT 1`) with that ORDER BY. `Last` throws on empty;
-     `LastOrDefault` returns `null`.
-   - With `Distinct()` + custom projection and no explicit order: throws `NotSupportedException` naming
-     `Last`.
-   - This replaces the current `LastOrDefault(pred)` block.
-5. **D10 ordering.** At an `OrderBy*` node the visitor computes `[newKey] + priorTerms`; at a `ThenBy*` node,
-   `priorTerms + [newKey]`. The result is the LINQ-to-objects stable-sort order.
-6. **`LongCount`.** Added to the `OuterMethodCall` name list and to `BuildAggregateClause`. It's treated like
-   `Count`, including the reverse-remote-key rejection. SQL Server emits `COUNT_BIG(*)`; the others emit
-   `COUNT(*)`. The result converts to `Int64`.
-7. **D9 aggregates.**
-   - `HandleAggregateQuery` converts `result` to the called overload's return type:
-     `Nullable.GetUnderlyingType(TResult) ?? TResult`, via `Convert.ChangeType` (invariant culture).
-   - For a `NULL` result:
-     - nullable `TResult` → `null`;
-     - non-nullable `Min`/`Max`/`Average` → throw "Sequence contains no elements";
-     - `Sum` → zero of `TResult`.
-   - `Average` over integer selectors: SQL Server emits `AVG(CAST(x AS FLOAT))`. PG returns `numeric` and
-     MySQL `decimal` (converted); SQLite returns `real`. Task 1 confirms each with the `{1, 2}` → `1.5` row.
-8. **`Take(0)`.** Detected in the pre-pass result (or the `Take` branch). The terminal is resolved without
-   SQL: collection → empty; `First`/`Single` → throw; `*OrDefault` → `null`.
-9. **D11 SQLite reset.** `_lastSelectProjection`, `_lastSelectParameters` and `_lastOrderByClause` are
-   cleared at the top of every `ParseExpression`, before the early return.
+   - The visitor exposes `OrderByTerms` (`(fragment, isDescending)`, after duplicate removal).
+   - `Last*` inverts every term. With no terms it uses a qualified `Id DESC`.
+   - It uses `RowLimit = 1` with that ORDER BY. `Last` throws on empty; `LastOrDefault` returns `null`.
+   - With `Distinct` + custom projection and no explicit order, it throws, naming `Last`.
+   - This replaces the current `LastOrDefault(pred)` block. D10 guarantees a single `OrderBy` chain, so the
+     inversion is well defined.
+5. **`LongCount`.** Added to the `OuterMethodCall` list and `BuildAggregateClause`, and handled like `Count`
+   (including the reverse-key rejection). SQL Server emits `COUNT_BIG(*)`. The result converts to `Int64`.
+6. **`Skip`/`Take` values.**
+   - `Skip(n < 0)` is stored as 0.
+   - `Take(n ≤ 0)` sets `components.IsEmptyByTake`.
+   - `Execute` and `ExecuteScalarProjection` check the flag first, after the scalar result-type guard for the
+     scalar path:
+     - collection `TResult` → an empty `List<X>`, where `X` is `T` or the scalar member type;
+     - `First`/`Single` → throw "no elements";
+     - `*OrDefault` → `default`.
+
+     No command is built.
+7. **SQLite `Skip` without `Take`** emits `LIMIT -1 OFFSET n` (AC13-14).
+8. **D11 SQLite reset.** Clear `_lastSelectProjection`, `_lastSelectParameters`, `_lastOrderByClause` and the
+   new `OrderByTerms` field at the top of every `ParseExpression`, before the early return.
 
 ---
 
-## 6. Tasks
+## 6. Tasks (v3.10.0)
 
-Each task lists the tests it turns **green**. Every implementation task starts with those tests present and
-**red**.
+Each task lists the tests it turns green. Every implementation task starts with them present and **red**.
+**AC13-5 (regression) is a gate on every task:** all four existing suites stay green after each one.
 
-- **Task 0 — Test-plan review gate (no production code).**
-  - ✅ Branch; plan committed (`30d3a6d`).
-  - ✅ D1–D7 signed off.
-  - ✅ Premises re-verified on all four providers.
+- **Task 0 — Test-plan review gate.**
+  - ✅ Branch; D1–D12 decided.
+  - ✅ Premises re-verified.
   - ✅ Baselines recorded.
-  - ✅ #12/#13 retitled, #13 marked critical, evidence posted.
-  - ✅ Non-author review: 25 findings, all accepted (§9).
-  - ⏳ **Owner signs off D8–D11.**
-  - Then post the §3 ACs to #12/#13, commit Revision 2, and start Task 1.
-- **Task 1 — Stubs, harness, all red tests.**
-  - Add compile-only stubs so the red run is a runtime failure, not a build break: `QueryOperatorPolicy`
-    (members throw `NotImplementedException`), the visitor `tableQualifier` parameter, `OrderByTerms`, and
-    the `QueryComponents` members.
-  - Add the §4.1 harness, the SQLite schema helper, and the no-`id` test entity.
-  - Link `QueryOperatorPolicyTests` into the net48/net9 projects.
-  - Write every §4.2 test. Run them all and record each as red, or as expected-green for regression rows.
-  - Confirm the UNVERIFIED items: SQL Server `AVG(int)` truncation; `Queryable.Cast` short-circuit on net8
-    and net48.
-- **Task 2 — #12 qualifier** (4 providers × visitor + 2 call sites).
-  → AC12-1…AC12-6.
-- **Task 3 — SQLite `rowid` qualification.**
-  → AC12-7.
-- **Task 4 — Core policy + positional guard + wiring** (4 providers).
-  → AC13-4, AC13-6, AC13-7, AC13-8, AC13-10 (rejection rows).
-- **Task 5 — `Single*` row limit + `Take(0)`** (4 providers).
-  → AC13-1, AC13-10 (allowed rows, `Take0_*`).
-- **Task 6 — Visitor: `OrderByTerms`, D10 ordering, ternary `IS NULL`** (4 providers).
-  → AC13-12, AC12-8.
+  - ✅ Issues retitled, evidence posted.
+  - ✅ Review r1: 25 findings (§9.1). Fix-verification r2: 21 findings (§9.2).
+  - ⏳ Fix-verification r3 of this revision must be clean.
+  - Then post the §3 ACs to #12/#13 and start Task 1.
+- **Task 1 — Stubs, schema, harness, red tests.**
+  - Compile-only stubs so the red run fails at runtime: policy members throw `NotImplementedException`; plus
+    the visitor `tableQualifier`, `OrderByTerms`, and the `QueryComponents` members.
+  - **Schema:** add the no-`id` entity table to:
+    - `Database/integration_test_db.sql`
+    - `Database/MySql/integration_test_db.sql`
+    - `Database/PostgreSql/integration_test_db.sql`
+    - `Database/Sqlite/integration_test_schema.sql`
+    - the SQLite schema helper
+
+    Apply it to the three local servers with an idempotent `CREATE TABLE IF NOT EXISTS`, or the SQL Server
+    equivalent.
+  - Harness, SQLite helper, and the net48/net9 links.
+  - Write every §4.2 test and record red (or expected-green for regression rows).
+  - Confirm the UNVERIFIED items:
+    - SQL Server error 169 on a repeated ORDER BY column;
+    - SQLite rejecting `OFFSET` without `LIMIT`;
+    - `Queryable.Cast` short-circuit on net48;
+    - PG/MySQL/SQLite binding an unqualified `ORDER BY id` to a projected `Id` alias.
+- **Task 2 — #12 qualifier + duplicate removal** (4 providers).
+  → AC12-1…AC12-4, AC12-6, AC12-9.
+- **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
+  → AC12-7, AC13-14.
+- **Task 4 — Core policy + positional (D8, D10) + wiring + dead-guard removal** (4 providers).
+  → AC13-4, AC13-6, AC13-7, AC13-8, AC13-10 (rejection rows), AC13-12.
+- **Task 5 — `Single*` row limit, `Skip`/`Take` values, empty-`Take` short-circuit** (4 providers).
+  → AC13-1, AC13-10 (allowed and empty rows).
+- **Task 6 — Visitor `OrderByTerms` + ternary null** (4 providers).
+  → AC12-8.
 - **Task 7 — `Last*`** (4 providers).
   → AC13-2, AC12-5.
 - **Task 8 — `LongCount`** (4 providers).
   → AC13-3.
-- **Task 9 — Aggregate conversion + `AVG` cast** (4 providers).
-  → AC13-11.
-- **Task 10 — SQLite state reset; coverage lift.**
-  - SQLite state reset → AC13-13.
-  - DB-free direct visitor tests.
-  - `MySqlLinqQueryProvider.cs` from 82% to ≥85%.
-  - Per-file numbers attached.
-  → §4.5 all ≥85%.
-- **Task 11 — Docs.**
-  - Operator table in `Advanced.md` + `FUNKYORM_AI_ADVANCED.md`, generated from `SupportedOperators` or kept
-    in sync by a doc test. It includes the paging rule and the `Last`/`Distinct` note.
-  - Changelog 3.10.0:
-    - **Fixed (correctness):** `Single*`, `Last*`, `LongCount`, aggregates, double `OrderBy`, the SQLite
-      paging/state bugs, and the ternary null check.
-    - **Changed:** untranslated operators, and operators after `Skip`/`Take`, now throw.
-  - README "Recent Changes": "upgrade strongly recommended".
+- **Task 9 — SQLite state reset; coverage lift.**
+  - State reset → AC13-13.
+  - Direct visitor tests.
+  - MySQL provider to ≥85%.
+  → §4.5.
+- **Task 10 — Docs.**
+  - Operator table + doc test.
+  - Changelog 3.10.0: **Fixed**, **Changed** (untranslated operators, operators after paging, and a second
+    `OrderBy` now throw), and **Known issues** (aggregates, fixed in 3.10.1).
+  - README "upgrade strongly recommended".
   - Usage.md: `LongCount`.
   → AC13-9.
-- **Task 12 — Gauntlet and release.**
-  - Record the §4.4 mutation runs.
-  - Run the net48/net9 policy tests.
-  - A fresh adversarial pass by a non-author agent, then a fix-verification pass over any fix layer.
-  - Write the sentinel only for the exact clean sha.
+- **Task 11 — Gauntlet and release.**
+  - Mutation runs recorded; net48/net9 runs.
+  - A fresh non-author adversarial pass, then fix-verification.
+  - Sentinel file for the exact clean sha.
   - Push `development/3.10` (CI + MySQL + PostgreSQL) → PR → merge → `3.10.0-beta1`.
-  - Sentinel call-list smoke test → promote to `3.10.0`.
-  - Close #12/#13. Owner decides on the Security Advisory (D7).
+  - Sentinel smoke test → `3.10.0`.
+  - Close #12. Keep #13 open for the 3.10.1 aggregate work, or split it (owner's call).
+  - Security Advisory decision (D7).
 
-**Rough effort:**
+**Rough effort (3.10.0):**
 
 | Work | Estimate |
 |---|---|
-| Tasks 1 (stubs + ~150 test rows × 4 providers) | ~2 days |
-| #12 (Tasks 2–3) | ~0.5–1 day |
-| #13 core (Tasks 4–5, 7–8) | ~2 days |
-| Visitor + aggregates + SQLite (Tasks 6, 9, 10) | ~2 days |
-| Docs + gauntlet (Tasks 11–12) | ~1 day |
-| **Total** | **~8–9 working days** |
+| Task 1 (stubs, schema, ~120 rows × 4) | ~1.5 days |
+| #12 + SQLite paging (Tasks 2–3) | ~0.75 day |
+| Policy + `Single`/`Last`/`LongCount` (Tasks 4–8) | ~2.25 days |
+| Coverage + docs + gauntlet (Tasks 9–11) | ~1.5 days |
+| **Total** | **~6 working days** |
 
 ---
 
 ## 7. Risks
 
-- **Someone relies on a silently ignored or mistranslated operator.** Examples: `.OrderBy(..).Last()`
-  returning the "first" row, `Take(5).Count()` counting everything, or a truncated `Average`. That code now
-  throws or returns a different value. **Mitigation:** minor version, a prominent Changelog "Changed/Fixed"
-  list, and messages that say what to write instead.
-- **Over-rejection of a valid shape.** **Mitigation:** the allowed set is built from what the loop already
-  translates; AC13-5 oracle rows cover each family; the existing suites are the regression gate. No FunkyORM
-  test or Sentinel query composes after paging.
+- **Callers relying on silently ignored or mistranslated operators.** That code now throws or returns a
+  different value. **Mitigation:** minor version, prominent Changelog lists, and messages that say what to
+  write instead.
+- **Over-rejection.** **Mitigation:** the allowed set mirrors what the loop translates; oracle rows per family;
+  existing suites as the gate. No FunkyORM test or Sentinel query composes after paging or uses a second
+  `OrderBy`.
 - **Mirror drift.** **Mitigation:** policy and positional rules live in Core; per-provider changes are proved
-  by the same test names in each suite.
-- **Row-limit syntax differences.** `TOP (n)` must follow `DISTINCT` on SQL Server, and `LIMIT` must come
-  after ORDER BY. Covered by `Single_AfterDistinctProjection_Works` and the `Last` tests.
-- **net48 reflection surface** differs from net8's (fewer `Queryable` methods). **Mitigation:** the pinned
-  set is framework-aware (asserted per TFM), and the net48 sweep runs locally.
+  by identical test names.
+- **Row-limit syntax.** `DISTINCT TOP (n)` on SQL Server; `LIMIT` after ORDER BY elsewhere. **Mitigation:**
+  covered by tests.
+- **net48.** The allowed set is identical across frameworks: the overloads that differ are all excluded
+  anyway. **Mitigation:** one literal set, swept on every TFM.
 
 ## 8. Out of scope (recorded, not fixed here)
 
-- `GenerateOrderByClause` in three providers is dead code.
-- SQLite provider state is not safe for **concurrent** execution of queries composed from one `Query<T>()`
-  root. Sequential reuse is fixed by D11.
-- **Unordered default paging hard-codes `id`** (`ORDER BY id` / `{table}.id` / `rowid`), which is wrong for
-  entities whose key column isn't `id`. This is pre-existing and only reached by user `Skip`/`Take` without
-  `OrderBy`. `Single*` no longer routes through it (§5.2.3). A resolved-PK default order is a follow-up issue.
-- Sentinel.MVP pins `3.9.0-beta1`; upgrading it is the D3 smoke test, tracked in Sentinel.
+- **Aggregates (D9) → 3.10.1 (§10).** Documented as known issues in the 3.10.0 changelog:
+  - `Average` of whole numbers truncates on SQL Server (to be confirmed) and loses precision on MySQL and
+    SQLite;
+  - `decimal`/`float` `Average` throws;
+  - nullable `Min`/`Max`/`Average` on an empty set throws;
+  - some `Min`/`Max` result types throw after the round-trip.
+- `GenerateOrderByClause` (three providers) is dead code.
+- SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
+- Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
+  `Single*` no longer routes through it. A resolved-PK default order is a follow-up issue.
+- Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
 
-## 9. Review disposition — Task 0 test-plan review of `30d3a6d`
+## 9. Review dispositions
 
-Blame classes are evaluated in order; the first that applies wins. Ledger totals: **AC-GAP 10, TEST-GAP 11,
-HOUSE-RULE 0, PLAN-GAP 4, OTHER 0.**
+Blame classes are evaluated in order; the first that applies wins.
+
+### 9.1 Task 0 test-plan review r1 of `30d3a6d`
+
+Totals: AC-GAP 10, TEST-GAP 11, HOUSE-RULE 0, PLAN-GAP 4, OTHER 0.
 
 | # | Sev | Blame | Finding (short) | Disposition |
 |---|---|---|---|---|
-| 1 | BLOCKER | AC-GAP | Operators after `Skip`/`Take` mistranslated (aggregates ignore paging; `Where`/predicate terminals before OFFSET; repeated `Skip`/`Take` overwrite; `Take`→`Distinct`) | Accepted, confirmed in source. D8, AC13-10, positional guard in Core (Task 4), tests + mutation rows. |
-| 2 | MAJOR | AC-GAP | `Single(pred)` after `Skip` can't meet AC13-1 | Accepted. AC13-1 limits composition to parameterless `Single*`; predicate form rejected by D8. |
-| 3 | MAJOR | AC-GAP | Second `OrderBy` reverses priority | Accepted, confirmed (OrderByClauseVisitor.cs:117-134). D10, AC13-12. |
-| 4 | MAJOR | TEST-GAP | Schema discovery at `Query<T>()`, unlogged; "no SQL" unobservable; mutation killer survives | Accepted. AC13-4 reworded, D2 rationale corrected, killer replaced. |
-| 5 | MAJOR | AC-GAP | `Single*` via paging injects `ORDER BY id` | Accepted. Row-limit design (§5.2.3), AC13-1 bullet, no-`id` entity test. Pre-existing default-order issue logged in §8. |
-| 6 | MAJOR | AC-GAP | `Single*`/`Last*` + `Distinct` projection | Accepted. Row limit avoids the paging guard for `Single`; `Last` rule in AC13-2. |
-| 7 | MAJOR | AC-GAP | Aggregate overloads: `decimal`/`float` `Average` cast; nullable-empty; SQL Server `int?`; `AVG(int)` truncation | Accepted. D9, AC13-11, Task 9. Truncation confirmed in Task 1. |
-| 8 | MAJOR | AC-GAP | SQLite projection-state leak; §8 claim false | Accepted, confirmed (fields set only at :315-316). D11, AC13-13; §1.4/§8 corrected. |
-| 9 | MAJOR | TEST-GAP | `Cast` tests toothless (short-circuit); identity used entity type | Accepted. Source-element identity; hand-built node test; unrelated-type test; `OfType` after scalar. |
-| 10 | MINOR | PLAN-GAP | `GetGenericMethodDefinition()` on non-generic overloads | Accepted. `IsGenericMethod` guard + tests. |
-| 11 | MINOR | TEST-GAP | AC13-8 unprovable; weak message asserts; sibling tests missing | Accepted. AC13-8 restated with precedence; distinctive-text asserts; sibling tests added. |
-| 12 | MINOR | TEST-GAP | `Single*`/`Last*` after scalar projection untested | Accepted. `ScalarProjection_WithSingleOrLast_ThrowsNotSupported`. |
-| 13 | MINOR | TEST-GAP | Missing mutation rows (a)–(e) | Accepted. All added to §4.4. |
-| 14 | MINOR | TEST-GAP | "Walks the whole chain" ambiguous | Accepted. Spine-only walk specified; two tests + mutation. |
-| 15 | MINOR | TEST-GAP | Oracle determinism | Accepted. §4.1 determinism rules. |
-| 16 | MINOR | TEST-GAP | Classification sweep tautological | Accepted. `IsAllowed` seam drives the sweep. |
-| 17 | MINOR | AC-GAP | net48/net9 not in the gate | Accepted. AC13-7 runs on net48/net9; §4.6. |
-| 18 | MINOR | PLAN-GAP | Red tests won't compile | Accepted. Task 1 compile stubs. |
-| 19 | MINOR | PLAN-GAP | Unreachable visitor branches; PG `QueryComponents` baseline; fixture inheritance | Accepted. DB-free direct tests; baseline recorded (100%); DB-free rule. |
-| 20 | MINOR | AC-GAP | Ternary `= NULL` bug | Accepted in scope (D11, AC12-8). |
-| 21 | MINOR | TEST-GAP | No-`Id` `Last` error untested | Accepted. Test added. |
-| 22 | MINOR | TEST-GAP | `LongCount` reverse-key rejection and `COUNT_BIG` unasserted | Accepted. Tests added. |
-| 23 | MINOR | TEST-GAP | AC12-1 combinations incomplete; AC12-6 entity unspecified | Accepted. 24-row data test; AC12-6 pinned to the join entity. |
-| 24 | MINOR | AC-GAP | `Take(0)` + `Single*` → SQL error | Accepted. `Take(0)` short-circuit in D8/AC13-10. |
-| 25 | MINOR | PLAN-GAP | Affected-version wording | Accepted. `0.1.1-alpha.1` not on NuGet (verified), so the range holds; "first provider" wording fixed. |
+| 1 | BLOCKER | AC-GAP | Operators after `Skip`/`Take` mistranslated | D8, AC13-10, positional guard (Task 4). |
+| 2 | MAJOR | AC-GAP | `Single(pred)` after `Skip` can't meet AC13-1 | Parameterless-only composition; predicate form rejected (D8). |
+| 3 | MAJOR | AC-GAP | Second `OrderBy` reverses priority | D10 → reject (rev 3 redesign), AC13-12. |
+| 4 | MAJOR | TEST-GAP | Unlogged schema discovery; "no SQL" unobservable | AC13-4 reworded; D2 corrected; killer replaced. |
+| 5 | MAJOR | AC-GAP | `Single*` via paging injects `ORDER BY id` | Row-limit design; no-`id` entity test. |
+| 6 | MAJOR | AC-GAP | `Single*`/`Last*` + `Distinct` projection | Row limit; `Last` rule in AC13-2. |
+| 7 | MAJOR | AC-GAP | Aggregate overload bugs | D9 → 3.10.1 (§10); known issues documented. |
+| 8 | MAJOR | AC-GAP | SQLite projection-state leak | D11 full reset, AC13-13. |
+| 9 | MAJOR | TEST-GAP | `Cast` tests toothless; identity used the entity type | Source-element identity; hand-built node and unrelated-type tests. |
+| 10 | MINOR | PLAN-GAP | Non-generic overloads | `IsGenericMethod` guard + tests. |
+| 11 | MINOR | TEST-GAP | AC13-8 unprovable | Restated with precedence; distinctive-text asserts; sibling tests. |
+| 12 | MINOR | TEST-GAP | `Single*`/`Last*` after scalar | Test added. |
+| 13 | MINOR | TEST-GAP | Missing mutation rows | Added. |
+| 14 | MINOR | TEST-GAP | Whole-tree walk ambiguity | Spine-only walk specified; tests. |
+| 15 | MINOR | TEST-GAP | Oracle determinism | Composite-key rule; exclusions. |
+| 16 | MINOR | TEST-GAP | Tautological sweep | `IsAllowed` seam vs literal set. |
+| 17 | MINOR | AC-GAP | net48/net9 not gated | AC13-7 on three TFMs. |
+| 18 | MINOR | PLAN-GAP | Red tests won't compile | Stubs in Task 1. |
+| 19 | MINOR | PLAN-GAP | Unreachable visitor branches | DB-free direct tests. |
+| 20 | MINOR | AC-GAP | Ternary `= NULL` | D11, AC12-8. |
+| 21 | MINOR | TEST-GAP | No-`Id` `Last` untested | Test added. |
+| 22 | MINOR | TEST-GAP | `LongCount` reverse-key / `COUNT_BIG` | Tests added. |
+| 23 | MINOR | TEST-GAP | AC12-1 combinations; AC12-6 entity | 24-row test; join entity. |
+| 24 | MINOR | AC-GAP | `Take(0)` + `Single*` | Empty-`Take` short-circuit. |
+| 25 | MINOR | PLAN-GAP | Affected-version wording | Wording fixed; range verified. |
+
+### 9.2 Task 0 fix-verification r2 of `e19a7ae`
+
+Totals: AC-GAP 5, TEST-GAP 7, HOUSE-RULE 1, PLAN-GAP 8, OTHER 0. 16 of 21 were introduced by rev 2.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| F1 | MAJOR | AC-GAP | yes | D10 stable-sort rule wrong; ordering dropped across `Where` | **Redesigned:** D10 = reject (owner). AC13-12 covers the across-`Where` shapes. |
+| F2 | MAJOR | TEST-GAP | yes | D10 tests blind to tie-breakers | Moot after the redesign; rejection tests have no tie semantics. Composite-key oracle rule kept. |
+| F3 | MINOR | PLAN-GAP | yes | NULL-result rule order (`Sum` → 0; `string` → null) | → 3.10.1 input (§10). |
+| F4 | MAJOR | AC-GAP | yes | `ChangeType` fails for enum/Guid/DateTimeOffset/TimeSpan | → 3.10.1; owner direction recorded (§10). |
+| F5 | MAJOR | TEST-GAP | yes | `Average` precision (SQLite `ROUND`, MySQL scale 4, decimal scales); {1,2} undiscriminating | → 3.10.1 input: SUM/COUNT design, {1,1,2} rows. |
+| F6 | MAJOR | PLAN-GAP | yes | Aggregate columns missing from schemas; effort undercounted | → 3.10.1 (new test table). 3.10.0 Task 1 names the scripts for the no-`id` entity; effort re-estimated. |
+| F7 | MAJOR | AC-GAP | yes | Identity `OfType` over nullable elements keeps nulls | D5 refined; `OfType_Identity_OverNullableScalar_Rejected`. |
+| F8 | MINOR | PLAN-GAP | yes | Spine walk underspecified | §5.2.1: `IEnumerable<>` element type, root terminal, classify-first, `TSource` check; tests. |
+| F9 | MINOR | TEST-GAP | yes | #12 tests pass by alias binding when the key is projected | Subset rows omit the key; SQL-text asserts; AC12-5 reworded. |
+| F10 | MINOR | PLAN-GAP | yes | `Single*` after `Skip`-only; SQLite `OFFSET` without `LIMIT` | `min(Take ?? 2, 2)`; AC13-14 `LIMIT -1 OFFSET`. |
+| F11 | MINOR | AC-GAP | no | Negative `Take`/`Skip` | D8: `Take(n ≤ 0)` empty; `Skip(n < 0)` → 0; tests. |
+| F12 | MINOR | TEST-GAP | yes | `Take(0)` location ambiguous; scalar path | Flag + check in `Execute` and `ExecuteScalarProjection`; rows for subset, scalar, `Skip.Take(0)`, OrDefault, Single. |
+| F13 | MINOR | TEST-GAP | yes | "ThenBy after paging" row unbuildable; missing allowed rows; D8/AC misaligned | Row → `OrderByDescending`; `OfType` + `Skip`-only `First` rows; aligned on `OfType`. |
+| F14 | MINOR | TEST-GAP | yes | Inherited order leaks only on the bare root; reset list incomplete | Bare-root tests; `ThenLast_UsesIdDesc`; full reset; mutation row. |
+| F15 | MINOR | TEST-GAP | yes | String `Min`/`Max` rows vs collation rule; float tolerance | → 3.10.1 (aggregate rows moved). |
+| F16 | MINOR | PLAN-GAP | yes | net48 C# 7.3 and missing APIs | §4.1 rule (by-name reflection / `#if`). |
+| F17 | MINOR | PLAN-GAP | yes | "Framework-aware" pinned set reintroduces the tautology | One literal set on every TFM; §7 fixed. |
+| F18 | MINOR | HOUSE-RULE | yes | Dead scalar-aggregate guard and stale comment after the pre-pass | Removed and fixed in Task 4. Already covered by taxonomy pattern 16 (comment/contract drift), so no new house-test row. |
+| F19 | MINOR | PLAN-GAP | no | Repeated ORDER BY column (SQL Server 169) | Duplicate removal, AC12-9. |
+| F20 | MINOR | PLAN-GAP | yes | Consistency (Task 0 text, AC12-5 mapping, AC13-5 unmapped, AC13-9 executable, `void` pre-pass, §1.4 SQLite facts) | All corrected. AC13-5 is a gate on every task. |
+| F21 | MINOR | AC-GAP | yes | `null == x.M` operand order | AC12-8 covers both orders. |
+
+---
+
+## 10. v3.10.1 — aggregate correctness (D9): owner direction and open questions
+
+**Owner direction (2026-09-30):** go with the recommended approach, with the refinements below.
+
+- **`Average`:** computed exactly as `SUM(wide) / COUNT` client-side (LINQ semantics); SQLite's `ROUND` is
+  removed.
+- **Empty and nullable results** follow LINQ:
+  - `Sum` → 0, even for nullable selectors;
+  - nullable or reference `Min`/`Max`/`Average` → `null`;
+  - non-nullable → throws "no elements".
+- **`Min`/`Max` result types:**
+  - **Enums:** reject. The message suggests aggregating the underlying number
+    (`Max(x => (int)x.Status)`); confirm that FunkyORM translates the cast.
+  - **`TimeSpan`:** reject, with guidance. Developers should store durations as `bigint`/`int` (ticks,
+    seconds or ms) and aggregate that property. SQL `time` columns only hold values under 24 hours and
+    differ by provider.
+  - **`Guid`:** reject by default, with a message explaining that the database's ordering differs from
+    .NET's. Developers can **opt in** to server-side ordering (mechanism open — below).
+  - **`DateTimeOffset`:**
+    - SQL Server `datetimeoffset` and PostgreSQL `timestamptz` both order by UTC instant, as .NET does, so
+      allow them there. PostgreSQL returns a UTC `DateTime` that gets converted.
+    - MySQL has no offset type, and SQLite stores text that sorts wrongly across offsets. Reject on both,
+      with a message suggesting UTC `DateTime` storage. *To verify.*
+
+**Guid ordering by provider** (from documentation and reasoning; verify in the 3.10.1 Task 0):
+
+| Provider | Storage | Order vs .NET `Guid.CompareTo` |
+|---|---|---|
+| SQL Server | `uniqueidentifier` | **Differs.** Compares byte groups 10–15, then 8–9, 6–7, 4–5, 0–3. |
+| PostgreSQL | `uuid` | **Should match.** Both compare in canonical string order. |
+| MySQL | `CHAR(36)` / `BINARY(16)` | Text matches if the case is consistent; binary depends on MySqlConnector's `GuidFormat`. |
+| SQLite | `TEXT` / `BLOB` | Text matches if the case is consistent; a blob in .NET byte order differs. |
+
+**Open questions for the owner:**
+1. **Guid opt-in mechanism.**
+   - (a) Provider-wide option set at startup/DI, e.g.
+     `new SqlServerOrmDataProvider(conn) { QueryOptions = { GuidOrdering = GuidOrdering.Database } }`.
+   - (b) Per-property attribute, e.g. `[DatabaseOrdering]`.
+   - (c) Per-query marker, e.g. `query.WithDatabaseGuidOrdering().Max(x => x.Uid)`. This needs a FunkyORM
+     `Queryable` extension that the policy recognizes.
+
+   *Tentative recommendation: (a), with (b) added later if targeted control is needed.* Should the default
+   also be provider-aware, allowing PostgreSQL `uuid` by default since it matches .NET?
+2. **Does the Guid guard also cover `OrderBy`/`ThenBy` on Guid columns?**
+   - The same ordering difference applies there, but `OrderBy(Guid)` is usually a stable tie-breaker whose
+     exact order doesn't matter.
+   - Guarding it would break existing queries.
+   - *Tentative recommendation: guard `Min`/`Max` only, and document the `OrderBy` difference.*
+3. **Semantics target:** exact LINQ-to-objects (the direction above) or EF Core parity where they differ, for
+   example string `Min`/`Max` under collation vs culture? *Tentative recommendation: LINQ-to-objects for
+   numeric results; database collation for strings, documented, since it can't match .NET anyway.*
+
+**Inputs from the r2 fix-verification (to fold into the 3.10.1 plan):**
+- **F3:** NULL-result rule order.
+- **F4:** type failures.
+- **F5:** `Average` precision.
+  - SQLite `ROUND(…, 10)`.
+  - MySQL `AVG` scale 4.
+  - Decimal scales on SQL Server / MySQL / PostgreSQL.
+  - Key the widening on the column type, not the selector type.
+  - Seed {1, 1, 2} rows for `int` and `decimal` on every provider.
+- **F6:** a new aggregate test table in all five schema scripts, with `int`/`long`/`float`/`double`/`decimal`
+  columns in nullable and non-null forms, plus `DateTime`, `string`, `Guid`, `DateTimeOffset`, `TimeSpan` and
+  an enum.
+- **F15:** collation-neutral strings and a floating-point tolerance.
