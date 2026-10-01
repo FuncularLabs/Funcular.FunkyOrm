@@ -8,9 +8,21 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 3, the test plan after the Task 0 re-review (§9.2). Nothing is implemented yet.
+> **Status (2026-10-01):** rev 4, the test plan after the third Task 0 review (§9.3). Nothing is implemented yet.
 
-> **Revision 3 — what changed (re-review N1–N17):**
+> **Revision 4 — what changed (re-review R1–R6):**
+> - **AC7.** An own-scope sentinel: valid mappings are planted in one scope through the seam, the SQL is captured,
+>   and each LINQ read site must show its own scope's plant and never another scope's. A per-site mutant replaces the
+>   warm-up design, which never reached a LINQ site (R1).
+> - **Mapper rows** on all four providers (R2).
+> - **SQLite.** Empty and temporary data sources are per-instance (R3).
+> - **D3/D8.** Mutations and rows completed; the hash row reclassified; the procedure resolver reached through an
+>   internal accessor (R4).
+> - **Registry and Changelog.** The registry key is a SHA-256 of the identity. `Remove("Password")` is specified.
+>   The Changelog states scope growth and coldness, and the cold-cache delete fix is a 3.10.0 ship dependency
+>   (R5, R6).
+
+> **Revision 3 — what changed (re-review N1–N17), superseded where rev 4 says so:**
 > - **D2 simplified.** The identity is the provider's typed builder's canonical connection string with the password
 >   cleared; everything else is kept. This removes rev 2's allowlist and its component holes (N2, N8). Differing
 >   options cost an extra discovery, never correctness.
@@ -92,20 +104,30 @@
   - The dialect type is in the key because quoting comes from the dialect.
 - **D2 — Connection identity.** Each provider parses its connection string with its typed builder
   (`SqlConnectionStringBuilder`, `NpgsqlConnectionStringBuilder`, `MySqlConnectionStringBuilder`,
-  `SqliteConnectionStringBuilder`). It then clears the password and takes the builder's canonical `ConnectionString`.
+  `SqliteConnectionStringBuilder`). It calls `Remove("Password")`, which merges every synonym; setting the password
+  to empty instead leaves Npgsql's key in place (E12). It then takes the builder's canonical `ConnectionString`.
+  - **The registry key is the SHA-256 of that string** (*rev 4*), so no secret is retained by the registry,
+    including Npgsql `SSL Password` and MySqlConnector `Certificate Password` (E13).
   - **Everything else is kept:** server, port, database, user, search path, `Options`, attach file, application
     name, pooling.
   - A rotated password, or a password under any synonym, maps to the same identity.
   - Any other difference is a different scope: correct, and at worst one more discovery. Growth is one scope per
     distinct password-less connection string.
-  - A string the builder rejects is hashed (SHA-256); only the hash is kept.
+  - A string the builder rejects is hashed as given (SHA-256).
+  - **Over-splits cost performance, never correctness** (E14): key order (Npgsql), host aliases, value case.
   - The identity is never logged. That is enforced by review: no code path passes it to `Log`.
 - **D3 — Identity source and per-instance scopes.**
   - The source is the constructor string (SQLite: its resolved string).
   - If that is empty and a `connection` was supplied, the connection's `ConnectionString` is used.
   - **A null identity means a per-instance scope:** created for that provider instance and never registered. SQLite
-    returns null for `:memory:`, for `Mode=Memory` (shared or not) and for a `file::memory:` data source, since each
-    such connection, or each process, holds a database only that instance can name reliably.
+    returns null for:
+    - `:memory:` (including `Filename=:memory:`);
+    - `Mode=Memory`, shared or not (for a shared one, this over-splits);
+    - an empty resolved data source: `""`, `Data Source=`, whitespace, each a private temporary database per
+      connection (E15) *(rev 4)*.
+
+    The rule applies to whichever string supplies the identity, including an explicit connection's. (`file::memory:`
+    and URI memory names are turned into rooted paths by the existing resolution; that is pre-existing, §6.)
   - **An empty identity means one scope per (provider type, dialect type).**
 - **D4 — Contents of a scope.**
   - Table names, column names, the unmapped set, and the mapped-type set (a concurrent set).
@@ -132,7 +154,11 @@
     `LazyInitializer.EnsureInitialized`. Registered scopes come from the registry's `GetOrAdd`, so resolution is
     idempotent and thread-safe.
 - **D9 — Lifetime and cost.**
-  - The registry lives for the process.
+  - The registry lives for the process, with no eviction: one scope per distinct password-less string.
+  - An app that varies a connection-string option per request gets a scope, a discovery and a mapper set per
+    variant. Examples: `Application Name`, PostgreSQL `Options=-c app.user=…`, timeouts. That costs memory and
+    time against 3.9.0's single shared cache. Stated in the Changelog, with the advice to vary per-request
+    settings through the session context or `SET` commands instead *(rev 4)*.
   - Per-instance scopes (D3) die with their instance. A provider re-created per request on such a database re-runs
     discovery, mapper builds and procedure lookups each time. Recorded in §6 and the Changelog.
   - On SQLite, non-transactional operations open a new connection from the string (`Sqlite:1173`), so a `:memory:`
@@ -156,13 +182,17 @@
   - Connection strings that differ only by password (any synonym) share a scope.
   - A different connection string otherwise (server, database, user, search path or `Options`, and so on) doesn't.
   - Nor does a different provider runtime type or dialect runtime type.
-  - SQLite memory databases never share.
+  - SQLite memory and temporary databases never share.
 - **AC5 — Dialect-instance isolation.** Two providers of one type with different dialect types share neither names
-  nor name-derived entity mappers.
+  nor name-derived entity mappers, on all four providers.
 - **AC6 — No bare keys.** No cache entry is keyed by a bare property name, and `ComputeColumnName` ignores one.
-- **AC7 — Every LINQ read is scoped.** Each provider's LINQ provider reads its own instance's scope at every read
-  site: ORDER BY, SELECT, the default `Last` ordering, `Count`/`Any`/`All` with a predicate, and the aggregate
-  selector.
+- **AC7 — Every LINQ read is scoped.** Each provider's LINQ provider reads its own instance's scope, and never
+  another's, at every read site. The sites are:
+  - ORDER BY and SELECT;
+  - the default `Last` ordering;
+  - `Count`/`Any`/`All` with a predicate;
+  - the aggregate selector;
+  - the LINQ unmapped-set reads.
 - **AC8 — SQLite uses discovered names.** A SQLite entity without `[Column]`, whose column differs from the property
   by underscores, is queryable.
 - **AC9 — Procedure names are scoped** (SQL Server, MySQL).
@@ -192,15 +222,22 @@ Every row is run alone at the seam and its outcome recorded.
 | AC4 | `PasswordOnlyDifference_SharesAScope` [per provider, one row per password synonym] | none | Guard |
 | AC4 | `OtherConnectionDifference_IsAnotherScope` [per provider: server; database; user; PostgreSQL `Search Path`; PostgreSQL `Options`] | none | Red (planted value seen) |
 | AC4 | `ProviderTypeOrDialectTypeDifference_IsAnotherScope` [a provider subclass with its own naming; a different dialect type] | none | Red |
-| AC4 | `UnparseableConnectionString_IsHashed` [PostgreSQL, MySQL, SQL Server with an explicit connection] | none | Guard |
-| AC4 | `SqliteMemoryDatabases_NeverShare` [`:memory:`, `Mode=Memory`, `Mode=Memory;Cache=Shared`, `file::memory:`]; `EmptyIdentity_IsPerProviderType` (a direct `OrmDataProvider` subclass); `ExplicitConnection_SuppliesTheIdentity` | none | Red at the seam (one shared set) |
+| AC4 | `UnparseableConnectionString_IsHashed` [PostgreSQL, MySQL, SQL Server with an explicit connection] | none | Red at the seam (identity is computed in Task 3) |
+| AC4 | `RegistryKey_RetainsNoSecret` [per provider; PostgreSQL with the password first] | none | Red at the seam |
+| AC4 | `SqliteMemoryAndTemporaryDatabases_NeverShare` [`:memory:`, `Filename=:memory:`, `Mode=Memory`, `Mode=Memory;Cache=Shared`, `""` and `Data Source=` each with an explicit connection] | none | Red at the seam (one shared set) |
+| AC4 | `EmptyIdentity_IsPerProviderType`: two instances of one direct `OrmDataProvider` subclass share; a different subclass doesn't | none | Red at the seam |
+| AC4 | `ExplicitConnection_SuppliesTheIdentity` [all four: empty constructor string; two explicit connections to different databases don't share] | none | Red at the seam |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareNames` | none | Red |
-| AC5 | `SameProviderType_DifferentDialectType_DoNotShareMappers` (a double-quoting dialect reads `person` first, then the default provider must read the right `Id` and `FirstName`) | SQL Server (CI) | Red (E6: `Id=0`, null) |
+| AC5 | `SameProviderType_DifferentDialectType_DoNotShareMappers` (a double-quoting dialect reads `person` first, then the default provider must read the right `Id` and `FirstName`) | SQL Server (CI) | Red (E6/E17: `Id=0`, null) |
+| AC5 | the same with a bracket-quoting dialect (SQLite's mapper strips only `"`) | SQLite temp file (CI) | Red (expected by analogy; recorded at Task 1b) |
+| AC5 | `MapperCache_IsScoped` [PostgreSQL, MySQL]: plant a mapper in scope A, unseen in scope B | none | Red at the seam |
 | AC6 | `ComputeColumnName_IgnoresABareNameKey` | none | Red (planted bare key used) |
-| AC7 | `LinqProvider_ReadsItsOwnScope`: a custom dialect whose quoting the engine rejects (`«x»`) warms its scope through `OrderBy`, `Select`, `Last()` without `OrderBy`, `Count(pred)` and `Max`; then the default-dialect provider's same shapes must run. Entity on `person` with snake_case `[Column]`s. | SQL Server (CI), SQLite temp file | Red at the seam (provider path); the LINQ-site kill is the §4.3 mutant |
-| AC7 | the same pin | PostgreSql.Tests, MySql.Tests | as above |
+| AC7 | `LinqSites_ReadTheirOwnScope`. Through the seam accessors, plant valid mappings in P2's scope: table `person`, `FirstName → last_name`, `Id → employer_id`, the type marked mapped. Then run `OrderBy`/`ThenBy`, both `Select` forms, `Last()` without `OrderBy`, `Count`/`Any`/`All` with a predicate, and `Min`/`Max`/`Sum`/`Average`, capturing the SQL through `Log` (logged before execution). Assert each site's fragment carries the planted names. | SQL Server (CI), SQLite temp file (CI) | Guard |
+| AC7 | `LinqSites_NeverReadAnotherScope`: P1 (same database, different identity, e.g. `Application Name`) plants `FirstName → middle_initial`; P2's SQL at every site must not contain it | SQL Server (CI), SQLite temp file (CI) | Red at the seam (shared caches) |
+| AC7 | `LinqUnmappedRead_IsScoped`: plant `FirstName` as unmapped in P2's scope; P2's aggregate on it is rejected, P1's isn't | SQL Server (CI), SQLite temp file (CI) | Red at the seam |
+| AC7 | the three rows above | PostgreSql.Tests, MySql.Tests | as above |
 | AC8 | `SqliteEntity_DiscoveredUnderscoreColumn_IsQueryable` | SQLite temp file | Red (`no such column: Label`) |
-| AC9 | `ProcedureName_IsScopedPerDatabase` [SQL Server, MySQL]: plant distinct names in scope A and scope B, then call the resolver on each (both cache hits, fake servers) | none | Red at the seam (the shared cache returns A's name for B) |
+| AC9 | `ProcedureName_IsScopedPerDatabase` [SQL Server, MySQL]: plant distinct names in scope A and scope B, then call the resolver on each through an internal accessor (both cache hits, fake servers) | none | Red at the seam (the shared cache returns A's name for B) |
 | AC10 | the four full suites, CI's SQL Server job, net48 (`dotnet build FunkyORM.sln`, run the dll), net9 | — | — |
 
 **How the DB-free rows work.**
@@ -248,9 +285,12 @@ Each new or changed member has a test that calls it on purpose:
 | Table-name cache left process-wide | AC1, AC2 row 1 |
 | Mapped-type set left process-wide | AC2 row 1 (`label`/`la_bel`) |
 | Unmapped set left process-wide | AC2 missing-column row |
-| Entity mappers left process-wide | AC5 mapper row |
+| Entity mappers left process-wide (per provider) | AC5 mapper rows of that provider |
+| An empty identity treated as null (per-instance) | AC4 `EmptyIdentity_IsPerProviderType` |
+| A provider ignores the explicit connection's string when the constructor string is empty (per provider) | AC4 `ExplicitConnection_SuppliesTheIdentity` |
+| The registry keyed by the raw identity (no hash) | AC4 `RegistryKey_RetainsNoSecret` |
 | Procedure names left process-wide | AC9 |
-| One LINQ provider's column-cache reads redirected to a single static dictionary (per provider) | AC7 pin of that provider |
+| A LINQ read site redirected to a fresh static dictionary, or to another instance's scope (per site, per provider) | AC7 `LinqSites_ReadTheirOwnScope` / `NeverReadAnotherScope` / `LinqUnmappedRead_IsScoped` of that provider |
 
 ### 4.4 Where each tier runs
 
@@ -270,7 +310,7 @@ Each new or changed member has a test that calls it on purpose:
    - The registry API, the protected properties and the identity members, all returning the existing shared
      statics.
    - Instance accessors in the providers.
-   - A procedure-name accessor and a mapper-cache accessor.
+   - A procedure-name cache accessor, an internal route to `ResolveProcedureName<T>`, and a mapper-cache accessor.
    - `InternalsVisibleTo("Funcular.Data.Orm.SqlServer.Tests")` in the PostgreSql, MySql and Sqlite projects (a
      product-assembly change, recorded in the Changelog).
    - SqlServer.Tests references the three providers and links `PostgreSqlTestConnection.cs`.
@@ -291,10 +331,17 @@ Each new or changed member has a test that calls it on purpose:
      - the field docs.
 6. **Task 4 — Green and gauntlet.**
    - Suites, net48, net9; mutations (§4.3); coverage (§4.2).
-   - Changelog: Fixed (AC1, AC2, AC5, AC8, AC9); Changed (D7, the `ToDictionaryKey` output, `InternalsVisibleTo`,
-     the per-instance-scope cost).
+   - Changelog: Fixed (AC1, AC2, AC5, AC8, AC9). Changed:
+     - D7 and the `ToDictionaryKey` output;
+     - `InternalsVisibleTo`;
+     - scope growth per distinct password-less string, with no eviction and the advice from D9;
+     - coldness per scope;
+     - the per-instance-scope cost.
    - The 3.10 plan's §8 entry points here.
 7. **Task 5 — Hostile review and fix-verification** to CLEAN, then the merge into `development/3.10`.
+   - **Ship dependency (R5):** per-scope coldness makes the cold-cache `Delete<T>(predicate)` defect fire on first use
+     in each scope. `fix/mysql-delete-cold-cache` must therefore land in `development/3.10` before 3.10.0 ships
+     with this change.
 
 ## 6. Out of scope (recorded)
 
@@ -316,6 +363,8 @@ Each new or changed member has a test that calls it on purpose:
 - **Dialect state:** custom dialects of one type that carry state share a scope.
 - **Per-user connection strings** give per-user discovery, and the registry has no eviction.
 - **Per-instance scopes (D3)** re-run discovery for each new provider instance.
+- **SQLite URI memory names and `file::memory:`** are turned into rooted paths by the existing
+  `ResolveConnectionString` (E15). Pre-existing.
 
 ## 9. Review dispositions
 
@@ -348,3 +397,19 @@ and F18 were partial; their remainders are below.
 | N15 | nit | HOUSE-RULE | Stale-prose list incomplete. | Task 3. |
 | N16 | nit | PLAN-GAP | §1 field modifiers; D7 surface; Changelog guidance. | §1, D7. |
 | N17 | nit | PLAN-GAP | §6 residuals. | §6. |
+
+### 9.3 Task 0 re-review of rev 3 (`3f20ae4`; non-author; executed E12–E17)
+
+Verdict: NOT CLEAN.
+- **Resolved:** N1, N2, N4–N8, N11, N13–N17, F3, F7, F9, F10, F17, F18.
+- **Partial:** N3, N9, N12, F11, F13.
+- **Not fixed:** N10/F4 (R1).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| R1 | major | TEST-GAP | AC7 couldn't fail for the LINQ-site mutant: the warm-up's rejected quoting throws in discovery before any LINQ site runs (E16). | Own-scope sentinel rows (plant, capture SQL, assert own and never another's), the LINQ unmapped reads, and per-site mutants. |
+| R2 | minor | TEST-GAP | Mapper scoping was proved on SQL Server only. | SQLite temp-file mapper row; PostgreSQL and MySQL DB-free mapper rows; per-provider mutation. |
+| R3 | minor | AC-GAP | SQLite empty and temporary data sources shared a scope. | D3: null for an empty resolved data source, on any identity source; AC4 amended; rows. |
+| R4 | minor | TEST-GAP | D3/D8 had no mutations; explicit-connection row providers; the hash row's class; the resolver route. | Two mutations; rows completed; hash row Red at the seam; internal resolver route in Task 1a. |
+| R5 | minor | PLAN-GAP | Users weren't warned about scope growth and per-scope coldness; the cold-cache fix is a dependency. | D9, the Changelog list, and the Task 5 ship dependency. |
+| R6 | nit | HOUSE-RULE | "Clears the password" was underspecified; other secrets were kept. | `Remove("Password")`; SHA-256 registry key; a password-first PostgreSQL row. |
