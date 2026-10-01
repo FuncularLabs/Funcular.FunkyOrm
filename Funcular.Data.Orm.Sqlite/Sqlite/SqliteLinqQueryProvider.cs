@@ -589,14 +589,28 @@ namespace Funcular.Data.Orm.Sqlite
 
             string orderBy = _lastOrderByClause;
             if (!string.IsNullOrEmpty(orderBy) || components.Skip.HasValue || components.Take.HasValue)
-                commandText += $"\r\n{(orderBy ?? "ORDER BY rowid")}";
+                commandText += $"\r\n{(orderBy ?? DefaultPagingOrderBy(components))}";
 
             if (components.Take.HasValue)
                 commandText += $"\r\nLIMIT {components.Take.Value}";
+            else if (components.Skip.HasValue)
+                commandText += "\r\nLIMIT -1"; // SQLite has no OFFSET without LIMIT; -1 means no limit.
             if (components.Skip.HasValue)
                 commandText += $"\r\nOFFSET {components.Skip.Value}";
 
             return commandText;
+        }
+
+        /// <summary>
+        /// The ORDER BY for paging without an explicit order. Qualified as <c>{table}.rowid</c> when the command has
+        /// joins: every joined table has its own <c>rowid</c>, so a bare one is ambiguous (AC12-7).
+        /// </summary>
+        private string DefaultPagingOrderBy(QueryComponents components)
+        {
+            var table = _dataProvider.GetTableNameInternal<T>();
+            var hasJoins = _dataProvider.ResolveRemoteJoins<T>(table).IndividualJoinClauses?.Count > 0
+                           || !string.IsNullOrEmpty(components.JoinClause);
+            return hasJoins ? $"ORDER BY {table}.rowid" : "ORDER BY rowid";
         }
 
         private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)

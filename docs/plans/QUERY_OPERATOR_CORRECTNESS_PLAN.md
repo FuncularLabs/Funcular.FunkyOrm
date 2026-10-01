@@ -1434,6 +1434,19 @@ Each task lists the tests it turns green. Every implementation task starts with 
       - no duplicate removal → `ThenBy_SameKeyTwice_Executes`.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
   → AC12-7, AC13-14.
+  - **Status (2026-10-01): done.**
+    - The default paging order is `ORDER BY {table}.rowid` when the command has joins (remote or
+      WHERE-introduced) and `ORDER BY rowid` otherwise. A `Skip` without `Take` emits `LIMIT -1 OFFSET n`.
+    - 21 SQLite rows red → green, no regressions:
+      - AC12-7 (both);
+      - AC13-14 (all three);
+      - the five Skip-only `Operator_AfterPaging_Allowed` rows;
+      - the D8Governs `Skip(1)→First` rows, the `afterSkip` oracle rows, and two `UnchangedFromConcrete` rows
+        (§4.2 provider-scope note).
+    - `SkipNegative_BehavesAsSkipZero` is green on SQLite already: SQLite treats a negative OFFSET as 0. The
+      other providers still need Task 5's clamp.
+    - **Mutations run, both killed:** bare `rowid` → `DefaultPaging_OnJoinEntity_Executes`; OFFSET without
+      LIMIT → `SkipOnly_ToList_Executes`.
 - **Task 4 — Core policy (two-pass, own-root check, row type `R`) + D8, D10 + D5/I3 + I1 + I2 (`isCollection`
   by expression shape; Core `ScalarProjectionGuard`) + wiring + dead-guard removal** (4 providers).
   → AC13-4 (except the entity-source covariant `LongCount`/`Single`/`Last` rows), AC13-6, AC13-7, AC13-8,
