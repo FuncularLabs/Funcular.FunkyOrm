@@ -93,8 +93,13 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
   can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places). Equality follows the same rules, as it
   already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
-- **A `DateTimeOffset` in an ORDER BY ternary** is written as `yyyy-MM-dd HH:mm:ss.fffffffK`, offset included. 3.9.0
-  used the current culture's format.
+- **A `DateTimeOffset`, `DateOnly`, `TimeOnly` or other value FunkyORM wrote with `ToString()`** in an ORDER BY ternary
+  is now culture-invariant text; 3.9.0 used the current culture's format.
+  - A `DateTimeOffset` is `yyyy-MM-dd HH:mm:ss.fffffffK`, offset included.
+  - Against a date/time column on SQL Server, PostgreSQL or MySQL, the database converts it and compares instants;
+    3.9.0's text failed to convert there under some cultures.
+  - As a branch value, or on SQLite, it sorts as text, so values with different offsets order by text, not by
+    instant.
 - **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,

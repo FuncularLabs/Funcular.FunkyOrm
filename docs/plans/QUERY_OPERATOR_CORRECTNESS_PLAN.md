@@ -19,6 +19,12 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 38 (fix-verification of `66bde1e..89383ff`, 2026-10-01) — what changed:** plan prose (H1–H4), and
+>   the Changelog's `DateTimeOffset` bullet.
+>   - AC12-10: the culture-invariant text sentence and the `DateTimeOffset` result.
+>   - §8 and §9.37 provenance; §9.39's verdict line.
+>   - The Task 12 status and §9.40.
+
 > **Revision 37 (fix-verification of `66bde1e..141654d`, 2026-10-01) — what changed:** plan prose only (G1–G5).
 >   - §8: the SQL Server constant-test entry; a new pre-existing SQLite `DateTimeOffset` entry.
 >   - AC12-10's result sentence.
@@ -825,14 +831,19 @@ providers** unless stated.
     - text on MySQL and SQLite;
     - `varchar` on SQL Server, except strings and chars, which are `nvarchar` like WHERE's.
 
-    The text is culture-invariant. For a `DateTimeOffset` it therefore differs from 3.9.0's current-culture text.
+    The text is culture-invariant. 3.9.0 wrote a `DateTimeOffset`, `DateOnly`, `TimeOnly` and any other value with
+    `ToString()` in the current culture, so for those values the text differs.
   - **One parameter per occurrence:** each occurrence of a value is its own parameter, as each literal was its own
     literal, so the database types each one where it's used.
   - **On PostgreSQL**, a value compared with `null` is decided in .NET. `IS NULL` can't give an untyped parameter
     a type.
-  - **Result:** a `Guid` or `DateTime` value compares and sorts as it did in 3.9.0, on every provider. A
-    `DateTimeOffset` is compared as its invariant text, offset included, where 3.9.0 used current-culture text
-    *(rev 37, G3)*.
+  - **Result:** a `Guid` or `DateTime` value compares and sorts as it did in 3.9.0, on every provider.
+  - **A `DateTimeOffset`** is sent as invariant `yyyy-MM-dd HH:mm:ss.fffffffK` text, offset included *(rev 37–38)*.
+    The rev 37 reviewer executed this; no test schema has a `DateTimeOffset` column, so no test pins it:
+    - Against a date/time column on SQL Server, PostgreSQL or MySQL, the database converts the text and compares
+      instants. 3.9.0's current-culture text failed to convert there under some cultures.
+    - As a branch value, against another value, or on SQLite, it compares and sorts as text. Values with different
+      offsets therefore order by text, not by instant.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
   Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
@@ -1854,6 +1865,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - **Verification layer 4 (rev 35, §9.37).** Prose only (N1–N4); no code or test changed.
   - **Verification layer 5 (rev 36, §9.38).** Plan prose only (F1–F5).
   - **Verification layer 6 (rev 37, §9.39).** Plan prose only (G1–G5).
+  - **Verification layer 7 (rev 38, §9.40).** Plan prose and one Changelog bullet (H1–H4).
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2028,8 +2040,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
     stored as ISO 8601: `README.md` (SQLite type affinity), `FUNKYORM_AI_INSTRUCTIONS_SQLITE.md` and
     `FUNKYORM_AI_INSTRUCTIONS.md` (date storage). That is true only under a Gregorian calendar with `:` time
     separators; correct them with the fix.
-- **SQL Server: a ternary whose test reads no row and isn't a parameter is a constant test (pre-existing; rev 34–35
-  reviewers, executed on `66bde1e` and HEAD; restated in rev 36).** What decides the outcome is the branch the
+- **SQL Server: a ternary whose test reads no row and isn't a parameter is a constant test (pre-existing; rev 34–36
+  reviewers, executed on `66bde1e` and HEAD; restated in revs 36–37).** What decides the outcome is the branch the
   constant test selects. The executed shapes, with `n = 5` and `five = 5`:
   - **A row-reading branch is selected, and it works:** `n == null ? p.LastName : p.FirstName`.
   - **A constant branch is selected, and it fails with error 408** ("A constant expression was encountered in the
@@ -2764,7 +2776,7 @@ that window.
 | N4 | nit | HOUSE-RULE | The status block said Tasks 1–11 are complete and cited a CLEAN verification with no §9 row. | Now Tasks 1–10 complete, Task 11 through the first push (the push gate's sentinel holds `66bde1e`), and its release steps remaining. |
 
 Observations recorded:
-- In §8: SQL Server's constant test in an ORDER BY ternary (O1, pre-existing; restated in rev 36).
+- In §8: SQL Server's constant test in an ORDER BY ternary (O1, pre-existing; restated in revs 36–37).
 - In §8: the README and SQLite AI doc's ISO 8601 claim, and the migration need (O2).
 - Not recorded: O3, AC12-10 not posted to #12 (an outward action, so the owner's call). O4 (the `EnsureSchema`
   first-creation race) is the same pattern as the other fixture tables. O5 is the orphan `q310_` rows from an
@@ -2785,7 +2797,7 @@ execution. Suites at HEAD: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708.
 
 ### 9.39 Fix-verification of `66bde1e..141654d` (non-author; 27 SQL Server shapes on both shas; SQLite formats across 12 cultures; suites re-run)
 
-Verdict: NOT CLEAN on plan prose. F2–F5 are resolved and F1 partly; every outcome and error number in the restated
+Verdict: NOT CLEAN on plan prose. F2–F5 are resolved and F1 partly; every shaped outcome and error number in the restated
 entry was confirmed. Suites at HEAD: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708.
 
 | # | Sev | Blame | Finding | Disposition |
@@ -2797,6 +2809,18 @@ entry was confirmed. Suites at HEAD: SqlServer 882, Sqlite 785, PostgreSql 757, 
 | G5 | nit | HOUSE-RULE | Rev 33's literal-mode test and its mutation were missing from §4.2/§4.4. | Added. |
 
 Observation recorded in §8: SQLite can't read back a `DateTimeOffset` (pre-existing).
+
+### 9.40 Fix-verification of `66bde1e..89383ff` (non-author; G3 probed against typed `DateTimeOffset` columns on 4 providers × 2 cultures, `66bde1e` and HEAD; suites re-run)
+
+Verdict: NOT CLEAN on plan prose. G1, G2, G4 and G5 are resolved, as is the new §8 SQLite entry; G3 is partly
+resolved. Suites at HEAD: SqlServer 882, PostgreSql 757, MySql 708, Sqlite 785.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| H1 | minor | TEST-GAP | AC12-10's "a `DateTimeOffset` is compared as its invariant text" was false against a typed column: SQL Server, PostgreSQL and MySQL convert it and compare instants. Only SQLite, branch values and value-vs-value comparisons compare text. No test has a `DateTimeOffset` column. | Restated per position, from the reviewer's executed probe, marked as not pinned by a test. The Changelog bullet now says the same. |
+| H2 | nit | HOUSE-RULE | "For a `DateTimeOffset` it therefore differs" read as if only that type's text changed; `DateOnly`, `TimeOnly` and any value 3.9.0 wrote with `ToString()` changed too (executed). | Named in AC12-10 and in the Changelog. |
+| H3 | nit | HOUSE-RULE | §9.39's "every outcome … confirmed" contradicted its own G1 row. | Now "every shaped outcome". |
+| H4 | nit | HOUSE-RULE | The §8 entry's provenance didn't credit the rev 36 reviewer or the rev 37 restatement. | Updated, with §9.37's O1 line. |
 
 ---
 
