@@ -11,11 +11,11 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 ### Security
 - **Values in an ORDER BY ternary are now sent as command parameters.** Before, a text value (`x.Name == input ? 0 :
   1`) was written into the SQL as a quoted literal, with only its quotes doubled. On MySQL, whose default mode treats
-  a backslash as an escape character, a crafted value could change the query. Strings, chars, `Guid`s, dates and
-  other quoted values are now parameters carrying the literal's text, so the database converts them as it converted
-  the literal: untyped on PostgreSQL, `varchar` on SQL Server (strings and chars are `nvarchar`, like WHERE's).
-  Numbers of C#'s built-in numeric types, booleans, enums and `NULL` stay inline. Upgrade if you order by a ternary
-  over values you don't control.
+  a backslash as an escape character, a crafted value could change the query. Every value that 3.9.0 quoted
+  (strings, chars, `Guid`s, dates and times, and others) is now a parameter, typed as that literal was: untyped on
+  PostgreSQL, `varchar` on SQL Server (strings and chars are `nvarchar`, like WHERE's). It carries the literal's
+  text, except that date and time values now have a fixed format (see Changed). Booleans, enums, `NULL` and values
+  of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline. Upgrade if you order by a ternary over values you don't control.
 
 ### Fixed
 - **`Single`/`SingleOrDefault` dropped their predicate and never checked cardinality.**
@@ -83,6 +83,7 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   would drop nulls.
 - **`Last`/`LastOrDefault` after `Distinct()` with a custom projection** need an explicit `OrderBy` on a
   projected key.
+
 Other changes:
 
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
@@ -98,7 +99,8 @@ Other changes:
   already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
 - **Date and time values in an ORDER BY ternary have a fixed format, never the current culture's.** 3.9.0 wrote a
   `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format. A database could reject that text,
-  or, under a day-first culture, read it with day and month swapped. The formats now:
+  or, under a day-first culture, read it with day and month swapped. A `TimeOnly` lost its seconds (`10:00 AM`), so
+  times in the same minute compared as equal. The formats now:
   - `DateTimeOffset`: `yyyy-MM-dd HH:mm:ss.fffffffK`. On MySQL it is its UTC time, `yyyy-MM-dd HH:mm:ss.ffffff`, as
     WHERE sends it.
   - `DateOnly`: `yyyy-MM-dd`.

@@ -571,6 +571,10 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var time = new TimeOnly(15, 0, 30);
             var (times, _) = WithParameters(p => p.Id > 0 ? time : TimeOnly.MinValue);
             CollectionAssert.AreEqual(new object[] { "15:00:30", "00:00:00" }, times.Parameters.Select(x => x.Value).ToList());
+
+            var fraction = new TimeOnly(10, 0, 30, 500);
+            var (fractions, _) = WithParameters(p => p.Id > 0 ? fraction : TimeOnly.MinValue);
+            Assert.AreEqual("10:00:30.5", fractions.Parameters[0].Value, "the fraction is kept (rev 40, F1)");
         }
 
         [TestMethod]

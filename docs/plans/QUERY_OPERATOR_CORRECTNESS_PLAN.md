@@ -19,6 +19,13 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 40 (fix-verification of `66bde1e..9ce9e86`, 2026-10-01) — what changed:** a `TimeOnly` fraction pin
+>   and oracle row (F1). Prose (F2–F5):
+>   - the Changelog's Security, Changed and "Other changes:" text;
+>   - the numeric types listed in the Changelog, Advanced.md and AC12-10;
+>   - a §8 entry;
+>   - the Task 12 status and §9.42.
+
 > **Revision 39 (fix-verification of `66bde1e..26abd27`, 2026-10-01) — what changed:** code and prose (J1–J6).
 >   - `DateOnly`/`TimeOnly` in ORDER BY are ISO text (J3).
 >   - A MySQL `DateTimeOffset` is its UTC time (J2).
@@ -832,7 +839,8 @@ providers** unless stated.
   literal, and an enum value is its underlying number *(rev 25; rev 26)*. Branch values take the same path, so a
   value reads the same in the test and in a branch *(rev 26)*.
 - **AC12-10** *(rev 30, owner decision 2026-10-01)* Every value in an ORDER BY ternary that 3.9.0 wrote as quoted SQL
-  text (a string, char, `Guid`, date or other non-numeric value) is sent as a command parameter. *(Rev 31–32)*
+  text (every value except booleans, enums, `NULL` and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal`) is sent as a command parameter.
+  *(Rev 31–32; lead-in narrowed in rev 40)*
   - **What a parameter carries:** the literal's text, typed as the literal was:
     - untyped on PostgreSQL;
     - text on MySQL and SQLite;
@@ -853,7 +861,7 @@ providers** unless stated.
     - Tested: on MySQL, ORDER BY and WHERE pick the same rows for a `DateTimeOffset`.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
-  Numbers of C#'s built-in numeric types, booleans, enums and `NULL` stay inline. On every provider, a text value
+  Booleans, enums, `NULL` and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline. On every provider, a text value
   with quote or backslash
   characters, compared in a ternary's test, orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no
   quoted value appears in the command text, in any position *(rev 34, F2)*. A command carries only the
@@ -1884,6 +1892,11 @@ Each task lists the tests it turns green. Every implementation task starts with 
       - On MySQL: WHERE and ORDER BY agree for a `DateTimeOffset`, and the updated UTC text pin.
     - Mutations (4, all killed).
     - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
+  - **Verification layer 9 (rev 40, §9.42).** A `TimeOnly` fraction pin and oracle row on all four providers. These
+    are guards: the implementation was already right, and the `"HH:mm:ss"` mutant now fails.
+    - Mutations (4, all killed (TimeOnly without its fraction, per provider)).
+    - Prose F2–F5.
+    - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2085,6 +2098,11 @@ Each task lists the tests it turns green. Every implementation task starts with 
   `InvalidCastException` from text to `DateTimeOffset` in the reader's `Convert.ChangeType`
   (`SqliteOrmDataProvider.cs`). That file is unchanged since `master` (author, `git diff`). Follow-up candidate,
   with the culture entry above.
+- **SQL Server `DateTime` under a day-first session (pre-existing; rev 39 reviewer, executed).**
+  - The scenario: `yyyy-MM-dd HH:mm:ss.fff` sent as `varchar` against a `datetime` column, under
+    `Current Language=British English`.
+  - It is read day-first: WHERE picked rows c,d and ORDER BY picked a,b for the same comparison.
+  - The same happens at `66bde1e`, so AC12-10's "as 3.9.0" holds.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2852,6 +2870,20 @@ Verdict: NOT CLEAN. H3 and H4 are resolved; H1 and H2 partly.
 | J4 | nit | HOUSE-RULE | "Other value written with `ToString()`" and "Numbers stay inline" were too broad (`TimeSpan`'s text is unchanged; `Half` is a parameter). | The Changelog and AC12-10 name the three date and time types, and "C#'s built-in numeric types". |
 | J5 | nit | HOUSE-RULE | "Failed under some cultures" omitted the day/month swap and MySQL failing under en-US. | Folded into the Changelog's "reject … or read with day and month swapped"; the per-provider detail was removed with J1. |
 | J6 | nit | HOUSE-RULE | The Changed intro ("These shapes now throw") headed bullets that don't throw. | "Other changes:" now separates them. |
+
+### 9.42 Fix-verification of `66bde1e..9ce9e86` (non-author; counts reproduced; 10 own mutants; 97.7 % visitor coverage; netstandard2.0 on .NET 6 for MySQL, PostgreSQL and SQLite)
+
+Verdict: NOT CLEAN. J1, J2 and J5 are resolved; J3 and J4 partly; J6 not.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| F1 | minor | TEST-GAP | The `TimeOnly` fraction (`HH:mm:ss.FFFFFFF`) wasn't pinned; the `"HH:mm:ss"` mutant survived on all four. | A direct pin (`10:00:30.5`) and a sub-second oracle row on all four; the mutant re-run. |
+| F2 | minor | HOUSE-RULE | The Security bullet's "carrying the literal's text, so the database converts them as it converted the literal" contradicted the date/time format change. | Restated: typed as the literal was, carrying its text except for date and time values. |
+| F3 | nit | HOUSE-RULE | "Other changes:" needed a blank line before it to separate the lists (J6 not fixed). | Blank line added. |
+| F4 | nit | HOUSE-RULE | `nint`/`nuint` are built-in numeric types but are parameters; Advanced.md still said "numbers … stay inline". | The eleven inline numeric types are listed in the Changelog, Advanced.md and AC12-10. |
+| F5 | nit | HOUSE-RULE | The date/time bullet's harms didn't cover `TimeOnly`'s lost seconds. | Added. |
+
+Recorded in §8: SQL Server `DateTime` under a day-first session (pre-existing).
 
 ---
 

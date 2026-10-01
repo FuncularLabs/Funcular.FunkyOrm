@@ -513,6 +513,11 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 
             AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? later : earlier).ThenBy(p => p.Id).ToList());
             AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterTime : earlierTime).ThenBy(p => p.Id).ToList());
+
+            // Under a second apart: the fraction must survive (rev 40, F1).
+            var laterFraction = new TimeOnly(10, 0, 30, 500);
+            var earlierFraction = new TimeOnly(10, 0, 30, 200);
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterFraction : earlierFraction).ThenBy(p => p.Id).ToList());
         }
 
         /// <summary>The person table's <c>dateutc_created</c> as a <see cref="DateTimeOffset"/> (UTC <c>DATETIME(6)</c>).</summary>
