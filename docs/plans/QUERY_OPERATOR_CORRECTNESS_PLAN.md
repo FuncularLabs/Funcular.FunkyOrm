@@ -1418,6 +1418,20 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - ✅ Fix-verification FV3 of `bbede92`: **CLEAN** (1 comment nit, fixed). Task 1 is complete; Task 2 may start.
 - **Task 2 — #12 qualifier + duplicate removal** (4 providers).
   → AC12-1…AC12-4, AC12-6, AC12-9.
+  - **Status (2026-10-01): done.**
+    - Each provider's visitor qualifies own columns (`{table}.{column}`) when the `OrderBy` call site passes
+      `tableQualifier` (the entity has joins); map hits are never prefixed.
+    - A later duplicate fragment is dropped.
+    - The `Last*` site is Task 7's.
+    - Red → green on every provider: 30 rows (24 AC12-1, AC12-4, AC12-9, four direct visitor tests). SQLite also
+      greens the 4 `UnchangedFromConcrete` rows its #12 ambiguity blocked (§4.2 provider-scope note).
+    - No green → red anywhere; the existing suites are unchanged.
+    - `DuplicateKey_LaterFragmentDropped` stays red until Task 6 (`OrderByTerms`).
+    - **Mutations run (SQL Server), all killed:**
+      - bare `GetColumnName` → 24/24 AC12-1 rows;
+      - qualifier in the map-hit branch → `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix`;
+      - qualify unconditionally → `SingleTableEntity_OrderBy_SqlByteIdenticalTo390`;
+      - no duplicate removal → `ThenBy_SameKeyTwice_Executes`.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
   → AC12-7, AC13-14.
 - **Task 4 — Core policy (two-pass, own-root check, row type `R`) + D8, D10 + D5/I3 + I1 + I2 (`isCollection`

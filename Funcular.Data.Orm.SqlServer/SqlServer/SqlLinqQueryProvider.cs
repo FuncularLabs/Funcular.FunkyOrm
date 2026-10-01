@@ -319,13 +319,15 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     // Resolve remote/JSON/expression/subquery-aggregate properties so ordering by a
                     // "view-replacing" property emits its resolved SQL (the joins are already in the SELECT).
+                    // Own columns are table-qualified when the entity has joins (#12).
                     var orderByTable = _dataProvider.GetTableNameInternal<T>();
-                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
+                    var orderByRemote = _dataProvider.ResolveRemoteJoins<T>(orderByTable);
                     var orderByVisitor = new OrderByClauseVisitor<T>(
                         SqlServerOrmDataProvider.ColumnNamesCache,
                         SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
-                        orderByRemoteMap);
+                        orderByRemote.PropertyToColumnMap,
+                        orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }

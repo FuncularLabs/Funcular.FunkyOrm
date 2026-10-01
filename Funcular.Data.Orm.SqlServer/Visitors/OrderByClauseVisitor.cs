@@ -71,13 +71,27 @@ namespace Funcular.Data.Orm.Visitors
         /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute
         /// (<c>[JsonPath]</c>, <c>[RemoteProperty]</c>/<c>[RemoteKey]</c>, <c>[SqlExpression]</c>,
         /// <c>[SubqueryAggregate]</c>) this is the resolved expression (JSON accessor, <c>alias.column</c>,
-        /// expression, or correlated subquery) from the remote-join map; otherwise the plain column name.
+        /// expression, or correlated subquery) from the remote-join map, never prefixed. Otherwise it's the own
+        /// column, qualified as <c>{table}.{column}</c> when the query has joins (#12: a bare own column such as
+        /// <c>id</c> is ambiguous against the joined tables once the projection no longer lists it).
         /// </summary>
         private string ResolveOrderColumn(PropertyInfo property)
         {
             if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
                 return resolved;
-            return GetColumnName(property);
+            var column = GetColumnName(property);
+            return _tableQualifier != null ? $"{_tableQualifier}.{column}" : column;
+        }
+
+        /// <summary>
+        /// Adds an ordering term unless an earlier term has the same fragment: a later duplicate can never break a
+        /// tie, and SQL Server rejects a column listed twice in ORDER BY (error 169).
+        /// </summary>
+        private void AddOrderByClause(string columnName, bool isDescending)
+        {
+            if (_orderByClauses.Any(c => string.Equals(c.ColumnName, columnName, StringComparison.Ordinal)))
+                return;
+            _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
         }
 
         /// <summary>
@@ -160,7 +174,7 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && IsOrderableProperty(property))
                 {
                     var columnName = ResolveOrderColumn(property);
-                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    AddOrderByClause(columnName, isDescending);
                     return;
                 }
             }
@@ -171,7 +185,7 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && IsOrderableProperty(property))
                 {
                     var columnName = ResolveOrderColumn(property);
-                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    AddOrderByClause(columnName, isDescending);
                     return;
                 }
             }
@@ -179,7 +193,7 @@ namespace Funcular.Data.Orm.Visitors
             {
                 // Build a CASE WHEN ... THEN ... ELSE ... END expression for ORDER BY
                 var caseSql = BuildCaseExpression(conditional);
-                _orderByClauses.Add(new OrderByClause { ColumnName = caseSql, IsDescending = isDescending });
+                AddOrderByClause(caseSql, isDescending);
                 return;
             }
 

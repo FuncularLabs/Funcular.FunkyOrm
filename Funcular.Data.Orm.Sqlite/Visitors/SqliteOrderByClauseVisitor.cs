@@ -64,7 +64,20 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         {
             if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
                 return resolved;
-            return GetColumnName(property);
+            // Own columns are qualified as {table}.{column} when the query has joins (#12): a bare own column such
+            // as id is ambiguous against the joined tables once the projection no longer lists it.
+            var column = GetColumnName(property);
+            return _tableQualifier != null ? $"{_tableQualifier}.{column}" : column;
+        }
+
+        /// <summary>
+        /// Adds an ordering term unless an earlier term has the same fragment: a later duplicate can never break a tie.
+        /// </summary>
+        private void AddOrderByClause(string columnName, bool isDescending)
+        {
+            if (_orderByClauses.Any(c => string.Equals(c.ColumnName, columnName, StringComparison.Ordinal)))
+                return;
+            _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
         }
 
         /// <summary>
@@ -125,7 +138,7 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                 if (property != null && IsOrderableProperty(property))
                 {
                     var columnName = ResolveOrderColumn(property);
-                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    AddOrderByClause(columnName, isDescending);
                     return;
                 }
             }
@@ -135,14 +148,14 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                 if (property != null && IsOrderableProperty(property))
                 {
                     var columnName = ResolveOrderColumn(property);
-                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    AddOrderByClause(columnName, isDescending);
                     return;
                 }
             }
             else if (expression is ConditionalExpression conditional)
             {
                 var caseSql = BuildCaseExpression(conditional);
-                _orderByClauses.Add(new OrderByClause { ColumnName = caseSql, IsDescending = isDescending });
+                AddOrderByClause(caseSql, isDescending);
                 return;
             }
 

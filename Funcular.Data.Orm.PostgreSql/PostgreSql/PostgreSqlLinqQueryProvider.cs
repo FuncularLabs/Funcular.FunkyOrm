@@ -241,13 +241,15 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
+                    // Own columns are table-qualified when the entity has joins (#12).
                     var orderByTable = _dataProvider.GetTableNameInternal<T>();
-                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
+                    var orderByRemote = _dataProvider.ResolveRemoteJoins<T>(orderByTable);
                     var orderByVisitor = new PostgreSqlOrderByClauseVisitor<T>(
                         PostgreSqlOrmDataProvider.ColumnNamesCache,
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
-                        orderByRemoteMap);
+                        orderByRemote.PropertyToColumnMap,
+                        orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                 }
