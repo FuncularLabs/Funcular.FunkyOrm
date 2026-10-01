@@ -17,6 +17,10 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 29 (verification v7 of `de9bf1e..6d64733`, 2026-10-01) — what changed:** every Changelog sentence
+>   was confirmed by execution. One plan ledger line was corrected (§9.32), and a pre-existing `.HasValue` defect was
+>   recorded in §8.
+
 > **Revision 28 (verification v6 of `3f38bb6..de9bf1e`, 2026-10-01) — what changed:** 3 prose nits (§9.31). Claims
 >   that execution contradicted were removed rather than qualified.
 
@@ -1769,6 +1773,11 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **PostgreSQL enum parameters (pre-existing; v4).** `Where(x => x.Kind == k)` throws `InvalidCastException`
   ("Writing values of '…' is not supported for parameters having NpgsqlDbType 'Integer'") on 3.9.0 and on this
   branch. Reading enum columns works. Follow-up issue.
+- **`.HasValue` on a value not read from the row (pre-existing; v7, executed on SQLite; same on 3.9.0).** In an
+  ORDER BY ternary, `X.HasValue ? … : …` where `X` is a captured or static property is translated as a column of
+  the entity named after `X`. The order is silently wrong when such a column exists, and the query fails when it
+  doesn't. Candidate fix: take the `HasValue` branch only when the member is read from the lambda parameter.
+  Follow-up issue.
 - **Checked-arithmetic projects (pre-existing; v4–v6):** in an ORDER BY ternary, a comparison whose column side the
   compiler converts with checked arithmetic throws: `char`, `byte`, `short`, and `int` against `long` (executed).
   The column side becomes `ConvertChecked`, which `BuildValueSql` doesn't unwrap. Same on 3.9.0.
@@ -2435,11 +2444,24 @@ v5-4 and v5-5 RESOLVED; v5-2 and v5-3 PARTIAL. No whole-branch defect. Totals: H
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
 | v6 N-1 | nit | HOUSE-RULE (doc truth) | "An enum literal in the test was already a number" is false for a nullable enum column (`Convert` to `int?` keeps the constant an enum; 3.9.0 emitted `'B'`). | The scope list and the note were removed: "could be emitted as its name … now always the underlying number". |
-| v6 N-2 | nit | HOUSE-RULE (doc truth) | "The getter now runs once per translation" is false: one call per ordering call (SQLite end-to-end: 1/2/3). | "Called while the query is translated (3.9.0 never called it)"; the count was dropped. |
+| v6 N-2 | nit | HOUSE-RULE (doc truth) | "The getter now runs once per translation" is false: the count depends on the ordering chain (SQLite end-to-end). | "Called while the query is translated (3.9.0 never called it)"; the count was dropped. |
 | v6 N-3 | nit | HOUSE-RULE (prose) | §8's "any comparison whose column side is converted" was too broad: enum comparisons compile to `Convert` and work. | Limited to the executed cases: `char`, `byte`, `short`, `int` against `long`. |
 
 Lesson (ledger): each prose fix that adds a qualification creates a new claim to verify. Remove claims that execution
 doesn't support; don't qualify them further.
+
+### 9.32 Verification v7 of `de9bf1e..6d64733` (non-author; four harnesses, master and HEAD × unchecked and checked, about 70 shapes, SQLite end-to-end)
+
+Verdict: NOT CLEAN on one plan-internal line. All three changed Changelog/§8 sentences are TRUE by execution:
+- enum: names on 3.9.0 in every non-folded case, numbers everywhere at HEAD;
+- getter: never called on 3.9.0; called during translation at HEAD; a throwing getter raises `NotSupportedException`;
+- checked list: correct.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| v7 N-1 | nit | HOUSE-RULE (doc truth) | §9.31's row v6 N-2 still gave a count ("one call per ordering call: 1/2/3"), as did 6d64733's commit message. Execution: 2 calls for one ordering with the getter in the test and THEN; 1 call when the getter is in a later `ThenBy`. | The count was removed from §9.31. The commit message is history; this row supersedes it. |
+
+Pre-existing, recorded in §8: `.HasValue` on a value not read from the row (v7 P-1).
 
 ---
 
