@@ -17,6 +17,9 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 30 (Task 12, owner decision 2026-10-01: parameterize ORDER BY values before the beta) — what changed:**
+>   AC12-10, Task 12, §4.2/§4.4 rows. 3.11.0 confirmed by the owner for `UpdateWhere` and `[ReadModel]` (separate plan).
+
 > **Revision 29 (verification v7 of `de9bf1e..6d64733`, 2026-10-01) — what changed:** every Changelog sentence
 >   was confirmed by execution. One plan ledger line was corrected (§9.32), and a pre-existing `.HasValue` defect was
 >   recorded in §8.
@@ -773,6 +776,13 @@ providers** unless stated.
   It's read through `Convert` (not `ConvertChecked`, which is part of the value), so a captured `char` stays a char
   literal, and an enum value is its underlying number *(rev 25; rev 26)*. Branch values take the same path, so a
   value reads the same in the test and in a branch *(rev 26)*.
+- **AC12-10** *(rev 30, owner decision 2026-10-01)* Every value in an ORDER BY ternary that 3.9.0 wrote as quoted SQL
+  text (a string, char, `Guid`, date or other non-numeric value) is sent as a command parameter, created like a WHERE
+  parameter on each provider. Equal values share one parameter, so duplicate terms are still dropped (AC12-9).
+  Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
+  characters orders rows as LINQ-to-objects does and never appears in the command text. A command carries only the
+  parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
+  generator and still inline values; MySQL's inline literal also escapes backslashes.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
   dropped; they can never break a tie, so the order is unchanged.
 
@@ -1072,6 +1082,7 @@ providers** unless stated.
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
 | AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
+| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; direct `ParameterMode_*` (4 tests); MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
@@ -1201,6 +1212,13 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Throw-path message text changed *(rev 26)* | `TernaryOperand_ThatThrows_KeepsThe390Message` |
 | Enums formatted through `Int32` (overflows for a `long` enum) *(rev 26)* | `CapturedCharAndEnum_FormatAsTheirValues` (`byte`/`long` enums) |
 | The ELSE branch value via `BuildValueSql` *(rev 27)* | `CapturedInstanceProperty_SameValueInTestAndBranch` (ELSE row) |
+| ORDER BY text values inlined (no generator / always literal) *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` (MySQL: wrong rows; all: SQL-text assert), `ParameterMode_*`, `Last_AfterTextTernaryOrderBy_…` |
+| No parameter reuse for equal values *(rev 30)* | `ParameterMode_EqualValues_ShareOneParameter`, `ThenBy_SameTernaryKeyTwice_Executes` |
+| Numbers parameterized too *(rev 30)* | `ParameterMode_TextBranchValues_AreParameters_NumbersAndNullStayInline` |
+| ORDER BY parameters not bound to the command *(rev 30)* | the AC12-10 oracle rows |
+| ORDER BY parameters bound to aggregates; earlier visitors' parameters kept *(rev 30)* | `Count_AfterTextTernaryOrderBy_Works`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` (`AssertEveryParameterReferenced`) |
+| SQL Server `DateTimeOffset` bound raw (its generator can't map it) *(rev 30)* | `ParameterMode_CharGuidAndDates_AreParameters` |
+| MySQL literal mode without backslash escaping *(rev 30)* | `LiteralMode_Backslash_IsEscaped` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
@@ -1711,6 +1729,19 @@ Each task lists the tests it turns green. Every implementation task starts with 
       both linking to `Advanced.md` §5.
     - `OperatorDocTable_MatchesSupportedOperators` went red → green on both docs, so **every suite is green**.
       **Mutations: 3, all killed** (a missing operator, an extra operator, a missing marker).
+- **Task 12 — ORDER BY values as parameters** *(rev 30; owner decision 2026-10-01, before the beta)* → AC12-10.
+  - **Status (2026-10-01): done (4 providers).**
+    - The visitors gain a constructor overload with the provider's parameter generator and a `Parameters` property.
+      `ValueSql` sends quoted-type values as parameters, reusing one per equal value.
+    - The providers pass their generator to the ordering visitor, keep the outermost visitor's parameters
+      (`QueryComponents.OrderByParameters`), and bind them unless the command is an aggregate.
+    - MySQL's literal mode escapes backslashes.
+    - Tests first: 8 red per suite, 9 on MySQL, including wrong rows on MySQL for a value containing a backslash and
+      a quote. Then green. The AC12-4 test's value position was loosened to a parameter.
+    - **Mutations (baseline-aware runner): 11.** 8 were killed outright. The `char` case was equivalent to the
+      default branch and was deleted. Two survived because drivers ignore unused parameters (aggregates; earlier
+      visitors); `AssertEveryParameterReferenced` now kills both.
+    - All suites green: SqlServer 856, Sqlite 760, PostgreSql 731, MySql 683; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.

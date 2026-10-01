@@ -67,6 +67,11 @@ namespace Funcular.Data.Orm.MySql
         public List<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms { get; set; } = new List<Funcular.Data.Orm.Linq.OrderByTerm>();
 
         /// <summary>
+        /// The parameters the ORDER BY's values are bound to (AC12-10).
+        /// </summary>
+        public List<MySqlParameter> OrderByParameters { get; set; } = new List<MySqlParameter>();
+
+        /// <summary>
         /// Whether a <c>Take(n &lt;= 0)</c> makes the result empty without querying.
         /// </summary>
         public bool IsEmptyByTake { get; set; }

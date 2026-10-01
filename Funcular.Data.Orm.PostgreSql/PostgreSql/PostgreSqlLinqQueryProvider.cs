@@ -279,10 +279,14 @@ namespace Funcular.Data.Orm.PostgreSql
                         PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         orderByRemote.PropertyToColumnMap,
-                        orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null);
+                        orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null,
+                        parameterGenerator);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
                     components.OrderByTerms = orderByVisitor.OrderByTerms.ToList();
+                    // The outermost ordering call's visitor sees the whole chain: its parameters are the ones the ORDER
+                    // BY uses (earlier visitors' are discarded).
+                    components.OrderByParameters = orderByVisitor.Parameters.ToList();
                 }
                 else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "LongCount") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
@@ -375,6 +379,10 @@ namespace Funcular.Data.Orm.PostgreSql
                     components.OrderByClause = "ORDER BY " + string.Join(", ", components.OrderByTerms.Select(t => $"{t.Fragment} {(t.IsDescending ? "ASC" : "DESC")}"));
                 components.RowLimit = 1;
             }
+
+            // ORDER BY values are command parameters (AC12-10). An aggregate drops the ORDER BY, so it gets none.
+            if (!components.IsAggregate)
+                components.Parameters.AddRange(components.OrderByParameters);
 
             return components;
         }

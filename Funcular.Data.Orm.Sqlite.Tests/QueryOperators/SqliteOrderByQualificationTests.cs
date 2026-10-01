@@ -168,7 +168,9 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 
             // Keys: a = its id, b = 0, c = its id (> a's) → b, a, c.
             CollectionAssert.AreEqual(new[] { "b", "a", "c" }, names);
-            StringAssert.Contains(OrderByList(), $"CASE WHEN {PersonTable}.middle_initial = 'Z' THEN {PersonTable}.id ELSE 0 END");
+            // The value is a parameter since AC12-10; the own columns are qualified inside the CASE (AC12-4).
+            StringAssert.Matches(OrderByList(), new System.Text.RegularExpressions.Regex(
+                $@"CASE WHEN {PersonTable}\.middle_initial = @p__linq__\d+ THEN {PersonTable}\.id ELSE 0 END"));
         }
 
         #endregion
@@ -282,6 +284,80 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 
             // Tie-break on FirstName (= Id order), not Id: on SQLite a bare id is AC12-1's ambiguity, not this AC's.
             AssertMatchesOracle(marker, q => q.OrderBy(key).ThenBy(p => p.FirstName).ToList());
+        }
+
+        #endregion
+
+        #region AC12-10 values in an ORDER BY ternary are parameters
+
+        private static readonly string[] AwkwardNames = { "O'Brien", "C:\\path\\", "back\\'slash" };
+
+        [DataTestMethod]
+        [DataRow(0)]
+        [DataRow(1)]
+        [DataRow(2)]
+        public void TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle(int target)
+        {
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310T12_" + marker);
+            foreach (var awkward in AwkwardNames)
+                SeedPerson(marker, awkward, employer);
+            var name = AwkwardNames[target];
+
+            ClearLog();
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == name ? 0 : 1).ThenBy(p => p.Id).ToList());
+            var commands = CommandTexts();
+            Assert.IsFalse(commands.Contains(name) || commands.Contains(name.Replace("'", "''")), "the value is sent as a parameter: " + commands);
+        }
+
+        [TestMethod]
+        public void Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters()
+        {
+            var (marker, _) = SeedAbc();
+
+            ClearLog();
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "b" ? 0 : 1).ThenBy(p => p.Id).Last());
+            Assert.IsFalse(CommandTexts().Contains("'b'"), CommandTexts());
+        }
+
+        [TestMethod]
+        public void TextTernaryOrderBy_WithWhereParameters_MatchesOracle()
+        {
+            var (marker, _) = SeedAbc();
+
+            AssertMatchesOracle(marker, q => q.Where(p => p.FirstName != "c").OrderBy(p => p.FirstName == "b" ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
+        public void Count_AfterTextTernaryOrderBy_Works()
+        {
+            // The aggregate drops the ORDER BY, and with it the ORDER BY's parameters.
+            var (marker, _) = SeedAbc();
+
+            ClearLog();
+            Assert.AreEqual(3, People(marker).OrderBy(p => p.FirstName == "b" ? 0 : 1).Count());
+            AssertEveryParameterReferenced();
+        }
+
+        [TestMethod]
+        public void TextTernaryOrderings_SendOnlyTheParametersTheCommandUses()
+        {
+            // Each ordering call re-visits the chain; only the last visit's parameters belong to the command.
+            var (marker, _) = SeedAbc();
+
+            ClearLog();
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? 0 : 1).ThenBy(p => p.FirstName == "c" ? 0 : 1).ThenBy(p => p.Id).ToList());
+            AssertEveryParameterReferenced();
+        }
+
+        [TestMethod]
+        public void ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters()
+        {
+            var (marker, _) = SeedAbc();
+
+            var names = People(marker).OrderBy(p => p.FirstName == "b" ? 0 : 1).ThenBy(p => p.Id).Select(p => p.FirstName).ToList();
+
+            CollectionAssert.AreEqual(new[] { "b", "a", "c" }, names);
         }
 
         #endregion

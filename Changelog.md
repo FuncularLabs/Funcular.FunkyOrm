@@ -8,6 +8,13 @@ Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.Funky
 [#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)). **Upgrade strongly recommended:** several
 operators returned wrong results without an error in 3.9.0 and earlier. All four providers.
 
+### Security
+- **Values in an ORDER BY ternary are now sent as command parameters.** Before, a text value (`x.Name == input ? 0 :
+  1`) was written into the SQL as a quoted literal, with only its quotes doubled. On MySQL, whose default mode treats
+  a backslash as an escape character, a crafted value could change the query. Strings, chars, `Guid`s, dates and
+  other text-like values are now parameters, typed like WHERE parameters. Numbers, booleans, enums and `NULL` stay
+  inline. Upgrade if you order by a ternary over values you don't control.
+
 ### Fixed
 - **`Single`/`SingleOrDefault` dropped their predicate and never checked cardinality.**
   `Single(p => p.Id == 42)` returned the *first row of the table*, and `Single()` over many rows returned one of
@@ -76,8 +83,9 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   projected key.
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
   `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
-  property and a constructor overload that takes a table qualifier; their 3.9.0 constructor is unchanged, so code
-  compiled against 3.9.0 keeps binding.
+  property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
+  property. Their 3.9.0 constructor is unchanged, so code compiled against 3.9.0 keeps binding. Without a generator
+  a visitor still inlines values, and MySQL's inline literal now also escapes backslashes.
 - **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,

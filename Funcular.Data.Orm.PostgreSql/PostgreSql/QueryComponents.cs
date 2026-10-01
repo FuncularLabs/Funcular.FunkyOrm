@@ -67,6 +67,11 @@ namespace Funcular.Data.Orm.PostgreSql
         public List<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms { get; set; } = new List<Funcular.Data.Orm.Linq.OrderByTerm>();
 
         /// <summary>
+        /// The parameters the ORDER BY's values are bound to (AC12-10).
+        /// </summary>
+        public List<NpgsqlParameter> OrderByParameters { get; set; } = new List<NpgsqlParameter>();
+
+        /// <summary>
         /// Whether a <c>Take(n &lt;= 0)</c> makes the result empty without querying.
         /// </summary>
         public bool IsEmptyByTake { get; set; }

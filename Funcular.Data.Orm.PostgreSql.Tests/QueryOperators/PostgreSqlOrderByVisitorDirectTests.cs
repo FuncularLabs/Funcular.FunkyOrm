@@ -423,5 +423,76 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
         }
 
         #endregion
+
+        #region ORDER BY values as parameters (Task 12, AC12-10): DB-free
+
+        private static PostgreSqlOrderByClauseVisitor<PersonDetailEntity> ParameterVisitor() =>
+            new PostgreSqlOrderByClauseVisitor<PersonDetailEntity>(new ConcurrentDictionary<string, string>(), new List<PropertyInfo>(), null, null, new PostgreSqlParameterGenerator());
+
+        private static (PostgreSqlOrderByClauseVisitor<PersonDetailEntity> Visitor, string Fragment) WithParameters<TKey>(Expression<Func<PersonDetailEntity, TKey>> key)
+        {
+            var visitor = ParameterVisitor();
+            visitor.Visit(Source.OrderBy(key).Expression);
+            return (visitor, visitor.OrderByTerms.Single().Fragment);
+        }
+
+        [TestMethod]
+        public void ParameterMode_TextValue_IsAParameter()
+        {
+            var first = Fragment(p => p.FirstName);
+            var text = "it's a \\' test";
+            var (visitor, fragment) = WithParameters(p => p.FirstName == text ? 0 : 1);
+
+            Assert.AreEqual(1, visitor.Parameters.Count);
+            Assert.AreEqual(text, visitor.Parameters[0].Value);
+            Assert.AreEqual($"CASE WHEN {first} = {visitor.Parameters[0].ParameterName} THEN 0 ELSE 1 END", fragment);
+        }
+
+        [TestMethod]
+        public void ParameterMode_TextBranchValues_AreParameters_NumbersAndNullStayInline()
+        {
+            var id = Fragment(p => p.Id);
+            var (visitor, fragment) = WithParameters(p => p.Id > 5 ? "high" : "low");
+
+            Assert.AreEqual($"CASE WHEN {id} > 5 THEN {visitor.Parameters[0].ParameterName} ELSE {visitor.Parameters[1].ParameterName} END", fragment);
+            CollectionAssert.AreEqual(new object[] { "high", "low" }, visitor.Parameters.Select(x => x.Value).ToList());
+
+            var (nullVisitor, nullFragment) = WithParameters(p => p.FirstName == null ? 0 : 1);
+            Assert.AreEqual(0, nullVisitor.Parameters.Count);
+            StringAssert.Contains(nullFragment, "IS NULL");
+        }
+
+        [TestMethod]
+        public void ParameterMode_EqualValues_ShareOneParameter()
+        {
+            var visitor = ParameterVisitor();
+            visitor.Visit(Source.OrderBy(p => p.FirstName == "b" ? 1 : 0).ThenBy(p => p.FirstName == "b" ? 1 : 0).Expression);
+
+            Assert.AreEqual(1, visitor.OrderByTerms.Count, "the same CASE twice is still one term");
+            Assert.AreEqual(1, visitor.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void ParameterMode_CharGuidAndDates_AreParameters()
+        {
+            var g = MarkerGuid;
+            var (guids, _) = WithParameters(p => p.Id > 0 ? g : Guid.Empty);
+            CollectionAssert.AreEqual(new object[] { g, Guid.Empty }, guids.Parameters.Select(x => x.Value).ToList());
+
+            var d = new DateTime(2000, 1, 2, 3, 4, 5);
+            var (dates, _) = WithParameters(p => p.DateUtcCreated > d ? 0 : 1);
+            Assert.AreEqual(d, dates.Parameters.Single().Value);
+
+            var dto = new DateTimeOffset(2000, 1, 2, 3, 4, 5, TimeSpan.FromHours(2));
+            var (offsets, _) = WithParameters(p => p.Id > 0 ? dto : DateTimeOffset.MinValue);
+            Assert.AreEqual(dto, offsets.Parameters[0].Value);
+
+            var c = 'x';
+            var probe = new PostgreSqlOrderByClauseVisitor<CharProbe>(new ConcurrentDictionary<string, string>(), new List<PropertyInfo>(), null, null, new PostgreSqlParameterGenerator());
+            probe.Visit(new List<CharProbe>().AsQueryable().OrderBy(x => x.Initial == c ? 0 : 1).Expression);
+            Assert.AreEqual("x", probe.Parameters.Single().Value, "a char is sent as text, as 3.9.0 wrote it");
+        }
+
+        #endregion
     }
 }

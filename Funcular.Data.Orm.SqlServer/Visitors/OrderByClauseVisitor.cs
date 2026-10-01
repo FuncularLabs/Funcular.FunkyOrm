@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using Microsoft.Data.SqlClient;
 using System.Globalization;
 
 namespace Funcular.Data.Orm.Visitors
@@ -47,6 +48,9 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
         private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
         private readonly string _tableQualifier;
+        private readonly ParameterGenerator _parameterGenerator;
+        private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
+        private readonly Dictionary<object, string> _parameterNames = new Dictionary<object, string>();
 
         /// <summary>The 3.9.0 constructor (no table qualifier), kept for binary compatibility.</summary>
         public OrderByClauseVisitor(
@@ -64,10 +68,25 @@ namespace Funcular.Data.Orm.Visitors
             ICollection<PropertyInfo> unmappedProperties,
             IReadOnlyDictionary<string, string> propertyToColumnMap,
             string tableQualifier)
+            : this(columnNames, unmappedProperties, propertyToColumnMap, tableQualifier, null)
+        {
+        }
+
+        /// <param name="parameterGenerator">When given, every value FunkyORM would write as quoted SQL text (a string,
+        /// char, <see cref="Guid"/>, date or other non-numeric value) becomes a command parameter, created the same way
+        /// as WHERE parameters and listed in <see cref="Parameters"/>; equal values share one parameter. Numbers,
+        /// booleans, enums and <c>NULL</c> stay inline. Without one, values are inlined as literals.</param>
+        public OrderByClauseVisitor(
+            ConcurrentDictionary<string, string> columnNames,
+            ICollection<PropertyInfo> unmappedProperties,
+            IReadOnlyDictionary<string, string> propertyToColumnMap,
+            string tableQualifier,
+            ParameterGenerator parameterGenerator)
             : base(columnNames, unmappedProperties)
         {
             _propertyToColumnMap = propertyToColumnMap;
             _tableQualifier = tableQualifier;
+            _parameterGenerator = parameterGenerator;
         }
 
         /// <summary>
@@ -75,6 +94,11 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         public IReadOnlyList<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms =>
             _orderByClauses.Select(c => new Funcular.Data.Orm.Linq.OrderByTerm(c.ColumnName, c.IsDescending)).ToList();
+
+        /// <summary>
+        /// The command parameters the ORDER BY fragments refer to (empty without a parameter generator).
+        /// </summary>
+        public IReadOnlyList<SqlParameter> Parameters => _parameters;
 
         /// <summary>
         /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute
@@ -266,7 +290,7 @@ namespace Funcular.Data.Orm.Visitors
             }
 
             isNull = value == null;
-            return FormatConstant(value);
+            return ValueSql(value);
         }
 
         /// <summary>
@@ -384,7 +408,7 @@ namespace Funcular.Data.Orm.Visitors
                         if (memberExpr.Expression is ConstantExpression constExpr)
                         {
                             var value = (memberExpr.Member as FieldInfo)?.GetValue(constExpr.Value);
-                            return FormatConstant(value);
+                            return ValueSql(value);
                         }
 
                         // Nullable.Value access: e.g., p.Birthdate.Value -> map to column
@@ -404,7 +428,7 @@ namespace Funcular.Data.Orm.Visitors
                         try
                         {
                             var evaluated = Expression.Lambda(Expression.Convert(memberExpr, typeof(object))).Compile().DynamicInvoke();
-                            return FormatConstant(evaluated);
+                            return ValueSql(evaluated);
                         }
                         catch
                         {
@@ -412,7 +436,7 @@ namespace Funcular.Data.Orm.Visitors
                         }
                     }
                 case ConstantExpression constExpr:
-                    return FormatConstant(constExpr.Value);
+                    return ValueSql(constExpr.Value);
                 case UnaryExpression unary when unary.NodeType == ExpressionType.Convert:
                     return BuildValueSql(unary.Operand);
                 default:
@@ -420,12 +444,53 @@ namespace Funcular.Data.Orm.Visitors
                     try
                     {
                         var evaluated = Expression.Lambda(Expression.Convert(expr, typeof(object))).Compile().DynamicInvoke();
-                        return FormatConstant(evaluated);
+                        return ValueSql(evaluated);
                     }
                     catch
                     {
                         throw new NotSupportedException($"Unsupported expression in ORDER BY branch: {expr.NodeType}");
                     }
+            }
+        }
+
+        /// <summary>
+        /// A value's SQL. With a parameter generator, anything <see cref="FormatConstant"/> would quote becomes a command
+        /// parameter; equal values share one, so identical ternaries still compare equal as fragments. Numbers,
+        /// booleans, enums and <c>NULL</c> stay inline.
+        /// </summary>
+        private string ValueSql(object value)
+        {
+            if (_parameterGenerator == null || value == null || value is bool || value is Enum || IsNumber(value))
+                return FormatConstant(value);
+
+            var bound = BindableValue(value);
+            if (_parameterNames.TryGetValue(bound, out var name))
+                return name;
+            var parameter = _parameterGenerator.CreateParameter(bound);
+            _parameters.Add(parameter);
+            _parameterNames[bound] = parameter.ParameterName;
+            return parameter.ParameterName;
+        }
+
+        private static bool IsNumber(object value) =>
+            value is byte || value is sbyte || value is short || value is ushort || value is int || value is uint
+            || value is long || value is ulong || value is float || value is double || value is decimal;
+
+        // What gets bound: strings, Guids and dates as themselves, typed like WHERE parameters; anything else (a char,
+        // for one) as its invariant text, as 3.9.0 wrote it. SQL Server's parameter generator has no DateTimeOffset
+        // mapping, so it goes as ISO 8601 text, which SQL Server converts implicitly.
+        private static object BindableValue(object value)
+        {
+            switch (value)
+            {
+                case string _:
+                case Guid _:
+                case DateTime _:
+                    return value;
+                case DateTimeOffset dto:
+                    return dto.ToString("o", CultureInfo.InvariantCulture);
+                default:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture);
             }
         }
 

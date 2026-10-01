@@ -178,6 +178,37 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
         protected string Sql => Normalize(_sb.ToString());
 
         protected void ClearLog() => _sb.Clear();
+        /// <summary>
+        /// Asserts every parameter logged since the last <see cref="ClearLog"/> is referenced by the command it was sent
+        /// with: no command carries parameters it doesn't use.
+        /// </summary>
+        protected void AssertEveryParameterReferenced()
+        {
+            var command = new StringBuilder();
+            var inParameters = false;
+            foreach (var line in _sb.ToString().Split('\n'))
+            {
+                var parameter = Regex.Match(line.TrimStart(), @"^(@p__linq__\d+): ");
+                if (!parameter.Success)
+                {
+                    if (inParameters)
+                    {
+                        command.Clear();
+                        inParameters = false;
+                    }
+                    command.AppendLine(line);
+                    continue;
+                }
+                inParameters = true;
+                var name = parameter.Groups[1].Value;
+                Assert.IsTrue(Regex.IsMatch(command.ToString(), Regex.Escape(name) + @"(?!\d)"),
+                    $"{name} was sent with a command that doesn't use it: {Normalize(command.ToString())}");
+            }
+        }
+
+        /// <summary>The logged command texts since the last <see cref="ClearLog"/>, without the parameter-value lines.</summary>
+        protected string CommandTexts() => Normalize(string.Join("\n", _sb.ToString().Split('\n')
+            .Where(line => !Regex.IsMatch(line.TrimStart(), @"^@p__linq__\d+: "))));
 
         /// <summary>
         /// The top-level ORDER BY list of the last logged command (normalized, without the keyword), or null. Takes
@@ -189,7 +220,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             var at = sql.LastIndexOf("ORDER BY ", StringComparison.Ordinal);
             if (at < 0)
                 return null;
-            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: LIMIT | OFFSET | @p__linq__|$)");
+            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: LIMIT | OFFSET | @p__linq__\d+: |$)");
             return match.Success ? match.Groups[1].Value.Trim() : null;
         }
 
