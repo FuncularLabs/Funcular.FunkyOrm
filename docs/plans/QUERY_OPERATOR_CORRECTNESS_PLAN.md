@@ -16,14 +16,19 @@
 > - **Tasks 1–10 are complete** on all four providers (§6 statuses). Task 11's gauntlet ran through the first push:
 >   `development/3.10` is at `66bde1e` on origin, the sha the push gate's sentinel holds. Its release steps remain.
 > - **Task 12** (owner decision 2026-10-01: ORDER BY values as parameters, before the beta) is in its review loop
->   (§9.33–§9.36).
+>   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
+
+> **Revision 36 (fix-verification of `66bde1e..1458516`, 2026-10-01) — what changed:** plan prose only (F1–F5).
+>   - §8: the SQL Server constant-test entry, and the SQLite culture and WHERE entries.
+>   - The status block, rev 35's header, and the Task 12 status.
+>   - §9.38.
 
 > **Revision 35 (fix-verification of `66bde1e..0568a3f`, 2026-10-01) — what changed:** prose only (N1–N4).
 >   - The status block above.
 >   - Two §8 SQLite entries.
 >   - A new §8 entry for a pre-existing SQL Server constant-ORDER BY case.
->   - §9.37.
+>   - §9.37 and the Task 12 status (verification layer 4).
 >   - Outside the plan: the PostgreSQL null-test sentence in both operator tables.
 
 > **Revision 34 (fix-verification of `66bde1e..4e9030f`, 2026-10-01) — what changed:** no product code changed.
@@ -1838,6 +1843,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Six concurrent pairs of the probe test: 12 of 12 passed, and no rows were left behind.
     - Suites: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708; net48 76/76; net9 5/5.
   - **Verification layer 4 (rev 35, §9.37).** Prose only (N1–N4); no code or test changed.
+  - **Verification layer 5 (rev 36, §9.38).** Plan prose only (F1–F5).
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -1979,8 +1985,9 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - `> d` includes the row equal to `d`.
   - Owner's call: fix before 3.10.0 or follow up. A follow-up would apply the dialect's conversions in
     `SqliteParameterGenerator`.
-  - ORDER BY values (AC12-10) are bound in the storage format: `D` Guids, and invariant
-    `yyyy-MM-dd HH:mm:ss.fff` dates. That matches rows written under a Gregorian calendar with `:` time separators
+  - ORDER BY values (AC12-10) are bound in the storage format: `D` Guids, invariant
+    `yyyy-MM-dd HH:mm:ss.fff` `DateTime`s, and `yyyy-MM-dd HH:mm:ss.fffffffK` `DateTimeOffset`s. That matches rows
+    written under a Gregorian calendar with `:` time separators
     (see the culture entry below).
 - **PostgreSQL WHERE timestamps depend on startup order (pre-existing; F2).** `PostgreSqlOrmDataProvider`'s static
   constructor sets `Npgsql.EnableLegacyTimestampBehavior`. Npgsql reads that switch once, at its own first use.
@@ -2007,13 +2014,23 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - WHERE and ORDER BY comparisons against such rows mismatch silently (same at `66bde1e` and HEAD).
   - Follow-up candidate, owner's call (before 3.10.0 or in 3.10.1): write *and* parse with `InvariantCulture`.
     Fixing the parse alone would leave the stored values wrong. Databases already written under such cultures
-    hold culture-formatted text, so the fix needs a tolerant read or a migration note. `README.md` (SQLite type
-    affinity) and `FUNKYORM_AI_INSTRUCTIONS_SQLITE.md` say dates are stored as ISO 8601. That is true only under
-    such cultures; correct them with the fix.
-- **SQL Server rejects a ternary whose whole test is a non-quoted value compared with `null` (pre-existing; rev 34
-  reviewer, executed on `66bde1e` and HEAD).** Examples: `n == null` with a captured `int?`, or a `bool?`. The error
-  is "A constant expression was encountered in the ORDER BY list", from `5 IS NULL` or `NULL IS NULL` when no
-  branch reads the row. Quoted values no longer hit it: since Task 12 they are parameters.
+    hold culture-formatted text, so the fix needs a tolerant read or a migration note. Three docs say dates are
+    stored as ISO 8601: `README.md` (SQLite type affinity), `FUNKYORM_AI_INSTRUCTIONS_SQLITE.md` and
+    `FUNKYORM_AI_INSTRUCTIONS.md` (date storage). That is true only under a Gregorian calendar with `:` time
+    separators; correct them with the fix.
+- **SQL Server: a ternary whose test reads no row and isn't a parameter is a constant test (pre-existing; rev 34–35
+  reviewers, executed on `66bde1e` and HEAD; restated in rev 36).** What decides the outcome is the branch the
+  constant test selects. The executed shapes, with `n = 5` and `five = 5`:
+  - **A row-reading branch is selected, and it works:** `n == null ? p.LastName : p.FirstName`.
+  - **A constant branch is selected, and it fails with error 408** ("A constant expression was encountered in the
+    ORDER BY list") on both shas: `n == null ? p.Id : 0`, `five < 3 ? p.Id : 0`, `five > 3 ? 0 : 1`.
+  - **A quoted branch is selected** (`five > 3 ? "a" : "b"`, `n == null ? p.FirstName : "z"`). It is a parameter at
+    HEAD and fails with error 1008 instead of 408.
+  - **A quoted value compared with `null`:** a non-null one works at HEAD (`s == null ? "a" : "b"`). A variable
+    holding `null` still emits `NULL IS NULL` and fails with 408.
+
+  No shape that worked on `66bde1e` fails at HEAD. Follow-up candidate: decide a test that reads no row in .NET
+  and emit the selected branch.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2723,11 +2740,24 @@ that window.
 | N4 | nit | HOUSE-RULE | The status block said Tasks 1–11 are complete and cited a CLEAN verification with no §9 row. | Now Tasks 1–10 complete, Task 11 through the first push (the push gate's sentinel holds `66bde1e`), and its release steps remaining. |
 
 Observations recorded:
-- In §8: SQL Server's constant ORDER BY for a non-quoted value compared with `null` (O1, pre-existing).
+- In §8: SQL Server's constant test in an ORDER BY ternary (O1, pre-existing; restated in rev 36).
 - In §8: the README and SQLite AI doc's ISO 8601 claim, and the migration need (O2).
 - Not recorded: O3, AC12-10 not posted to #12 (an outward action, so the owner's call). O4 (the `EnsureSchema`
   first-creation race) is the same pattern as the other fixture tables. O5 is the orphan `q310_` rows from an
   earlier interrupted run.
+
+### 9.38 Fix-verification of `66bde1e..1458516` (non-author; prose claims executed on 66bde1e and HEAD; suites re-run)
+
+Verdict: NOT CLEAN on plan prose. N1–N4 are resolved, and the shipped docs (`Advanced.md`, the AI doc) are true by
+execution. Suites at HEAD: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| F1 | minor | HOUSE-RULE | §8's new SQL Server entry gave the wrong condition ("no branch reads the row", and specific to `null`). It was also too broad ("quoted values no longer hit it"). What matters is the branch the constant test selects. At HEAD, a selected quoted branch fails with error 1008, not 408. | Restated using only the executed shapes, each with its result. |
+| F2 | nit | HOUSE-RULE | "true only under such cultures" referred to the wrong set of cultures. | Now "a Gregorian calendar with `:` time separators". |
+| F3 | nit | PLAN-GAP | The list of docs to correct missed `FUNKYORM_AI_INSTRUCTIONS.md`. | Added. |
+| F4 | nit | HOUSE-RULE | The WHERE entry gave only the `DateTime` storage format; a `DateTimeOffset` is bound as `fffffffK`. | Both formats named. |
+| F5 | nit | HOUSE-RULE | The status block cited §9.33–§9.36, although §9.37 exists. Rev 35's header omitted its Task 12 status change. | Now "§9.33 onward"; header completed. |
 
 ---
 
