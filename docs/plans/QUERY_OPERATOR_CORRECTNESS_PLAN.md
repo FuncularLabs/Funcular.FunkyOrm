@@ -14,7 +14,13 @@
 > - **Task 0 is complete:** fix-verification r16 of rev 16 (`ed772fb`) is CLEAN, with nits only (§9.16).
 >   The §3 ACs are posted to #12/#13.
 > - **Task 1's tests are written and red-run** on all four providers (§6 Task 1 status; §1.5 t1 rows). The
->   test review's 18 findings are folded in (§9.17). A fix-verification of them is pending before Task 2.
+>   test review's 18 findings (§9.17) and fix-verification FV1's 5 (§9.18) are folded in; FV2 is pending before Task 2.
+
+> **Revision 19 (Task 1 fix-verification FV1, 2026-10-01) — what changed:** FV1 found 2 minor issues and 3 nits
+> (§9.18).
+> - §5.2's `OfType` message spec now covers reference scalars and non-identity `OfType`.
+> - §4.4 gets a "`Last*` drops the ORDER BY" row; the Log row names the new paths.
+> - §6 counts: one `Last` oracle row per provider turns red, as intended.
 
 > **Revision 18 (Task 1 test review, 2026-10-01) — what changed:** two non-author reviewers found 18 test
 > gaps. Disposition is in §9.17.
@@ -1069,7 +1075,8 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | `Last*` falls back to `Id DESC` despite explicit terms | `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Allowed_Operator_MatchesOracle[Last*]` (expected rows aren't the max id) |
 | `Last*` inverts by splitting the ORDER BY text on commas | `Last_AfterComputedOrderBy_InvertsComputedTerm` (`COALESCE(project.score, 0)` inverted whole) |
 | No default `Id DESC` for unordered `Last` (masked by heap order on PostgreSQL) | `Last_Parameterless_Unordered_ReturnsMaxId` (SQL assert) |
-| A new execution path skips `Log` ("no query" asserts turn vacuous) | `Harness_LogObservesEveryExecutionPath` |
+| A new execution path skips `Log` ("no query" asserts turn vacuous) | `Harness_LogObservesEveryExecutionPath` (incl. the `Single*` row-limit, `Last*` and `LongCount` paths) |
+| `Last*` drops the ORDER BY (takes the first matching row) | `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Allowed_Operator_MatchesOracle[Last*]` (each asserts the inverted ORDER BY; a seed alone can't rule it out) |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
@@ -1262,7 +1269,9 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
        projections support enumeration only (materialize first).
      - Boxing or unrelated-type `Cast` (D5): `"Cast<{X}>() is not translated; FunkyORM supports only
        identity and reference-conversion casts. Materialize first: query.ToList().Cast<{X}>()."`
-     - Nullable `OfType`: the message points to `Where(x => x.M != null)` before the projection.
+     - `OfType` over a nullable or reference scalar: the message names `OfType<X>()` and points to
+       `Where(x => x.M != null)` before the projection *(rev 19: reference scalars included)*.
+     - Non-identity `OfType`: the message names `OfType<X>()` *(rev 19)*.
    - `EnsureSupported` returns `void`. It only throws.
 2. **Wiring.**
    - Each provider's `ParseExpression` calls `QueryOperatorPolicy.EnsureSupported(expression)` first. For
@@ -1384,10 +1393,10 @@ Each task lists the tests it turns green. Every implementation task starts with 
 
       | Suite | Green | Red | Rows |
       |---|---|---|---|
-      | SQL Server (incl. Core net8 9 rows and the 2 doc-table rows) | 170 | 310 | 480 |
-      | SQLite | 148 | 326 | 474 |
-      | PostgreSQL | 171 | 298 | 469 |
-      | MySQL | 171 | 298 | 469 |
+      | SQL Server (incl. Core net8 9 rows and the 2 doc-table rows) | 169 | 311 | 480 |
+      | SQLite | 147 | 327 | 474 |
+      | PostgreSQL | 170 | 299 | 469 |
+      | MySQL | 170 | 299 | 469 |
       | Core on net48 / net9 (separate projects) | 0 | 7 / 3 | 7 / 3 |
 
     - Every red message was read and fails for its 3.9.0 reason. The greens are regression pins.
@@ -1396,7 +1405,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
       - SQLite's provider-scope exceptions are in §4.2.
     - Evidence: the t1 rows in §1.5.
     - ✅ Test review by two non-author reviewers: 18 findings, folded in (§9.17).
-    - ⏳ Fix-verification of the folded-in fixes runs before Task 2.
+    - ✅ Fix-verification FV1 of the review fixes: 2 minor + 3 nits, all folded in (§9.18).
+    - ⏳ Fix-verification FV2 of the FV1 fixes runs before Task 2.
 - **Task 2 — #12 qualifier + duplicate removal** (4 providers).
   → AC12-1…AC12-4, AC12-6, AC12-9.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
@@ -1879,6 +1889,23 @@ Folded in:
 | P1-7 | nit | OTHER | SQLite cleanup deleted every registered DB; narrow exception filter | Per-class delete; tolerant filter. |
 | P1-8 | nit | TEST-GAP | SQLite parameter-uniqueness check vacuous on an empty name list | Non-empty assert. |
 | P1-9 | nit | PLAN-GAP | Provider-scope note missed the SQLite Skip-only allowed rows; MySQL AC12-8 null remote key uncommented | Note extended; comment added. |
+
+### 9.18 Fix-verification FV1 of `fee1a0d..6fb304c`
+
+**Totals:** TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1. Four of the five are fix-introduced.
+
+FV1 confirmed:
+- every §9.17 finding RESOLVED except T1-10 (PARTIAL), across the four providers;
+- the §6 counts, by fresh runs;
+- the nine new §4.4 rows, except the Log row.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| FV-1 | minor | TEST-GAP | yes | The retargeted `Last`-with-predicate rows expected the lowest id among the matches, so a `Last` that drops the ORDER BY passed; the fix traded one blind spot for another | No reseed. The dedicated tests and the `Allowed[Last*]` families assert the inverted ORDER BY (a seed alone can't rule out both wrong answers). `Allowed[LastOrDefaultPredicate]` turns red, as intended. §4.4 row. |
+| FV-2 | minor | PLAN-GAP | yes | The new `OfType` message asserts went beyond §5.2 (null hint promised only for `Nullable<>`; nothing for non-identity `OfType`) | §5.2 message spec amended to match the tests. |
+| FV-3 | nit | TEST-GAP | yes | Harness positive control skipped the `Single*`/`Last*`/`LongCount` paths | Added. |
+| FV-4 | nit | HOUSE-RULE | yes | The reseeded `LastOrDefault` predicate test seeded a null remote LEFT-JOIN key in an oracle row | Seeds an employer. |
+| FV-5 | nit | TEST-GAP | no | `Allowed[AnyPredicate]` / `[All]` were true with or without the predicate | `== "zzz"` / `!= "a"`. |
 
 ---
 

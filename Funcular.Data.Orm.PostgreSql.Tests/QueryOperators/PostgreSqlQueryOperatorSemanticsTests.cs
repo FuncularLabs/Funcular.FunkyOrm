@@ -102,6 +102,10 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
                 ["selector aggregate"] = () => query.Max(p => p.Id),
                 ["scalar projection"] = () => query.Select(p => p.Id).ToList(),
                 ["non-generic Execute"] = () => query.Provider.Execute(query.Expression),
+                ["Single"] = () => query.Single(p => p.FirstName == "b"),
+                ["Last"] = () => query.Last(),
+                // 3.9.0 throws InvalidCastException after the command ran (and was logged).
+                ["LongCount"] = () => { try { query.LongCount(); } catch (InvalidCastException) { } },
             };
 
             foreach (var path in paths)
@@ -260,9 +264,11 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             var ids = SeedPeople(marker, null, "c", "a", "b");
 
             // Last by FirstName is "c", the MIN id: rules out the max-id row and the first row in order.
+            ClearLog();
             var row = People(marker).OrderBy(p => p.FirstName).Last();
 
             Assert.AreEqual(ids[0], row.Id);
+            StringAssert.Contains(OrderByList(), $"{PersonTable}.first_name DESC", "the explicit order is inverted");
         }
 
         [TestMethod]
@@ -332,11 +338,14 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
         public void LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle()
         {
             var marker = NewMarker();
-            SeedPeople(marker, null, "c", "b", "a");
+            SeedPeople(marker, SeedEmployer("Q310Country_" + marker), "c", "b", "a");
 
             // By FirstName: a, b, c → matching (!= "c"): a, b → last is b. Among the matches the max id is a, so an
             // Id DESC fallback that ignores the explicit order gives a.
+            ClearLog();
             AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName).LastOrDefault(p => p.FirstName != "c"));
+            // b is also the lowest id among the matches, so a Last that drops the ORDER BY could coincide: pin the SQL.
+            StringAssert.Contains(OrderByList(), $"{PersonTable}.first_name DESC", "the explicit order is inverted");
         }
 
         [TestMethod]
@@ -451,8 +460,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
                 ["LastOrDefault"] = q => q.OrderByDescending(p => p.FirstName).LastOrDefault(),
                 ["LastOrDefaultPredicate"] = q => q.OrderBy(p => p.Id).LastOrDefault(p => p.FirstName == "zzz"),
                 ["Any"] = q => q.Any(),
-                ["AnyPredicate"] = q => q.Any(p => p.FirstName == "b"),
-                ["All"] = q => q.All(p => p.FirstName != "zzz"),
+                ["AnyPredicate"] = q => q.Any(p => p.FirstName == "zzz"), // false only if the predicate is applied
+                ["All"] = q => q.All(p => p.FirstName != "a"), // false: "a" is seeded
                 ["Count"] = q => q.Count(),
                 ["CountPredicate"] = q => q.Count(p => p.FirstName != "a"),
                 ["LongCount"] = q => q.LongCount(),
@@ -463,6 +472,14 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
                 ["CastIdentity"] = q => q.OrderBy(p => p.Id).Cast<PersonDetailEntity>().ToList(),
                 ["OfTypeIdentity"] = q => q.OrderBy(p => p.Id).OfType<PersonDetailEntity>().ToList(),
             };
+
+        private static readonly Dictionary<string, string> InvertedLastOrder = new Dictionary<string, string>
+        {
+            ["Last"] = "first_name ASC",
+            ["LastPredicate"] = "first_name ASC",
+            ["LastOrDefault"] = "first_name ASC",
+            ["LastOrDefaultPredicate"] = "id DESC",
+        };
 
         [DataTestMethod]
         [DataRow("Where")]
@@ -505,7 +522,11 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             var marker = NewMarker();
             SeedPeople(marker, SeedEmployer("Q310Country_" + marker), "b", "a", "c");
 
+            ClearLog();
             AssertMatchesOracle(marker, AllowedFamilies[family], family);
+            // Last* must invert the explicit order; a missing or uninverted ORDER BY can coincide with the oracle.
+            if (InvertedLastOrder.TryGetValue(family, out var inverted))
+                StringAssert.Contains(OrderByList(), PersonTable + "." + inverted, family + ": inverted ORDER BY");
         }
 
         #endregion
