@@ -32,19 +32,31 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             var end = text.IndexOf(EndMarker, StringComparison.Ordinal);
             Assert.IsTrue(begin >= 0 && end > begin, $"{relativePath}: operator table markers not found");
 
-            var documented = new SortedSet<string>(StringComparer.Ordinal);
+            // A list, not a set: an operator listed twice (perhaps with contradicting notes) must fail, and so must a
+            // data row that names no operator.
+            var documented = new List<string>();
+            var pastHeader = false;
             foreach (var line in text.Substring(begin, end - begin).Split('\n'))
             {
                 var row = line.Trim();
-                if (!row.StartsWith("|", StringComparison.Ordinal) || row.StartsWith("|---", StringComparison.Ordinal))
+                if (!row.StartsWith("|", StringComparison.Ordinal))
                     continue;
-                var firstCell = row.Split('|')[1];
-                foreach (Match name in Regex.Matches(firstCell, @"`(\w+)`"))
-                    documented.Add(name.Groups[1].Value);
+                if (row.StartsWith("|---", StringComparison.Ordinal))
+                {
+                    pastHeader = true;
+                    continue;
+                }
+                if (!pastHeader)
+                    continue;
+                var names = Regex.Matches(row.Split('|')[1], @"`(\w+)`").Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+                Assert.IsTrue(names.Count > 0, $"{relativePath}: a table row names no operator: {row}");
+                documented.AddRange(names);
             }
 
+            var duplicates = documented.GroupBy(n => n).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            Assert.AreEqual(0, duplicates.Count, $"{relativePath}: listed more than once: {string.Join(", ", duplicates)}");
             var supported = new SortedSet<string>(QueryOperatorPolicy.SupportedOperators.Select(m => m.Name), StringComparer.Ordinal);
-            CollectionAssert.AreEqual(supported.ToList(), documented.ToList(),
+            CollectionAssert.AreEqual(supported.ToList(), documented.OrderBy(n => n, StringComparer.Ordinal).ToList(),
                 $"{relativePath}: documented operators differ.\nMissing: {string.Join(", ", supported.Except(documented))}" +
                 $"\nExtra: {string.Join(", ", documented.Except(supported))}");
         }

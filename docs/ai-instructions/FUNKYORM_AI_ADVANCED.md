@@ -108,7 +108,7 @@ resolves to an inline SQL fragment (JSON accessor, expression, correlated subque
 ### ❌ Doesn't work
 | Construct | Fails with | Do this instead |
 |---|---|---|
-| `Count` / `All` / `Sum` / `Average` filtered by a **reverse** (one-to-many) `[RemoteKey]`/`[RemoteProperty]` | `NotSupportedException` (message contains "reverse" and "ToList") | The reverse join fans base rows out one-per-child, inflating the result. Materialize and aggregate in memory: `Query<T>().Where(...).ToList().Count()` / `.Sum(...)`. |
+| `Count` / `LongCount` / `All` / `Sum` / `Average` filtered by a **reverse** (one-to-many) `[RemoteKey]`/`[RemoteProperty]` | `NotSupportedException` (message contains "reverse" and "ToList") | The reverse join fans base rows out one-per-child, inflating the result. Materialize and aggregate in memory: `Query<T>().Where(...).ToList().Count()` / `.Sum(...)`. |
 | `Distinct().Count()` | `NotSupportedException` | Count client-side. |
 | Aggregate selector that is an expression, not a simple member — e.g. `.Sum(x => x.A + x.B)` | `NotSupportedException` — aggregate selectors must be a single mapped column, not an expression | Sum a mapped column, or compute in memory. |
 | `GroupBy(...)` | `NotSupportedException` — not translated to SQL | Group in memory: `Query<T>().ToList().GroupBy(...)`. |
@@ -173,7 +173,7 @@ base row fans out one-per-child.
 | Whole-entity `Query<T>().Where(x => x.ReverseKey == v).ToList()` | ✅ Works — rows fan out, but `ToList()` handles it; filtering by the reverse key is supported. |
 | `Any` / `Min` / `Max` over a reverse filter | ✅ Fan-out-safe — executes. |
 | Reverse entity aggregate with **no** remote filter | ✅ Stays on the base table (no fan-out join appended). |
-| `Count` / `All` / `Sum` / `Average` over a **reverse remote filter** | ❌ `NotSupportedException` — materialize and aggregate in memory. |
+| `Count` / `LongCount` / `All` / `Sum` / `Average` over a **reverse remote filter** | ❌ `NotSupportedException` — materialize and aggregate in memory. |
 
 > **The reverse-aggregate guard is entity-wide (conservative/fail-safe).** It keys off whether the entity
 > declares *any* reverse remote link — so if an entity mixes forward and reverse remotes, filtering
@@ -208,7 +208,7 @@ LINQ-to-objects.
 | `Last`, `LastOrDefault` | inverted `ORDER BY` + `TOP (1)` / `LIMIT 1` | Default order `Id DESC`. After `Distinct` + custom projection: explicit `OrderBy` on a projected key required. |
 | `Count`, `LongCount` | `COUNT(*)` (`COUNT_BIG(*)` for `LongCount` on SQL Server) | `LongCount` → `long`. |
 | `Any`, `All` | `EXISTS` | `All` needs a predicate. |
-| `Sum`, `Average`, `Min`, `Max` | SQL aggregate | Selector overloads only, one mapped column. Known issues until 3.10.1 (Changelog). |
+| `Sum`, `Average`, `Min`, `Max` | SQL aggregate | Selector overloads only, one mapped column. Known issues in 3.10.0; fixes planned for 3.10.1 (Changelog). |
 | `Cast`, `OfType` | no-op | `Cast` to the row type or a reference conversion; `OfType` to the row type only, not over a nullable/reference member. |
 <!-- funky:supported-operators:end -->
 

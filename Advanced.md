@@ -2,8 +2,9 @@
 
 FunkyORM translates a deliberately **bounded** slice of LINQ to SQL. That boundary is what keeps it fast and
 predictable — but it means some constructs that compile in C# aren't translated, and a few translate only in
-specific shapes. This guide is the honest map of that boundary for four areas that trip people up:
-**projections**, **computed (view-replacing) attributes**, **aggregates**, and **remote properties**.
+specific shapes. This guide is the honest map of that boundary for five areas that trip people up:
+**projections**, **computed (view-replacing) attributes**, **aggregates**, **remote properties**, and **which LINQ
+operators are translated at all** (§5).
 
 These behaviors are covered by integration tests. Everything marked ❌ fails at a specific, named point —
 usually a clear `NotSupportedException` that tells you the alternative. When in doubt, the universal escape
@@ -132,7 +133,7 @@ var n = provider.Query<Person>().Where(p => p.EmployerCountryName == "USA").Coun
 
 **Doesn't work:**
 
-- Filtering **`Count` / `All` / `Sum` / `Average`** by a **reverse** (one-to-many) remote attribute throws
+- Filtering **`Count` / `LongCount` / `All` / `Sum` / `Average`** by a **reverse** (one-to-many) remote attribute throws
   `NotSupportedException` — the reverse join fans rows out and would inflate the number. Materialize and
   aggregate in memory: `query.Where(...).ToList().Count()`. (`Any` / `Min` / `Max` are fan-out-safe and *do*
   work over a reverse join.)
@@ -184,7 +185,7 @@ forward-remote-filtered aggregates, and multi-hop paths all work. Remote reads i
 | Query and filter the whole entity (`.ToList()`) | ✅ works |
 | `Any` / `Min` / `Max` with a reverse filter | ✅ works (fan-out-safe) |
 | Aggregate with **no** remote filter | ✅ works (stays on the base table) |
-| `Count` / `All` / `Sum` / `Average` with a **reverse filter** | ❌ `NotSupportedException` — aggregate in memory |
+| `Count` / `LongCount` / `All` / `Sum` / `Average` with a **reverse filter** | ❌ `NotSupportedException` — aggregate in memory |
 
 The reverse-aggregate guard is deliberately conservative and **entity-wide**: if an entity declares *any*
 reverse remote link, filtering `Count`/`All`/`Sum`/`Average` by any remote column on it — even a forward one —
@@ -217,7 +218,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 | `Last`, `LastOrDefault` | the first row of the **inverted** order (`TOP (1)` / `LIMIT 1`) | Every ordering key is inverted. With no `OrderBy`, the order is `Id DESC`. |
 | `Count`, `LongCount` | `COUNT(*)`; `COUNT_BIG(*)` for `LongCount` on SQL Server | `LongCount` returns a `long`. |
 | `Any`, `All` | `EXISTS` | `All` requires a predicate. |
-| `Sum`, `Average`, `Min`, `Max` | the SQL aggregate over one mapped column | Selector overloads only. Some result types and empty-set cases are fixed in 3.10.1 (Changelog, Known issues). |
+| `Sum`, `Average`, `Min`, `Max` | the SQL aggregate over one mapped column | Selector overloads only. Some result types and empty-set cases are wrong in 3.10.0; fixes are planned for 3.10.1 (Changelog, Known issues). |
 | `Cast`, `OfType` | nothing: the rows are already of that type | `Cast<T>()` to the row type itself or a reference conversion (`Cast<object>()`, `Cast<BaseClass>()`); `OfType<T>()` to the row type only, and not over a nullable or reference member (it would drop nulls). |
 <!-- funky:supported-operators:end -->
 
@@ -236,7 +237,8 @@ ascending order, as LINQ does; PostgreSQL puts them last. `First`, `Last` and `T
 order, so on PostgreSQL `OrderBy(x => x.Nullable).Last()` can be a row whose key is NULL.
 
 **`Last` and `Distinct`.** `Last`/`LastOrDefault` after `Distinct()` with a custom projection need an explicit
-`OrderBy` on a projected key: the default `Id DESC` isn't in the projection, so it throws.
+`OrderBy` on a projected key, even when `Id` is projected: distinct projected rows have no default order, so it
+throws.
 
 **Base-type and interface views.** Over `IQueryable<BaseClass>` or `IQueryable<IInterface>` (by assignment or
 `Cast`), enumeration, paging and parameterless terminals work, but a **predicate** written against the base type

@@ -16,7 +16,7 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 - **`Last`/`LastOrDefault` returned the first row.** They now invert every ordering key (own, remote, computed
   and `CASE` keys) and read one row; with no `OrderBy` they use `Id DESC`. Like `First` and `ToList`, they follow
   the database's NULL placement (PostgreSQL sorts NULLs last when ascending; LINQ-to-objects sorts them first).
-- **`LongCount` threw `InvalidCastException`.** It now returns a `long`, built like `Count` (SQL Server uses
+- **`LongCount` threw** (`InvalidCastException`; `NullReferenceException` on an empty set). It now returns a `long`, built like `Count` (SQL Server uses
   `COUNT_BIG(*)`).
 - **Ordering on entities with remote joins** ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12)):
   own columns in ORDER BY are now table-qualified (`person.id`). Ordering by an own column that a joined table
@@ -50,11 +50,16 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   Happened to be correct before: `OrderBy(k).ElementAt(0)`; `DefaultIfEmpty()` over a non-empty set.
 - **Operators after `Skip`/`Take`** were applied *before* the page (`Take(5).Count()` counted the whole table).
   Only `Select`, `Cast`/`OfType`, one `Take` after a `Skip`, and a parameterless `First*`/`Single*` are allowed
-  after paging now. Happened to be correct before: `Take(k).Distinct()` over a keyed entity, `Take(k).Any()`,
-  `Take(10).Take(5)`, and `Skip(0)` followed by `Where`/`Count`/etc. (page 1 of a `Skip(page * size)` helper).
-- **A second `OrderBy`/`OrderByDescending`** (even across `Where`/`Select`/`Distinct`) produced the wrong key
-  priority. It now throws; write `query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction. Happened to be correct before, when the
-  orders coincided: e.g. `OrderBy(a).Where(w).OrderByDescending(k).First()`.
+  after paging now. Happened to be correct before: `Take(k).Distinct()` over a keyed entity, `Take(k ≥ 1).Any()`
+  (`Take(0).Any()` returned `true`), `Take(10).Take(5)`, and `Skip(0)` followed by `Where`/`Count`/etc., page 1 of
+  a `Skip(page * size)` helper. (On SQLite only an aggregate after `Skip(0)` worked: `Skip` without `Take` was
+  invalid SQL there.)
+- **A second `OrderBy`/`OrderByDescending`** was mistranslated. Chained directly (`OrderBy(a).OrderBy(b)`), it
+  emitted `ORDER BY a, b`: the wrong priority. Across `Where`/`Select`/`Distinct`, the earlier key was dropped,
+  so the primary key was right but its ties weren't broken. It now throws; write
+  `query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction. Happened to be correct before:
+  the across-`Where` form whenever the later key had no ties, e.g. `OrderBy(a).Where(w).OrderByDescending(k).First()`
+  on a unique `k`.
 - **A predicate written against a base type or interface** over a converted query threw
   `InvalidCastException`, or for `Single*` returned an unrelated row. It now throws a message telling you to
   apply it to the concrete `IQueryable<T>` (or a generic helper constrained to a base class).
@@ -66,7 +71,7 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
   `EnsureSupported`) and `ScalarProjectionGuard`.
 
-### Known issues (fixed in 3.10.1)
+### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
 - `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
   and SQLite.

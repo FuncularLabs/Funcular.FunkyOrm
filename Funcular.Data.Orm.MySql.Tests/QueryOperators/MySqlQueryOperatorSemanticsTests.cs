@@ -532,6 +532,29 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             StringAssert.Contains(ex.Message, "reverse");
         }
 
+        [TestMethod]
+        public void LongCount_PredicateOnForwardRemoteColumn_InjectsJoin()
+        {
+            // AC13-3: LongCount's own predicate gets the remote join it needs, as Count(pred) does.
+            var marker = NewMarker();
+            var name = "Q310LC_" + marker;
+            var target = SeedEmployer(name);
+            SeedPerson(marker, "a", target);
+            SeedPerson(marker, "b", target);
+            SeedPerson(marker, "c", SeedEmployer("Q310Other_" + marker));
+
+            Assert.AreEqual(2L, People(marker).LongCount(p => p.EmployerName == name));
+        }
+
+        [TestMethod]
+        public void LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported()
+        {
+            // AC13-3: the reverse-join rejection applies to LongCount's own predicate, not only to a Where before it.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<OrganizationReverseDetailEntity>().LongCount(c => c.PersonId == 1));
+            StringAssert.Contains(ex.Message, "reverse");
+        }
+
         #endregion
 
         #region AC13-5 allowed families vs the oracle
