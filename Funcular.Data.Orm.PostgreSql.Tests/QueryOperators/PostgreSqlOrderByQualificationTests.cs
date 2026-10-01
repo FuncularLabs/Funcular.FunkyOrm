@@ -360,6 +360,100 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             CollectionAssert.AreEqual(new[] { "b", "a", "c" }, names);
         }
 
+        // Typed values (review F1-F3): each is bound as the text 3.9.0 quoted, so the database converts it as it
+        // converted the literal.
+
+        private static readonly DateTime Moment = new DateTime(2026, 1, 2, 3, 4, 5);
+
+        [TestMethod]
+        public void TernaryOrderBy_GuidValue_MatchesOracle()
+        {
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310T12_" + marker);
+            var guids = new[] { new Guid("3c3c3c3c-0000-0000-0000-00000000000c"), new Guid("1a1a1a1a-0000-0000-0000-00000000000a"), new Guid("2b2b2b2b-0000-0000-0000-00000000000b") };
+            for (var i = 0; i < guids.Length; i++)
+                SeedTypedPerson(marker, "abc".Substring(i, 1), employer, guids[i], Moment);
+            var target = guids[1]; // not the first row, so a value that never matches shows; hex letters, so case shows
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.UniqueId == target ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [DataTestMethod]
+        [DataRow("==", 0, DateTimeKind.Unspecified)]
+        [DataRow("==", 500, DateTimeKind.Unspecified)]
+        [DataRow(">", 0, DateTimeKind.Unspecified)]
+        [DataRow(">", 500, DateTimeKind.Unspecified)]
+        [DataRow("==", 500, DateTimeKind.Utc)]
+        [DataRow(">", 0, DateTimeKind.Utc)]
+        public void TernaryOrderBy_DateTimeValue_MatchesOracle(string comparison, int milliseconds, DateTimeKind kind)
+        {
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310T12_" + marker);
+            var middle = Moment.AddMilliseconds(milliseconds);
+            SeedTypedPerson(marker, "a", employer, null, middle.AddSeconds(-1));
+            SeedTypedPerson(marker, "b", employer, null, middle);
+            SeedTypedPerson(marker, "c", employer, null, middle.AddSeconds(1));
+            var value = DateTime.SpecifyKind(middle, kind);
+
+            if (comparison == "==")
+                AssertMatchesOracle(marker, q => q.OrderBy(p => p.DateUtcCreated == value ? 0 : 1).ThenBy(p => p.Id).ToList());
+            else
+                AssertMatchesOracle(marker, q => q.OrderBy(p => p.DateUtcCreated > value ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
+        public void TernaryOrderBy_GuidBranchValues_MatchesOracle()
+        {
+            // Text order (and Guid.CompareTo) puts low first; SQL Server's uniqueidentifier order compares the last six
+            // bytes first and puts high first.
+            var (marker, _) = SeedAbc();
+            var high = new Guid("10000000-0000-0000-0000-000000000000");
+            var low = new Guid("00000000-0000-0000-0000-000000000001");
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? high : low).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
+        public void TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle()
+        {
+            // Same offset, so the values' text order is their order. Not UTC: a typed parameter can reject that.
+            var (marker, _) = SeedAbc();
+            var early = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.FromHours(5));
+            var late = early.AddDays(1);
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "b" ? late : early).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
+        public void TernaryOrderBy_NonAsciiText_MatchesOracle()
+        {
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310T12_" + marker);
+            SeedPeople(marker, employer, "alpha", "Ωmega", "zeta");
+            var name = "Ωmega";
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == name ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
+        public void AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand()
+        {
+            // The helper itself: a parameter is checked against the command it was logged with, not an earlier one,
+            // and a value with a line break doesn't end its command.
+            var log = _provider.Log;
+            ClearLog();
+            log("SELECT @p__linq__0");
+            log("SELECT 1");
+            log("@p__linq__0: x");
+            Assert.ThrowsException<AssertFailedException>(() => AssertEveryParameterReferenced());
+
+            ClearLog();
+            log("SELECT @p__linq__0, @p__linq__1");
+            log("@p__linq__0: two\nlines");
+            log("@p__linq__1: y");
+            AssertEveryParameterReferenced();
+        }
+
         #endregion
 
         #region AC12-9

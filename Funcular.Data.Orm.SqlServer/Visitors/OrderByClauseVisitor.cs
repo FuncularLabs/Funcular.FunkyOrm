@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data;
 using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
@@ -50,7 +51,8 @@ namespace Funcular.Data.Orm.Visitors
         private readonly string _tableQualifier;
         private readonly ParameterGenerator _parameterGenerator;
         private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
-        private readonly Dictionary<object, string> _parameterNames = new Dictionary<object, string>();
+        private readonly Dictionary<(bool IsText, string Text), string> _parameterNames =
+            new Dictionary<(bool IsText, string Text), string>();
 
         /// <summary>The 3.9.0 constructor (no table qualifier), kept for binary compatibility.</summary>
         public OrderByClauseVisitor(
@@ -455,20 +457,27 @@ namespace Funcular.Data.Orm.Visitors
 
         /// <summary>
         /// A value's SQL. With a parameter generator, anything <see cref="FormatConstant"/> would quote becomes a command
-        /// parameter; equal values share one, so identical ternaries still compare equal as fragments. Numbers,
-        /// booleans, enums and <c>NULL</c> stay inline.
+        /// parameter carrying the text it would quote (<see cref="LiteralText"/>), so the database converts it as it
+        /// converted 3.9.0's literal. Equal values share one parameter, so identical ternaries still compare equal as
+        /// fragments. Numbers, booleans, enums and <c>NULL</c> stay inline.
         /// </summary>
         private string ValueSql(object value)
         {
             if (_parameterGenerator == null || value == null || value is bool || value is Enum || IsNumber(value))
                 return FormatConstant(value);
 
-            var bound = BindableValue(value);
-            if (_parameterNames.TryGetValue(bound, out var name))
+            // A string or char never shares a parameter with a Guid or date of the same text:
+            // they're typed differently.
+            var key = (IsText: value is string || value is char, Text: LiteralText(value));
+            if (_parameterNames.TryGetValue(key, out var name))
                 return name;
-            var parameter = _parameterGenerator.CreateParameter(bound);
+            var parameter = _parameterGenerator.CreateParameter(key.Text);
+            // Strings stay nvarchar, like WHERE's; anything else is varchar, as the literal was, so (say) a legacy
+            // datetime column compares with it as it did with the literal.
+            if (!key.IsText)
+                parameter.SqlDbType = SqlDbType.VarChar;
             _parameters.Add(parameter);
-            _parameterNames[bound] = parameter.ParameterName;
+            _parameterNames[key] = parameter.ParameterName;
             return parameter.ParameterName;
         }
 
@@ -476,21 +485,21 @@ namespace Funcular.Data.Orm.Visitors
             value is byte || value is sbyte || value is short || value is ushort || value is int || value is uint
             || value is long || value is ulong || value is float || value is double || value is decimal;
 
-        // What gets bound: strings, Guids and dates as themselves, typed like WHERE parameters; anything else (a char,
-        // for one) as its invariant text, as 3.9.0 wrote it. SQL Server's parameter generator has no DateTimeOffset
-        // mapping, so it goes as ISO 8601 text, which SQL Server converts implicitly.
-        private static object BindableValue(object value)
+        /// <summary>
+        /// The text between the quotes of a value <see cref="FormatConstant"/> quotes, and of the parameter that
+        /// replaces it: a date as <c>yyyy-MM-dd HH:mm:ss.fff</c>, a Guid as <c>D</c>, anything else as its invariant
+        /// text. A <see cref="DateTimeOffset"/> keeps its offset; 3.9.0 wrote it in the current culture.
+        /// </summary>
+        private static string LiteralText(object value)
         {
             switch (value)
             {
-                case string _:
-                case Guid _:
-                case DateTime _:
-                    return value;
+                case DateTime dt:
+                    return dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
                 case DateTimeOffset dto:
-                    return dto.ToString("o", CultureInfo.InvariantCulture);
+                    return dto.ToString("yyyy-MM-dd HH:mm:ss.fffffffK", CultureInfo.InvariantCulture);
                 default:
-                    return Convert.ToString(value, CultureInfo.InvariantCulture);
+                    return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
             }
         }
 
@@ -500,17 +509,10 @@ namespace Funcular.Data.Orm.Visitors
 
             switch (value)
             {
-                case string s:
-                    return $"'{s.Replace("'", "''")}'";
-                case DateTime dt:
-                    // SQL-friendly ISO format (no timezone)
-                    return $"'{dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)}'";
                 case bool b:
                     return b ? "1" : "0";
                 case Enum e:
                     return Convert.ToString(Convert.ChangeType(e, Enum.GetUnderlyingType(e.GetType()), CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
-                case Guid g:
-                    return $"'{g}'";
                 case byte _:
                 case sbyte _:
                 case short _:
@@ -524,8 +526,7 @@ namespace Funcular.Data.Orm.Visitors
                 case decimal _:
                     return Convert.ToString(value, CultureInfo.InvariantCulture);
                 default:
-                    // fallback with quoted ToString
-                    return $"'{value?.ToString()?.Replace("'", "''")}'";
+                    return $"'{LiteralText(value).Replace("'", "''")}'";
             }
         }
     }

@@ -41,6 +41,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
         public void Setup()
         {
             _sb.Clear();
+            _logEntries.Clear();
             var path = DatabasePaths.GetOrAdd(GetType(), t => SqliteTempDatabase.Create("funky_sqlite_q310_" + t.Name));
             _connectionString = $"Data Source={path}";
             _provider = new SqliteOrmDataProvider(_connectionString)
@@ -49,6 +50,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
                 {
                     Debug.WriteLine(s);
                     _sb.AppendLine(s);
+                    _logEntries.Add(s);
                 }
             };
         }
@@ -97,6 +99,24 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
                 EmployerId = employerId,
                 DateUtcCreated = DateTime.UtcNow,
                 DateUtcModified = DateTime.UtcNow
+            };
+            _provider.Insert(person);
+            return person.Id;
+        }
+
+        /// <summary>Seeds one person with a set <c>UniqueId</c> and <c>DateUtcCreated</c> (AC12-10's typed values).</summary>
+        protected int SeedTypedPerson(string marker, string firstName, int? employerId, Guid? uniqueId, DateTime created)
+        {
+            var person = new PersonEntity
+            {
+                FirstName = firstName,
+                LastName = marker,
+                MiddleInitial = "M",
+                Gender = "X",
+                EmployerId = employerId,
+                UniqueId = uniqueId,
+                DateUtcCreated = created,
+                DateUtcModified = created
             };
             _provider.Insert(person);
             return person.Id;
@@ -177,32 +197,34 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
         /// <summary>The normalized SQL logged since the last <see cref="ClearLog"/>.</summary>
         protected string Sql => Normalize(_sb.ToString());
 
-        protected void ClearLog() => _sb.Clear();
+        protected void ClearLog()
+        {
+            _sb.Clear();
+            _logEntries.Clear();
+        }
+
+        /// <summary>The log entries since the last <see cref="ClearLog"/>, one per <c>Log</c> call.</summary>
+        private readonly List<string> _logEntries = new List<string>();
         /// <summary>
         /// Asserts every parameter logged since the last <see cref="ClearLog"/> is referenced by the command it was sent
         /// with: no command carries parameters it doesn't use.
         /// </summary>
         protected void AssertEveryParameterReferenced()
         {
-            var command = new StringBuilder();
-            var inParameters = false;
-            foreach (var line in _sb.ToString().Split('\n'))
+            // A provider logs a command as one entry, then one entry per parameter: each parameter belongs to the last
+            // command entry before it, whatever line breaks either holds.
+            string command = null;
+            foreach (var entry in _logEntries)
             {
-                var parameter = Regex.Match(line.TrimStart(), @"^(@p__linq__\d+): ");
+                var parameter = Regex.Match(entry, @"^(@p__linq__\d+): ");
                 if (!parameter.Success)
                 {
-                    if (inParameters)
-                    {
-                        command.Clear();
-                        inParameters = false;
-                    }
-                    command.AppendLine(line);
+                    command = entry;
                     continue;
                 }
-                inParameters = true;
                 var name = parameter.Groups[1].Value;
-                Assert.IsTrue(Regex.IsMatch(command.ToString(), Regex.Escape(name) + @"(?!\d)"),
-                    $"{name} was sent with a command that doesn't use it: {Normalize(command.ToString())}");
+                Assert.IsTrue(command != null && Regex.IsMatch(command, Regex.Escape(name) + @"(?!\d)"),
+                    $"{name} was sent with a command that doesn't use it: {Normalize(command)}");
             }
         }
 

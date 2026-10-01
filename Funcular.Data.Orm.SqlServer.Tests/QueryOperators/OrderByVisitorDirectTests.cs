@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data;
 using System.Globalization;
-using System.Linq;
 using System.Linq.Expressions;
+using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.Visitors;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -472,24 +474,78 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         }
 
         [TestMethod]
-        public void ParameterMode_CharGuidAndDates_AreParameters()
+        public void ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText()
         {
-            var g = MarkerGuid;
-            var (guids, _) = WithParameters(p => p.Id > 0 ? g : Guid.Empty);
-            CollectionAssert.AreEqual(new object[] { g, Guid.Empty }, guids.Parameters.Select(x => x.Value).ToList());
-
-            var d = new DateTime(2000, 1, 2, 3, 4, 5);
-            var (dates, _) = WithParameters(p => p.DateUtcCreated > d ? 0 : 1);
-            Assert.AreEqual(d, dates.Parameters.Single().Value);
-
+            // Each value is bound as the text 3.9.0 quoted, so the database converts it as it converted the literal
+            // (review F1-F3). Under a culture whose time separator isn't ':', so the formats must be invariant.
+            var g = new Guid("abcdef01-2345-6789-abcd-ef0123456789"); // hex letters: the text is lower case
+            var d = new DateTime(2000, 1, 2, 3, 4, 5, 500, DateTimeKind.Utc);
             var dto = new DateTimeOffset(2000, 1, 2, 3, 4, 5, TimeSpan.FromHours(2));
-            var (offsets, _) = WithParameters(p => p.Id > 0 ? dto : DateTimeOffset.MinValue);
-            Assert.AreEqual(dto.ToString("o", CultureInfo.InvariantCulture), offsets.Parameters[0].Value);
+            var saved = CultureInfo.CurrentCulture;
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fi-FI");
+            try
+            {
+                AssertBoundAsLiteralText(p => p.Id > 0 ? g : Guid.Empty, g.ToString(), Guid.Empty.ToString());
+                AssertBoundAsLiteralText(p => p.DateUtcCreated > d ? 0 : 1, "2000-01-02 03:04:05.500");
+                AssertBoundAsLiteralText(p => p.Id > 0 ? dto : DateTimeOffset.MinValue,
+                    "2000-01-02 03:04:05.0000000+02:00", "0001-01-01 00:00:00.0000000+00:00");
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = saved;
+            }
+        }
 
+        private static void AssertBoundAsLiteralText<TKey>(Expression<Func<PersonDetailEntity, TKey>> key, params string[] texts)
+        {
+            var (visitor, fragment) = WithParameters(key);
+            CollectionAssert.AreEqual(texts, visitor.Parameters.Select(x => x.Value).ToList());
+            Assert.IsTrue(visitor.Parameters.All(x => x.SqlDbType == SqlDbType.VarChar), "varchar, as the literal was");
+            // Literal mode (no generator) writes the same text between the quotes.
+            var quoted = visitor.Parameters.Aggregate(fragment, (sql, x) =>
+                Regex.Replace(sql, Regex.Escape(x.ParameterName) + @"(?!\d)", "'" + ((string)x.Value).Replace("'", "''") + "'"));
+            Assert.AreEqual(Fragment(key), quoted);
+        }
+
+        [TestMethod]
+        public void ParameterMode_Char_IsText()
+        {
             var c = 'x';
             var probe = new OrderByClauseVisitor<CharProbe>(new ConcurrentDictionary<string, string>(), new List<PropertyInfo>(), null, null, new ParameterGenerator());
             probe.Visit(new List<CharProbe>().AsQueryable().OrderBy(x => x.Initial == c ? 0 : 1).Expression);
             Assert.AreEqual("x", probe.Parameters.Single().Value, "a char is sent as text, as 3.9.0 wrote it");
+            Assert.AreEqual(SqlDbType.NVarChar, probe.Parameters.Single().SqlDbType, "a char is nvarchar, like a string");
+            var (text, _) = WithParameters(p => p.FirstName == "Ωmega" ? 0 : 1);
+            Assert.AreEqual(SqlDbType.NVarChar, text.Parameters.Single().SqlDbType, "a string is nvarchar, like WHERE's");
+        }
+
+        public class NullText
+        {
+            public override string ToString() => null;
+        }
+
+        [TestMethod]
+        public void LiteralMode_ValueWithNullText_IsEmptyText()
+        {
+            // 3.9.0 wrote '' for a value whose ToString() is null; so does its parameter.
+            var id = Fragment(p => p.Id);
+            var none = new NullText();
+
+            Assert.AreEqual($"CASE WHEN {id} > 0 THEN '' ELSE NULL END", Fragment(p => p.Id > 0 ? none : null));
+            var (visitor, _) = WithParameters(p => p.Id > 0 ? none : null);
+            Assert.AreEqual("", visitor.Parameters.Single().Value);
+        }
+
+        [TestMethod]
+        public void ParameterMode_GuidAndStringWithTheSameText_AreSeparateParameters()
+        {
+            // Typed differently (SQL Server), or inferred from different columns (PostgreSQL): never shared.
+            var g = MarkerGuid;
+            var s = g.ToString();
+            var visitor = ParameterVisitor();
+            visitor.Visit(Source.OrderBy(p => p.Id > 0 ? g : Guid.Empty).ThenBy(p => p.FirstName == s ? 0 : 1).Expression);
+
+            Assert.AreEqual(3, visitor.Parameters.Count);
         }
 
         #endregion
