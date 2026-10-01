@@ -39,8 +39,8 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   returned the whole list as its "first element". It now throws the scalar-projection message.
 - `Take(n ≤ 0)` returns an empty result without sending a query; `Skip(n < 0)` acts as `Skip(0)`.
 - **An enum value in an ORDER BY ternary** (a constant branch, or a captured value in the test) was emitted as
-  its name (`'B'`): SQL Server failed to convert it for an integer column, and the other providers ordered by the
-  name. It's now the underlying number, which is how FunkyORM stores enums and how LINQ orders them.
+  its name (`'B'`), so the test compared an integer column with text and branch values sorted by name. It's now
+  the underlying number, which is how FunkyORM stores enums and how LINQ orders them.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
