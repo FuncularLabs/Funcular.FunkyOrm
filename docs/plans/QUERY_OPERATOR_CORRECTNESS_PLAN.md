@@ -17,9 +17,12 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 28 (verification v6 of `3f38bb6..de9bf1e`, 2026-10-01) — what changed:** 3 prose nits (§9.31). Claims
+>   that execution contradicted were removed rather than qualified.
+
 > **Revision 27 (verification v5 of `92bedba..3f38bb6`, 2026-10-01) — what changed:** 5 nits, no code defect (§9.30).
->   The ELSE branch is pinned. The Changelog and docs state the full scope of the null, enum and captured-`this`
->   changes. Comment and §8 wording fixed.
+>   The ELSE branch is pinned. Changelog and docs wording on the null, enum and captured-`this` changes is corrected
+>   (refined in rev 28). Comment and §8 wording fixed.
 
 > **Revision 26 (verification v4 of `2720c28..92bedba`, 2026-10-01) — what changed:** 2 minor and 4 nits (§9.29).
 > - **AC12-8:** only `Convert` is read through; `ConvertChecked` is evaluated, as in 3.9.0. Branch values share the
@@ -1766,9 +1769,9 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **PostgreSQL enum parameters (pre-existing; v4).** `Where(x => x.Kind == k)` throws `InvalidCastException`
   ("Writing values of '…' is not supported for parameters having NpgsqlDbType 'Integer'") on 3.9.0 and on this
   branch. Reading enum columns works. Follow-up issue.
-- **Checked-arithmetic projects (pre-existing; v4, v5):** a `char` or `byte` comparison in an ORDER BY ternary (any
-  comparison whose column side is converted) throws. The column side becomes `ConvertChecked`, which
-  `BuildValueSql` doesn't unwrap. Same on 3.9.0.
+- **Checked-arithmetic projects (pre-existing; v4–v6):** in an ORDER BY ternary, a comparison whose column side the
+  compiler converts with checked arithmetic throws: `char`, `byte`, `short`, and `int` against `long` (executed).
+  The column side becomes `ConvertChecked`, which `BuildValueSql` doesn't unwrap. Same on 3.9.0.
 - **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
@@ -2423,6 +2426,20 @@ emitted `NULL`). A `PropertyInfo` fast path is a possible follow-up. One pre-exi
 reported to the owner directly.
 
 Mutations: the ELSE-branch mutant, killed on all four providers.
+
+### 9.31 Verification v6 of `3f38bb6..de9bf1e` (non-author; a 34-shape harness on master and HEAD, plus SQLite end-to-end getter counts)
+
+Verdict: NOT CLEAN, on 3 prose nits, all introduced by the v5 doc fixes. The production diff was comments only. v5-1,
+v5-4 and v5-5 RESOLVED; v5-2 and v5-3 PARTIAL. No whole-branch defect. Totals: HOUSE-RULE 3.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| v6 N-1 | nit | HOUSE-RULE (doc truth) | "An enum literal in the test was already a number" is false for a nullable enum column (`Convert` to `int?` keeps the constant an enum; 3.9.0 emitted `'B'`). | The scope list and the note were removed: "could be emitted as its name … now always the underlying number". |
+| v6 N-2 | nit | HOUSE-RULE (doc truth) | "The getter now runs once per translation" is false: one call per ordering call (SQLite end-to-end: 1/2/3). | "Called while the query is translated (3.9.0 never called it)"; the count was dropped. |
+| v6 N-3 | nit | HOUSE-RULE (prose) | §8's "any comparison whose column side is converted" was too broad: enum comparisons compile to `Convert` and work. | Limited to the executed cases: `char`, `byte`, `short`, `int` against `long`. |
+
+Lesson (ledger): each prose fix that adds a qualification creates a new claim to verify. Remove claims that execution
+doesn't support; don't qualify them further.
 
 ---
 
