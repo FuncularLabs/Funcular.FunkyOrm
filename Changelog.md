@@ -14,7 +14,8 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   a backslash as an escape character, a crafted value could change the query. Strings, chars, `Guid`s, dates and
   other quoted values are now parameters carrying the literal's text, so the database converts them as it converted
   the literal: untyped on PostgreSQL, `varchar` on SQL Server (strings and chars are `nvarchar`, like WHERE's).
-  Numbers, booleans, enums and `NULL` stay inline. Upgrade if you order by a ternary over values you don't control.
+  Numbers of C#'s built-in numeric types, booleans, enums and `NULL` stay inline. Upgrade if you order by a ternary
+  over values you don't control.
 
 ### Fixed
 - **`Single`/`SingleOrDefault` dropped their predicate and never checked cardinality.**
@@ -82,6 +83,8 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   would drop nulls.
 - **`Last`/`LastOrDefault` after `Distinct()` with a custom projection** need an explicit `OrderBy` on a
   projected key.
+Other changes:
+
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
   `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
   property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
@@ -93,13 +96,13 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
   can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places). Equality follows the same rules, as it
   already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
-- **A `DateTimeOffset`, `DateOnly`, `TimeOnly` or other value FunkyORM wrote with `ToString()`** in an ORDER BY ternary
-  is now culture-invariant text; 3.9.0 used the current culture's format.
-  - A `DateTimeOffset` is `yyyy-MM-dd HH:mm:ss.fffffffK`, offset included.
-  - Against a date/time column on SQL Server, PostgreSQL or MySQL, the database converts it and compares instants;
-    3.9.0's text failed to convert there under some cultures.
-  - As a branch value, or on SQLite, it sorts as text, so values with different offsets order by text, not by
-    instant.
+- **Date and time values in an ORDER BY ternary have a fixed format, never the current culture's.** 3.9.0 wrote a
+  `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format. A database could reject that text,
+  or, under a day-first culture, read it with day and month swapped. The formats now:
+  - `DateTimeOffset`: `yyyy-MM-dd HH:mm:ss.fffffffK`. On MySQL it is its UTC time, `yyyy-MM-dd HH:mm:ss.ffffff`, as
+    WHERE sends it.
+  - `DateOnly`: `yyyy-MM-dd`.
+  - `TimeOnly`: `HH:mm:ss.FFFFFFF`.
 - **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,

@@ -510,8 +510,10 @@ namespace Funcular.Data.Orm.Visitors
 
         /// <summary>
         /// The text between the quotes of a value <see cref="FormatConstant"/> quotes, and of the parameter that
-        /// replaces it: a date as <c>yyyy-MM-dd HH:mm:ss.fff</c>, a Guid as <c>D</c>, anything else as its invariant
-        /// text. A <see cref="DateTimeOffset"/> keeps its offset; 3.9.0 wrote it in the current culture.
+        /// replaces it, never in the current culture: a date as <c>yyyy-MM-dd HH:mm:ss.fff</c>, a
+        /// <see cref="DateTimeOffset"/> as <c>yyyy-MM-dd HH:mm:ss.fffffffK</c>, a <c>DateOnly</c> as
+        /// <c>yyyy-MM-dd</c>, a <c>TimeOnly</c> as <c>HH:mm:ss.FFFFFFF</c>, a Guid as <c>D</c>, anything else as its
+        /// invariant text.
         /// </summary>
         private static string LiteralText(object value)
         {
@@ -521,6 +523,11 @@ namespace Funcular.Data.Orm.Visitors
                     return dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
                 case DateTimeOffset dto:
                     return dto.ToString("yyyy-MM-dd HH:mm:ss.fffffffK", CultureInfo.InvariantCulture);
+                // By name: netstandard2.0 has no DateOnly or TimeOnly, but an app on .NET 6 or later can pass one.
+                case IFormattable day when value.GetType().FullName == "System.DateOnly":
+                    return day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                case IFormattable time when value.GetType().FullName == "System.TimeOnly":
+                    return time.ToString("HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
                 default:
                     return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
             }

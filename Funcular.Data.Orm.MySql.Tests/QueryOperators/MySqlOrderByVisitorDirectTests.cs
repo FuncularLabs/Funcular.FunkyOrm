@@ -503,8 +503,9 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             {
                 AssertBoundAsLiteralText(p => p.Id > 0 ? g : Guid.Empty, g.ToString(), Guid.Empty.ToString());
                 AssertBoundAsLiteralText(p => p.DateUtcCreated > d ? 0 : 1, "2000-01-02 03:04:05.500");
+                // MySQL: a DateTimeOffset is its UTC time, as WHERE sends it (rev 39, J2).
                 AssertBoundAsLiteralText(p => p.Id > 0 ? dto : DateTimeOffset.MinValue,
-                    "2000-01-02 03:04:05.0000000+02:00", "0001-01-01 00:00:00.0000000+00:00");
+                    "2000-01-02 01:04:05.000000", "0001-01-01 00:00:00.000000");
             }
             finally
             {
@@ -557,6 +558,19 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             Assert.AreEqual($"CASE WHEN {id} > 0 THEN '' ELSE NULL END", Fragment(p => p.Id > 0 ? none : null));
             var (visitor, _) = WithParameters(p => p.Id > 0 ? none : null);
             Assert.AreEqual("", visitor.Parameters.Single().Value);
+        }
+
+        [TestMethod]
+        public void ParameterMode_DateOnlyAndTimeOnly_AreIsoText()
+        {
+            // ISO text: every provider converts it, and it sorts chronologically (rev 39, J3).
+            var day = new DateOnly(2026, 1, 2);
+            var (days, _) = WithParameters(p => p.Id > 0 ? day : DateOnly.MinValue);
+            CollectionAssert.AreEqual(new object[] { "2026-01-02", "0001-01-01" }, days.Parameters.Select(x => x.Value).ToList());
+
+            var time = new TimeOnly(15, 0, 30);
+            var (times, _) = WithParameters(p => p.Id > 0 ? time : TimeOnly.MinValue);
+            CollectionAssert.AreEqual(new object[] { "15:00:30", "00:00:00" }, times.Parameters.Select(x => x.Value).ToList());
         }
 
         [TestMethod]

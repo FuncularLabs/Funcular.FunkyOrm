@@ -540,6 +540,19 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void ParameterMode_DateOnlyAndTimeOnly_AreIsoText()
+        {
+            // ISO text: every provider converts it, and it sorts chronologically (rev 39, J3).
+            var day = new DateOnly(2026, 1, 2);
+            var (days, _) = WithParameters(p => p.Id > 0 ? day : DateOnly.MinValue);
+            CollectionAssert.AreEqual(new object[] { "2026-01-02", "0001-01-01" }, days.Parameters.Select(x => x.Value).ToList());
+
+            var time = new TimeOnly(15, 0, 30);
+            var (times, _) = WithParameters(p => p.Id > 0 ? time : TimeOnly.MinValue);
+            CollectionAssert.AreEqual(new object[] { "15:00:30", "00:00:00" }, times.Parameters.Select(x => x.Value).ToList());
+        }
+
+        [TestMethod]
         public void ParameterMode_EachOccurrence_IsItsOwnParameter()
         {
             // As each 3.9.0 literal was its own literal: the database types each where it's used (verification N2).

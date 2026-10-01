@@ -538,6 +538,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle()
+        {
+            // Across a year boundary, and seconds apart: invariant short formats (MM/dd/yyyy, HH:mm) don't sort these
+            // chronologically (rev 39, J3).
+            var (marker, _) = SeedAbc();
+            var later = new DateOnly(2026, 1, 2);
+            var earlier = new DateOnly(2025, 12, 31);
+            var laterTime = new TimeOnly(10, 0, 30);
+            var earlierTime = new TimeOnly(10, 0, 10);
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? later : earlier).ThenBy(p => p.Id).ToList());
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterTime : earlierTime).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
         public void AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand()
         {
             // The helper itself: a parameter is checked against the command it was logged with, not an earlier one,

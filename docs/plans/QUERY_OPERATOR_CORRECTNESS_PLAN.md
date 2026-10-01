@@ -19,6 +19,13 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 39 (fix-verification of `66bde1e..26abd27`, 2026-10-01) — what changed:** code and prose (J1–J6).
+>   - `DateOnly`/`TimeOnly` in ORDER BY are ISO text (J3).
+>   - A MySQL `DateTimeOffset` is its UTC time (J2).
+>   - AC12-10's per-position `DateTimeOffset` claims are removed (J1, J5), and the numeric types named (J4).
+>   - The Changelog regrouped (J6).
+>   - §9.40's H1 row annotated, the Task 12 status, and §9.41.
+
 > **Revision 38 (fix-verification of `66bde1e..89383ff`, 2026-10-01) — what changed:** plan prose (H1–H4), and
 >   the Changelog's `DateTimeOffset` bullet.
 >   - AC12-10: the culture-invariant text sentence and the `DateTimeOffset` result.
@@ -831,22 +838,23 @@ providers** unless stated.
     - text on MySQL and SQLite;
     - `varchar` on SQL Server, except strings and chars, which are `nvarchar` like WHERE's.
 
-    The text is culture-invariant. 3.9.0 wrote a `DateTimeOffset`, `DateOnly`, `TimeOnly` and any other value with
-    `ToString()` in the current culture, so for those values the text differs.
+    The text is never the current culture's. A `DateTimeOffset`, `DateOnly` or `TimeOnly`, which 3.9.0 wrote in the
+    current culture, has a fixed format (Changelog). On MySQL a `DateTimeOffset` is its UTC time, as WHERE sends
+    it *(rev 39)*.
   - **One parameter per occurrence:** each occurrence of a value is its own parameter, as each literal was its own
     literal, so the database types each one where it's used.
   - **On PostgreSQL**, a value compared with `null` is decided in .NET. `IS NULL` can't give an untyped parameter
     a type.
   - **Result:** a `Guid` or `DateTime` value compares and sorts as it did in 3.9.0, on every provider.
-  - **A `DateTimeOffset`** is sent as invariant `yyyy-MM-dd HH:mm:ss.fffffffK` text, offset included *(rev 37–38)*.
-    The rev 37 reviewer executed this; no test schema has a `DateTimeOffset` column, so no test pins it:
-    - Against a date/time column on SQL Server, PostgreSQL or MySQL, the database converts the text and compares
-      instants. 3.9.0's current-culture text failed to convert there under some cultures.
-    - As a branch value, against another value, or on SQLite, it compares and sorts as text. Values with different
-      offsets therefore order by text, not by instant.
+  - **A `DateTimeOffset`, `DateOnly` or `TimeOnly`:** its text is fixed (above). How a database compares that text
+    with a column is the database's rule, and this AC asserts none. *(Rev 39, J1: three rounds of per-position claims
+    were each broader than the execution.)*
+    - Tested: the `DateOnly` and `TimeOnly` branch values sort as LINQ-to-objects does.
+    - Tested: on MySQL, ORDER BY and WHERE pick the same rows for a `DateTimeOffset`.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
-  Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
+  Numbers of C#'s built-in numeric types, booleans, enums and `NULL` stay inline. On every provider, a text value
+  with quote or backslash
   characters, compared in a ternary's test, orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no
   quoted value appears in the command text, in any position *(rev 34, F2)*. A command carries only the
   parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
@@ -1866,6 +1874,16 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - **Verification layer 5 (rev 36, §9.38).** Plan prose only (F1–F5).
   - **Verification layer 6 (rev 37, §9.39).** Plan prose only (G1–G5).
   - **Verification layer 7 (rev 38, §9.40).** Plan prose and one Changelog bullet (H1–H4).
+  - **Verification layer 8 (rev 39, §9.41).**
+    - Code: the four visitors' `LiteralText` writes a `DateOnly` as `yyyy-MM-dd` and a `TimeOnly` as
+      `HH:mm:ss.FFFFFFF`. Both are matched by type name, since netstandard2.0 has neither type.
+    - Code: MySQL's writes a `DateTimeOffset` as its UTC time.
+    - Tests first, red on `26abd27`: SQL Server 2, PostgreSQL 2, MySQL 4, SQLite 2.
+      - Direct ISO text pins.
+      - `DateOnly` and `TimeOnly` branch-value oracle rows.
+      - On MySQL: WHERE and ORDER BY agree for a `DateTimeOffset`, and the updated UTC text pin.
+    - Mutations (4, all killed).
+    - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2817,10 +2835,23 @@ resolved. Suites at HEAD: SqlServer 882, PostgreSql 757, MySql 708, Sqlite 785.
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
-| H1 | minor | TEST-GAP | AC12-10's "a `DateTimeOffset` is compared as its invariant text" was false against a typed column: SQL Server, PostgreSQL and MySQL convert it and compare instants. Only SQLite, branch values and value-vs-value comparisons compare text. No test has a `DateTimeOffset` column. | Restated per position, from the reviewer's executed probe, marked as not pinned by a test. The Changelog bullet now says the same. |
+| H1 | minor | TEST-GAP | AC12-10's "a `DateTimeOffset` is compared as its invariant text" was false against a typed column. No test has a `DateTimeOffset` column. | Restated per position. *(Rev 39: that restatement was itself too broad, J1, and the position claims were removed; §9.41.)* |
 | H2 | nit | HOUSE-RULE | "For a `DateTimeOffset` it therefore differs" read as if only that type's text changed; `DateOnly`, `TimeOnly` and any value 3.9.0 wrote with `ToString()` changed too (executed). | Named in AC12-10 and in the Changelog. |
 | H3 | nit | HOUSE-RULE | §9.39's "every outcome … confirmed" contradicted its own G1 row. | Now "every shaped outcome". |
 | H4 | nit | HOUSE-RULE | The §8 entry's provenance didn't credit the rev 36 reviewer or the rev 37 restatement. | Updated, with §9.37's O1 line. |
+
+### 9.41 Fix-verification of `66bde1e..26abd27` (non-author; `Query<T>()` probes on 4 providers × 6 cultures, typed date/time columns, `66bde1e` and HEAD)
+
+Verdict: NOT CLEAN. H3 and H4 are resolved; H1 and H2 partly.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| J1 | minor | TEST-GAP | The per-position `DateTimeOffset` claims were too broad. Only SQL Server `datetimeoffset` and PostgreSQL `timestamptz` compare instants; `datetime2`, `timestamp`, `date` and every MySQL type drop the offset; SQL Server `datetime` fails with 241. A branch beside a `datetimeoffset`/`timestamptz` column sorts by instant. | The claims were removed from AC12-10 and the Changelog: the text format is stated, and comparison is the database's rule. The two shapes now pinned by tests are named. |
+| J2 | minor | AC-GAP | MySQL: WHERE sends a `DateTimeOffset` as UTC, while ORDER BY sent offset text that MySQL drops, so the two disagreed. 3.9.0 failed there with 1525. | A MySQL `DateTimeOffset` is its UTC time; a test checks that WHERE and ORDER BY pick the same rows. |
+| J3 | minor | AC-GAP | `DateOnly` became invariant `MM/dd/yyyy`: MySQL rejects it, a dmy session misreads it, and it doesn't sort across years. `TimeOnly` `HH:mm` dropped seconds. | ISO `yyyy-MM-dd` and `HH:mm:ss.FFFFFFF`; direct pins and branch-value oracle rows on all four. |
+| J4 | nit | HOUSE-RULE | "Other value written with `ToString()`" and "Numbers stay inline" were too broad (`TimeSpan`'s text is unchanged; `Half` is a parameter). | The Changelog and AC12-10 name the three date and time types, and "C#'s built-in numeric types". |
+| J5 | nit | HOUSE-RULE | "Failed under some cultures" omitted the day/month swap and MySQL failing under en-US. | Folded into the Changelog's "reject … or read with day and month swapped"; the per-provider detail was removed with J1. |
+| J6 | nit | HOUSE-RULE | The Changed intro ("These shapes now throw") headed bullets that don't throw. | "Other changes:" now separates them. |
 
 ---
 
