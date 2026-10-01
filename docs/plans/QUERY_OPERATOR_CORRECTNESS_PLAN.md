@@ -1496,6 +1496,16 @@ Each task lists the tests it turns green. Every implementation task starts with 
       `TResult` assignability" must mean `TResult ⊇ List<T>`); corrected and killed.
 - **Task 6 — Visitor `OrderByTerms` + ternary null** (4 providers).
   → AC12-8.
+  - **Status (2026-10-01): done (4 providers).**
+    - `OrderByTerms` exposes the visitor's terms `(fragment, isDescending)` after duplicate removal.
+    - A ternary test `x.M == null` / `null == x.M` (and `!=`) emits `{operand} IS NULL` / `IS NOT NULL`, where the
+      operand is qualified like any ORDER BY column. Before, it emitted `= NULL`, which is never true.
+    - Red → green on every provider: the three direct `OrderByTerms`/`DuplicateKey` tests, the four
+      `TernaryNullTest` rows, and the four AC12-8 `TernaryOrderBy_NullComparison` rows.
+    - No green → red; the existing suites are unchanged.
+    - **Mutations run (SQL Server): 11; 10 killed.** The survivor, "don't unwrap a `Convert` around the null
+      constant", exposed dead code. A probe showed the compiler types a null literal as the other operand's type
+      (`string`, `int?`, `object`) and never wraps it, so the unwrap was deleted rather than tested.
 - **Task 7 — `Last*`** (4 providers).
   → AC13-2, AC12-5, covariant `Last` row of AC13-4, AC13-5's `Allowed[Last*]` rows.
 - **Task 8 — `LongCount`** (4 providers).

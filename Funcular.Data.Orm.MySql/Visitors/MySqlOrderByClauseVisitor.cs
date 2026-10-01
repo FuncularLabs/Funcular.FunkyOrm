@@ -53,7 +53,7 @@ namespace Funcular.Data.Orm.MySql.Visitors
         /// The translated ordering terms, in order, after duplicate removal.
         /// </summary>
         public IReadOnlyList<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms =>
-            throw new NotImplementedException("OrderByTerms is not implemented yet (3.10 Task 6).");
+            _orderByClauses.Select(c => new Funcular.Data.Orm.Linq.OrderByTerm(c.ColumnName, c.IsDescending)).ToList();
 
         /// <summary>
         /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute
@@ -170,6 +170,10 @@ namespace Funcular.Data.Orm.MySql.Visitors
             return $"CASE WHEN {testSql} THEN {trueSql} ELSE {falseSql} END";
         }
 
+        // The compiler types a null literal as the other operand's type (string, int?, ...): a bare null constant.
+        private static bool IsNullConstant(Expression expression) =>
+            expression is ConstantExpression constant && constant.Value == null;
+
         private string BuildTestSql(Expression test)
         {
             switch (test)
@@ -180,6 +184,14 @@ namespace Funcular.Data.Orm.MySql.Visitors
                         if (prop != null && IsOrderableProperty(prop))
                             return $"{ResolveOrderColumn(prop)} IS NOT NULL";
                         break;
+                    }
+                case BinaryExpression nullTest when (nullTest.NodeType == ExpressionType.Equal || nullTest.NodeType == ExpressionType.NotEqual)
+                                                    && (IsNullConstant(nullTest.Left) || IsNullConstant(nullTest.Right)):
+                    {
+                        // SQL needs IS [NOT] NULL: `col = NULL` is never true (SQL Server even rejects it as a constant
+                        // ORDER BY expression). Either operand order: x.M == null and null == x.M.
+                        var operandSql = BuildValueSql(IsNullConstant(nullTest.Left) ? nullTest.Right : nullTest.Left);
+                        return nullTest.NodeType == ExpressionType.Equal ? $"{operandSql} IS NULL" : $"{operandSql} IS NOT NULL";
                     }
                 case BinaryExpression bin:
                     {
