@@ -469,7 +469,7 @@ provider.Query<PersonDetail>().Where(p => p.EmployerHqCountryName == "USA").Coun
 ```
 
 > The guard is **entity-wide**: if a detail class declares *any* reverse remote property, a fan-out-sensitive
-> aggregate (`Count`/`All`/`Sum`/`Average`) filtered by *any* of that class's remote properties is rejected —
+> aggregate (`Count`/`LongCount`/`All`/`Sum`/`Average`) filtered by *any* of that class's remote properties is rejected —
 > even a forward one. If you need `Count`/`Sum` over a forward remote property, keep it on a detail class that
 > doesn't also declare a reverse one.
 

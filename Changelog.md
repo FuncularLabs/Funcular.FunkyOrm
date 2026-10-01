@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.10.0] - Unreleased
+## [3.10.0-beta1] - Unreleased
 
 Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12),
 [#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)). **Upgrade strongly recommended:** several
@@ -69,7 +69,13 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
 - **`Last`/`LastOrDefault` after `Distinct()` with a custom projection** need an explicit `OrderBy` on a
   projected key.
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
-  `EnsureSupported`) and `ScalarProjectionGuard`.
+  `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
+  property and a constructor overload that takes a table qualifier; their 3.9.0 constructor is unchanged, so code
+  compiled against 3.9.0 keeps binding.
+- **SQLite: unordered paging on a view-backed entity with remote joins** now orders by the base view's `rowid`,
+  which a view doesn't have, so it fails with `no such column`. In 3.9.0 it paged by a joined table's `rowid`, a
+  meaningless order. Add an explicit `OrderBy` (a view with no joins, or a `WITHOUT ROWID` table, already failed
+  in 3.9.0).
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

@@ -242,6 +242,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         [DataRow(5, DisplayName = "captured null == x.M")]
         [DataRow(6, DisplayName = "x.M != captured null")]
         [DataRow(7, DisplayName = "captured null != x.M")]
+        [DataRow(8, DisplayName = "x.M == null computed by a nested lambda")]
         public void TernaryOrderBy_NullComparison_MatchesOracle(int spelling)
         {
             var marker = NewMarker();
@@ -254,6 +255,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             SeedPerson(marker, "c", employer);
 
             int? none = null; // rows 4-7: the null is held in a variable, not written as a literal
+            var nums = new int?[] { 1 }; // row 8: the null comes from an operand with its own lambda
             Expression<Func<PersonWithEmployer, int>> key;
             switch (spelling)
             {
@@ -265,6 +267,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 case 5: key = p => none == p.EmployerId ? 0 : 1; break;
                 case 6: key = p => p.EmployerId != none ? 0 : 1; break;
                 case 7: key = p => none != p.EmployerId ? 0 : 1; break;
+                case 8: key = p => p.EmployerId == nums.FirstOrDefault(n => n > 1000) ? 0 : 1; break;
                 default: throw new ArgumentOutOfRangeException(nameof(spelling));
             }
 
@@ -274,6 +277,17 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         #endregion
 
         #region AC12-9
+
+        [TestMethod]
+        public void ThenBy_SameTernaryKeyTwice_Executes()
+        {
+            var (marker, _) = SeedAbc();
+
+            // SQL Server rejects a CASE key listed twice (error 169), like a column: the later one is dropped.
+            ClearLog();
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "b" ? 1 : 0).ThenBy(p => p.FirstName == "b" ? 1 : 0).ThenBy(p => p.Id).ToList());
+            Assert.AreEqual(1, OrderByList().Split(new[] { "CASE WHEN" }, StringSplitOptions.None).Length - 1, OrderByList());
+        }
 
         [TestMethod]
         public void ThenBy_SameKeyTwice_Executes()

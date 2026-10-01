@@ -36,13 +36,22 @@ namespace Funcular.Data.Orm.MySql.Visitors
         private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
         private readonly string _tableQualifier;
 
+        /// <summary>The 3.9.0 constructor (no table qualifier), kept for binary compatibility.</summary>
+        public MySqlOrderByClauseVisitor(
+            ConcurrentDictionary<string, string> columnNames,
+            ICollection<PropertyInfo> unmappedProperties,
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
+            : this(columnNames, unmappedProperties, propertyToColumnMap, null)
+        {
+        }
+
         /// <param name="tableQualifier">When the query has joins, the base table name used to qualify own
         /// columns (<c>{table}.{column}</c>); <c>null</c> otherwise.</param>
         public MySqlOrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
-            IReadOnlyDictionary<string, string> propertyToColumnMap = null,
-            string tableQualifier = null)
+            IReadOnlyDictionary<string, string> propertyToColumnMap,
+            string tableQualifier)
             : base(columnNames, unmappedProperties)
         {
             _propertyToColumnMap = propertyToColumnMap;
@@ -170,38 +179,67 @@ namespace Funcular.Data.Orm.MySql.Visitors
             return $"CASE WHEN {testSql} THEN {trueSql} ELSE {falseSql} END";
         }
 
-        // A null operand: a null literal (the compiler types it as the other operand's type), or a value that reads no
-        // lambda parameter and evaluates to null, such as a captured variable.
-        private static bool IsNullOperand(Expression expression)
+        /// <summary>
+        /// The SQL for one operand of a ternary test. An operand that reads no parameter of the ordering lambda (a
+        /// literal, a captured variable, a call such as <c>names.FirstOrDefault(n =&gt; ...)</c>) is evaluated once and
+        /// formatted as a constant, so its null check and its SQL can't disagree; anything else is translated as a
+        /// column or value. <paramref name="isNull"/> reports an operand that is or evaluates to null.
+        /// </summary>
+        private string OperandSql(Expression operand, out bool isNull)
         {
-            if (expression is ConstantExpression constant)
-                return constant.Value == null;
-            if (ParameterFinder.Reads(expression))
-                return false;
-            try
+            isNull = false;
+            if (FreeParameterFinder.Reads(operand))
+                return BuildValueSql(operand);
+
+            object value;
+            if (operand is ConstantExpression constant)
+                value = constant.Value;
+            else if (operand is MemberExpression member && member.Member is FieldInfo field
+                     && (member.Expression == null || member.Expression is ConstantExpression))
+                value = field.GetValue((member.Expression as ConstantExpression)?.Value); // a captured variable or static field
+            else
             {
-                return Expression.Lambda(Expression.Convert(expression, typeof(object))).Compile().DynamicInvoke() == null;
+                try
+                {
+                    value = Expression.Lambda(Expression.Convert(operand, typeof(object))).Compile().DynamicInvoke();
+                }
+                catch
+                {
+                    return BuildValueSql(operand); // reports the unsupported expression
+                }
             }
-            catch
-            {
-                return false;
-            }
+
+            isNull = value == null;
+            return FormatConstant(value);
         }
 
-        private sealed class ParameterFinder : ExpressionVisitor
+        /// <summary>
+        /// Finds a parameter an expression reads but doesn't declare. A lambda inside the operand declares its own
+        /// parameters, and reading those doesn't make the operand depend on the row.
+        /// </summary>
+        private sealed class FreeParameterFinder : ExpressionVisitor
         {
+            private readonly HashSet<ParameterExpression> _declared = new HashSet<ParameterExpression>();
             private bool _found;
 
             public static bool Reads(Expression expression)
             {
-                var finder = new ParameterFinder();
+                var finder = new FreeParameterFinder();
                 finder.Visit(expression);
                 return finder._found;
             }
 
+            protected override Expression VisitLambda<TDelegate>(Expression<TDelegate> node)
+            {
+                foreach (var parameter in node.Parameters)
+                    _declared.Add(parameter);
+                return base.VisitLambda(node);
+            }
+
             protected override Expression VisitParameter(ParameterExpression node)
             {
-                _found = true;
+                if (!_declared.Contains(node))
+                    _found = true;
                 return node;
             }
         }
@@ -217,18 +255,17 @@ namespace Funcular.Data.Orm.MySql.Visitors
                             return $"{ResolveOrderColumn(prop)} IS NOT NULL";
                         break;
                     }
-                case BinaryExpression nullTest when (nullTest.NodeType == ExpressionType.Equal || nullTest.NodeType == ExpressionType.NotEqual)
-                                                    && (IsNullOperand(nullTest.Left) || IsNullOperand(nullTest.Right)):
-                    {
-                        // SQL needs IS [NOT] NULL: `col = NULL` is never true (SQL Server even rejects it as a constant
-                        // ORDER BY expression). Either operand order: x.M == null and null == x.M.
-                        var operandSql = BuildValueSql(IsNullOperand(nullTest.Left) ? nullTest.Right : nullTest.Left);
-                        return nullTest.NodeType == ExpressionType.Equal ? $"{operandSql} IS NULL" : $"{operandSql} IS NOT NULL";
-                    }
                 case BinaryExpression bin:
                     {
-                        string leftSql = BuildValueSql(bin.Left);
-                        string rightSql = BuildValueSql(bin.Right);
+                        var leftSql = OperandSql(bin.Left, out var leftIsNull);
+                        var rightSql = OperandSql(bin.Right, out var rightIsNull);
+                        if ((bin.NodeType == ExpressionType.Equal || bin.NodeType == ExpressionType.NotEqual) && (leftIsNull || rightIsNull))
+                        {
+                            // SQL needs IS [NOT] NULL: `col = NULL` is never true (SQL Server even rejects it as a constant
+                            // ORDER BY expression). Either operand order; the null may be a literal or an evaluated value.
+                            var operandSql = leftIsNull ? rightSql : leftSql;
+                            return bin.NodeType == ExpressionType.Equal ? $"{operandSql} IS NULL" : $"{operandSql} IS NOT NULL";
+                        }
                         switch (bin.NodeType)
                         {
                             case ExpressionType.Equal: return $"{leftSql} = {rightSql}";

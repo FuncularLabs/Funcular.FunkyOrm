@@ -242,6 +242,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         #endregion
 
+        [TestMethod]
+        public void Single_AfterTakeGreaterThanTwo_ReadsTwoRows()
+        {
+            var (marker, _) = SeedAbc();
+
+            // AC13-1: after user paging Single reads min(Take, 2) rows; Take(5) over three rows must not read three.
+            ClearLog();
+            Assert.ThrowsException<InvalidOperationException>(() => People(marker).Take(5).Single());
+            StringAssert.Contains(Sql, "FETCH NEXT 2 ROWS", "a two-row read");
+        }
+
         #region AC13-2 Last / LastOrDefault
 
         [TestMethod]

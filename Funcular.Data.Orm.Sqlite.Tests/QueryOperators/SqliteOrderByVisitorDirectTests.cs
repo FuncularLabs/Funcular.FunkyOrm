@@ -174,6 +174,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             string noneString = null;
             int? noneInt = null;
             var someName = "a";
+            var names = new[] { "a" };
             string When(string test, string then = "0", string otherwise = "1") => $"CASE WHEN {test} THEN {then} ELSE {otherwise} END";
             return new Dictionary<string, (Func<string>, Func<string>)>
             {
@@ -199,9 +200,50 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
                 ["captured null !=, reversed"] = (() => Fragment(p => noneString != p.FirstName ? 0 : 1), () => When($"{first} IS NOT NULL")),
                 ["captured int? null"] = (() => Fragment(p => p.EmployerId == noneInt ? 0 : 1), () => When($"{employer} IS NULL")),
                 ["captured int? null, reversed"] = (() => Fragment(p => noneInt == p.EmployerId ? 0 : 1), () => When($"{employer} IS NULL")),
+                ["null computed by a nested lambda"] = (() => Fragment(p => p.FirstName == names.FirstOrDefault(n => n.Length > 100) ? 0 : 1), () => When($"{first} IS NULL")),
                 ["captured value"] = (() => Fragment(p => p.FirstName == someName ? 0 : 1), () => When($"{first} = 'a'")),
                 ["member and null branches"] = (() => Fragment(p => p.Id > 0 ? p.FirstName : null), () => When($"{id} > 0", first, "NULL")),
             };
+        }
+
+        private static int _evaluations;
+
+        private static string Counted()
+        {
+            _evaluations++;
+            return "x";
+        }
+
+        private static string NullOnFirstCall() => _evaluations++ == 0 ? null : "x";
+
+        [TestMethod]
+        public void TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree()
+        {
+            var first = Fragment(p => p.FirstName);
+
+            _evaluations = 0;
+            var counted = Fragment(p => p.FirstName == Counted() ? 0 : 1);
+            Assert.AreEqual(1, _evaluations, "a value operand is evaluated once");
+            Assert.AreEqual($"CASE WHEN {first} = 'x' THEN 0 ELSE 1 END", counted);
+
+            // Evaluating twice could see null, then a value: the null check and the SQL would disagree.
+            _evaluations = 0;
+            var nullFirst = Fragment(p => NullOnFirstCall() == p.FirstName ? 0 : 1);
+            Assert.AreEqual(1, _evaluations, "a null operand is evaluated once");
+            Assert.AreEqual($"CASE WHEN {first} IS NULL THEN 0 ELSE 1 END", nullFirst, "the column stays in the test");
+        }
+
+        [TestMethod]
+        public void Constructor_390Signature_IsKept()
+        {
+            // Binary compatibility with 3.9.0: code compiled against (columns, unmapped, map) must still bind.
+            var ctor = typeof(SqliteOrderByClauseVisitor<PersonDetailEntity>).GetConstructor(new[]
+                { typeof(ConcurrentDictionary<string, string>), typeof(ICollection<PropertyInfo>), typeof(IReadOnlyDictionary<string, string>) });
+            Assert.IsNotNull(ctor, "the 3.9.0 constructor");
+            var visitor = (SqliteOrderByClauseVisitor<PersonDetailEntity>)ctor.Invoke(new object[] { new ConcurrentDictionary<string, string>(), new List<PropertyInfo>(), null });
+            visitor.Visit(Source.OrderBy(p => p.Id).Expression);
+            StringAssert.StartsWith(visitor.OrderByClause, "ORDER BY ");
+            Assert.IsFalse(visitor.OrderByClause.Contains("."), "no table qualifier through the 3.9.0 constructor");
         }
 
         public static IEnumerable<object[]> CaseRowNames => CaseRows().Keys.Select(k => new object[] { k });

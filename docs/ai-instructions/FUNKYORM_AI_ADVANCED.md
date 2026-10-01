@@ -177,7 +177,7 @@ base row fans out one-per-child.
 
 > **The reverse-aggregate guard is entity-wide (conservative/fail-safe).** It keys off whether the entity
 > declares *any* reverse remote link — so if an entity mixes forward and reverse remotes, filtering
-> `Count`/`All`/`Sum`/`Average` by *any* remote column on it (even the forward one) throws. Keep forward and
+> `Count`/`LongCount`/`All`/`Sum`/`Average` by *any* remote column on it (even the forward one) throws. Keep forward and
 > reverse remotes on separate detail entities if you need forward-remote aggregates.
 
 ### Remote attributes — ❌ never

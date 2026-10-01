@@ -188,7 +188,7 @@ forward-remote-filtered aggregates, and multi-hop paths all work. Remote reads i
 | `Count` / `LongCount` / `All` / `Sum` / `Average` with a **reverse filter** | ❌ `NotSupportedException` — aggregate in memory |
 
 The reverse-aggregate guard is deliberately conservative and **entity-wide**: if an entity declares *any*
-reverse remote link, filtering `Count`/`All`/`Sum`/`Average` by any remote column on it — even a forward one —
+reverse remote link, filtering `Count`/`LongCount`/`All`/`Sum`/`Average` by any remote column on it — even a forward one —
 throws. Keep forward and reverse remote attributes on separate detail entities if you need forward-remote
 aggregates.
 

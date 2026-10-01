@@ -485,7 +485,7 @@ namespace Funcular.Data.Orm.Sqlite
                 }
 
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
-                // join for Count/All (fan-out-sensitive), allow it for Any (EXISTS is fan-out-safe).
+                // join for Count/LongCount/All (fan-out-sensitive), allow it for Any (EXISTS is fan-out-safe).
                 joins = ResolveAggregateJoins(
                     (whereClause ?? string.Empty) + "\n" + (modifiedWhereClause ?? string.Empty),
                     remoteInfo, fanOutSafe: isAny);
@@ -562,7 +562,7 @@ namespace Funcular.Data.Orm.Sqlite
         /// <summary>
         /// Returns the LEFT JOIN clauses to append to an aggregate's FROM, or empty when the aggregate's WHERE does
         /// not reference a remote (join-backed) column. Throws <see cref="NotSupportedException"/> when the required
-        /// join is a reverse (one-to-many) join and the aggregate is fan-out-sensitive (Count/All/Sum/Average).
+        /// join is a reverse (one-to-many) join and the aggregate is fan-out-sensitive (Count/LongCount/All/Sum/Average).
         /// </summary>
         private string ResolveAggregateJoins(string aggregateWhere, SqliteOrmDataProvider.ResolvedRemoteJoinInfo remoteInfo, bool fanOutSafe)
         {

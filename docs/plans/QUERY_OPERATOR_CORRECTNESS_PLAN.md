@@ -17,6 +17,16 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 24 (Task 11 gauntlet: full-branch pass and fix-verification on `3457e61`, 2026-10-01) — what changed:**
+> 9 findings (§9.26, §9.27).
+> - **AC12-8:** the null may be any operand that reads no parameter of the ordering lambda, including one with a lambda
+>   of its own. Each operand is evaluated once.
+> - **§9.24:** the r67 "equivalent mutant" claim is corrected.
+> - **§4.2:** pins for `Single` after `Take(k > 2)`, a duplicate `CASE` key, own columns on a computed-attribute entity
+>   without joins, and the 3.9.0 visitor constructor.
+> - **Version 3.10.0-beta1** (the Task 11 bump).
+> - **§8:** five pre-existing items found by the reviewers.
+
 > **Revision 23 (hostile review r810 of `1d35177..194b917`, 2026-10-01) — what changed:** 10 findings (§9.25).
 > - **AC13-5:** the `Skip(0)` example is qualified for SQLite (r810-F2).
 > - **§4.2:** `LongCount(pred)` over forward and reverse remote columns (F1). The doc test rejects duplicate and
@@ -731,7 +741,9 @@ providers** unless stated.
   and for a subset projection.
 - **AC12-8** An ORDER BY ternary whose test compares a member with `null`, with `null` on either side
   (`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`), orders rows the way LINQ-to-objects does. The
-  `null` may be a literal or a value held in a variable (a captured `string` or `int?`) *(rev 22, r67-1)*.
+  `null` may be a literal or a value held in a variable (a captured `string` or `int?`) *(rev 22, r67-1)*: any operand
+  that reads no parameter of the ordering lambda and evaluates to null, including one with a lambda of its own
+  (`names.FirstOrDefault(n => …)`). Each such operand is evaluated once *(rev 24, NF-1/NF-2)*.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
   dropped; they can never break a tie, so the order is unchanged.
 
@@ -1024,14 +1036,14 @@ providers** unless stated.
 |---|---|---|
 | AC12-1 | `[DataTestMethod] OwnColumnOrdering_OnJoinEntity_QualifiedSql_ExecutesInOrder` — {OrderBy, OrderByDesc, ThenBy-after-remote, ThenByDesc-after-remote} × {full, subset-without-key, scalar-of-FirstName} × {paged, unpaged} (24 rows); every row is `OrderBy…[Skip/Take].Select(…)`, with ordering and paging before the projection | all 4 |
 | AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix`, `ComputedMemberOrderBy_EmitsExpression_Unchanged`; direct, with the qualifier set: `MapHit_ComputedFragment_NeverPrefixed` | all 4 |
-| AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390` | all 4 |
+| AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390`; *(rev 24)* `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` (SQL Server, PostgreSQL, SQLite; MySQL has no computed-attribute entity) | all 4 |
 | AC12-4 | `TernaryOrderBy_OwnColumns_OnJoinEntity_QualifiedInsideCase` | all 4 |
 | AC12-5 | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (asserts `{table}.id DESC` and the returned `FirstName`) | all 4 |
 | AC12-6 | `Distinct_Projection_JoinEntity_OrderByKeyInProjection_Executes`, `Distinct_Projection_JoinEntity_OrderByKeyNotInProjection_ThrowsExisting` | all 4 |
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
-| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]` | all 4 |
-| AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence) | all 4 |
-| AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle` | all 4 |
+| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree` | all 4 |
+| AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
+| AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
 | AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 allow-list shape, including `ScalarProjection_ParameterlessSum`; covariant shapes are in the invariant rows below — note `((IQueryable<object>)q).Take(5)` is now **allowed**, F2), `Allowed_PredicateWithCollectionContains_NotRejected` (`List<T>.Contains` and `Enumerable.Contains`), `Harness_LogObservesEveryExecutionPath` (positive control for "no query executed"), `NonQueryableSpineMethod_Rejected`, `NonCallNonRootSpineNode_Rejected` (DB-free, hand-built `Convert` node), `ForeignQueryableConstantRoot_Rejected` (DB-free: a constant whose value is a composed queryable)<br>**Covariance invariants (§5.2.1, rev 7).** Each row is spelled both ways (no-node `IQueryable<object> o = …` and `.Cast<object>()`) and, where marked ‡, also "after an allowed sequence operator". **‡ is defined per operator (rev 8):** after `Take`/`Skip`, only `First*`/`Single*` (D8 rejects the rest; those cells are D8 rows); after `Distinct`, only `First*`/`Single*`/`Last*` (`Count`/`Any` hit the existing Distinct+aggregate guard, r7 M1–M3, which is a regression row), **except `Last*` after `Distinct` at the subset-`Select` position**. AC13-2 makes that shape throw, naming `Last`, and it's covered by `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast` (r8 #9).<br>• **I1 (predicate lambdas):** `Covariant_PredicateLambda_Rejected_I1Message_NoQuery` over {`Where`, `First(pred)`, `FirstOrDefault(pred)`, `Single(pred)`, `SingleOrDefault(pred)`, `Last(pred)`, `LastOrDefault(pred)`, `Any(pred)`, `All`, `Count(pred)`, `LongCount(pred)`, subset-`Select`-then-`Where`, **`Distinct()`-then-`Where`**} × {`object` source, **base-class source** (`IQueryable<PersonEntity>` over `Query<PersonDetailEntity>()`; MySQL: `IQueryable<PersonBase>` over `Query<PersonWithEmployer>()`)}, asserting the I1 message. Red on 3.9.0: `InvalidCastException` for the hard-cast operators (I1a/b/d/e/f/g, J5/J6/J14/J15, N1/N2, S4–S7b); a **silently unrelated row** for `Single*(pred)` (S1–S3). The `Distinct` row separates a lambda-parameter check from a `TSource` check.<br>• **I1 out of scope, left alone:** `Covariant_BaseClassSource_NonPredicateLambda_UnchangedFromConcrete`, comparing each shape with **the same shape over the concrete, unconverted query** (not the in-memory oracle, so it's independent of the D9 aggregate issues; `Average` differs from in-memory LINQ today, r8 S10/r8-MY3). Over {`OrderBy`→First, `OrderByDescending`→First, `OrderBy.ThenByDescending.Skip(1).First()`, `Max`/`Min`/`Sum`/`Average`(selector), scalar `Select` enumerated} × base class (J1–J4, J9, J16–J18), and over {`OrderByDescending(x => x.Id).First()`, `Max(x => x.Id)`} × interface `IHasPersonId` (J19/J20; `Id` only, since `IHasPersonId` exposes only `Id`. Interface behavior for other members depends on column naming, §8), plus `o.OrderByDescending(x => ((PersonEntity)x).Id).First()` (J8). Green on 3.9.0 and must stay green.<br>• `Covariant_BaseClassSource_PagedEnumerated_MatchesOracle` (`b.Take(5).ToList()`; red on 3.9.0, N3; fixed by I2).<br>• `Covariant_ScalarSource_Lambda_KeepsCompositionMessage` over {`Where`, `Count(pred)`}: asserts the substring **"must be the outermost query operator"**, on both converted and non-converted shapes. Only predicate operators can kill "I1 applied outer to a scalar Select", because I1 doesn't cover `OrderBy`.<br>• **I2 (scalar terminals):** `Covariant_ScalarSource_Terminal_Rejected_NoQuery` ‡ over {First, FirstOrDefault, Single, SingleOrDefault, Last, LastOrDefault}, asserting the scalar-guard message. Red on 3.9.0: the whole list is returned (P6, P7, Q1a–e). `Covariant_ScalarSource_CountAny_Regression` (non-‡; **green** on 3.9.0 with the same message, P7f/Q9c/N4: a regression row, not red). `ScalarDistinctLast_ScalarGuardWins` (`s.Distinct().Last()`: the Last/Distinct check lives in `BuildQueryComponents`, which runs after `ScalarProjectionGuard`, so the scalar-guard message wins).<br>• **I2 (entity enumeration):** `Covariant_EntitySource_Enumerated_MatchesOracle` ‡ (P14, Q3d red).<br>• **Left alone:** `Covariant_EntitySource_ParameterlessTerminal_MatchesOracle` ‡ over {Count, LongCount, Any, First, FirstOrDefault, Single (pre-filtered to one row), Last}, at the root, after `Where`/`OrderBy`/subset `Select` (Q3, Q9, P5, P13); `Covariant_ScalarSource_SequenceOrEnumeration_MatchesOracle` over {`Skip.Take`, `Take`, `Distinct`, `Cast<object>()` enumerated} (P7b–e, Q8).<br>• **D8 interplay:** `Covariant_EntitySource_AfterPaging_D8Governs` over {`Skip(1)`→First: allowed; `Take(5)`→Count: D8 message; `Take(5)`→Where: D8 message (D8 precedes I1)}.<br>• `Covariant_OtherProjectedSource_SelectShapeGuardMessage`: `q.Select(p => new Dto { … }).Where(…)` gets the `Select`-shape message, not I1's (r7 L1).<br>**`ScalarProjectionGuard`**, DB-free and direct: `ScalarProjectionGuard_Terminal_Throws` (object, string, `First<object>(…)`), `ScalarProjectionGuard_Collection_Passes` (`IEnumerable<object>`, string, `Select(…)`). It's also pinned end to end by the I2 rows above.; *(rev 21, T4R-1)* `Covariant_PredicateLambda_Rejected_I1Message_NoQuery` gains `interface` rows and per-source advice asserts; `GenericHelper_ConstrainedToBaseClass_MatchesOracle` (the advised helper runs) | all 4 + Core |
@@ -1039,7 +1051,7 @@ providers** unless stated.
 | AC13-6 | `OfType_Identity_AtRoot_IsNoOp`, `OfType_Identity_AfterOrderBy_IsNoOp`, `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp`, `OfType_Identity_OverNullableScalar_Rejected` (seeded nulls), `OfType_Identity_OverReferenceScalar_Rejected` (`OfType<string>`), `OfType_NonIdentity_Throws`, `Cast_Identity_IsNoOp` (`q.Cast<PersonEntity>().ToList()`; P1 shows it's a real node), `Cast_ReferenceConversion_Count_MatchesOracle` and `Cast_ReferenceConversion_OrderedFirst_MatchesOracle` (P5, P5b), `Cast_ReferenceConversion_Enumerated_MatchesOracle` (`q.Where(marker).Cast<object>().ToList()`; red on 3.9.0, P14), `Cast_ReferenceConversion_BaseClass_Enumerated_MatchesOracle` (per provider: `Query<PersonDetailEntity>().Cast<PersonEntity>()` on SQL Server/PG/SQLite, `Query<PersonWithEmployer>().Cast<PersonBase>()` on MySQL; red on 3.9.0, the Q4c/P14 class), `Cast_ReferenceConversion_Interface_Count_MatchesOracle` (`Cast<IHasPersonId>()` on all four, the Q4d shape; `IHasPersonId` is added to all four in Task 1), `Cast_BackToEntityAfterTransparentCast_IsNoOp` (Q4a), `OfType_Entity_AfterTransparentCast_IsNoOp` (Q4b), `Cast_Boxing_Rejected` (`Select(p => p.Id).Cast<object>()`), `Cast_NonIdentity_UnrelatedType_Throws` (`Cast<AddressEntity>()` on a person query) | all 4 + Core |
 | AC13-7 | `SupportedOperators_ExactLiteralSetPinned`, `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet`, `NonQueryableOverload_IsRejected` (MSTest: `SqlServer.Tests` net8, `SqlServer.Tests.NetFramework` net48); xUnit twin `QueryOperatorPolicyLiteralSetTests` (`SqlServer.Tests.DotNet9` net9) | Core, 3 runtimes |
 | AC13-8 | `GroupBy_Rejected_KeepsDedicatedMessage`; existing scalar tests; new in the siblings: `ScalarProjection_WithReducingTerminals_ThrowNotSupported`; `ScalarProjection_WithSingleOrLast_ThrowsNotSupported`; `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` (`Select(p => p.Id).Where(x => x > 0).Reverse()`); `Rejected_AllowListFailureBeatsPass2Failure` (`q.Take(5).Where(w).Reverse()` → the `Reverse` message, not D8's); `Rejected_OutermostAllowListFailureWins` (`Reverse().TakeWhile(…)` → `TakeWhile`); `Rejected_Pass2InnerFailureWins` (`Cast<Unrelated>().Take(1).Count()` → the D5 message, not D8's). Every allow-list rejection row asserts the policy message, and the type-filter rows assert the D5/`OfType` text, so an older guard that merely names the operator can't satisfy them; *(rev 21, T4R-2)* `OtherSelect_ThenCastOrOfType_SelectShapeMessage` [Cast, OfType]; *(rev 22)* `SubsetSelect_ThenUnrelatedCastOrOfType_D5Message` [Cast, OfType] | all 4 |
-| AC13-9 | `OperatorDocTable_MatchesSupportedOperators` (reads the table from both docs); prose reviewed in the gauntlet; *(rev 23)* the doc test rejects an operator listed twice and a data row that names none | SqlServer.Tests |
+| AC13-9 | `OperatorDocTable_MatchesSupportedOperators` (reads the table from both docs); prose reviewed in the gauntlet; *(rev 23)* the doc test rejects an operator listed twice and a data row that names none; *(rev 24)* `TableParser_AcceptsEverySeparatorForm`, `TableParser_WithoutSeparator_Fails` | SqlServer.Tests |
 | AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, OrderByDescending, OrderBy(a).Skip(n).OrderBy(b) [D8 wins over D10], Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip} — each row asserts the "after Skip/Take" message; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, `Skip.Select(subset).Take`, `Skip.Select(scalar).Take`, `Skip.OfType<T>().Take`, `Skip.Cast<T>().Take`, `Take.Cast<object>()` enumerated, `Skip.Take.Select(p => p.FirstName).Cast<object>()` enumerated (Q7), Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault(), OfType-identity entity, `Skip(n).Select(p => p.Id).OfType<int>()`, Skip-only.First()}; `[DataTestMethod] TakeNonPositive_ReturnsEmpty_NoQuery` over {Take(0) full, Take(0) subset, Take(0) scalar, Skip(2).Take(0), Take(-1), `Take(0).Cast<object>()` enumerated}; `Take0_First_Throws_NoQuery`, `Take0_FirstOrDefault_ReturnsNull_NoQuery`, `Take0_Single_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery`, `[DataTestMethod] Take0_CastObject_Terminal_NoQuery` and `[DataTestMethod] Take0_ImplicitObject_Terminal_NoQuery` (`IQueryable<object> o = q.Take(0)`), each over {First throws, FirstOrDefault → null, Single throws, SingleOrDefault → null} (the converted entity source in both spellings; I2: not an empty list as "first"); `[DataTestMethod] Take0_SubsetProjection_Terminal_NoQuery` over {First throws, FirstOrDefault → null, Single throws, SingleOrDefault → null} (the entity path); `[DataTestMethod] ScalarProjection_Take0_Terminal_ThrowsScalarGuard_NoQuery` over {First, FirstOrDefault, Single, SingleOrDefault} (`ScalarProjectionGuard` wins over the empty short-circuit for every terminal); `SkipNegative_BehavesAsSkipZero` | all 4 |
 | AC13-12 | `[DataTestMethod] Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` over {OrderBy.OrderBy, OrderBy.ThenBy.OrderByDescending, OrderBy.Where.OrderBy, OrderBy.Select(**subset**).OrderBy, OrderBy.Distinct.OrderBy}, each asserting the D10 message; `ThenBy_OnRoot_IsPrimaryOrder` (`((IOrderedQueryable<T>)q).ThenByDescending(p => p.Id).Where(marker)` returns rows in **descending** id order, the same as `OrderByDescending(p => p.Id).Where(marker)`; ascending would be indistinguishable from no order, r6 Q10); *(rev 21, T4R-6)* the same rows assert the second operator's name and the `query.{Op}(later).ThenBy(earlier)` advice; *(rev 22)* the rows also assert the advice keeps each earlier key's direction | all 4 |
 | AC13-13 | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder`, `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc`, `SqliteRoot_ReusedAfterParameterizedProjection_NoDuplicateParameters` | SQLite |
@@ -1063,6 +1075,7 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Core `QueryOperatorPolicy.IsAllowed(MethodInfo)` *(new, **public** — no `InternalsVisibleTo` dependency, which would break if the assemblies are strong-named later)* | `ClassifierSweep_*`, `NonQueryableOverload_IsRejected`, the net9 xUnit twin |
 | Core `QueryOperatorPolicy.SupportedOperators` *(new, public read-only)* | `SupportedOperators_ExactLiteralSetPinned`, `OperatorDocTable_MatchesSupportedOperators`, `SupportedOperators_IsReadOnlyView` *(rev 21, T4R-4)* |
 | `*OrderByClauseVisitor` ctor — optional `tableQualifier` | AC12 tests; `OrderByVisitorDirectTests` |
+| `*OrderByClauseVisitor` 3.9.0 constructor (kept) and the qualifier overload *(rev 24)* | `Constructor_390Signature_IsKept`; every provider call site |
 | `*OrderByClauseVisitor.OrderByTerms` *(new)* + duplicate removal | AC13-2 inversion tests; `ThenBy_SameKeyTwice_Executes`; direct tests |
 | `*OrderByClauseVisitor` ternary null handling | AC12-8; direct tests |
 | `QueryComponents.Terminal`, `.RowLimit`, `.OrderByTerms`, `.IsEmptyByTake` *(new)* | AC13-1, AC13-2, AC13-10 |
@@ -1142,6 +1155,13 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | D10 advice drops the earlier key's direction *(rev 22)* | `Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` |
 | `LongCount`'s own predicate left out of the aggregate's join resolution *(rev 23)* | `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` |
 | Doc table lists an operator twice, or has a row naming none *(rev 23)* | `OperatorDocTable_MatchesSupportedOperators` |
+| `Single*` after user paging reads `Take` rows when `Take > 2` *(rev 24)* | `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` |
+| A duplicate `CASE` key not dropped *(rev 24)* | `ThenBy_SameTernaryKeyTwice_Executes` (SQL Server error 169) |
+| Own columns qualified whenever the resolution map isn't empty (instead of when there are joins) *(rev 24)* | `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` |
+| The null check flags a parameter that a nested lambda declares *(rev 24)* | `TernaryOrderBy_NullComparison_MatchesOracle[nested lambda]`, `Ternary_Branch_BuildsCase[nested lambda]` |
+| A value operand evaluated more than once *(rev 24)* | `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree` |
+| The 3.9.0 visitor constructor removed or qualifying *(rev 24)* | `Constructor_390Signature_IsKept` (removal also breaks the build: internal callers use it) |
+| The doc-table parser misses a valid separator form *(rev 24)* | `TableParser_AcceptsEverySeparatorForm` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
@@ -1653,6 +1673,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - `OperatorDocTable_MatchesSupportedOperators` went red → green on both docs, so **every suite is green**.
       **Mutations: 3, all killed** (a missing operator, an extra operator, a missing marker).
 - **Task 11 — Gauntlet and release.**
+  - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
+    then to `3.10.0` for the release. CI packs and publishes from `master`.
   - Mutation runs recorded; net48/net9 runs.
   - A fresh non-author adversarial pass, then fix-verification.
   - Sentinel file for the exact clean sha.
@@ -1698,6 +1720,15 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - nullable `Min`/`Max`/`Average` on an empty set throws;
   - some `Min`/`Max` result types throw after the round-trip.
 - `GenerateOrderByClause` (three providers) is dead code.
+- **The visitors' `OrderByClause` getter writes "Generated ORDER BY clause" to stdout** on every ordered query
+  (pre-existing, all four; gx). Remove in a follow-up.
+- **SQL Server: `OrderBy(computedSubquery).Select(…).Distinct()`** fails ("ORDER BY items must appear in the select
+  list"), for `ToList` as for `Last` (pre-existing; gx).
+- **net48 twin from a clean checkout:** `dotnet build FunkyORM.sln` doesn't copy the old-style csproj's transitive
+  DLLs (System.Memory and others), so 68 of 76 fail until they're present in `bin` (fv). The local gate passes
+  because `bin` is already populated. Convert the project to SDK style in a follow-up.
+- **SQLite view-backed entity with remote joins:** unordered paging now fails (`no such column: v.rowid`) instead
+  of paging in a meaningless order (gx). Recorded in the Changelog.
 - SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
 - Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
   `Single*` without user `Skip`/`Take` no longer routes through it (row limit). With user paging it still
@@ -1706,7 +1737,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
   sort NULLs first ascending, as LINQ-to-objects does; PostgreSQL sorts them last. `First`, `Last` and `ToList`
   all follow the database (AC13-2), so on PostgreSQL `OrderBy(nullable).Last()` can be a NULL-keyed row where LINQ
   gives another. Emitting `NULLS FIRST`/`LAST` on PostgreSQL is a follow-up candidate. Documented in `Advanced.md` §5.
-- **SQL NULL semantics differ from C# (pre-existing; follow-up issue).**
+- **SQL NULL semantics differ from C# (pre-existing; follow-up issue).** *(Rev 24, fv: this also applies to ORDER BY
+  ternaries. `x.M != "A" ? 0 : 1` sends NULL rows to ELSE where LINQ sends them to THEN; executed, same on 3.9.0.)*
   - `x.M != v` emits `col <> @p`, which excludes NULL rows; C# includes them.
   - `All(pred)` is `NOT EXISTS(… WHERE NOT pred)`, which never counts a NULL row as a violation; C# does.
   - A WHERE comparison with a null held in a variable (`string none = null; Where(p => p.M == none)`) emits
@@ -2214,6 +2246,9 @@ fixed, not the case they must leave alone.
 | r67-6 | nit | TEST-GAP (fix-introduced) | The T4R-6 advice `ThenBy(earlier)` dropped a descending earlier key's direction. | The advice adds "keeping each earlier key's direction (ThenByDescending for a descending one)", and the D10 rows assert it. Docs updated. |
 | r67-7 | nit | AC-GAP | On an entity without `Id`, the no-`Id` error (worked out in the parse) masked the scalar and `Distinct` guards. AC13-8's precedence put the parse first. | `DefaultLastOrderBy` is resolved in `BuildQueryComponents`, after both guards. Two `Last_EntityWithoutId_*` tests; AC13-2 amended. |
 
+*(Corrected in rev 24, NF-1: the claim below was false. With the r67 finder, "never finds" made the nested-lambda
+shape work, so the finder was wrong, not redundant. §9.27 has the fix.)*
+
 Mutations for the layer (baseline-aware runner): 7 run, 6 killed. The survivor, "the parameter finder never
 finds", is **equivalent**: an operand that reads the lambda parameter can't be compiled on its own, so its
 evaluation throws and is caught as not-null either way. The finder stays, because it spares that exception for
@@ -2244,6 +2279,43 @@ from different roots could restore each other's files. Now each working tree get
 cwd), holding absolute paths.
 
 Mutations for the layer (baseline-aware runner): 4, all killed (F1 on SQL Server and SQLite; F5 ×2).
+
+### 9.26 Task 11 full-branch adversarial pass of `master..3457e61` (non-author; executed)
+
+Verdict: NOT CLEAN. 4 minor, 1 nit; no behavioral defect in the query semantics. Every suite and both twins were
+reproduced green. The Task 5 batch re-ran 13/13; Tasks 2 and 3 were re-run on the baseline-aware runner, 4/4 and
+2/2. Of the reviewer's 11 mutations, 3 survived (F1, F2, F5). Totals: AC-GAP 0, TEST-GAP 3, HOUSE-RULE 1,
+PLAN-GAP 1, OTHER 0.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| gx-F1 | minor | TEST-GAP | AC13-1's `min(Take ?? 2, 2)` wasn't pinned for `k > 2`; `Take = Take ?? 2` survived the whole suite. | `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4: throws, and the SQL reads 2 rows). |
+| gx-F2 | minor | TEST-GAP | Duplicate removal wasn't tested for `CASE` keys (SQL Server error 169 if they weren't dropped). | `ThenBy_SameTernaryKeyTwice_Executes` (oracle + one `CASE` in the ORDER BY; all 4). |
+| gx-F3 | minor | PLAN-GAP | §5.1.1's optional `tableQualifier` parameter removed the 3.9.0 3-parameter constructor: a 3.9.0-compiled consumer hit `MissingMethodException` (executed). The Changelog's API list also omitted `OrderByTerm`/`OrderByTerms`. | The 3.9.0 constructor is restored, delegating to a 4-parameter overload with no defaults (no overload ambiguity). `Constructor_390Signature_IsKept`. Changelog lists the API. |
+| gx-F4 | minor | HOUSE-RULE (release-branch alignment) | All five csprojs still said 3.9.0, while the Changelog and README announced 3.10.0. Merging would make CI try to republish 3.9.0. | `3.10.0-beta1` (Version/InformationalVersion; Assembly/File `3.10.0.0`, the b5401b2 pattern). Changelog header `[3.10.0-beta1]`, README label. §6 Task 11 step. |
+| gx-F5 | nit | TEST-GAP | AC12-3 was tested only on a plain entity; "qualify when the map isn't empty" survived. | `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` (3 suites; MySQL has no computed-attribute entity). |
+
+Pre-existing items the reviewer found (stdout write, Distinct + computed-subquery order, the SQLite view-backed
+`rowid` change) are in §8 and the Changelog.
+
+### 9.27 Task 11 fix-verification of `194b917..3457e61` (r67/r810 fix layers; non-author; executed)
+
+Verdict: NOT CLEAN. r67-2..7 and every r810 item RESOLVED (red-before-green confirmed on all four for r67; 3.9.0
+claims re-executed on all four). r67-1 and N5 PARTIAL. 4 new findings: 1 minor, 3 nits. Totals: AC-GAP 1,
+TEST-GAP 2, HOUSE-RULE 1, PLAN-GAP 0, OTHER 0.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| NF-1 | minor | AC-GAP | The r67 finder flagged any parameter, including one declared by a lambda inside the operand: `p.M == names.FirstOrDefault(n => …)` still emitted `= NULL` (SQL Server threw). The §9.24 equivalence claim was false. | `FreeParameterFinder` records lambda-declared parameters and flags only free ones. AC12-8 widened. Oracle row 8 and a direct row; §9.24 corrected. |
+| NF-2 | nit | TEST-GAP (fix-introduced) | Operands were evaluated 2–3 times. The `when` guard and the body could disagree: `NullOnFirstCall() == p.M` emitted `'x' IS NULL`. | One operand path: `OperandSql` evaluates once (fast path for a captured or static field) and formats the value, and the null branch reuses it. `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree` (counter = 1; column kept). |
+| NF-3 | nit | TEST-GAP (fix-introduced) | The r810 doc-test rewrite only recognized `|---` separators: `| --- |` and `|:---|` failed. | A separator regex; a separator is required. `DocumentedOperators` is factored out, with `TableParser_AcceptsEverySeparatorForm` (4 forms) and `TableParser_WithoutSeparator_Fails`. |
+| NF-4 | nit | HOUSE-RULE (sibling drift, pattern 16) | N5 fixed the rows but not the neighbouring sentences and code comments, which still omitted `LongCount`. | `LongCount` added in `Advanced.md`, the AI docs, README, Usage.md and the four providers' comments. |
+
+Mutations for the round (baseline-aware runner, SQL Server visitor): 6 run. 4 killed. "3.9.0 constructor removed"
+doesn't compile, because internal callers use it; the reflection test pins it for compiled consumers. "Finder never
+finds" is **equivalent**, with proof: a parameterless lambda whose body reads an undeclared parameter can't be
+compiled, so `OperandSql` falls back to `BuildValueSql` either way. The finder only spares that exception for
+every column operand.
 
 ---
 

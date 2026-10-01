@@ -138,6 +138,20 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         #endregion
 
+        [TestMethod]
+        public void ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified()
+        {
+            // AC12-3: no joins, so own columns stay bare, as in 3.9.0, even though computed attributes put entries in
+            // the resolution map. Qualifying on "the map isn't empty" instead of "there are joins" would break this.
+            var marker = NewMarker();
+            SeedProject(marker, SeedEmployer("Q310Country_" + marker), 9);
+
+            ClearLog();
+            _provider.Query<ProjectScorecardFull>().Where(p => p.Name == marker).OrderBy(p => p.Name).ThenBy(p => p.Id).ToList();
+
+            Assert.AreEqual("name ASC, id ASC", OrderByList());
+        }
+
         #region AC12-4
 
         [TestMethod]
@@ -240,6 +254,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         [DataRow(5, DisplayName = "captured null == x.M")]
         [DataRow(6, DisplayName = "x.M != captured null")]
         [DataRow(7, DisplayName = "captured null != x.M")]
+        [DataRow(8, DisplayName = "x.M == null computed by a nested lambda")]
         public void TernaryOrderBy_NullComparison_MatchesOracle(int spelling)
         {
             var marker = NewMarker();
@@ -249,6 +264,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             SeedPerson(marker, "c", employer, middleInitial: "C");
 
             string none = null; // rows 4-7: the null is held in a variable, not written as a literal
+            var names = new[] { "a" }; // row 8: the null comes from an operand with its own lambda
             Expression<Func<PersonDetailEntity, int>> key;
             switch (spelling)
             {
@@ -260,6 +276,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 case 5: key = p => none == p.MiddleInitial ? 0 : 1; break;
                 case 6: key = p => p.MiddleInitial != none ? 0 : 1; break;
                 case 7: key = p => none != p.MiddleInitial ? 0 : 1; break;
+                case 8: key = p => p.MiddleInitial == names.FirstOrDefault(n => n.Length > 100) ? 0 : 1; break;
                 default: throw new ArgumentOutOfRangeException(nameof(spelling));
             }
 
@@ -269,6 +286,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         #endregion
 
         #region AC12-9
+
+        [TestMethod]
+        public void ThenBy_SameTernaryKeyTwice_Executes()
+        {
+            var (marker, _) = SeedAbc();
+
+            // SQL Server rejects a CASE key listed twice (error 169), like a column: the later one is dropped.
+            ClearLog();
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "b" ? 1 : 0).ThenBy(p => p.FirstName == "b" ? 1 : 0).ThenBy(p => p.Id).ToList());
+            Assert.AreEqual(1, OrderByList().Split(new[] { "CASE WHEN" }, StringSplitOptions.None).Length - 1, OrderByList());
+        }
 
         [TestMethod]
         public void ThenBy_SameKeyTwice_Executes()
