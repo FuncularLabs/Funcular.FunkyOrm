@@ -173,6 +173,12 @@ namespace Funcular.Data.Orm.Sqlite
 
         private QueryComponents ParseExpression(Expression expression, SqliteParameterGenerator parameterGenerator, SqliteExpressionTranslator translator)
         {
+            // D11: the per-parse fields below outlive the query that set them. Reset them first, before the bare-root
+            // early return, so a later query on the same root never inherits a projection, parameters or an order.
+            _lastSelectProjection = null;
+            _lastSelectParameters = null;
+            _lastOrderByClause = null;
+
             // Reject unsupported operators, and supported ones in unsupported positions, before translating anything.
             QueryOperatorPolicy.EnsureSupported(expression);
 
