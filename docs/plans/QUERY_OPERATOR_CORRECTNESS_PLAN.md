@@ -19,10 +19,16 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 37 (fix-verification of `66bde1e..141654d`, 2026-10-01) — what changed:** plan prose only (G1–G5).
+>   - §8: the SQL Server constant-test entry; a new pre-existing SQLite `DateTimeOffset` entry.
+>   - AC12-10's result sentence.
+>   - §4.2/§4.4 rows for the rev 33 literal-mode test.
+>   - Rev 36's header, the Task 12 status, and §9.39.
+
 > **Revision 36 (fix-verification of `66bde1e..1458516`, 2026-10-01) — what changed:** plan prose only (F1–F5).
 >   - §8: the SQL Server constant-test entry, and the SQLite culture and WHERE entries.
 >   - The status block, rev 35's header, and the Task 12 status.
->   - §9.38.
+>   - §9.38, and §9.37's O1 line.
 
 > **Revision 35 (fix-verification of `66bde1e..0568a3f`, 2026-10-01) — what changed:** prose only (N1–N4).
 >   - The status block above.
@@ -824,7 +830,9 @@ providers** unless stated.
     literal, so the database types each one where it's used.
   - **On PostgreSQL**, a value compared with `null` is decided in .NET. `IS NULL` can't give an untyped parameter
     a type.
-  - **Result:** a `Guid` or date value compares and sorts as it did in 3.9.0, on every provider.
+  - **Result:** a `Guid` or `DateTime` value compares and sorts as it did in 3.9.0, on every provider. A
+    `DateTimeOffset` is compared as its invariant text, offset included, where 3.9.0 used current-culture text
+    *(rev 37, G3)*.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
   Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
@@ -1131,7 +1139,7 @@ providers** unless stated.
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
 | AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
-| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (8 tests; 9 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`; MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
+| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (8 tests; 9 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
@@ -1277,6 +1285,7 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Date text in the current culture; `DateTimeOffset` as `o` *(rev 31)* | `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` (fi-FI) |
 | Literal mode drifts from `LiteralText` (3.9.0's `ToString()` default) *(rev 31)* | the literal-parity assert in `ParameterMode_GuidsAndDates_…` |
 | A value whose text is null not emptied *(rev 31)* | `LiteralMode_ValueWithNullText_IsEmptyText` |
+| Placeholders substituted without a parameter generator (key, SQL or both) *(rev 33)* | `LiteralMode_PlaceholderShapedText_IsInlined` |
 | `AssertEveryParameterReferenced` parsing the joined log by line (the rev 30 helper) *(rev 31)* | `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand` |
 | MySQL literal mode without backslash escaping *(rev 30)* | `LiteralMode_Backslash_IsEscaped` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
@@ -1844,6 +1853,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Suites: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708; net48 76/76; net9 5/5.
   - **Verification layer 4 (rev 35, §9.37).** Prose only (N1–N4); no code or test changed.
   - **Verification layer 5 (rev 36, §9.38).** Plan prose only (F1–F5).
+  - **Verification layer 6 (rev 37, §9.39).** Plan prose only (G1–G5).
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2026,11 +2036,25 @@ Each task lists the tests it turns green. Every implementation task starts with 
     ORDER BY list") on both shas: `n == null ? p.Id : 0`, `five < 3 ? p.Id : 0`, `five > 3 ? 0 : 1`.
   - **A quoted branch is selected** (`five > 3 ? "a" : "b"`, `n == null ? p.FirstName : "z"`). It is a parameter at
     HEAD and fails with error 1008 instead of 408.
-  - **A quoted value compared with `null`:** a non-null one works at HEAD (`s == null ? "a" : "b"`). A variable
-    holding `null` still emits `NULL IS NULL` and fails with 408.
+  - **A quoted value compared with `null`:** a non-null one works at HEAD (`s == null ? "a" : "b"`).
+  - **A variable holding `null`** still emits `NULL IS NULL`, a constant test, so the selected branch decides
+    (with `sn = null`):
+    - `sn == null ? "a" : "b"` fails with 1008 at HEAD and with 408 on `66bde1e`.
+    - `sn == null ? 0 : 1` fails with 408 on both.
+    - `sn == null ? p.FirstName : "z"` works on both.
 
-  No shape that worked on `66bde1e` fails at HEAD. Follow-up candidate: decide a test that reads no row in .NET
-  and emit the selected branch.
+  No shape that worked on `66bde1e` fails at HEAD.
+
+  **Follow-up candidate:** decide a test that reads no row in .NET, then:
+  - if the selected branch reads the row, emit it;
+  - otherwise drop the term (a constant key never changes the order).
+
+  Emitting a constant branch would not help, executed: `ORDER BY 0` is error 108, `ORDER BY N'a'` is 408, and
+  `ORDER BY @p` is 1008. An integer constant before a `ThenBy` sorts by a select-list position instead.
+- **SQLite can't read back a `DateTimeOffset` property (pre-existing).** The rev 36 reviewer, executed at HEAD:
+  `InvalidCastException` from text to `DateTimeOffset` in the reader's `Convert.ChangeType`
+  (`SqliteOrmDataProvider.cs`). That file is unchanged since `master` (author, `git diff`). Follow-up candidate,
+  with the culture entry above.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2758,6 +2782,21 @@ execution. Suites at HEAD: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708.
 | F3 | nit | PLAN-GAP | The list of docs to correct missed `FUNKYORM_AI_INSTRUCTIONS.md`. | Added. |
 | F4 | nit | HOUSE-RULE | The WHERE entry gave only the `DateTime` storage format; a `DateTimeOffset` is bound as `fffffffK`. | Both formats named. |
 | F5 | nit | HOUSE-RULE | The status block cited §9.33–§9.36, although §9.37 exists. Rev 35's header omitted its Task 12 status change. | Now "§9.33 onward"; header completed. |
+
+### 9.39 Fix-verification of `66bde1e..141654d` (non-author; 27 SQL Server shapes on both shas; SQLite formats across 12 cultures; suites re-run)
+
+Verdict: NOT CLEAN on plan prose. F2–F5 are resolved and F1 partly; every outcome and error number in the restated
+entry was confirmed. Suites at HEAD: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| G1 | minor | HOUSE-RULE | "A variable holding `null` … fails with 408" was unshaped and wrong: the selected branch decides, and a quoted branch fails with 1008 at HEAD. | Restated as three executed shapes. |
+| G2 | minor | PLAN-GAP | The follow-up ("emit the selected branch") fixes nothing: every failing shape selects a constant or a parameter, which SQL Server rejects too, or misreads as a select-list position. | Follow-up is now: emit a row-reading branch, otherwise drop the term. The executed errors are cited. |
+| G3 | minor | HOUSE-RULE | AC12-10's "a Guid or date value … as in 3.9.0" was false for a `DateTimeOffset`. | Narrowed to Guid and `DateTime`; the `DateTimeOffset` difference is stated. |
+| G4 | nit | HOUSE-RULE | Rev 36's header omitted its §9.37 edit. | Added. |
+| G5 | nit | HOUSE-RULE | Rev 33's literal-mode test and its mutation were missing from §4.2/§4.4. | Added. |
+
+Observation recorded in §8: SQLite can't read back a `DateTimeOffset` (pre-existing).
 
 ---
 
