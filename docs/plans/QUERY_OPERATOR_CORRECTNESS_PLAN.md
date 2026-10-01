@@ -11,7 +11,47 @@
 
 > **Status (2026-09-30)**:
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
-> - Task 0 is waiting on a clean fix-verification of this revision (r5, scoped to the rev-5 diff).
+> - Task 0 is waiting on a clean fix-verification of this revision (r6, scoped to the rev-6 diff).
+
+> **Revision 6 (Task 0 fix-verification r5, 2026-09-30) — what changed:**
+> The r5 reviewer found 8 issues at `dfeae2e`: 0 blocker, 2 major, 6 minor. All 8 were introduced by rev 5.
+> Blame: AC-GAP 1, TEST-GAP 7. Disposition is in §9.5. Both majors rested on **System.Linq premises nobody had
+> executed**:
+> - **`Queryable.Cast` always creates a node**, even `Cast<T>()`. My §1.4 bullet confused it with
+>   `Enumerable.Cast`.
+> - **`ThenBy*` after any non-ordering call throws `ArgumentException` inside System.Linq** before the
+>   provider sees it. That's r3 N2's premise, never run.
+>
+> **Process fix: every shape premise now cites an executed probe (new §1.5)**, run on the real providers on
+> 2026-09-30. Changes:
+> - **D10 clause 2 deleted (R5-2).** A separated `ThenBy` is unreachable, so its message, five rows and two
+>   mutation rows are gone. D10 is just "second `OrderBy*` rejected". The sort-helper crash this exposed is
+>   pre-existing and filed as [#16](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/16) (owner:
+>   follow-up, not 3.10.0).
+> - **D5 amended by the owner (R5-1).** A **reference-conversion `Cast<TBase>()`** behaves like an implicit
+>   conversion. It's transparent, and the operators after it go through the covariance table using the
+>   *effective* element type.
+>   - `q.Cast<object>().Count()`/`.First()` keep working; they're correct in 3.9.0 (P5).
+>   - Enumerating it now works too, through a generalized `isCollection` in `Execute`. In 3.9.0 it throws
+>     `InvalidCastException` (P14).
+>   - `Select(p => p.FirstName).Cast<object>().First()` is still rejected; in 3.9.0 it returns the whole list
+>     (P6).
+> - **The scalar covariance row is corrected against new probes.** Covariant `Skip`/`Take`/`Distinct` and
+>   enumeration over a scalar projection return correct results (P7b–P7e), so they stay allowed. Only
+>   terminals and lambda-bearing operators are rejected.
+> - **Covariance rows** are spelled both ways: the no-node conversion `IQueryable<object> o = …` and
+>   `Cast<object>()`.
+> - **Second-layer scalar guard (R5-3)** can't be reached through `Queryable`. It becomes a Core helper,
+>   `ScalarProjectionGuard`, tested directly.
+> - **Rule order is pinned at each node (R5-5):** allow-list → D8 → D10 → covariance/D5. The pre-pass runs in
+>   two passes so the root element type is known.
+> - **Messages (R5-6):** a scalar-source covariant variant; `Cast<…>` dropped from the advice; an "other
+>   projected type" source defers to the existing `Select`-shape guard.
+> - **Wording (R5-4, R5-7):** AC13-5 restated (the rules reject some shapes that 3.9.0 happened to answer
+>   correctly; the Changelog lists them), and AC12-3 exceptions widened.
+> - **Formatting (R5-8):** §4.2 table repaired.
+> - Signing deferred by the owner (§8).
+> - The spine root must be the queryable's own root (`((IQueryable)c.Value).Expression == c`).
 
 > **Revision 5 (Task 0 fix-verification r4, 2026-09-30) — what changed:**
 > The r4 reviewer found 7 issues at `7e97e93`: 0 blocker, 1 major, 6 minor. 5 were introduced by rev 4. Blame:
@@ -227,18 +267,65 @@ Same shapes on PostgreSQL (local PG 18), MySQL and SQLite. Each probe seeded thr
   (SqlLinqQueryProvider.cs:339-346; the same in the siblings) becomes dead once the pre-pass rejects
   non-generic `Sum()`/`Average()` and parameterless generic `Min<T>()`/`Max<T>()` (the "with selector" rule).
   The comment at :128-129 then becomes false.
-- **Every FunkyORM queryable implements `IOrderedQueryable<T>`** (SqlQueryable.cs:9 and the siblings). So a
-  cast lets `ThenBy*` follow any call, and the visitor, which stops at non-ordering calls
-  (OrderByClauseVisitor.cs:120-128), silently drops the earlier ordering.
-- **Covariance.** `IQueryable<object> q = db.Query<T>()` creates no node, so `q.Count()` is
-  `Count<object>(root)`. In 3.9.0, parameterless terminals over a covariant source work: `Count`/`Any` take
-  the aggregate path, and `First*` reads a `T` and casts it. Lambda-bearing operators and collection results
-  over a covariant source throw `InvalidCastException`.
-- **`Queryable.Cast<TResult>`** returns the source unchanged when it's already `IQueryable<TResult>`, so no
-  node is created. `OfType` always creates a node and, like `Enumerable.OfType`, **drops nulls**.
+- **Every FunkyORM queryable implements `IOrderedQueryable<T>`** (SqlQueryable.cs:9 and the siblings). But
+  `Queryable.ThenBy` checks the source **expression's** type: after any non-ordering call it is
+  `IQueryable<T>`, so System.Linq throws `ArgumentException` before the provider sees it (§1.5 P3/P3b). Only
+  the root (typed as the concrete queryable) and ordering calls can precede `ThenBy*` (P4). One consequence
+  is pre-existing and out of scope: `is IOrderedQueryable` sort helpers crash on composed queries (P4b; issue
+  #16).
+- **Covariance.** `IQueryable<object> q = db.Query<T>()` creates **no node** (P2b), so `q.Count()` is
+  `Count<object>(root)`.
+  - Over an **entity** source, parameterless terminals work in 3.9.0 (P5, P5b, P13, P13b).
+  - Over a **scalar** source, `First` returns the whole projected list (P6, P7): a silent wrong result.
+- **`Queryable.Cast<TResult>` always creates a node**, even `Cast<T>()` on an `IQueryable<T>` (P1, P2). The
+  short-circuit belongs to `Enumerable.Cast`, not `Queryable.Cast`. The 3.9.0 parse loop has no `Cast`
+  branch, so the node is ignored: `q.Cast<object>().Count()` is correct (P5), and
+  `Select(scalar).Cast<object>().First()` is the scalar bug (P6).
+- **`OfType`** always creates a node and, like `Enumerable.OfType`, **drops nulls**.
 - **Core `InternalsVisibleTo`** already covers `SqlServer.Tests`, `.DotNet9` and `.NetFramework`.
 - **The net48 test project** is an old-style csproj compiled as C# 7.3. net48's `Queryable` lacks
   `Chunk`/`DistinctBy`/`MinBy`/`Order`/`Take(Range)`/the default-value overloads.
+
+### 1.5 Executed premise probes (2026-09-30)
+
+**Rule (rev 6):** every premise about how a shape behaves (System.Linq or a database) cites a probe that was
+actually run. Reasoning alone doesn't count. Two plan rounds were spent on premises nobody had executed.
+
+Throwaway probe tests ran on the real providers (SQL Server `FUNKY_CONNECTION`; local PostgreSQL 18; MySQL;
+SQLite temp DB) and were deleted afterwards. The r5 reviewer separately confirmed P1–P4 on net48, net8 and
+net9 with a mimic provider. Results are for 3.9.0.
+
+| # | Shape | Result |
+|---|---|---|
+| P1 | `q.Cast<T>()` (identity) | **New node** (`…SqlQueryable.Cast()`); not the same instance |
+| P2 | `q.Cast<object>()` | New node |
+| P2b | `IQueryable<object> o = q` | **No node** (same instance) |
+| P3 | `((IOrderedQueryable<T>)q.Where(w)).ThenBy(k)` | `ArgumentException` from System.Linq (`IQueryable` where `IOrderedQueryable` expected) |
+| P3b | `((IOrderedQueryable<T>)q.Skip(1)).ThenBy(k)` | `ArgumentException` (same) |
+| P4 | `((IOrderedQueryable<T>)root).ThenBy(k)` | Works: `ORDER BY id ASC` |
+| P4b | helper `w is IOrderedQueryable<T> o ? o.ThenBy(k) : w.OrderBy(k)` over `q.Where(…)` | `ArgumentException` (pre-existing; #16) |
+| P5 | `q.Cast<object>().Count()` | Correct (`SELECT COUNT(*)`) |
+| P5b | `q.OrderBy(Id).Cast<object>().First()` | Correct (row Id=1) |
+| P6 | `q.Select(p => p.FirstName).Cast<object>().First()` | **Wrong:** returns the whole `List<string>` (8,546 items) |
+| P7 | `IQueryable<object> s = q.Select(p => p.FirstName); s.First()` | **Wrong:** returns the whole list |
+| P7b | same `s`; `s.Take(3).ToList()` | Correct (3 items) |
+| P7c | `IQueryable<object> s = q.OrderBy(Id).Select(p => p.FirstName); s.Skip(2).Take(3).ToList()` | Correct (matches in-memory `Skip(2).Take(3)`) |
+| P7d | `IQueryable<object> s = q.Select(p => p.FirstName); s.Distinct().ToList()` | Correct (1,503 = in-memory distinct count) |
+| P7e | `q.Select(p => p.FirstName).Cast<object>().ToList()` | Correct (8,546 items) |
+| P7f | `q.Select(p => p.FirstName).Cast<object>().Count()` | Clean `NotSupportedException` (scalar result-type guard) |
+| P14 | `q.Where(Id <= 3).Cast<object>().ToList()` (entity, enumerated) | **`InvalidCastException`**: `Execute` treats `IEnumerable<object>` as a single row, because `isCollection` tests assignability to `IEnumerable<T>` (SqlLinqQueryProvider.cs:99 and the sibling equivalents at :58) |
+| P14b | `IQueryable<object> c = q.Where(Id <= 3); c.ToList()` | Correct (no node, so it enumerates as `IEnumerable<T>`) |
+| P14c | `q.Where(Id <= 3).Cast<PersonEntity>().ToList()` (identity) | Correct |
+| P14d | `q.Where(Id <= 3).OrderBy(Id).Cast<object>().First()` | Correct |
+| P8 | `OrderBy(Id).ThenBy(Id)` / `.ThenByDescending(Id)` | SQL Server: `SqlException` ("column specified more than once in the order by list"). PostgreSQL / MySQL / SQLite: execute. |
+| P9 | join entity `OrderBy(Id).Take(2).Select(new T { Id, FirstName })` (key projected) | Works on all 4: bare `ORDER BY id` binds to the `Id` alias |
+| P10 | `Skip(1).ToList()` / `OrderBy(Id).Skip(1).First()` (no `Take`) | SQLite: **syntax error near `OFFSET`**. PostgreSQL: `OFFSET 1`, OK. MySQL: `LIMIT 18446744073709551615 OFFSET 1`, OK. SQL Server: OK. |
+| P11 | `Take(3).Distinct()` over the full (keyed) entity | Correct on all 4 (rows already distinct) |
+| P13 | `IQueryable<object> c = q; c.Count()` | Correct |
+| P13b | `IQueryable<object> c = q.OrderBy(Id).Skip(1); c.First()` | Correct (row Id=2) |
+
+**Still unexecuted** (Task 1 red tests): the new 3.10 behaviors themselves; the net48/net9 rendering of
+`MethodInfo` signatures for the literal set.
 
 ---
 
@@ -250,12 +337,12 @@ Same shapes on PostgreSQL (local PG 18), MySQL and SQLite. Each probe seeded thr
 | **D2** | Allow-list form | **Exact-overload allow-list in Core** (`QueryOperatorPolicy`), run as a **pre-pass over the method spine** before translation. It guarantees that no query or aggregate command runs for a rejected chain; schema discovery at `Query<T>()` is unaffected. |
 | **D3** | Version / branch | **3.10.0** on `development/3.10`; beta first, stable after a Sentinel call-list smoke test. |
 | **D4** | Local PostgreSQL | Native PostgreSQL 18 via the suite's fallback connection; CI uses `postgres:17`. |
-| **D5** | `Cast`/`OfType` | **Identity only.** The generic argument must equal the call's source element type.<br>• `Cast`: allowed as a no-op.<br>• `OfType`: allowed as a no-op only when the element type is the entity `T` (rows are never null) or a non-nullable value type.<br>• Everything else is rejected: `OfType` over a nullable or reference scalar would have to drop nulls, and the message says to use `Where(x => x.M != null)` before the projection. |
+| **D5** | `Cast`/`OfType` | **Identity**, plus *(owner amendment, rev 6)* **reference-conversion `Cast`**.<br>• `Cast<X>` where `X` = the source element type: a no-op.<br>• `Cast<TBase>` where the source element type is a **reference type assignable to `TBase`** (e.g. `object`, an interface, a base class): **transparent**, like the implicit conversion `IQueryable<TBase> b = q` (P2b, P5). Later operators are checked by the covariance table against the *effective* element type, which looks through transparent `Cast` nodes.<br>• `OfType<X>`: a no-op only when `X` is the source element type and that type is the entity `T` (rows are never null) or a non-nullable value type.<br>• Everything else is rejected: boxing `Cast` (`Select(p => p.Id).Cast<object>()`), unrelated-type `Cast`, non-identity `OfType`, and `OfType` over a nullable or reference scalar (it would have to drop nulls; the message says to use `Where(x => x.M != null)` before the projection). |
 | **D6** | `Last*`/`ElementAt*` with paging | Reject both. |
 | **D7** | Disclosure | Changelog + README "upgrade strongly recommended"; the owner decides on a GitHub Security Advisory. |
-| **D8** | Operators after `Skip`/`Take` | **Reject by position** in the Core pre-pass. Allowed after the first `Skip`/`Take`:<br>• one `Take` after a `Skip`, when only `Select`/identity `OfType` sit between them (projection commutes with `Take`; rev 5);<br>• `Select`;<br>• parameterless `First*`/`Single*`;<br>• identity `OfType` (per D5).<br>Everything else is rejected before any query runs.<br>`Take(n ≤ 0)` returns an empty sequence without SQL. `Skip(n < 0)` is treated as `Skip(0)`. |
+| **D8** | Operators after `Skip`/`Take` | **Reject by position** in the Core pre-pass. Allowed after the first `Skip`/`Take`:<br>• one `Take` after a `Skip`, when only `Select`/an allowed D5 `Cast`/`OfType` sit between them (projection and conversion commute with `Take`);<br>• `Select`;<br>• parameterless `First*`/`Single*`;<br>• an allowed D5 `Cast`/`OfType`.<br>Everything else is rejected before any query runs. Some rejected shapes happen to be correct in 3.9.0, e.g. `Take(3).Distinct()` over a keyed entity (P11); the Changelog lists them.<br>`Take(n ≤ 0)` returns an empty sequence without SQL. `Skip(n < 0)` is treated as `Skip(0)`. |
 | **D9** | Aggregate correctness | **Moved to 3.10.1** (D12). The owner accepts the recommended direction with changes; details and open questions are in §10. In 3.10.0, aggregates keep their 3.9 behavior, except `LongCount` (new) and rejection of the non-generic `Sum()`/`Average()` overloads, which already threw in 3.9. |
-| **D10** | A second `OrderBy*` after an earlier `OrderBy*`/`ThenBy*` anywhere on the spine; and *(rev 4, same class)* a `ThenBy*` whose immediate source isn't an ordering call when an earlier ordering exists | **Reject**, in the Core pre-pass. The message says to use `ThenBy`, or put the primary key first. A `ThenBy*` with no earlier ordering at all (via an `IOrderedQueryable` cast of an unordered query) stays allowed: it works today as the only ordering. |
+| **D10** | A second `OrderBy*` after an earlier `OrderBy*`/`ThenBy*` anywhere on the spine | **Reject**, in the Core pre-pass. The message says to use `ThenBy`, or put the primary key first. *(Rev 4 added a second clause for a `ThenBy*` separated from its ordering. Rev 6 removed it: System.Linq throws `ArgumentException` for that shape before the provider sees it (§1.5 P3), so it can't reach the policy. A `ThenBy*` directly on the root works as the primary ordering (P4).)* |
 | **D11** | SQLite state and ternary nulls | **Fix in scope.**<br>• SQLite resets **every** per-parse field (including the new `OrderByTerms`) at the top of every parse, before the early return.<br>• ORDER BY ternary null tests emit `IS NULL`/`IS NOT NULL`, with `null` on either side of the comparison. |
 | **D12** | Release sequencing | **Split.** 3.10.0 ships everything in this document except D9; 3.10.1 ships D9 (§10). |
 
@@ -279,14 +366,21 @@ providers** unless stated.
   Ordering *after* a subset `Select` is the §8 divergence, and is never used as a passing shape.
 - **AC12-2** Ordering by a remote/computed member emits exactly its resolved fragment, with no base-table
   prefix, unchanged from 3.9.0.
-- **AC12-3** For an entity without remote joins, the **ORDER BY translation** is byte-identical to 3.9.0.
-  That covers shapes not otherwise changed by AC12-8 (ternary nulls) or AC12-9 (duplicate keys). Other ACs
-  change other parts of the SQL on purpose: the `Single*` row limit, SQLite `LIMIT -1`.
+- **AC12-3** For an entity without remote joins, the **ORDER BY translation** of
+  `OrderBy*`/`ThenBy*` chains consumed by enumeration or `First*` is byte-identical to 3.9.0. Other ACs change
+  ordering SQL on purpose, and are excluded:
+  - AC12-8: ternary nulls;
+  - AC12-9: duplicate keys;
+  - AC13-2: `Last*` inverts or synthesizes the order;
+  - AC13-12: a second `OrderBy` is rejected.
+
+  Other ACs also change non-ORDER-BY SQL on purpose: the `Single*` row limit, SQLite `LIMIT -1`.
 - **AC12-4** A ternary/`CASE` ordering over own columns on a join entity is qualified inside the `CASE`.
 - **AC12-5** The ORDER BY synthesized for `Last*` (AC13-2) is qualified on join entities, including with a
   narrow projection that omits the key (no `Distinct`). The shape is `Select(…).Last()` with no ordering
   after the projection.
-- **AC12-6** On the join entity, `Distinct()` + custom projection + own-column `OrderBy`:
+- **AC12-6** On the join entity, `Distinct()` + custom projection + own-column `OrderBy`, spelled
+  ordering-first (`OrderBy(k).Select(…).Distinct()`):
   - executes when the key is in the projection;
   - still throws the existing `InvalidOperationException` when it isn't.
 - **AC12-7** *(SQLite)* `Skip`/`Take` on a join entity with no explicit order executes, for the full entity
@@ -326,16 +420,26 @@ providers** unless stated.
     `Cast<object>().Where(…)`, `((IQueryable<object>)q).Take(5)`);
   - non-call, non-root nodes.
 
-  **Covariance follows the §5.2.1 cell table:**
-  - **Entity source.** A parameterless terminal over `IQueryable<object>` (or an interface) of the entity is
-    not rejected. `Count`, `Any` and `First*` keep their correct 3.9.0 behavior; `LongCount`, `Single*` and
-    `Last*` get the corrected semantics of AC13-1/AC13-2/AC13-3. This holds when the element type is still
-    the entity: at the root, and after `Where`/`OrderBy`/a subset `Select`/paging.
-  - **Scalar source.** Any covariant use over a **scalar projection** is rejected before any query, with the
-    covariant-mismatch message. For example, `Select(p => p.FirstName).Cast<object>().First()` returns the
-    whole `List<string>` as "the first element" in 3.9.0.
-  - **Any source.** Lambda-bearing and sequence operators with a covariant `TSource` are rejected with the
-    covariant-mismatch message.
+  **Covariance follows the §5.2.1 cell table.** A covariant conversion is either the no-node
+  `IQueryable<TBase> b = q` or a reference-conversion `Cast<TBase>()` (D5). Both are judged against the
+  *effective* element type.
+  - **Entity source.** A parameterless terminal over a converted entity source is not rejected. `Count`, `Any`
+    and `First*` keep their correct 3.9.0 behavior (P5, P13); `LongCount`, `Single*` and `Last*` get the
+    corrected semantics of AC13-1/AC13-2/AC13-3. This holds at the root and after
+    `Where`/`OrderBy*`/a subset `Select`. **After `Skip`/`Take`, D8 governs**: `First*`/`Single*` are allowed
+    (P13b), and `Count`/`Any`/`LongCount`/`Last*` get the D8 message.
+  - **Scalar source, terminal or lambda-bearing.** A covariant **terminal** (`First*`, `Single*`, `Last*`,
+    `Count`, `LongCount`, `Any`) or covariant **lambda-bearing** operator over a **scalar projection** is
+    rejected before any query, with the scalar-source covariant message.
+    - Both spellings are covered: `Select(p => p.FirstName).Cast<object>().First()` and
+      `IQueryable<object> s = q.Select(p => p.FirstName); s.First()`.
+    - Each returns the whole list in 3.9.0 (P6, P7). `Count` already threw cleanly there (P7f).
+  - **Scalar source, sequence or enumeration.** Covariant `Skip`/`Take`/`Distinct` and plain enumeration
+    (`…Cast<object>().ToList()`) **stay allowed**: they return the correct projected values (P7b–P7e).
+  - **Entity source, lambda-bearing or sequence operator** with a covariant `TSource`: rejected with the
+    covariant message.
+  - **Other projected types** (a `Select` to a DTO or an expression): the covariance check defers, and the
+    existing `Select`-shape guard rejects the `Select` with its own message.
 
   Lambdas nested inside allowed operators aren't inspected, so `Where(p => ids.Contains(p.Id))` still works.
   The rejection table covers, at minimum:
@@ -348,17 +452,29 @@ providers** unless stated.
   - **Type filters:** non-identity `Cast`/`OfType`, and `OfType` over a nullable element (D5).
   - **Unsupported overloads of allowed operators:** indexed `Where`/`Select`; comparer overloads;
     default-value overloads; `Take(Range)`; non-generic `Sum()`/`Average()`.
-- **AC13-5** Every shape that returned correct results in 3.9.0 still works identically. Every shape that
-  D8/D10/the covariance rule now reject returned wrong results, or threw obscurely, in 3.9.0; the Changelog
-  **Changed** section enumerates them. All four existing suites stay green, and there's one oracle row per
-  allowed family. Aggregate rows are limited to shapes correct in
+- **AC13-5** Every shape built only from allowed operators, in allowed positions, that returned correct
+  results in 3.9.0 still works identically.
+  - The pre-pass rejects by **rule** (allow-list, D5, D8, D10, covariance). Most rejected shapes returned wrong
+    results or threw obscurely in 3.9.0. A few happened to be correct: `Take(k).Distinct()` over a keyed entity
+    (P11), `Take(k≥1).Any()`, `Take(10).Take(5)`, `OrderBy(k).ElementAt(0)`, `DefaultIfEmpty()` over a
+    non-empty set.
+  - The Changelog **Changed** section lists each rule with such examples.
+  - All four existing suites stay green, and there's one oracle row per allowed family. Aggregate rows are limited to shapes correct in
   3.9.0 on all four providers: `Count`, `Any`/`All`, and `Sum`/`Min`/`Max` over `int`, on non-empty sets. No
   `Average` rows: SQLite's `ROUND(…, 10)` alters even `double` averages. The rest is 3.10.1. Oracle predicates
   reference only members seeded non-null, and oracle shapes never place a predicate or ordering after a
   subset `Select` (§4.1, §8).
-- **AC13-6** *(D5)* Identity `OfType<X>()` is a no-op on the entity (at the root and after `OrderBy`) and on a
-  non-nullable scalar (`Select(p => p.Id).OfType<int>()`). `OfType` over a nullable or reference scalar,
-  non-identity `OfType`, and non-identity `Cast` throw.
+- **AC13-6** *(D5)*
+  - Identity `OfType<X>()` is a no-op on the entity (at the root and after `OrderBy`) and on a non-nullable
+    scalar (`Select(p => p.Id).OfType<int>()`).
+  - Identity `Cast<T>()` is a no-op.
+  - A reference-conversion `Cast<TBase>()` is transparent: `q.Cast<object>().Count()`/`.First()` match 3.9.0
+    (P5, P5b), and later operators follow AC13-4's covariance rules.
+  - **Enumerating** a reference-conversion `Cast` over the entity (`q.Where(…).Cast<object>().ToList()`)
+    returns the entity rows, the same as the implicit conversion (P14b). In 3.9.0 it throws
+    `InvalidCastException` (P14); fixed by §5.2.2's collection-detection change.
+  - These throw: `OfType` over a nullable or reference scalar; non-identity `OfType`; boxing `Cast`
+    (`Select(p => p.Id).Cast<object>()`); unrelated-type `Cast` (`Cast<AddressEntity>()` on a person query).
 - **AC13-7** One **literal** pinned set of allowed overloads (count + signatures) is asserted identically on
   three runtimes:
   - net8, in `SqlServer.Tests` (MSTest);
@@ -370,23 +486,27 @@ providers** unless stated.
   `Queryable` gains methods, so this matters.
 - **AC13-8** Allowed operators keep their specific messages: the post-scalar-projection composition message,
   the scalar result-type guard, and `GroupBy`'s dedicated text. Rejected operators get the policy message,
-  even after a scalar `Select`. Precedence: pre-pass (policy, position, D10) → parse-loop guards →
-  execute-time guards.
+  even after a scalar `Select`. Precedence:
+  - pre-pass, evaluated per node inner→outer in this order: allow-list (`GroupBy` special-cased) → D8 → D10 →
+    D5/covariance;
+  - then parse-loop guards;
+  - then execute-time guards.
 - **AC13-9** `Advanced.md` and `FUNKYORM_AI_ADVANCED.md` carry the operator table, including the paging rule,
   the second-`OrderBy` rule and the `Last`/`Distinct` note. A doc test checks the table against
   `SupportedOperators`. Changelog and README record the fixes, the behavior changes, and the aggregate known
   issues deferred to 3.10.1.
 - **AC13-10** *(D8)* After `Skip`/`Take`:
   - **Allowed and correct:**
-    - `Skip(n).Take(k)`, and `Skip(n).Select(…).Take(k)` or `Skip(n).OfType<T>().Take(k)` (only `Select` or
-      identity `OfType` between);
+    - `Skip(n).Take(k)`, and `Skip(n).X.Take(k)` where `X` is only `Select` and/or an allowed D5
+      `Cast`/`OfType`, e.g. `Skip(n).Select(…).Take(k)`, `Skip(n).OfType<T>().Take(k)`,
+      `Skip(n).Cast<T>().Take(k)`;
     - `Select` (subset or scalar);
     - parameterless `First*`/`Single*`;
-    - identity `OfType` per D5 (the entity, or a non-nullable scalar).
+    - an allowed D5 `Cast`/`OfType` (identity, or a reference conversion over the entity).
   - **Rejected before any query**, each asserting the "after Skip/Take" message: every aggregate, `Where`,
-    predicate-bearing `First*`/`Single*`, `Last*`, `OrderBy*`, a cast `ThenBy*` (with or without an earlier
-    ordering), `Distinct`, a second `Skip`/`Take`, and `Take(n).Skip(m)`. (Any operator other than `Select`
-    or identity `OfType` placed between `Skip` and `Take` is itself rejected at its own node.)
+    predicate-bearing `First*`/`Single*`, `Last*`, `OrderBy*`, `Distinct`, a second `Skip`/`Take`, and
+    `Take(n).Skip(m)`. Any other operator placed between `Skip` and `Take` is itself rejected at its own node.
+    (`ThenBy*` can't follow `Skip`/`Take` at all; System.Linq throws first, P3b.)
   - **Precedence.** When D8 and D10 both apply at a node (e.g. `OrderBy(a).Skip(n).OrderBy(b)`), the D8
     message wins.
   - **Empty results without SQL:** `Take(n ≤ 0)` returns an empty sequence, whether it's the full entity,
@@ -394,15 +514,14 @@ providers** unless stated.
     `*OrDefault` returns `null`.
   - `Skip(n < 0)` behaves as `Skip(0)`.
 - **AC13-11** *(deferred to 3.10.1 — §10.)*
-- **AC13-12** *(D10)* Both of these throw `NotSupportedException` with the D10 message before any query runs:
-  - `OrderBy*` after any earlier `OrderBy*`/`ThenBy*` on the spine, including across
-    `Where`/`Select`/`Distinct` in between;
-  - a `ThenBy*` whose immediate source isn't an ordering call when an earlier ordering exists (e.g.
-    `((IOrderedQueryable<T>)q.OrderBy(a).Where(w)).ThenBy(b)`).
-
-  A `ThenBy*` with no earlier ordering still works as the primary ordering. That's what the common
-  `q is IOrderedQueryable<T> o ? o.ThenBy(k) : q.OrderBy(k)` helper produces, because every FunkyORM queryable
-  is an `IOrderedQueryable`.
+- **AC13-12** *(D10)* `OrderBy*` after any earlier `OrderBy*`/`ThenBy*` on the spine throws
+  `NotSupportedException` with the D10 message before any query runs, including across
+  `Where`/`Select`(subset)/`Distinct` in between.
+  - A `ThenBy*` applied directly to the root (`((IOrderedQueryable<T>)q).ThenBy(k)`) still works as the primary
+    ordering (P4).
+  - A `ThenBy*` after any other call can't be built: System.Linq throws `ArgumentException` (P3). That also
+    breaks `is IOrderedQueryable` sort helpers on composed queries (P4b), a pre-existing bug tracked in #16
+    and not changed here.
 - **AC13-13** *(D11, SQLite)* A query doesn't inherit a projection, parameters, ordering or `OrderByTerms`
   from an earlier execution on the same `Query<T>()` root, including when the later query is the bare root.
 - **AC13-14** *(SQLite)* `Skip(n)` without `Take` executes: it emits `LIMIT -1 OFFSET n`. That covers
@@ -442,6 +561,10 @@ providers** unless stated.
     rejection rows, where the shape is rejected for another reason (D8/D10).
 - **Fresh root per shape.** One `Query<T>()` root is never reused, except by the AC13-13 tests, which do it
   on purpose.
+- **Covariance rows are spelled both ways:** the no-node `IQueryable<object> o = …` (P2b) and
+  `.Cast<object>()` (a node, P2). The two take different paths through the policy, so each needs its own row.
+- **Shape premises cite §1.5.** A test whose premise about System.Linq or a database hasn't been executed is
+  flagged UNVERIFIED in the matrix and must go red for the right reason in Task 1.
 - **SQL capture.** For "nothing executed": obtain the `IQueryable`, clear `Log`'s builder, run the shape,
   then assert the builder is empty. **SQL-shape asserts normalize whitespace first** (collapse `\s+` to one
   space), because PostgreSQL and SQLite emit `LIMIT`/`OFFSET` on separate lines and MySQL on one.
@@ -481,20 +604,14 @@ providers** unless stated.
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle` | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig` | all 4 |
-| AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 shape, including `ScalarProjection_ParameterlessSum`, `CovariantCastObject_ThenWhere` and `Covariant_Take`), `Allowed_PredicateWithCollectionContains_NotRejected`, `NonQueryableSpineMethod_Rejected`, `NonCallNonRootSpineNode_Rejected` (DB-free, hand-built `Convert` node); **Covariance cell table (§5.2.1)**, one row per cell:
-• `Covariant_EntitySource_ParameterlessTerminal_NotRejected_MatchesOracle` over {Count, LongCount, Any, First, FirstOrDefault, Single (source pre-filtered to one row), Last}. `IQueryable<object>` over the entity at the root, after `Where`, after `OrderBy` (First/Last), and after a subset `Select`.
-• `Covariant_EntitySource_LambdaOrSequence_Rejected` over {`Where`, `OrderBy`, `Take`, `Distinct`}, asserting the covariant-mismatch message.
-• `Covariant_ScalarSource_Rejected_NoQuery` over {First, FirstOrDefault, Single, SingleOrDefault, Last, Count, Any, `Where`, `Take`} via `Select(p => p.FirstName).Cast<object>()`, asserting the covariant-mismatch message. **Red on 3.9.0**, where `First` returns the whole list.
-• `NonCovariant_EntityAndScalarSources_Unchanged` (control rows with `TSource` equal).
-
-Also DB-free: `ScalarProjection_TerminalWithObjectResult_RejectedByGuard`, a hand-built `First<object>` over a scalar `Select`, which exercises the second-layer guard (§5.2.2). | all 4 + Core |
+| AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 shape, including `ScalarProjection_ParameterlessSum`, `CovariantCastObject_ThenWhere` and `Covariant_Take`), `Allowed_PredicateWithCollectionContains_NotRejected`, `NonQueryableSpineMethod_Rejected`, `NonCallNonRootSpineNode_Rejected` (DB-free, hand-built `Convert` node), `ForeignQueryableConstantRoot_Rejected` (DB-free: a constant whose value is a composed queryable)<br>**Covariance cell table (§5.2.1)**, one row per cell, each spelled **both ways**: a no-node `IQueryable<object> o = …` and a `.Cast<object>()`.<br>• `Covariant_EntitySource_ParameterlessTerminal_NotRejected_MatchesOracle` over {Count, LongCount, Any, First, FirstOrDefault, Single (source pre-filtered to one row), Last}, at the root, after `Where`, after `OrderBy` (First/Last) and after a subset `Select`.<br>• `Covariant_EntitySource_AfterPaging_D8Governs` over {`Skip(1)`→First: allowed and matches the oracle; `Take(5)`→Count: D8 message; `Take(5)`→Where: D8 message}.<br>• `Covariant_EntitySource_LambdaOrSequence_Rejected` over {`Where`, `OrderBy`, `Take`, `Distinct`}, asserting the entity covariant message.<br>• `Covariant_ScalarSource_TerminalOrLambda_Rejected_NoQuery` over {First, FirstOrDefault, Single, SingleOrDefault, Last, LastOrDefault, Count, Any, `Where`}, asserting the scalar covariant message. **Red on 3.9.0**: `First*`/`Single*`/`Last*` return the whole list (P6, P7); `Count`/`Any` give the old guard message (P7f).<br>• `Covariant_ScalarSource_SequenceOrEnumeration_Allowed_MatchesOracle` over {`Skip.Take`, `Take`, `Distinct`, enumeration of `Cast<object>()`} (P7b–P7e).<br>• `Covariant_OtherProjectedSource_DefersToSelectShapeGuard` (`Select(p => new Dto{…})` then a covariant `First`: the `Select`-shape message).<br>• `NonCovariant_EntityAndScalarSources_Unchanged` (control rows with `TSource` equal).<br>**Second layer**, DB-free and direct (§5.2.2): `ScalarProjectionGuard_TerminalWithObjectResult_Throws`, `ScalarProjectionGuard_CollectionEnumeration_Passes`. | all 4 + Core |
 | AC13-5 | `[DataTestMethod] Allowed_Operator_MatchesOracle` (one row per allowed family, with its expected outcome); the four existing suites | all 4 |
-| AC13-6 | `OfType_Identity_AtRoot_IsNoOp`, `OfType_Identity_AfterOrderBy_IsNoOp`, `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp`, `OfType_Identity_OverNullableScalar_Rejected` (seeded nulls), `OfType_NonIdentity_Throws`, `Cast_NonIdentity_UnrelatedType_Throws`; DB-free `Cast_IdentityNode_HandBuilt_IsAllowed` | all 4 + Core |
+| AC13-6 | `OfType_Identity_AtRoot_IsNoOp`, `OfType_Identity_AfterOrderBy_IsNoOp`, `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp`, `OfType_Identity_OverNullableScalar_Rejected` (seeded nulls), `OfType_NonIdentity_Throws`, `Cast_Identity_IsNoOp` (`q.Cast<PersonEntity>().ToList()`; P1 shows it's a real node), `Cast_ReferenceConversion_Count_MatchesOracle` and `Cast_ReferenceConversion_OrderedFirst_MatchesOracle` (P5, P5b), `Cast_ReferenceConversion_Enumerated_MatchesOracle` (`q.Where(marker).Cast<object>().ToList()`; red on 3.9.0, P14), `Cast_Boxing_Rejected` (`Select(p => p.Id).Cast<object>()`), `Cast_NonIdentity_UnrelatedType_Throws` (`Cast<AddressEntity>()` on a person query) | all 4 + Core |
 | AC13-7 | `SupportedOperators_ExactLiteralSetPinned`, `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet`, `NonQueryableOverload_IsRejected` (MSTest: `SqlServer.Tests` net8, `SqlServer.Tests.NetFramework` net48); xUnit twin `QueryOperatorPolicyLiteralSetTests` (`SqlServer.Tests.DotNet9` net9) | Core, 3 runtimes |
 | AC13-8 | `GroupBy_Rejected_KeepsDedicatedMessage`; existing scalar tests; new in the siblings: `ScalarProjection_WithReducingTerminals_ThrowNotSupported`; `ScalarProjection_WithSingleOrLast_ThrowsNotSupported`; `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` (`Select(p => p.Id).Where(x => x > 0).Reverse()`) | all 4 |
 | AC13-9 | `OperatorDocTable_MatchesSupportedOperators` (reads the table from both docs); prose reviewed in the gauntlet | SqlServer.Tests |
-| AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, OrderByDescending, (cast)ThenBy after Skip with no earlier ordering, (cast)ThenByDescending after Take, OrderBy(a).Skip(n).(cast)ThenBy(b), OrderBy(a).Skip(n).OrderBy(b) [D8 wins over D10], Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip} — each row asserts the "after Skip/Take" message; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, `Skip.Select(subset).Take`, `Skip.Select(scalar).Take`, `Skip.OfType<T>().Take`, Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault(), OfType-identity entity, `Skip(n).Select(p => p.Id).OfType<int>()`, Skip-only.First()}; `[DataTestMethod] TakeNonPositive_ReturnsEmpty_NoQuery` over {Take(0) full, Take(0) subset, Take(0) scalar, Skip(2).Take(0), Take(-1)}; `Take0_First_Throws_NoQuery`, `Take0_FirstOrDefault_ReturnsNull_NoQuery`, `Take0_Single_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery`; `ScalarProjection_Take0_First_ThrowsScalarGuard_NoQuery` (the scalar result-type guard wins over the empty short-circuit); `SkipNegative_BehavesAsSkipZero` | all 4 |
-| AC13-12 | `[DataTestMethod] Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` over {OrderBy.OrderBy, OrderBy.ThenBy.OrderByDescending, OrderBy.Where.OrderBy, OrderBy.Select(**subset**).OrderBy, OrderBy.Distinct.OrderBy, OrderBy.Where.(cast)ThenBy, OrderBy.Select(subset).(cast)ThenByDescending}. `OrderBy*` rows assert the "second OrderBy" D10 message; the separated-`ThenBy` rows assert the "ThenBy must directly follow OrderBy/ThenBy" message; `ThenBy_WithNoEarlierOrdering_IsPrimaryOrder` (`((IOrderedQueryable<T>)q.Where(w)).ThenBy(k)` matches the oracle for `OrderBy(k)`) | all 4 |
+| AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, OrderByDescending, OrderBy(a).Skip(n).OrderBy(b) [D8 wins over D10], Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip} — each row asserts the "after Skip/Take" message; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, `Skip.Select(subset).Take`, `Skip.Select(scalar).Take`, `Skip.OfType<T>().Take`, `Skip.Cast<T>().Take`, `Take.Cast<object>()` enumerated, Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault(), OfType-identity entity, `Skip(n).Select(p => p.Id).OfType<int>()`, Skip-only.First()}; `[DataTestMethod] TakeNonPositive_ReturnsEmpty_NoQuery` over {Take(0) full, Take(0) subset, Take(0) scalar, Skip(2).Take(0), Take(-1)}; `Take0_First_Throws_NoQuery`, `Take0_FirstOrDefault_ReturnsNull_NoQuery`, `Take0_Single_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery`; `ScalarProjection_Take0_First_ThrowsScalarGuard_NoQuery` (the scalar result-type guard wins over the empty short-circuit); `SkipNegative_BehavesAsSkipZero` | all 4 |
+| AC13-12 | `[DataTestMethod] Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` over {OrderBy.OrderBy, OrderBy.ThenBy.OrderByDescending, OrderBy.Where.OrderBy, OrderBy.Select(**subset**).OrderBy, OrderBy.Distinct.OrderBy}, each asserting the D10 message; `ThenBy_OnRoot_IsPrimaryOrder` (`((IOrderedQueryable<T>)q).ThenBy(k).Where(marker)` gives the same rows and order as `OrderBy(k).Where(marker)`, P4) | all 4 |
 | AC13-13 | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder`, `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc`, `SqliteRoot_ReusedAfterParameterizedProjection_NoDuplicateParameters` | SQLite |
 | AC13-14 | `SkipOnly_ToList_Executes`, `SkipOnly_First_ReturnsExpectedRow` (SQLite red; regression rows in the others); SQLite only: `SkipOnly_EmitsLimitMinusOneOffset` (SQL shape) | all 4 |
 
@@ -503,6 +620,8 @@ Also DB-free: `ScalarProjection_TerminalWithObjectResult_RejectedByGuard`, a han
 | Member | Tests that call it on purpose |
 |---|---|
 | Core `QueryOperatorPolicy.EnsureSupported(Expression expression)` *(new, public, `void`)* | `QueryOperatorPolicyTests.*`; every `Rejected_*`/`Allowed_*`/`Operator_AfterPaging_*`/`Ordering_AfterEarlierOrdering_*`/`Covariant_*` row |
+| Core `ScalarProjectionGuard.EnsureCollectionResult(Type resultType, Type memberType, Expression expression)` *(new, public; rev 6)* | `ScalarProjectionGuard_TerminalWithObjectResult_Throws`, `ScalarProjectionGuard_CollectionEnumeration_Passes` (direct); every existing scalar-projection test through `ExecuteScalarProjection` |
+| `*LinqQueryProvider.Execute` — generalized `isCollection` *(rev 6)* | `Cast_ReferenceConversion_Enumerated_MatchesOracle`; all existing enumeration tests (the `X = T` path) |
 | Core `QueryOperatorPolicy.IsAllowed(MethodInfo)` *(new, **public** — no `InternalsVisibleTo` dependency, which would break if the assemblies are strong-named later)* | `ClassifierSweep_*`, `NonQueryableOverload_IsRejected`, the net9 xUnit twin |
 | Core `QueryOperatorPolicy.SupportedOperators` *(new, public read-only)* | `SupportedOperators_ExactLiteralSetPinned`, `OperatorDocTable_MatchesSupportedOperators` |
 | `*OrderByClauseVisitor` ctor — optional `tableQualifier` | AC12 tests; `OrderByVisitorDirectTests` |
@@ -544,10 +663,16 @@ Also DB-free: `ScalarProjection_TerminalWithObjectResult_RejectedByGuard`, a han
 | `GetGenericMethodDefinition()` without `IsGenericMethod` | `NonQueryableOverload_IsRejected`, `Rejected_…[ScalarProjection_ParameterlessSum]` |
 | Skip the `TSource` = source-element check | `Covariant_EntitySource_LambdaOrSequence_Rejected` rows, `Rejected_…[CovariantCastObject_ThenWhere]` (`InvalidCastException` instead of the covariant-mismatch message) |
 | Apply the `TSource` check to parameterless terminals over the entity too | `Covariant_EntitySource_ParameterlessTerminal_NotRejected_MatchesOracle` rows |
-| Exemption not restricted to entity-typed sources (the rev 4 bug) | `Covariant_ScalarSource_Rejected_NoQuery[First/FirstOrDefault/Single/Last]` (whole list returned instead of NotSupported) |
-| Second-layer scalar guard checks only the result type (not "is a terminal") | `ScalarProjection_TerminalWithObjectResult_RejectedByGuard` |
-| Covariant-mismatch rejections use the generic "not translated" message | `Covariant_*_Rejected` rows (assert the "before converting the element type" text) |
+| Exemption not restricted to entity-typed sources (the rev 4 bug) | `Covariant_ScalarSource_TerminalOrLambda_Rejected_NoQuery[First/FirstOrDefault/Single/Last]`, both spellings (whole list returned instead of NotSupported) |
+| Effective element type doesn't look through a transparent `Cast` | `Covariant_ScalarSource_TerminalOrLambda_Rejected_NoQuery[First, Cast spelling]` (whole list again), `Covariant_EntitySource_LambdaOrSequence_Rejected[Where, Cast spelling]` (`InvalidCastException` instead of NotSupported) |
+| Scalar covariant **sequence** operators rejected too | `Covariant_ScalarSource_SequenceOrEnumeration_Allowed_MatchesOracle` rows |
+| Covariance evaluated before D8 | `Covariant_EntitySource_AfterPaging_D8Governs[Take(5)→Where]` (expects the D8 message) |
+| Second-layer guard checks only the result type (not "is a terminal") | `ScalarProjectionGuard_TerminalWithObjectResult_Throws` (direct, DB-free) |
+| Second-layer guard rejects valid enumeration | `ScalarProjectionGuard_CollectionEnumeration_Passes` |
+| Covariant rejections use the generic "not translated" message, or the entity/scalar variants are swapped | `Covariant_*_Rejected` rows (assert "before converting the element type" for entity, "over a scalar projection" for scalar) |
 | Treat any non-call node as the root | `NonCallNonRootSpineNode_Rejected` |
+| Accept any `IQueryable` constant as the root (not only the queryable's own root) | `ForeignQueryableConstantRoot_Rejected` |
+| `isCollection` unchanged (still `IEnumerable<T>` only) | `Cast_ReferenceConversion_Enumerated_MatchesOracle` (`InvalidCastException`, P14) |
 | Policy visits the whole tree | `Allowed_PredicateWithCollectionContains_NotRejected` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
@@ -556,8 +681,9 @@ Also DB-free: `ScalarProjection_TerminalWithObjectResult_RejectedByGuard`, a han
 | Drop the `GroupBy` message | `GroupBy_Rejected_KeepsDedicatedMessage` |
 | Identity check against the entity type instead of the source element type | `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp` |
 | Identity `OfType` allowed over a nullable scalar | `OfType_Identity_OverNullableScalar_Rejected` |
-| Reject all `Cast`/`OfType` | `OfType_Identity_AtRoot_IsNoOp`, `Cast_IdentityNode_HandBuilt_IsAllowed` |
-| Allow any `Cast`/`OfType` | `OfType_NonIdentity_Throws`, `Cast_NonIdentity_UnrelatedType_Throws` |
+| Reject all `Cast`/`OfType` | `OfType_Identity_AtRoot_IsNoOp`, `Cast_Identity_IsNoOp` |
+| Reject reference-conversion `Cast` (D5 before the owner's amendment) | `Cast_ReferenceConversion_Count_MatchesOracle`, `Cast_ReferenceConversion_OrderedFirst_MatchesOracle` |
+| Allow any `Cast`/`OfType` | `OfType_NonIdentity_Throws`, `Cast_NonIdentity_UnrelatedType_Throws`, `Cast_Boxing_Rejected` |
 | Drop the positional guard | `Operator_AfterPaging_Rejected_BeforeAnyQuery` rows |
 | Positional guard rejects `Skip.Take` or `Skip`-only `First` | `Operator_AfterPaging_Allowed_MatchesOracle` rows |
 | `Take(0)` sent to the DB | `TakeNonPositive_ReturnsEmpty_NoQuery` rows |
@@ -565,11 +691,9 @@ Also DB-free: `ScalarProjection_TerminalWithObjectResult_RejectedByGuard`, a han
 | Empty-`Take` short-circuit placed before the scalar dispatch (bypasses the result-type guard) | `ScalarProjection_Take0_First_ThrowsScalarGuard_NoQuery` |
 | No negative-`Skip` clamp | `SkipNegative_BehavesAsSkipZero` |
 | Allow a second `OrderBy` / only check adjacent calls | `Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` rows (incl. across `Where`/`Select`/`Distinct`) |
-| Check only `OrderBy*`, not a separated `ThenBy*` | `Ordering_…[OrderBy.Where.(cast)ThenBy]`, `[OrderBy.Select(subset).(cast)ThenByDescending]` |
-| Separated `ThenBy` gets the "second OrderBy" message (message variants swapped) | the separated-`ThenBy` rows (assert "ThenBy must directly follow") |
-| D10 evaluated before D8 at the same node | `Operator_AfterPaging_Rejected_…[OrderBy(a).Skip(n).OrderBy(b)]`, `[OrderBy(a).Skip(n).(cast)ThenBy(b)]` (expect the D8 message) |
-| D8 rejects `Take` after `Skip` even with only a `Select` between | `Operator_AfterPaging_Allowed_…[Skip.Select(subset).Take]`, `[Skip.Select(scalar).Take]`, `[Skip.OfType<T>().Take]` |
-| Reject every `ThenBy*` whose source isn't an ordering call (even with no earlier ordering) | `ThenBy_WithNoEarlierOrdering_IsPrimaryOrder` |
+| D10 evaluated before D8 at the same node | `Operator_AfterPaging_Rejected_…[OrderBy(a).Skip(n).OrderBy(b)]` (expects the D8 message) |
+| D8 rejects `Take` after `Skip` even with only `Select`/D5 conversions between | `Operator_AfterPaging_Allowed_…[Skip.Select(subset).Take]`, `[Skip.Select(scalar).Take]`, `[Skip.OfType<T>().Take]`, `[Skip.Cast<T>().Take]` |
+| Policy rejects a `ThenBy*` directly on the root | `ThenBy_OnRoot_IsPrimaryOrder` |
 | SQLite reset placed after the early return | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder` |
 | SQLite reset omits `OrderByTerms` | `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc` |
 
@@ -623,13 +747,21 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
 ### 5.2 #13 — Core pre-pass, then correct `Single*`/`Last*`/`LongCount`
 
 1. **Core `QueryOperatorPolicy`** (`Funcular.Data.Orm.Core/Linq/QueryOperatorPolicy.cs`).
-   - **Spine walk.** Start at the outermost node and follow `MethodCallExpression.Arguments[0]` to the root.
-     - **Terminal:** a `ConstantExpression` whose value is an `IQueryable`, i.e. the provider's own root.
-     - Any other non-call node → reject.
-     - Each node is classified **before** its `Arguments[0]` is read.
-     - Lambdas and other arguments are never visited.
+   - **Spine walk, two passes.**
+     - **Pass 1 (outer→inner):** follow `MethodCallExpression.Arguments[0]` to the root, classifying each node
+       with the allow-list **before** reading its `Arguments[0]`.
+       - **Terminal:** a `ConstantExpression` whose value is an `IQueryable` **whose `Expression` is that same
+         constant**, i.e. the queryable's own root. A constant wrapping a composed queryable would otherwise
+         silently drop that queryable's operators.
+       - Any other non-call node → reject.
+       - Lambdas and other arguments are never visited.
+     - **Pass 2 (inner→outer):** apply D8, D10 and D5/covariance in that order at each node. The root
+       element type is now known.
    - **Element type** of a node = the `T` in the `IEnumerable<T>` interface of its `Type`. That works for
      `SqlQueryable<T>`, `IQueryable<T>` and `IOrderedQueryable<T>` alike.
+   - **Effective element type** = the element type, except that a transparent (reference-conversion) `Cast`
+     node passes through its source's effective element type. The no-node conversion `IQueryable<TBase>`
+     needs no special handling, because it leaves the source node's type unchanged (P2b).
    - **Classification.** `IsAllowed(MethodInfo m)` uses the key
      `m.IsGenericMethod ? m.GetGenericMethodDefinition() : m`. It rejects non-`Queryable` declaring types, and
      keys outside a static allowed set built from `typeof(Queryable).GetMethods()` by name plus shape:
@@ -638,20 +770,25 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
      - no comparer, default-value or `Range` parameters.
 
      Non-generic overloads are never in the set.
-   - **`TSource` check: covariance cell table** (rev 5 redesign; every cell has a §4.2 row).
+   - **`TSource` check: covariance cell table** (rev 5 redesign; corrected in rev 6 against §1.5 evidence;
+     every cell has a §4.2 row).
      - `TSource` is the first generic argument of an allowed method whose first parameter is
-       `IQueryable<TSource>`.
-     - "Entity source" means the node's source element type equals the **root** element type (the entity
-       `T`). That's true at the root, and after `Where`/`OrderBy*`/`Skip`/`Take`/`Distinct`/a subset
-       `Select(x => new T { … })`/identity `OfType<T>`.
-     - `Cast`/`OfType` take a non-generic `IQueryable` source, so they aren't in this table; D5 governs them.
+       `IQueryable<TSource>`. It's compared with the source's **effective** element type.
+     - **Entity source:** the effective element type equals the **root** element type (the entity `T`). That
+       holds at the root, and after `Where`/`OrderBy*`/`Skip`/`Take`/`Distinct`/a subset
+       `Select(x => new T { … })`/identity `OfType<T>`/a transparent `Cast`.
+     - **Scalar source:** after `Select(x => x.M)`. **Other source:** after any other `Select` body.
+     - `Cast`/`OfType` nodes themselves follow D5; this table governs the operators **after** them.
 
-     | Source element type | Operator kind | `TSource` = source element type | `TSource` ≠ (covariant supertype) |
+     | Source | Operator kind | `TSource` = effective element type | `TSource` ≠ (covariant supertype) |
      |---|---|---|---|
-     | Entity `T` | Parameterless terminal: `Count`, `LongCount`, `Any`, `First*`, `Single*`, `Last*` with no predicate | allowed | **allowed** (entity rows are read as `T` and cast) |
-     | Entity `T` | Lambda-bearing: `Where`, `Select`, `OrderBy*`, `ThenBy*`, predicate terminals, selector aggregates, `All` | allowed | rejected (covariant message) |
-     | Entity `T` | Sequence without a lambda: `Skip`, `Take`, `Distinct` | allowed | rejected (covariant message) |
-     | Scalar member `X` (after `Select(x => x.M)`) | Any | allowed by the policy (the scalar guards then apply) | **rejected** (covariant message) |
+     | Entity `T` | Parameterless terminal: `Count`, `LongCount`, `Any`, `First*`, `Single*`, `Last*` with no predicate | allowed | **allowed**; entity rows are read as `T` and cast (P5, P5b, P13). After `Skip`/`Take`, D8 decides first (P13b). |
+     | Entity `T` | Lambda-bearing: `Where`, `Select`, `OrderBy*`, `ThenBy*`, predicate terminals, selector aggregates, `All` | allowed | rejected (entity covariant message) |
+     | Entity `T` | Sequence without a lambda: `Skip`, `Take`, `Distinct` | allowed | rejected (entity covariant message) |
+     | Scalar `X` | Parameterless terminal | allowed by the policy (the scalar guards then reject it) | **rejected** (scalar covariant message); 3.9.0 returns the whole list for `First*`/`Single*`/`Last*` (P6, P7) |
+     | Scalar `X` | Lambda-bearing | allowed by the policy (the scalar composition guard then rejects it) | rejected (scalar covariant message) |
+     | Scalar `X` | Sequence without a lambda: `Skip`, `Take`, `Distinct` | allowed | **allowed**; correct in 3.9.0 (P7b, P7c, P7d) |
+     | Other projected type | Any | — | defers: the parse loop's `Select`-shape guard rejects the `Select` with its own message |
    - `IsAllowed` is **public**.
    - **Allowed operators:**
      - `Where`, `Select`;
@@ -660,13 +797,14 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
      - `First*`, `Single*`, `Last*` (with and without predicate);
      - `Any`, `All`, `Count`, `LongCount`;
      - `Sum`, `Average`, `Min`, `Max` (generic, with selector; behavior unchanged until 3.10.1);
-     - identity `Cast`/`OfType` per D5.
-   - **Positional rules**, applied inner→outer. At any single node, D8 is evaluated **before** D10:
-     - D8, after the first `Skip`/`Take`. A `Take` is allowed after the `Skip` when only `Select`/identity
-       `OfType` sit between them;
-     - D10: an `OrderBy`/`OrderByDescending` after any earlier ordering call is rejected.
-     - D10: so is a `ThenBy*` whose immediate source isn't an ordering call when an earlier ordering exists.
-       A `ThenBy*` with no earlier ordering is allowed and becomes the primary ordering.
+     - `Cast`/`OfType` per D5 (identity, or a reference-conversion `Cast`).
+   - **Pass-2 rules, in this order at each node:**
+     1. D8, after the first `Skip`/`Take`. A `Take` is allowed after the `Skip` when only `Select` and/or
+        allowed D5 `Cast`/`OfType` sit between them.
+     2. D10: an `OrderBy`/`OrderByDescending` after any earlier ordering call is rejected.
+     3. D5 and the covariance table.
+
+     *(Rev 4's separated-`ThenBy*` clause was removed in rev 6: the shape can't be built, P3.)*
    - **Messages.**
      - `GroupBy` keeps its dedicated message.
      - Other rejected operators: `"{Op}(...) is not translated to SQL in this version. Materialize first and
@@ -674,10 +812,12 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
      - Positional (D8): `"{Op}(...) after Skip/Take is not translated …"`.
      - D10, second `OrderBy*`: `"A second OrderBy is not translated; use ThenBy, or put the primary key
        first."`
-     - D10, separated `ThenBy*`: `"ThenBy must directly follow OrderBy/ThenBy; the earlier ordering is
-       separated by {Op}(...). Move ThenBy before {Op}."`
-     - Covariant mismatch: `"{Op}(...) over a converted element type ({TSource}) is not translated. Apply
-       {Op} before converting the element type (Cast<…>/IQueryable<…>), or query the concrete type."`
+     - Covariant mismatch, entity source: `"{Op}(...) over a converted element type ({TSource}) is not
+       translated. Apply {Op} before converting the element type, or query the concrete type."`
+     - Covariant mismatch, scalar source: `"{Op}(...) over a scalar projection converted to {TSource} is not
+       translated. Materialize first and apply it in memory: query.Select(x => x.M).ToList().{Op}(...)."`
+     - Boxing or unrelated-type `Cast` (D5): `"Cast<{X}>() is not translated; FunkyORM supports only
+       identity and reference-conversion casts. Materialize first: query.ToList().Cast<{X}>()."`
      - Nullable `OfType`: the message points to `Where(x => x.M != null)` before the projection.
    - `EnsureSupported` returns `void`. It only throws.
 2. **Wiring.**
@@ -687,11 +827,24 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
      (SqlLinqQueryProvider.cs:339-346 and the sibling copies).
    - Fix the stale comment at :128-129 and the sibling copies.
    - The scalar composition and result-type guards stay (precedence per AC13-8).
-   - **Second layer (rev 5).** `ExecuteScalarProjection` (all four providers) also rejects the expression
-     when its outermost call is a **terminal**, i.e. its `Method.ReturnType` isn't an `IQueryable`. It uses
-     the existing scalar-guard message, which names the operator. This closes the `TResult = object` hole,
-     where `typeof(object).IsAssignableFrom(List<X>)` is true. The pre-pass rejects those shapes first; this
-     layer is defense in depth, with its own DB-free test.
+   - **Covariant entity enumeration (rev 6, owner's D5 amendment).** In each provider's `Execute`,
+     `isCollection` becomes: `TResult` is (or implements) `IEnumerable<X>` with `X.IsAssignableFrom(T)`, and
+     `TResult != T`. Previously it was `typeof(IEnumerable<T>).IsAssignableFrom(typeof(TResult))`
+     (SqlLinqQueryProvider.cs:99; siblings :58).
+     - The `List<T>` read from the database is returned as `IEnumerable<X>` through covariance.
+     - This turns P14's `InvalidCastException` into the correct rows, and leaves every currently working path
+       unchanged: `X = T` behaves as before.
+   - **Second layer (rev 5; made testable in rev 6).** A Core public helper,
+     `ScalarProjectionGuard.EnsureCollectionResult(Type resultType, Type memberType, Expression expression)`,
+     is called first by `ExecuteScalarProjection` in all four providers.
+     - It throws, using the existing scalar-guard message (which names the operator), when either holds:
+       - the outermost call is a **terminal**, i.e. its `Method.ReturnType` isn't an `IQueryable`;
+       - `resultType` can't accept a `List<memberType>`. That's the existing result-type check, now in one
+         place.
+     - It closes the `TResult = object` hole, where `typeof(object).IsAssignableFrom(List<X>)` is true.
+     - **No `Queryable` shape reaches it**: the pre-pass rejects them first (scalar covariant cell). So it's
+       tested directly, not through LINQ: `(object, string, First<object>(…))` must throw;
+       `(IEnumerable<object>, string, Select(…))` must pass.
 3. **`Single*` (row limit).**
    - The First/Last predicate branch generalizes to `First*`/`Single*`/`Last*` × {with, without predicate}.
      It routes the predicate to WHERE and sets `components.Terminal`.
@@ -740,10 +893,12 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - ✅ Premises re-verified.
   - ✅ Baselines recorded.
   - ✅ Issues retitled, evidence posted.
-  - ✅ Review r1: 25 findings (§9.1). Fix-verification r2: 21 (§9.2), r3: 10 (§9.3), r4: 7 (§9.4).
-  - ✅ Owner answered the §10 questions (3.10.1).
-  - ⏳ Fix-verification r5 of the rev-5 diff must be clean. The covariance cell table is the focus: it was
-    redesigned after two fix-introduced findings in a row.
+  - ✅ Review r1: 25 findings (§9.1). Fix-verification r2: 21 (§9.2), r3: 10 (§9.3), r4: 7 (§9.4),
+    r5: 8 (§9.5).
+  - ✅ Owner answered the §10 questions (3.10.1), amended D5 (reference-conversion `Cast`), filed the
+    sort-helper crash as follow-up #16, and deferred signing.
+  - ✅ Executed premise probes recorded (§1.5).
+  - ⏳ Fix-verification r6 of the rev-6 diff must be clean.
   - Then post the §3 ACs to #12/#13 and start Task 1.
 - **Task 1 — Stubs, schema, harness, red tests.**
   - Compile-only stubs so the red run fails at runtime: policy members throw `NotImplementedException`; plus
@@ -768,10 +923,11 @@ Each task lists the tests it turns green. Every implementation task starts with 
   → AC12-1…AC12-4, AC12-6, AC12-9.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
   → AC12-7, AC13-14.
-- **Task 4 — Core policy + positional (D8, D10) + covariance cell table + wiring + dead-guard removal +
-  second-layer scalar guard** (4 providers).
-  → AC13-4 (except the covariant `LongCount`/`Single`/`Last` rows), AC13-6, AC13-7, AC13-8, AC13-10
-  (rejection rows), AC13-12.
+- **Task 4 — Core policy (two-pass, own-root check) + D8, D10 + D5 with reference-conversion `Cast` +
+  covariance cell table + generalized `isCollection` + wiring + dead-guard removal + Core
+  `ScalarProjectionGuard`** (4 providers).
+  → AC13-4 (except the **entity-source** covariant `LongCount`/`Single`/`Last` rows), AC13-6, AC13-7,
+  AC13-8, AC13-10 (rejection rows), AC13-12.
 - **Task 5 — `Single*` row limit, `Skip`/`Take` values, empty-`Take` short-circuit** (4 providers).
   → AC13-1, AC13-10 (allowed and empty rows), covariant `Single` row of AC13-4.
 - **Task 6 — Visitor `OrderByTerms` + ternary null** (4 providers).
@@ -852,10 +1008,14 @@ Each task lists the tests it turns green. Every implementation task starts with 
   while LINQ sees the projected default `Id = 0`. This only matters when the predicate reads a mapped member
   the projection leaves out. Candidate fix: reject lambda-bearing operators after a subset `Select` when the
   lambda reads an unprojected member.
-- **Strong naming.** Shipping assemblies are still `SignAssembly=False`, and Core's `InternalsVisibleTo`
-  entries carry no public keys. The new `IsAllowed` seam is public to avoid adding to that dependency.
-  Whether 3.10.0 is the release that flips signing on is a separate owner decision. It would also require
-  public-key-qualified `InternalsVisibleTo` entries for the existing test projects.
+- **Strong naming: deferred past 3.10.0 by the owner (2026-09-30).** Shipping assemblies stay
+  `SignAssembly=False`. When signing is scheduled, the `InternalsVisibleTo` friends must be signed and their
+  entries public-key-qualified. The new `IsAllowed` and `ScalarProjectionGuard` seams are public, so they
+  add no `InternalsVisibleTo` dependency.
+- **`is IOrderedQueryable` sort helpers crash on composed queries** (pre-existing; §1.5 P4b). Tracked as
+  [#16](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/16) (owner: follow-up, not 3.10.0).
+  Candidate fix: `CreateQuery` returns an ordered queryable only when `expression.Type` is
+  `IOrderedQueryable<>`.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -935,7 +1095,7 @@ N1, N4, N5 and N10b. *(Rev 3 read "16 / 5"; corrected in rev 5, F7c.)*
 | # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
 |---|---|---|---|---|---|
 | N1 | MINOR | AC-GAP | yes | `TSource` check rejects covariant parameterless terminals that work in 3.9.0 | Exempted parameterless terminals (§5.2.1); `Covariant_ParameterlessTerminal_NotRejected_MatchesOracle`; `Covariant_Take` rejection row; two mutation rows. |
-| N2 | MAJOR | AC-GAP | yes (claim) / pre-existing behavior | A `ThenBy*` cast past a `Where` drops the earlier ordering | D10 extended (same class); AC13-12 rows including the cast shapes; `ThenBy_WithNoEarlierOrdering_IsPrimaryOrder`; two mutation rows. |
+| N2 | MAJOR | AC-GAP | yes (claim) / pre-existing behavior | A `ThenBy*` cast past a `Where` drops the earlier ordering | D10 extended (same class); AC13-12 rows including the cast shapes; `ThenBy_WithNoEarlierOrdering_IsPrimaryOrder`; two mutation rows. **Superseded in rev 6 (R5-2):** the premise was never executed, and the shape throws `ArgumentException` in System.Linq (§1.5 P3), so it was reverted. |
 | N3 | MINOR | PLAN-GAP | no | net9 project is xUnit; net48 project unnamed | xUnit twin plus a shared literal-set source file; net48 project named; §4.6 corrected. |
 | N4 | MINOR | TEST-GAP | yes | AC13-14 misstated `Single`; the cap mutation survived | AC13-14 reworded; the cap is asserted in SQL; mutation row fixed; SQLite `SkipOnly_EmitsLimitMinusOneOffset`. |
 | N5 | MINOR | TEST-GAP | yes | Empty-`Take` vs scalar guard order ambiguous | §5.2.6 pins the order; `ScalarProjection_Take0_First_ThrowsScalarGuard_NoQuery`; mutation row. |
@@ -954,9 +1114,9 @@ and 2 PARTIAL (N8 → F5, N10 → F7b).
 
 | # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
 |---|---|---|---|---|---|
-| F1 | MAJOR | AC-GAP | yes (2nd in a row on this rule) | Covariance exemption lets `Select(scalar).Cast<object>().First()` return the whole list | **Redesigned:** cell table (§5.2.1), with the exemption limited to entity-typed sources. Second-layer terminal guard in `ExecuteScalarProjection`. One row per cell, including `Covariant_ScalarSource_Rejected_NoQuery` (red on 3.9.0). Mutation rows; AC13-4 restated. |
-| F2 | MINOR | AC-GAP | yes | D10 and `TSource` messages wrong for the shapes routed to them | Separated-`ThenBy` and covariant-mismatch message variants; rows assert the distinctive text; mutation row. |
-| F3 | MINOR | TEST-GAP | yes | No `ThenBy`-after-paging rows; D8/D10 precedence unpinned | Rows added (with and without an earlier ordering; combined `OrderBy.Skip.OrderBy`/`ThenBy`). D8 is evaluated before D10 (§5.2.1). Mutation row. |
+| F1 | MAJOR | AC-GAP | yes (2nd in a row on this rule) | Covariance exemption lets `Select(scalar).Cast<object>().First()` return the whole list | **Redesigned:** cell table (§5.2.1), with the exemption limited to entity-typed sources. Second-layer terminal guard in `ExecuteScalarProjection`. One row per cell, including `Covariant_ScalarSource_Rejected_NoQuery` (red on 3.9.0). Mutation rows; AC13-4 restated. **Revised in rev 6 (R5-1, R5-3):** rows re-spelled, the scalar sequence cell corrected, and the guard moved to a testable Core helper. |
+| F2 | MINOR | AC-GAP | yes | D10 and `TSource` messages wrong for the shapes routed to them | Separated-`ThenBy` and covariant-mismatch message variants; rows assert the distinctive text; mutation row. **Revised in rev 6:** the separated-`ThenBy` message was removed as unreachable (P3); the covariant message was split into entity and scalar variants (R5-6). |
+| F3 | MINOR | TEST-GAP | yes | No `ThenBy`-after-paging rows; D8/D10 precedence unpinned | Rows added (with and without an earlier ordering; combined `OrderBy.Skip.OrderBy`/`ThenBy`). D8 is evaluated before D10 (§5.2.1). Mutation row. **Revised in rev 6:** the `ThenBy`-after-paging rows were removed because they can't be built (P3b); `OrderBy.Skip.OrderBy` is kept as the precedence killer. |
 | F4 | MINOR | TEST-GAP | yes | Literal `LIMIT 2 OFFSET n` fails on PG/SQLite line breaks | §4.1: normalize whitespace before SQL-shape asserts. |
 | F5 | MINOR | TEST-GAP | no | AC12-1/AC12-5 subset rows don't fix operator order | AC12-1/AC12-5 require ordering and paging before the projection. The §4.1 rule binds all passing shapes. |
 | F6 | MINOR | PLAN-GAP | no | AC13-5 over-claims (D8 rejected the correct `Skip.Select.Take`); AC12-3 over-claims byte-identity | **D8 refined:** `Take` after `Skip` with only `Select`/identity `OfType` between is allowed, with new allowed rows and a mutation. AC13-5 restated (rejected shapes were all wrong in 3.9.0; Changelog enumerates them). AC12-3 narrowed to the ORDER BY translation. |
@@ -965,6 +1125,33 @@ and 2 PARTIAL (N8 → F5, N10 → F7b).
 Author's own check while applying rev 5: a drafted mutation row, "D8 allows `Take` after `Skip` with any
 operator between", was **vacuous and was removed**. Any operator other than `Select`/`OfType` after `Skip` is
 rejected at its own node first, so that path can't be reached.
+
+### 9.5 Task 0 fix-verification r5 of `dfeae2e`
+
+Totals: AC-GAP 1, TEST-GAP 7, HOUSE-RULE 0, PLAN-GAP 0, OTHER 0. All 8 were introduced by rev 5. Both majors
+rested on unexecuted System.Linq premises: my §1.4 `Cast` claim, and r3 N2's `ThenBy` claim. **Process fix:**
+§1.5 executed-probe evidence; every shape premise must cite it. The reviewer judged F1–F7 as 3 RESOLVED / 4
+PARTIAL (F1, F2, F3, F6).
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| R5-1 | MAJOR | TEST-GAP | yes | `Queryable.Cast` always creates a node (§1.4 was false): scalar-cell rows unreachable as spelled; AC13-4 vs D5 conflict; D8 over-rejects identity `Cast` | §1.4 corrected with P1/P2/P2b. **Owner amended D5:** reference-conversion `Cast` is transparent, judged on the effective element type; generalized `isCollection` (P14 fix). Covariance rows spelled both ways; killers re-pointed. D8 lists include D5 casts. |
+| R5-2 | MAJOR | TEST-GAP | yes | `ThenBy*` after any non-ordering call throws `ArgumentException` in System.Linq: D10 clause 2, its message, 5 rows and 2 mutations unreachable | Executed (P3, P3b, P4, P4b). D10 clause 2, the message, the rows and the mutations were deleted. `ThenBy_OnRoot_IsPrimaryOrder` re-spelled on the root. AC13-12 helper sentence fixed. The helper crash is filed as #16 (owner: follow-up). §9.3 N2 marked superseded. |
+| R5-3 | MINOR | TEST-GAP | yes | The second-layer guard can't be reached through `Queryable`; its test was vacuous | Moved into the Core public `ScalarProjectionGuard`, tested directly (throw and pass cases). §4.3 row added. The plan states the layer is unreachable via LINQ. |
+| R5-4 | MINOR | TEST-GAP | yes | Rules reject some shapes 3.9.0 answered correctly; AC13-5 / "holds again" over-claimed | AC13-5 restated: rejection is by rule, the Changelog lists the examples. Scalar covariant `Skip`/`Take`/`Distinct` are **kept allowed** after executing P7c/P7d. "Holds again" dropped. |
+| R5-5 | MINOR | TEST-GAP | yes | Covariance after paging untested; rule order unpinned; root element type needs a second pass | AC13-4: "after `Skip`/`Take`, D8 governs". `Covariant_EntitySource_AfterPaging_D8Governs` rows. Pass-2 order pinned (allow-list → D8 → D10 → D5/covariance). Two-pass walk specified. Mutation row. |
+| R5-6 | MINOR | AC-GAP | yes | Covariant message gives wrong advice for scalar/other sources; no "other projected type" row | Entity and scalar message variants; `Cast<…>` dropped from the advice; "other projected type" defers to the `Select`-shape guard, with a row. |
+| R5-7 | MINOR | TEST-GAP | yes | AC12-3 still over-claimed | Exceptions now include AC13-2 and AC13-12; scoped to `OrderBy*/ThenBy*` chains consumed by enumeration or `First*`. |
+| R5-8 | MINOR | TEST-GAP | yes | §4.2 table broken by a blank line | The AC13-4 cell is one line with `<br>`. |
+
+**Also from r5 (not counted):**
+- The spine root must be the queryable's own root (adopted: `ForeignQueryableConstantRoot_Rejected`).
+- F5 residual: AC12-6 and the `Last`/`Distinct` tests are spelled ordering-first (adopted).
+- F7 residual: Task 4 mapping says "entity-source" (adopted).
+
+**Author's own probes while applying rev 6** (cited in §1.5): P7c–P7f corrected the scalar covariance cell
+before it was written; P14 showed that the owner's "like implicit conversion" choice needs the `isCollection`
+generalization to hold for enumeration.
 
 ---
 
