@@ -367,14 +367,14 @@ namespace Funcular.Data.Orm.MySql
             }
 
             // Last*: the first row of the inverted order. Every term is inverted whole (own, remote/computed and CASE
-            // fragments); with no explicit order it is Id DESC, qualified when the entity has joins. Paging before
-            // Last* is rejected by the policy, so the row limit never meets a user Skip/Take.
+            // fragments). With no explicit order it is Id DESC, qualified when the entity has joins, resolved in
+            // BuildQueryComponents. Paging before Last* is rejected by the policy, so the row limit never meets a user
+            // Skip/Take.
             if (terminal == "Last" || terminal == "LastOrDefault")
             {
                 components.Terminal = terminal;
-                components.OrderByClause = components.OrderByTerms.Count > 0
-                    ? "ORDER BY " + string.Join(", ", components.OrderByTerms.Select(t => $"{t.Fragment} {(t.IsDescending ? "ASC" : "DESC")}"))
-                    : DefaultLastOrderBy();
+                if (components.OrderByTerms.Count > 0)
+                    components.OrderByClause = "ORDER BY " + string.Join(", ", components.OrderByTerms.Select(t => $"{t.Fragment} {(t.IsDescending ? "ASC" : "DESC")}"));
                 components.RowLimit = 1;
             }
 
@@ -599,11 +599,11 @@ namespace Funcular.Data.Orm.MySql
                 // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
                 if (!string.IsNullOrEmpty(components.SelectClause))
                 {
-                    // Last* with no explicit order would use Id DESC, which the projection doesn't carry.
+                    // Last* after Distinct + a custom projection needs an explicit order on a projected key (AC13-2).
                     if ((components.Terminal == "Last" || components.Terminal == "LastOrDefault") && components.OrderByTerms.Count == 0)
                         throw new NotSupportedException(
                             $"{components.Terminal}() after Distinct() with a custom Select(...) projection requires an explicit " +
-                            "OrderBy whose keys are in the projection (the default Id DESC order is not). Add an OrderBy before " +
+                            "OrderBy on a projected key; distinct projected rows have no default order. Add the OrderBy before " +
                             "the Select, or materialize first.");
 
                     if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
@@ -633,6 +633,11 @@ namespace Funcular.Data.Orm.MySql
                 if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
                     selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
             }
+
+            // Last* with no explicit order: Id DESC. Resolved here, after the scalar and Distinct guards, so an entity
+            // without an Id property doesn't mask their messages.
+            if ((components.Terminal == "Last" || components.Terminal == "LastOrDefault") && components.OrderByTerms.Count == 0)
+                components.OrderByClause = DefaultLastOrderBy();
 
             // If fromPart contains a WHERE clause from the base command, strip it
             // (only the outer WHERE, not one inside subqueries)

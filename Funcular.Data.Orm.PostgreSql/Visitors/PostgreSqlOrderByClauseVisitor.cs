@@ -170,9 +170,41 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
             return $"CASE WHEN {testSql} THEN {trueSql} ELSE {falseSql} END";
         }
 
-        // The compiler types a null literal as the other operand's type (string, int?, ...): a bare null constant.
-        private static bool IsNullConstant(Expression expression) =>
-            expression is ConstantExpression constant && constant.Value == null;
+        // A null operand: a null literal (the compiler types it as the other operand's type), or a value that reads no
+        // lambda parameter and evaluates to null, such as a captured variable.
+        private static bool IsNullOperand(Expression expression)
+        {
+            if (expression is ConstantExpression constant)
+                return constant.Value == null;
+            if (ParameterFinder.Reads(expression))
+                return false;
+            try
+            {
+                return Expression.Lambda(Expression.Convert(expression, typeof(object))).Compile().DynamicInvoke() == null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private sealed class ParameterFinder : ExpressionVisitor
+        {
+            private bool _found;
+
+            public static bool Reads(Expression expression)
+            {
+                var finder = new ParameterFinder();
+                finder.Visit(expression);
+                return finder._found;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                _found = true;
+                return node;
+            }
+        }
 
         private string BuildTestSql(Expression test)
         {
@@ -186,11 +218,11 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
                         break;
                     }
                 case BinaryExpression nullTest when (nullTest.NodeType == ExpressionType.Equal || nullTest.NodeType == ExpressionType.NotEqual)
-                                                    && (IsNullConstant(nullTest.Left) || IsNullConstant(nullTest.Right)):
+                                                    && (IsNullOperand(nullTest.Left) || IsNullOperand(nullTest.Right)):
                     {
                         // SQL needs IS [NOT] NULL: `col = NULL` is never true (SQL Server even rejects it as a constant
                         // ORDER BY expression). Either operand order: x.M == null and null == x.M.
-                        var operandSql = BuildValueSql(IsNullConstant(nullTest.Left) ? nullTest.Right : nullTest.Left);
+                        var operandSql = BuildValueSql(IsNullOperand(nullTest.Left) ? nullTest.Right : nullTest.Left);
                         return nullTest.NodeType == ExpressionType.Equal ? $"{operandSql} IS NULL" : $"{operandSql} IS NOT NULL";
                     }
                 case BinaryExpression bin:

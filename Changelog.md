@@ -14,7 +14,8 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   them. Both now apply the predicate as `WHERE`, read at most two rows (`TOP (2)` / `LIMIT 2`, with no ORDER BY
   added), and follow LINQ: two or more matches throw, and `Single` throws on none.
 - **`Last`/`LastOrDefault` returned the first row.** They now invert every ordering key (own, remote, computed
-  and `CASE` keys) and read one row; with no `OrderBy` they use `Id DESC`.
+  and `CASE` keys) and read one row; with no `OrderBy` they use `Id DESC`. Like `First` and `ToList`, they follow
+  the database's NULL placement (PostgreSQL sorts NULLs last when ascending; LINQ-to-objects sorts them first).
 - **`LongCount` threw `InvalidCastException`.** It now returns a `long`, built like `Count` (SQL Server uses
   `COUNT_BIG(*)`).
 - **Ordering on entities with remote joins** ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12)):
@@ -22,7 +23,8 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   also has (typically `id`), with a narrow projection that leaves that column out, failed with "Ambiguous column
   name". On SQLite, unordered paging on such an
   entity orders by `{table}.rowid`, and `Skip(n)` without `Take` emits `LIMIT -1 OFFSET n` instead of invalid SQL.
-- **A ternary ORDER BY key comparing a member with `null`** (`p.M == null ? 0 : 1`, either operand order) emitted
+- **A ternary ORDER BY key comparing a member with `null`** (`p.M == null ? 0 : 1`, either operand order, the null
+  written as a literal or held in a variable) emitted
   `= NULL`, which SQL Server rejected and the other providers evaluated wrongly. It now emits `IS NULL` /
   `IS NOT NULL`.
 - **A repeated ordering key** (`OrderBy(a).ThenBy(a)`) failed on SQL Server (error 169). The later duplicate is
@@ -51,7 +53,7 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   after paging now. Happened to be correct before: `Take(k).Distinct()` over a keyed entity, `Take(k).Any()`,
   `Take(10).Take(5)`, and `Skip(0)` followed by `Where`/`Count`/etc. (page 1 of a `Skip(page * size)` helper).
 - **A second `OrderBy`/`OrderByDescending`** (even across `Where`/`Select`/`Distinct`) produced the wrong key
-  priority. It now throws; write `query.OrderBy(later).ThenBy(earlier)`. Happened to be correct before, when the
+  priority. It now throws; write `query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction. Happened to be correct before, when the
   orders coincided: e.g. `OrderBy(a).Where(w).OrderByDescending(k).First()`.
 - **A predicate written against a base type or interface** over a converted query threw
   `InvalidCastException`, or for `Single*` returned an unrelated row. It now throws a message telling you to

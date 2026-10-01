@@ -412,6 +412,68 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             Assert.AreEqual("c", row.FirstName);
         }
 
+        [DataTestMethod]
+        [DataRow("Last", false)]
+        [DataRow("LastOrDefault", false)]
+        [DataRow("LastPredicate", false)]
+        [DataRow("LastOrDefaultPredicate", false)]
+        [DataRow("Last", true)]
+        public void LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal(string terminal, bool projectId)
+        {
+            var (marker, _) = SeedAbc();
+            var distinct = projectId
+                ? People(marker).Select(p => new PersonDetailEntity { Id = p.Id, FirstName = p.FirstName }).Distinct()
+                : People(marker).Select(p => new PersonDetailEntity { FirstName = p.FirstName }).Distinct();
+            Action run;
+            switch (terminal)
+            {
+                case "Last": run = () => distinct.Last(); break;
+                case "LastOrDefault": run = () => distinct.LastOrDefault(); break;
+                case "LastPredicate": run = () => distinct.Last(p => p.FirstName != "zzz"); break;
+                case "LastOrDefaultPredicate": run = () => distinct.LastOrDefault(p => p.FirstName != "zzz"); break;
+                default: throw new ArgumentOutOfRangeException(nameof(terminal));
+            }
+
+            var ex = Assert.ThrowsException<NotSupportedException>(run);
+            StringAssert.Contains(ex.Message, terminal.Replace("Predicate", "") + "() after Distinct()");
+            // The stated reason must hold when the key is projected too.
+            Assert.IsFalse(ex.Message.Contains("Id DESC"), ex.Message);
+        }
+
+        [TestMethod]
+        public void Last_NullableKey_EqualsTheProvidersOwnOrder()
+        {
+            // AC13-2: Last is the last row of the provider's own order. Where NULLs sort differs from LINQ-to-objects
+            // (PostgreSQL sorts them last when ascending), Last follows the database, as First and ToList do (§8).
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310Country_" + marker);
+            SeedPerson(marker, "a", employer, middleInitial: "A");
+            SeedPerson(marker, "b", employer, middleInitial: null);
+            SeedPerson(marker, "c", employer, middleInitial: "C");
+
+            var ascending = People(marker).OrderBy(p => p.MiddleInitial).ThenBy(p => p.Id);
+            Assert.AreEqual(ascending.ToList().Last().Id, ascending.Last().Id, "ascending");
+            var descending = People(marker).OrderByDescending(p => p.MiddleInitial).ThenBy(p => p.Id);
+            Assert.AreEqual(descending.ToList().Last().Id, descending.Last().Id, "descending");
+        }
+
+        [TestMethod]
+        public void Last_EntityWithoutId_ScalarProjection_ScalarGuardWins()
+        {
+            // The default Id DESC is resolved after the scalar and Distinct guards, so a missing Id property can't mask them.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<SingleProbeEntity>().Select(x => x.Name).Last());
+            StringAssert.Contains(ex.Message, "is only supported for a list/enumeration result");
+        }
+
+        [TestMethod]
+        public void Last_EntityWithoutId_DistinctProjection_DistinctGuardWins()
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<SingleProbeEntity>().Select(x => new SingleProbeEntity { Name = x.Name }).Distinct().LastOrDefault());
+            StringAssert.Contains(ex.Message, "LastOrDefault() after Distinct()");
+        }
+
         #endregion
 
         #region AC13-3 LongCount

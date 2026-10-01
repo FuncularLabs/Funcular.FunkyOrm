@@ -238,6 +238,10 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         [DataRow(1, DisplayName = "null == x.M")]
         [DataRow(2, DisplayName = "x.M != null")]
         [DataRow(3, DisplayName = "null != x.M")]
+        [DataRow(4, DisplayName = "x.M == captured null")]
+        [DataRow(5, DisplayName = "captured null == x.M")]
+        [DataRow(6, DisplayName = "x.M != captured null")]
+        [DataRow(7, DisplayName = "captured null != x.M")]
         public void TernaryOrderBy_NullComparison_MatchesOracle(int spelling)
         {
             var marker = NewMarker();
@@ -249,6 +253,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             SeedPerson(marker, "b", null);
             SeedPerson(marker, "c", employer);
 
+            int? none = null; // rows 4-7: the null is held in a variable, not written as a literal
             Expression<Func<PersonWithEmployer, int>> key;
             switch (spelling)
             {
@@ -256,6 +261,10 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 case 1: key = p => null == p.EmployerId ? 0 : 1; break;
                 case 2: key = p => p.EmployerId != null ? 0 : 1; break;
                 case 3: key = p => null != p.EmployerId ? 0 : 1; break;
+                case 4: key = p => p.EmployerId == none ? 0 : 1; break;
+                case 5: key = p => none == p.EmployerId ? 0 : 1; break;
+                case 6: key = p => p.EmployerId != none ? 0 : 1; break;
+                case 7: key = p => none != p.EmployerId ? 0 : 1; break;
                 default: throw new ArgumentOutOfRangeException(nameof(spelling));
             }
 

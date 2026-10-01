@@ -148,7 +148,8 @@ namespace Funcular.Data.Orm.Linq
                         throw new NotSupportedException(
                             $"{name}(...) after an earlier ordering is not translated. In LINQ the later ordering becomes the " +
                             "primary key and the earlier keys only break ties; write that as one chain, primary key first: " +
-                            $"query.{name}(later).ThenBy(earlier).");
+                            $"query.{name}(later).ThenBy(earlier), keeping each earlier key's direction (ThenByDescending for " +
+                            "a descending one).");
                     orderingSeen = true;
                 }
                 else if (name == "ThenBy" || name == "ThenByDescending")

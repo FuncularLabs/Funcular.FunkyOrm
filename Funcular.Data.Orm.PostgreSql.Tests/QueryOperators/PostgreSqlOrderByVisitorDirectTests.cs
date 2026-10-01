@@ -176,6 +176,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             var created = Fragment(p => p.DateUtcCreated);
             var threshold = 5;
             var guid = MarkerGuid;
+            string noneString = null;
+            int? noneInt = null;
+            var someName = "a";
             string When(string test, string then = "0", string otherwise = "1") => $"CASE WHEN {test} THEN {then} ELSE {otherwise} END";
             return new Dictionary<string, (Func<string>, Func<string>)>
             {
@@ -197,6 +200,11 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
                 ["Guid branches"] = (() => Fragment(p => p.Id > 0 ? guid : Guid.Empty),
                                      () => When($"{id} > 0", $"'{MarkerGuid}'", "'00000000-0000-0000-0000-000000000000'")),
                 ["char branches"] = (() => Fragment(p => p.Id > 0 ? 'a' : 'b'), () => When($"{id} > 0", "'a'", "'b'")),
+                ["captured null =="] = (() => Fragment(p => p.FirstName == noneString ? 0 : 1), () => When($"{first} IS NULL")),
+                ["captured null !=, reversed"] = (() => Fragment(p => noneString != p.FirstName ? 0 : 1), () => When($"{first} IS NOT NULL")),
+                ["captured int? null"] = (() => Fragment(p => p.EmployerId == noneInt ? 0 : 1), () => When($"{employer} IS NULL")),
+                ["captured int? null, reversed"] = (() => Fragment(p => noneInt == p.EmployerId ? 0 : 1), () => When($"{employer} IS NULL")),
+                ["captured value"] = (() => Fragment(p => p.FirstName == someName ? 0 : 1), () => When($"{first} = 'a'")),
                 ["member and null branches"] = (() => Fragment(p => p.Id > 0 ? p.FirstName : null), () => When($"{id} > 0", first, "NULL")),
             };
         }

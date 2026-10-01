@@ -208,7 +208,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 |---|---|---|
 | `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. |
 | `Select` | a narrow `SELECT` | A column subset of the same entity (`new T { … }`) or a single member (`x => x.Member`); see §1. |
-| `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`. |
+| `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`; a comparison with `null` in it (a literal, or a variable holding null) becomes `IS [NOT] NULL`. |
 | `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |
 | `Skip`, `Take` | `OFFSET … FETCH` (SQL Server), `LIMIT … OFFSET` (others) | See the paging rule below. Without an `OrderBy`, pages are ordered by `id` (SQLite: `rowid`). `Skip(n < 0)` acts as `Skip(0)`; `Take(n ≤ 0)` returns an empty result without a query. |
 | `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. |
@@ -229,7 +229,11 @@ before `Skip`/`Take`, or materialize the page first: `query.Skip(n).Take(k).ToLi
 
 **One `OrderBy`.** A second `OrderBy`/`OrderByDescending` anywhere after an earlier ordering throws. In LINQ the
 later ordering becomes the primary key and the earlier one only breaks ties; write that as one chain:
-`query.OrderBy(later).ThenBy(earlier)`.
+`query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction (`ThenByDescending` for a descending one).
+
+**NULLs in an ordering.** The database decides where NULLs sort: SQL Server, MySQL and SQLite put them first in
+ascending order, as LINQ does; PostgreSQL puts them last. `First`, `Last` and `ToList` all follow the database's
+order, so on PostgreSQL `OrderBy(x => x.Nullable).Last()` can be a row whose key is NULL.
 
 **`Last` and `Distinct`.** `Last`/`LastOrDefault` after `Distinct()` with a custom projection need an explicit
 `OrderBy` on a projected key: the default `Id DESC` isn't in the projection, so it throws.

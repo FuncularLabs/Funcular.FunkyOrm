@@ -199,7 +199,7 @@ LINQ-to-objects.
 |---|---|---|
 | `Where` | `WHERE` | Predicate over the queried entity `T`. |
 | `Select` | narrow `SELECT` | `new T { … }` (same entity) or `x => x.Member` only (§1). |
-| `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE`. |
+| `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE` (`== null`, literal or captured, → `IS [NOT] NULL`). NULL placement follows the database (PostgreSQL: NULLs last ascending). |
 | `ThenBy`, `ThenByDescending` | more `ORDER BY` keys | A repeated key is dropped. |
 | `Skip`, `Take` | `OFFSET`/`FETCH` or `LIMIT`/`OFFSET` | Paging rule below. Default order `id` (SQLite `rowid`). `Skip(n<0)` = `Skip(0)`; `Take(n≤0)` → empty, no query. |
 | `Distinct` | `SELECT DISTINCT` | Custom projection ⇒ ordering keys must be projected. No aggregate after it. |
@@ -216,7 +216,7 @@ LINQ-to-objects.
 | Construct | Do this instead |
 |---|---|
 | Any operator after `Skip`/`Take` other than `Select`, `Cast`/`OfType`, one `Take` after `Skip`, parameterless `First*`/`Single*` — includes `Skip(0).Where(...)`, `Take(5).Count()`, `Skip(n).Last()` | Apply it before paging, or `query.Skip(n).Take(k).ToList().Where(...)`. |
-| A second `OrderBy`/`OrderByDescending` (even across `Where`/`Select`/`Distinct`) | One chain, primary key first: `query.OrderBy(later).ThenBy(earlier)` (LINQ makes the later ordering primary). |
+| A second `OrderBy`/`OrderByDescending` (even across `Where`/`Select`/`Distinct`) | One chain, primary key first: `query.OrderBy(later).ThenBy(earlier)` (LINQ makes the later ordering primary), keeping each earlier key's direction (`ThenByDescending` for a descending one). |
 | A predicate over a base-type or interface view (`IQueryable<Base> b = q; b.Where(x => …)`) | Apply it to the concrete `IQueryable<T>`, or use a generic helper constrained to a **base class** (`where TEntity : Base`). An interface-constrained helper fails in the WHERE translator. |
 | `Last()` after `Distinct()` + custom projection, with no `OrderBy` | Add `OrderBy` on a projected key before the `Select`. |
 

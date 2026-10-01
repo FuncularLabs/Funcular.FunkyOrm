@@ -563,6 +563,25 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             StringAssert.Contains(ex.Message, SelectShapeMessage);
         }
 
+        [DataTestMethod]
+        [DataRow("Cast", "supports only identity and reference-conversion casts")]
+        [DataRow("OfType", "supports only an identity OfType")]
+        public void SubsetSelect_ThenUnrelatedCastOrOfType_D5Message(string op, string expected)
+        {
+            var (marker, _) = SeedAbc();
+            var subset = People(marker).Select(p => new PersonDetailEntity { Id = p.Id, FirstName = p.FirstName });
+            Action run;
+            if (op == "Cast")
+                run = () => subset.Cast<NameDto>().ToList();
+            else
+                run = () => subset.OfType<NameDto>().ToList();
+
+            // A subset Select keeps the entity as the row type, so D5/I3 still judge the conversion: only an
+            // unsupported Select suspends them (T4R-2's boundary).
+            var ex = AssertThrowsNoQuery<NotSupportedException>(run);
+            StringAssert.Contains(ex.Message, expected);
+        }
+
         private static IQueryable<TEntity> NamedB<TEntity>(IQueryable<TEntity> query) where TEntity : PersonEntity =>
             query.Where(p => p.FirstName == "b");
 
@@ -724,6 +743,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var second = shape.Substring(shape.LastIndexOf('.') + 1);
             StringAssert.Contains(ex.Message, second + "(...) after");
             StringAssert.Contains(ex.Message, $"query.{second}(later).ThenBy(earlier)");
+            StringAssert.Contains(ex.Message, "ThenByDescending for a descending one", "the advice keeps each earlier key's direction");
         }
 
         #endregion
