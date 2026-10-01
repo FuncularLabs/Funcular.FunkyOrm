@@ -16,7 +16,8 @@ namespace Funcular.Data.Orm.Linq
     /// source, so the outermost unsupported operator is reported. The spine must end at a queryable's own root.</para>
     /// <para>Pass 2 walks inner→outer and applies, at each node: operators after <c>Skip</c>/<c>Take</c>; a second
     /// <c>OrderBy</c>; <c>Cast</c>/<c>OfType</c> against the row type; and predicate lambdas that don't bind to the
-    /// entity. The row type starts as the entity type and changes only at a scalar <c>Select(x =&gt; x.Member)</c>.</para>
+    /// entity. The row type starts as the entity type and changes only at a scalar <c>Select(x =&gt; x.Member)</c>;
+    /// after any other unsupported <c>Select</c> it is unknown, and the parse loop rejects that <c>Select</c>.</para>
     /// </remarks>
     public static class QueryOperatorPolicy
     {
@@ -51,10 +52,12 @@ namespace Funcular.Data.Orm.Linq
 
         private static readonly HashSet<int> SupportedTokens = new HashSet<int>(Supported.Select(m => m.MetadataToken));
 
+        private static readonly IReadOnlyCollection<MethodInfo> SupportedView = Array.AsReadOnly(Supported);
+
         /// <summary>
         /// The supported <see cref="Queryable"/> overloads, as generic method definitions.
         /// </summary>
-        public static IReadOnlyCollection<MethodInfo> SupportedOperators => Supported;
+        public static IReadOnlyCollection<MethodInfo> SupportedOperators => SupportedView;
 
         /// <summary>
         /// Returns whether <paramref name="method"/> (or its generic method definition) is a supported
@@ -110,6 +113,7 @@ namespace Funcular.Data.Orm.Linq
             var skipOpen = false;           // after a Skip, with only Select/Cast/OfType since: one Take may follow
             var orderingSeen = false;
             var afterNonSubsetSelect = false;
+            var afterOtherSelect = false;   // an unsupported Select: the row type is unknown from here
             for (var i = spine.Count - 1; i >= 0; i--)
             {
                 var call = spine[i];
@@ -142,8 +146,9 @@ namespace Funcular.Data.Orm.Linq
                 {
                     if (orderingSeen)
                         throw new NotSupportedException(
-                            "A second OrderBy is not translated; use ThenBy/ThenByDescending to add a key to the existing " +
-                            "order, or put the primary ordering first.");
+                            $"{name}(...) after an earlier ordering is not translated. In LINQ the later ordering becomes the " +
+                            "primary key and the earlier keys only break ties; write that as one chain, primary key first: " +
+                            $"query.{name}(later).ThenBy(earlier).");
                     orderingSeen = true;
                 }
                 else if (name == "ThenBy" || name == "ThenByDescending")
@@ -151,8 +156,9 @@ namespace Funcular.Data.Orm.Linq
                     orderingSeen = true;
                 }
 
-                // D5/I3: Cast/OfType are judged against the row type, which they never change.
-                if (name == "Cast")
+                // D5/I3: Cast/OfType are judged against the row type, which they never change. After an unsupported
+                // Select the row type is unknown: the parse loop rejects that Select with the accurate message.
+                if (!afterOtherSelect && name == "Cast")
                 {
                     var target = call.Method.GetGenericArguments()[0];
                     if (target != rowType && (rowType.IsValueType || !target.IsAssignableFrom(rowType)))
@@ -160,7 +166,7 @@ namespace Funcular.Data.Orm.Linq
                             $"Cast<{FriendlyName(target)}>() is not translated; FunkyORM supports only identity and " +
                             $"reference-conversion casts. Materialize first: query.ToList().Cast<{FriendlyName(target)}>().");
                 }
-                else if (name == "OfType")
+                else if (!afterOtherSelect && name == "OfType")
                 {
                     var target = call.Method.GetGenericArguments()[0];
                     if (target != rowType)
@@ -180,11 +186,17 @@ namespace Funcular.Data.Orm.Linq
                 {
                     var parameterType = StripQuotes(call.Arguments[1]).Parameters[0].Type;
                     if (parameterType != entityType)
+                    {
+                        // `where TEntity : Object` doesn't compile, and a helper constrained to an interface fails in
+                        // the WHERE translator (Convert(x, I).M): only a base class gets the generic-helper advice.
+                        var advice = parameterType.IsClass && parameterType != typeof(object)
+                            ? $"make the helper generic (where TEntity : {FriendlyName(parameterType)}), or query the concrete type."
+                            : $"or apply it to the concrete IQueryable<{FriendlyName(entityType)}>.";
                         throw new NotSupportedException(
                             $"{name}(...) takes a predicate over {FriendlyName(parameterType)}, but the query's rows are " +
                             $"{FriendlyName(entityType)}. Apply {name} before converting the element type " +
-                            "(IQueryable<…>/Cast<…>), make the helper generic " +
-                            $"(where TEntity : {FriendlyName(parameterType)}), or query the concrete type.");
+                            "(IQueryable<…>/Cast<…>), " + advice);
+                    }
                 }
 
                 if (name == "Select")
@@ -198,6 +210,7 @@ namespace Funcular.Data.Orm.Linq
                     else if (!(lambda.Body is MemberInitExpression memberInit && memberInit.Type == entityType))
                     {
                         afterNonSubsetSelect = true;
+                        afterOtherSelect = true;
                     }
                 }
             }

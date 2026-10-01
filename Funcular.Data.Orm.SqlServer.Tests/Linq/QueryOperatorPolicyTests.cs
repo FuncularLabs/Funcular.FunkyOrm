@@ -24,6 +24,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
         }
 
         [TestMethod]
+        public void SupportedOperators_IsReadOnlyView()
+        {
+            // A caller (or the Task 10 doc test) must not be able to rewrite the list through a cast.
+            Assert.IsNotInstanceOfType(QueryOperatorPolicy.SupportedOperators, typeof(MethodInfo[]));
+            Assert.IsTrue(((ICollection<MethodInfo>)QueryOperatorPolicy.SupportedOperators).IsReadOnly);
+        }
+
+        [TestMethod]
         public void SupportedOperators_ExactLiteralSetPinned()
         {
             Assert.AreEqual(SupportedOperatorSignatures.Count, SupportedOperatorSignatures.All.Length,

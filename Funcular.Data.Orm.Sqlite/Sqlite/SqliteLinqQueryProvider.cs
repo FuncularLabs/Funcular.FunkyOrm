@@ -209,9 +209,8 @@ namespace Funcular.Data.Orm.Sqlite
                 // inner→outer, so if ScalarSelector is already set we are now processing an operator OUTER of the
                 // scalar Select. Any such operator carrying a lambda over the projected element (Where/OrderBy/
                 // predicate- or selector-bearing aggregates/chained Select) would be hard-cast to Func<T,...> and
-                // throw an obscure InvalidCastException. Reject the whole class here with one clear message (same
-                // pattern as the result-type and GroupBy guards). Constant-arg operators (Skip/Take/Distinct) are
-                // unaffected and still compose.
+                // throw an obscure InvalidCastException. Reject the whole class here with one clear message.
+                // Constant-arg operators (Skip/Take/Distinct) are unaffected and still compose.
                 if (components.ScalarSelector != null && currentCall.Arguments.Count >= 2
                     && (currentCall.Arguments[1] is LambdaExpression
                         || (currentCall.Arguments[1] is UnaryExpression scalarComposeUnary && scalarComposeUnary.Operand is LambdaExpression)))

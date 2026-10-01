@@ -17,7 +17,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 
         private const string PolicyMessage = "is not translated to SQL in this version";
         private const string PagingMessage = "after Skip/Take";
-        private const string SecondOrderByMessage = "A second OrderBy is not translated";
+        private const string SecondOrderByMessage = "after an earlier ordering is not translated";
         private const string I1Message = "takes a predicate over";
         private const string CompositionMessage = "must be the outermost query operator";
         private const string SelectShapeMessage = "A top-level Select must project to";
@@ -161,7 +161,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 
         public static IEnumerable<object[]> PredicateRows =>
             from op in PredicateOperators
-            from source in new[] { "object", "base" }
+            from source in new[] { "object", "base", "interface" }
             from spelling in Spellings
             select new object[] { op, source, spelling };
 
@@ -172,10 +172,21 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             var (marker, _) = SeedAbc();
             var run = source == "object"
                 ? PredicateOperation<object>(People(marker), op, spelling, x => x != null)
-                : PredicateOperation<PersonEntity>(People(marker), op, spelling, p => p.Id > 0);
+                : source == "interface"
+                    ? PredicateOperation<IHasPersonId>(People(marker), op, spelling, p => p.Id > 0)
+                    : PredicateOperation<PersonEntity>(People(marker), op, spelling, p => p.Id > 0);
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(run);
             StringAssert.Contains(ex.Message, I1Message);
+            // The advice must work for the source: `where TEntity : Object` doesn't compile, and a helper constrained
+            // to an interface fails in the WHERE translator (§8). Only a base class gets the generic-helper advice.
+            if (source == "base")
+                StringAssert.Contains(ex.Message, "where TEntity : PersonEntity");
+            else
+            {
+                Assert.IsFalse(ex.Message.Contains("where TEntity"), ex.Message);
+                StringAssert.Contains(ex.Message, "the concrete IQueryable<PersonDetailEntity>");
+            }
         }
 
         private static Action PredicateOperation<TBase>(IQueryable<PersonDetailEntity> query, string op, string spelling,
@@ -532,6 +543,42 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             StringAssert.Contains(ex.Message, SelectShapeMessage, "I1 must not mask the Select-shape message after a DTO Select");
         }
 
+        /// <summary>A projection target unrelated to the entity.</summary>
+        public class NameDto
+        {
+            public string Name { get; set; }
+        }
+
+        [DataTestMethod]
+        [DataRow("Cast")]
+        [DataRow("OfType")]
+        public void OtherSelect_ThenCastOrOfType_SelectShapeMessage(string op)
+        {
+            var (marker, _) = SeedAbc();
+            Action run;
+            if (op == "Cast")
+                run = () => People(marker).Select(p => new NameDto { Name = p.FirstName }).Cast<NameDto>().ToList();
+            else
+                run = () => People(marker).Select(p => p.FirstName.ToUpper()).OfType<string>().ToList();
+
+            // From the caller's side these are identity conversions: the accurate reason is the Select's shape, not a
+            // cast judged against the entity type.
+            var ex = AssertThrowsNoQuery<NotSupportedException>(run);
+            StringAssert.Contains(ex.Message, SelectShapeMessage);
+        }
+
+        private static IQueryable<TEntity> NamedB<TEntity>(IQueryable<TEntity> query) where TEntity : PersonEntity =>
+            query.Where(p => p.FirstName == "b");
+
+        [TestMethod]
+        public void GenericHelper_ConstrainedToBaseClass_MatchesOracle()
+        {
+            // The I1 message's advice for a base-class predicate, run end to end.
+            var (marker, _) = SeedAbc();
+
+            AssertMatchesOracle(marker, q => NamedB(q).ToList());
+        }
+
         #endregion
 
         #region AC13-8 messages and precedence
@@ -689,6 +736,10 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => SecondOrderings[shape](query));
             StringAssert.Contains(ex.Message, SecondOrderByMessage);
+            // It names the second ordering, and its advice keeps LINQ's priority: the later key is the primary one.
+            var second = shape.Substring(shape.LastIndexOf('.') + 1);
+            StringAssert.Contains(ex.Message, second + "(...) after");
+            StringAssert.Contains(ex.Message, $"query.{second}(later).ThenBy(earlier)");
         }
 
         #endregion
