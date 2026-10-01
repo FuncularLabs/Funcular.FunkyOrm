@@ -78,10 +78,11 @@ namespace Funcular.Data.Orm.Visitors
         {
         }
 
-        /// <param name="parameterGenerator">When given, every value FunkyORM would write as quoted SQL text (a string,
-        /// char, <see cref="Guid"/>, date or other non-numeric value) becomes a command parameter carrying that text,
-        /// listed in <see cref="Parameters"/>: one per occurrence, as each literal was its own literal. Numbers,
-        /// booleans, enums and <c>NULL</c> stay inline. Without one, values are inlined as literals.</param>
+        /// <param name="parameterGenerator">When given, a value FunkyORM would write as quoted SQL text (a string, char,
+        /// <see cref="Guid"/>, date or other non-numeric value) is sent as a command parameter carrying that text, one
+        /// per occurrence as each literal was its own literal, listed in <see cref="Parameters"/>. A dropped duplicate
+        /// term binds nothing. Numbers, booleans, enums and <c>NULL</c> stay inline. Without a generator, values are
+        /// inlined as literals.</param>
         public OrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
@@ -132,17 +133,22 @@ namespace Funcular.Data.Orm.Visitors
         {
             var values = _pendingValues.ToArray();
             _pendingValues.Clear();
-            // Length-prefixed, so no value's text can pass for the SQL around it.
-            var key = Placeholder.Replace(columnName, m =>
+            // Placeholders exist only with a parameter generator; without one, every value is already a literal. The
+            // key is length-prefixed, so no value's text can pass for the SQL around it.
+            var key = _parameterGenerator == null ? columnName : Placeholder.Replace(columnName, m =>
             {
                 var value = values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)];
                 return "\u0001" + (value.IsText ? "t" : "v") + value.Text.Length.ToString(CultureInfo.InvariantCulture) + ":"
                        + value.Text + "\u0001";
             });
-            if (!_termKeys.Add(key))
+            if (_termKeys.Contains(key))
                 return;
-            var sql = Placeholder.Replace(columnName, m => Bind(values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)]));
+            var sql = _parameterGenerator == null
+                ? columnName
+                : Placeholder.Replace(columnName, m => Bind(values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)]));
             _orderByClauses.Add(new OrderByClause { ColumnName = sql, IsDescending = isDescending });
+            // Recorded once the term is in, so a term that failed to bind is never taken for a duplicate later.
+            _termKeys.Add(key);
         }
 
         /// <summary>

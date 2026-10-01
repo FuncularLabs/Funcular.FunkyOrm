@@ -539,9 +539,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             }
             finally
             {
-                _provider.BeginTransaction();
-                _provider.Delete<LegacyDateTimeProbe>(p => p.Label == marker);
-                _provider.CommitTransaction();
+                // The table exists only for this test: drop it, rows and all.
+                using var connection = new SqlConnection(_connectionString);
+                connection.Open();
+                using var drop = connection.CreateCommand();
+                drop.CommandText = "DROP TABLE IF EXISTS legacy_datetime_probe;";
+                drop.ExecuteNonQuery();
             }
         }
 

@@ -91,7 +91,8 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
 - **SQL Server: text in an ORDER BY ternary is now `nvarchar`**, like a WHERE string parameter; 3.9.0's literal was
   `varchar`. Text outside the database's code page now matches (`x.Name == "Ωmega" ? 0 : 1` matched no row before).
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
-  can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places).
+  can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places). Equality follows the same rules, as it
+  already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
 - **A `DateTimeOffset` in an ORDER BY ternary** is written as `yyyy-MM-dd HH:mm:ss.fffffffK`, offset included. 3.9.0
   used the current culture's format.
 - **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and

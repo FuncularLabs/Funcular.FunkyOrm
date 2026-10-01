@@ -525,6 +525,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void LiteralMode_PlaceholderShapedText_IsInlined()
+        {
+            // Placeholders exist only with a parameter generator: without one, any text is a literal (verification R1).
+            var first = Fragment(p => p.FirstName);
+            var text = "\u00010\u0001";
+
+            Assert.AreEqual($"CASE WHEN {first} = '{text}' THEN 0 ELSE 1 END", Fragment(p => p.FirstName == text ? 0 : 1));
+        }
+
+        [TestMethod]
         public void LiteralMode_ValueWithNullText_IsEmptyText()
         {
             // 3.9.0 wrote '' for a value whose ToString() is null; so does its parameter.

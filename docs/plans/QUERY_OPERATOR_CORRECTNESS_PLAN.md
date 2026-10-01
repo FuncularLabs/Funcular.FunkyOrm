@@ -17,6 +17,11 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 33 (fix-verification of `66bde1e..403597b`, 2026-10-01) — what changed:** literal mode no longer
+>   looks for placeholders (R1). The AC12-10 LINQ-parity sentence is narrowed to the test position (R3). Also
+>   changed: §8 (literal-mode wording, an ar-SA entry), §9.35, the Task 12 status, and outside the plan the
+>   Changelog (equality under `nvarchar`, R2) and the operator-table wording (nit A).
+
 > **Revision 32 (fix-verification of `66bde1e..7d9b65b`, 2026-10-01) — what changed:** AC12-10 amended again.
 >   Each occurrence of a value is its own parameter, as each literal was its own literal; rev 31's shared
 >   parameters were typed only at their first use on PostgreSQL. A PostgreSQL value compared with `null` is decided
@@ -802,7 +807,8 @@ providers** unless stated.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
   Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
-  characters orders rows as LINQ-to-objects does and never appears in the command text. A command carries only the
+  characters, compared in a ternary's test, orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no
+  value appears in the command text. A command carries only the
   parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
   generator and still inline values; MySQL's inline literal also escapes backslashes.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
@@ -1804,6 +1810,13 @@ Each task lists the tests it turns green. Every implementation task starts with 
       `datetime` test (N5) was green there by design; a mutation proves it.
     - **Mutations (10, all killed: 3 PostgreSQL, 3 SQL Server, 2 MySQL, 2 SQLite).**
     - All suites green: SqlServer 881, Sqlite 784, PostgreSql 756, MySql 707; net48 76/76; net9 5/5.
+  - **Verification layer 2 (rev 33, §9.35).**
+    - R1: `AddOrderByClause` substitutes placeholders only with a parameter generator.
+    - Nit B: the term key is recorded once the term is added.
+    - Red first: `LiteralMode_PlaceholderShapedText_IsInlined` threw `IndexOutOfRangeException` on all 4 providers.
+    - Mutations: 4. 3 were killed. The fourth reverts nit B and survived as an equivalent mutant: `Bind` can't
+      throw for a non-null string, so the order is unobservable. The reorder is defensive only.
+    - Suites: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -1955,10 +1968,14 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **ORDER BY dates carry milliseconds (3.9.0's literal text, kept by rev 31).** A `DateTime` with sub-millisecond
   ticks compares with a `datetime2`/`timestamp`/`DATETIME(6)` column as its truncated value, as in 3.9.0; WHERE
   parameters keep the full value.
-- **Literal mode (the visitors' 3.9.0 constructors, no generator; F6, report only).** No provider path uses it.
+- **Literal mode (the visitors' 3.9.0 constructors, no generator; F6, report only).** No provider path passes values
+  through it: `DefaultLastOrderBy` builds one, for `Id` only.
   - PostgreSQL with `standard_conforming_strings=off` treats a backslash in a literal as an escape, which is
     MySQL's problem.
   - MySQL with `NO_BACKSLASH_ESCAPES` keeps the doubled backslash, which changes the value but can't be exploited.
+- **SQLite under the ar-SA culture: reading a date throws `FormatException` (pre-existing; rev 33 reviewer,
+  executed on `66bde1e`; not re-run by the author).** Follow-up candidate: parse stored dates with the invariant
+  culture.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2613,6 +2630,24 @@ parameter sharing, regressed two shapes against 3.9.0.
 Lesson (AC-GAP twice in a row on the same AC): a parameter that replaces a literal must reproduce the literal's
 typing per occurrence, not per value. Sharing one parameter between equal values is an optimisation the literal
 never had.
+
+### 9.35 Fix-verification of `66bde1e..403597b` (non-author; 538 shapes × 3 cultures × 4 providers × 3 shas, about 19k executions; 22 mutants of its own, all killed)
+
+Verdict: NOT CLEAN on minor items. N1–N5 resolved:
+- PostgreSQL: 186 rows that errored on `7d9b65b` now run.
+- No HEAD row is worse than `66bde1e` on any provider.
+- No placeholder leaked, and no command sent an unused parameter.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| R1 | minor | TEST-GAP | Literal mode (the 3.9.0 constructors) threw `IndexOutOfRangeException` on a value whose text looks like a placeholder: the placeholder regex ran without a generator. | Substitution only with a generator. `LiteralMode_PlaceholderShapedText_IsInlined` on all 4 providers was red first. |
+| R2 | minor | HOUSE-RULE (doc truth) | SQL Server `nvarchar` also changes equality: under a `SQL_*` collation, `"ss"` matches a `varchar` `ß` (as WHERE already did). The Changelog named only sorting and the non-ASCII fix. | Changelog sentence added. |
+| R3 | minor | HOUSE-RULE (doc truth) | AC12-10's "a text value with quote or backslash characters orders rows as LINQ-to-objects does" was proved only in the test position. Branch values sort by collation (SQL Server word sort ignores the apostrophe). | Narrowed to the test position. |
+| A | nit | HOUSE-RULE | The `parameterGenerator` doc and the operator tables said every / text values become parameters. A PostgreSQL null test and a dropped term bind none, and Guids, dates and chars are parameters too. | Wording fixed in the four visitors, Advanced.md and the AI doc. |
+| B | nit | OTHER (latent) | The term key was recorded before binding, so a bind that threw would make a retried `Visit` drop the term. | Recorded after the term is added. The revert mutant is equivalent (no throwing bind exists). |
+| C | nit | OTHER | The N5 test left `legacy_datetime_probe` in the shared database. | The test drops it in `finally`. |
+
+Also recorded in §8: the literal-mode wording (`DefaultLastOrderBy` builds one), and SQLite under ar-SA (pre-existing).
 
 ---
 

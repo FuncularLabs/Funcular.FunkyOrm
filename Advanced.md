@@ -209,7 +209,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 |---|---|---|
 | `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. |
 | `Select` | a narrow `SELECT` | A column subset of the same entity (`new T { … }`) or a single member (`x => x.Member`); see §1. |
-| `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its text values sent as parameters; a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL`. |
+| `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its values sent as parameters (strings, chars, `Guid`s and dates; numbers, booleans and enums stay inline); a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL`. |
 | `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |
 | `Skip`, `Take` | `OFFSET … FETCH` (SQL Server), `LIMIT … OFFSET` (others) | See the paging rule below. Without an `OrderBy`, pages are ordered by `id` (SQLite: `rowid`). `Skip(n < 0)` acts as `Skip(0)`; `Take(n ≤ 0)` returns an empty result without a query. |
 | `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. |
