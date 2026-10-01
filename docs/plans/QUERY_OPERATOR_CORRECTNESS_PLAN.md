@@ -13,11 +13,18 @@
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
 > - **Task 0 is complete:** fix-verification r16 of rev 16 (`ed772fb`) is CLEAN, with nits only (§9.16).
 >   The §3 ACs are posted to #12/#13, and the rev 21–29 amendments to #13.
-> - **Tasks 1–11 are complete** on all four providers (§6 statuses). `development/3.10` was pushed at `66bde1e`
->   after a CLEAN verification.
+> - **Tasks 1–10 are complete** on all four providers (§6 statuses). Task 11's gauntlet ran through the first push:
+>   `development/3.10` is at `66bde1e` on origin, the sha the push gate's sentinel holds. Its release steps remain.
 > - **Task 12** (owner decision 2026-10-01: ORDER BY values as parameters, before the beta) is in its review loop
 >   (§9.33–§9.36).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
+
+> **Revision 35 (fix-verification of `66bde1e..0568a3f`, 2026-10-01) — what changed:** prose only (N1–N4).
+>   - The status block above.
+>   - Two §8 SQLite entries.
+>   - A new §8 entry for a pre-existing SQL Server constant-ORDER BY case.
+>   - §9.37.
+>   - Outside the plan: the PostgreSQL null-test sentence in both operator tables.
 
 > **Revision 34 (fix-verification of `66bde1e..4e9030f`, 2026-10-01) — what changed:** no product code changed.
 >   - §8: the SQLite culture entry now names the write path too (F1).
@@ -1830,6 +1837,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - The probe table is a fixture table, so concurrent runs no longer race to drop it.
     - Six concurrent pairs of the probe test: 12 of 12 passed, and no rows were left behind.
     - Suites: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708; net48 76/76; net9 5/5.
+  - **Verification layer 4 (rev 35, §9.37).** Prose only (N1–N4); no code or test changed.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -1971,7 +1979,9 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - `> d` includes the row equal to `d`.
   - Owner's call: fix before 3.10.0 or follow up. A follow-up would apply the dialect's conversions in
     `SqliteParameterGenerator`.
-  - ORDER BY values (AC12-10) are bound as the stored text.
+  - ORDER BY values (AC12-10) are bound in the storage format: `D` Guids, and invariant
+    `yyyy-MM-dd HH:mm:ss.fff` dates. That matches rows written under a Gregorian calendar with `:` time separators
+    (see the culture entry below).
 - **PostgreSQL WHERE timestamps depend on startup order (pre-existing; F2).** `PostgreSqlOrmDataProvider`'s static
   constructor sets `Npgsql.EnableLegacyTimestampBehavior`. Npgsql reads that switch once, at its own first use.
   - When an app uses Npgsql first (the test fixture's `TestConnection()` does), typed WHERE parameters reject a UTC
@@ -1992,11 +2002,18 @@ Each task lists the tests it turns green. Every implementation task starts with 
   (`SqliteDialect.cs:241, 243`).
   - Under fi-FI, a date is stored as `2026-01-02 03.04.05.000`. Read back under en-US, it throws
     `FormatException`.
-  - Under ar-SA, the stored year is Hijri. Read back under en-US, it silently becomes a year-1447 date. Reading
-    any date under ar-SA throws.
+  - Under ar-SA, the stored year is Hijri. Read back under en-US, it silently becomes a year-1447 date. Read back
+    under ar-SA it is correct, but a date written under en-US or fi-FI throws there.
   - WHERE and ORDER BY comparisons against such rows mismatch silently (same at `66bde1e` and HEAD).
   - Follow-up candidate, owner's call (before 3.10.0 or in 3.10.1): write *and* parse with `InvariantCulture`.
-    Fixing the parse alone would leave the stored values wrong.
+    Fixing the parse alone would leave the stored values wrong. Databases already written under such cultures
+    hold culture-formatted text, so the fix needs a tolerant read or a migration note. `README.md` (SQLite type
+    affinity) and `FUNKYORM_AI_INSTRUCTIONS_SQLITE.md` say dates are stored as ISO 8601. That is true only under
+    such cultures; correct them with the fix.
+- **SQL Server rejects a ternary whose whole test is a non-quoted value compared with `null` (pre-existing; rev 34
+  reviewer, executed on `66bde1e` and HEAD).** Examples: `n == null` with a captured `int?`, or a `bool?`. The error
+  is "A constant expression was encountered in the ORDER BY list", from `5 IS NULL` or `NULL IS NULL` when no
+  branch reads the row. Quoted values no longer hit it: since Task 12 they are parameters.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2686,6 +2703,31 @@ Verdict: NOT CLEAN on one plan item; the code layer is clean.
 
 Also fixed: the status block at the top was stale. Tooling: two anchors in `main_mutations_t12v.py` (#6, #7) were
 re-pointed to the rev 33 code; the reviewer had ported both and they are killed.
+
+### 9.37 Fix-verification of `66bde1e..0568a3f` (non-author; 31 shapes × 4 providers × 2 shas; concurrency harness checked against both shas)
+
+Verdict: NOT CLEAN on prose nits; the code layer is clean.
+- F2 and F4 are resolved. The harness failed 4 of 24 runs on `4e9030f` and passed 24 of 24, plus 48 of 48 starts
+  from a fresh table, at HEAD.
+- F1 and F3 are partly resolved; see N1–N3.
+
+Incident during the review: the reviewer wrote a mutant into the repo working tree for about 12 minutes, then
+restored it. The author checked that the tree's blob equals `HEAD`; nothing was built or tested from the repo in
+that window.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| N1 | nit | HOUSE-RULE | The operator tables said PostgreSQL decides "a value's" null test. Only quoted values are decided: `5 IS NULL` and `NULL IS NULL` are still sent. | Both tables now say a string, char, `Guid` or date value. |
+| N2 | nit | HOUSE-RULE | §8: "reading any date under ar-SA throws". A date written under ar-SA reads back correctly there. | Corrected: dates written under en-US or fi-FI throw under ar-SA. |
+| N3 | nit | HOUSE-RULE | §8's SQLite WHERE entry said ORDER BY values are bound "as the stored text", which the culture entry contradicts. | Now says the storage format, which matches rows written under a Gregorian calendar with `:` separators. |
+| N4 | nit | HOUSE-RULE | The status block said Tasks 1–11 are complete and cited a CLEAN verification with no §9 row. | Now Tasks 1–10 complete, Task 11 through the first push (the push gate's sentinel holds `66bde1e`), and its release steps remaining. |
+
+Observations recorded:
+- In §8: SQL Server's constant ORDER BY for a non-quoted value compared with `null` (O1, pre-existing).
+- In §8: the README and SQLite AI doc's ISO 8601 claim, and the migration need (O2).
+- Not recorded: O3, AC12-10 not posted to #12 (an outward action, so the owner's call). O4 (the `EnsureSchema`
+  first-creation race) is the same pattern as the other fixture tables. O5 is the orphan `q310_` rows from an
+  earlier interrupted run.
 
 ---
 
