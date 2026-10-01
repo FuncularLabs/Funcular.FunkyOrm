@@ -489,7 +489,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 ["LastOrDefaultPredicate"] = q => q.OrderBy(p => p.Id).LastOrDefault(p => p.FirstName == "zzz"),
                 ["Any"] = q => q.Any(),
                 ["AnyPredicate"] = q => q.Any(p => p.FirstName == "zzz"), // false only if the predicate is applied
-                ["AnyPredicateTrue"] = q => q.Any(p => p.FirstName == "a"), // true: a negated predicate gives false
+                ["AnyPredicateTrue"] = q => q.Any(p => p.FirstName == "a"), // true; kills a swapped CASE / Any emitted in All's shape (AnyPredicate kills a negated predicate)
                 ["All"] = q => q.All(p => p.FirstName != "a"), // false: "a" is seeded
                 ["AllTrue"] = q => q.All(p => p.FirstName != "zzz"), // true: dropping the NOT in NOT EXISTS gives false
                 ["Count"] = q => q.Count(),

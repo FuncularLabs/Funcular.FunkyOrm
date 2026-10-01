@@ -14,7 +14,8 @@
 > - **Task 0 is complete:** fix-verification r16 of rev 16 (`ed772fb`) is CLEAN, with nits only (§9.16).
 >   The §3 ACs are posted to #12/#13.
 > - **Task 1's tests are written and red-run** on all four providers (§6 Task 1 status; §1.5 t1 rows). The
->   test review's 18 findings (§9.17) and fix-verification FV1's 5 (§9.18) and FV2's 3 (§9.19) are folded in; FV3 is pending before Task 2.
+>   test review (§9.17) and fix-verifications FV1/FV2 (§9.18–§9.19) are folded in; FV3 is CLEAN. **Task 1 is
+>   complete; Task 2 is under way.**
 
 > **Revision 20 (Task 1 fix-verification FV2, 2026-10-01) — what changed:** FV2 found 1 minor issue and 2 nits
 > (§9.19).
@@ -1414,7 +1415,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - ✅ Test review by two non-author reviewers: 18 findings, folded in (§9.17).
     - ✅ Fix-verification FV1 of the review fixes: 2 minor + 3 nits, all folded in (§9.18).
     - ✅ Fix-verification FV2: 1 minor + 2 nits, folded in (§9.19).
-    - ⏳ Fix-verification FV3 of the FV2 fixes runs before Task 2.
+    - ✅ Fix-verification FV3 of `bbede92`: **CLEAN** (1 comment nit, fixed). Task 1 is complete; Task 2 may start.
 - **Task 2 — #12 qualifier + duplicate removal** (4 providers).
   → AC12-1…AC12-4, AC12-6, AC12-9.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
@@ -1931,6 +1932,13 @@ FV2 confirmed:
 | FV2-1 | minor | TEST-GAP | yes | FV-5 swapped `All`'s all-true row for an all-false one. The all-true row was MySQL's only kill of "drop the NOT in NOT EXISTS" | Both kept on all four: `All` (false) and `AllTrue`; `AnyPredicate` (false) and `AnyPredicateTrue`. |
 | FV2-2 | nit | PLAN-GAP | yes | §6 counts label stale; red `Allowed` rows unmapped to tasks | Relabelled; mapped to Tasks 5/7/8. |
 | FV2-3 | nit | HOUSE-RULE | no | FV-4's class not propagated: two more `Last` oracle tests seeded null employer keys (SQL Server, PostgreSQL, SQLite) | Employer seeded. |
+
+### 9.20 Fix-verification FV3 of `774a640..bbede92`: CLEAN
+
+FV2-1/2/3 RESOLVED on every applicable provider. The `All`/`Any` kill set is the union of the pre- and
+post-FV-5 rows. Employer seeding doesn't change what the two `Last` tests rule out. Task mappings are complete.
+All four counts were reproduced. One nit (FV3-1, TEST-GAP): the `AnyPredicateTrue` comment overstated its
+kill. The comment was corrected and the predicate left unchanged, as the reviewer advised.
 
 ---
 
