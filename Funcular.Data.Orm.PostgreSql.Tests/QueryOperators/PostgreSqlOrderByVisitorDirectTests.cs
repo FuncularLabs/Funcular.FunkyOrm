@@ -254,6 +254,30 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             Assert.AreEqual(1, _evaluations, "the operand is evaluated once, also when it throws");
         }
 
+        private static string ThrowingProperty => throw new InvalidOperationException("property");
+
+        private static string AlwaysThrows() => throw new InvalidOperationException("call");
+
+        [TestMethod]
+        public void TernaryOperand_ThatThrows_KeepsThe390Message()
+        {
+            var call = Assert.ThrowsException<NotSupportedException>(() => Fragment(p => p.FirstName == AlwaysThrows() ? 0 : 1));
+            Assert.AreEqual("Unsupported expression in ORDER BY branch: Call", call.Message);
+            var member = Assert.ThrowsException<NotSupportedException>(() => Fragment(p => p.FirstName == ThrowingProperty ? 0 : 1));
+            StringAssert.StartsWith(member.Message, "Unsupported member expression in ORDER BY: ");
+            StringAssert.EndsWith(member.Message, "ThrowingProperty");
+        }
+
+        public enum SmallKind : byte
+        {
+            X = 7,
+        }
+
+        public enum LargeKind : long
+        {
+            Big = 5000000000,
+        }
+
         public enum ProbeKind
         {
             A = 1,
@@ -266,6 +290,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             public char Initial { get; set; }
             public char? MaybeInitial { get; set; }
             public ProbeKind Kind { get; set; }
+            public SmallKind Small { get; set; }
+            public LargeKind Large { get; set; }
         }
 
         private static string ProbeFragment<TKey>(Expression<Func<CharProbe, TKey>> key)
@@ -291,6 +317,37 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             Assert.AreEqual($"CASE WHEN {maybe} = 'y' THEN 0 ELSE 1 END", ProbeFragment(x => x.MaybeInitial == nc ? 0 : 1));
             Assert.AreEqual($"CASE WHEN {kind} = 2 THEN 0 ELSE 1 END", ProbeFragment(x => x.Kind == k ? 0 : 1));
             Assert.AreEqual($"CASE WHEN {initial} = 'x' THEN 2 ELSE 1 END", ProbeFragment(x => x.Initial == c ? ProbeKind.B : ProbeKind.A));
+
+            // Enums over other underlying types keep their number (an Int32 conversion would overflow for long).
+            var small = SmallKind.X;
+            var large = LargeKind.Big;
+            Assert.AreEqual($"CASE WHEN {ProbeFragment(x => x.Small)} = 7 THEN 0 ELSE 1 END", ProbeFragment(x => x.Small == small ? 0 : 1));
+            Assert.AreEqual($"CASE WHEN {ProbeFragment(x => x.Large)} = 5000000000 THEN 0 ELSE 1 END", ProbeFragment(x => x.Large == large ? 0 : 1));
+        }
+
+        [TestMethod]
+        public void CheckedConversion_IsEvaluated_NotUnwrapped()
+        {
+            // As in 3.9.0, only Convert is read through. A checked conversion is part of the value: (int)2.7 is 2, and
+            // an overflowing one is rejected, never emitted as the unconverted number.
+            var id = Fragment(p => p.Id);
+            var d = 2.7;
+            long big = 4294967297L;
+
+            Assert.AreEqual($"CASE WHEN {id} = 2 THEN 0 ELSE 1 END", Fragment(p => p.Id == checked((int)d) ? 0 : 1));
+            Assert.ThrowsException<NotSupportedException>(() => Fragment(p => p.Id == checked((int)big) ? 0 : 1));
+        }
+
+        private string InstanceName => "inst";
+
+        [TestMethod]
+        public void CapturedInstanceProperty_SameValueInTestAndBranch()
+        {
+            // A property of the enclosing object (captured `this`) is read in both positions; 3.9.0 emitted NULL.
+            var first = Fragment(p => p.FirstName);
+
+            Assert.AreEqual($"CASE WHEN {first} = 'inst' THEN 0 ELSE 1 END", Fragment(p => p.FirstName == InstanceName ? 0 : 1));
+            Assert.AreEqual($"CASE WHEN {Fragment(p => p.Id)} > 0 THEN 'inst' ELSE 'z' END", Fragment(p => p.Id > 0 ? InstanceName : "z"));
         }
 
         [TestMethod]
@@ -304,6 +361,13 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
                 Expression.Equal(Expression.Property(p, "FirstName"), block), Expression.Constant(0), Expression.Constant(1)), p);
 
             Assert.AreEqual($"CASE WHEN {Fragment(x => x.FirstName)} IS NULL THEN 0 ELSE 1 END", Fragment(key));
+
+            // So is a catch variable.
+            var e = Expression.Variable(typeof(Exception), "e");
+            var tryCatch = Expression.TryCatch(Expression.Constant(null, typeof(string)), Expression.Catch(e, Expression.Constant(null, typeof(string))));
+            var tryKey = Expression.Lambda<Func<PersonDetailEntity, int>>(Expression.Condition(
+                Expression.Equal(Expression.Property(p, "FirstName"), tryCatch), Expression.Constant(0), Expression.Constant(1)), p);
+            Assert.AreEqual($"CASE WHEN {Fragment(x => x.FirstName)} IS NULL THEN 0 ELSE 1 END", Fragment(tryKey));
         }
 
         [TestMethod]

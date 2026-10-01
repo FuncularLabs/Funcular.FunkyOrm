@@ -17,6 +17,12 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 26 (verification v4 of `2720c28..92bedba`, 2026-10-01) — what changed:** 2 minor and 4 nits (§9.29).
+> - **AC12-8:** only `Convert` is read through; `ConvertChecked` is evaluated, as in 3.9.0. Branch values share the
+>   test's operand path, so a captured instance property reads the same in both positions (was `NULL`).
+> - §9.27/§9.28 bookkeeping corrected.
+> - §8: PostgreSQL enum parameters; `char` comparisons in checked projects.
+
 > **Revision 25 (verification v3 of `3457e61..2720c28`, 2026-10-01) — what changed:** 1 regression and 3 partials
 > closed, plus 3 nits (§9.28).
 > - **AC12-8:** operands are read through conversions, as before 2720c28, so a captured `char` stays `'x'`.
@@ -753,8 +759,9 @@ providers** unless stated.
   `null` may be a literal or a value held in a variable (a captured `string` or `int?`) *(rev 22, r67-1)*: any operand
   that reads no parameter of the ordering lambda and evaluates to null, including one with a lambda of its own
   (`names.FirstOrDefault(n => …)`). Each such operand is evaluated once *(rev 24, NF-1/NF-2)*, also when it throws.
-  It's read through conversions, so a captured `char` stays a char literal, and an enum value is its underlying
-  number *(rev 25)*.
+  It's read through `Convert` (not `ConvertChecked`, which is part of the value), so a captured `char` stays a char
+  literal, and an enum value is its underlying number *(rev 25; rev 26)*. Branch values take the same path, so a
+  value reads the same in the test and in a branch *(rev 26)*.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
   dropped; they can never break a tie, so the order is unchanged.
 
@@ -1052,7 +1059,7 @@ providers** unless stated.
 | AC12-5 | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (asserts `{table}.id DESC` and the returned `FirstName`) | all 4 |
 | AC12-6 | `Distinct_Projection_JoinEntity_OrderByKeyInProjection_Executes`, `Distinct_Projection_JoinEntity_OrderByKeyNotInProjection_ThrowsExisting` | all 4 |
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
-| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow` | all 4 |
+| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
@@ -1177,6 +1184,11 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | An evaluation failure retried through `BuildValueSql` *(rev 25)* | `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected` |
 | Block variables treated as free parameters *(rev 25)* | `BlockOperand_DeclaredVariable_DoesNotReadTheRow` |
 | Enum constants formatted by name *(rev 25)* | `CapturedCharAndEnum_FormatAsTheirValues` |
+| `ConvertChecked` read through (a checked `(int)2.7` emitted as `2.7`) *(rev 26)* | `CheckedConversion_IsEvaluated_NotUnwrapped` |
+| Branch values via `BuildValueSql` (a captured instance property `NULL` in a branch) *(rev 26)* | `CapturedInstanceProperty_SameValueInTestAndBranch` |
+| Catch variables treated as free *(rev 26)* | `BlockOperand_DeclaredVariable_DoesNotReadTheRow` (try/catch operand) |
+| Throw-path message text changed *(rev 26)* | `TernaryOperand_ThatThrows_KeepsThe390Message` |
+| Enums formatted through `Int32` (overflows for a `long` enum) *(rev 26)* | `CapturedCharAndEnum_FormatAsTheirValues` (`byte`/`long` enums) |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
@@ -1746,6 +1758,11 @@ Each task lists the tests it turns green. Every implementation task starts with 
   paging now fails (`no such column`) instead of paging by the joined table's `rowid`, a meaningless order. With
   no joins or with two or more, it already failed in 3.9.0 (gx; scope corrected by v3 N3). Recorded in the
   Changelog.
+- **PostgreSQL enum parameters (pre-existing; v4).** `Where(x => x.Kind == k)` throws `InvalidCastException`
+  ("Writing values of '…' is not supported for parameters having NpgsqlDbType 'Integer'") on 3.9.0 and on this
+  branch. Reading enum columns works. Follow-up issue.
+- **Checked-arithmetic projects (pre-existing; v4):** every `char` comparison in an ORDER BY ternary throws, because
+  the column side becomes `ConvertChecked`, which `BuildValueSql` doesn't unwrap. Same on 3.9.0.
 - **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
@@ -2334,7 +2351,8 @@ TEST-GAP 2, HOUSE-RULE 1, PLAN-GAP 0, OTHER 0.
 
 Mutations for the round (baseline-aware runner, SQL Server visitor): 6 run. 4 killed. "3.9.0 constructor removed"
 doesn't compile, because internal callers use it; the reflection test pins it for compiled consumers. "Finder never
-finds" is **equivalent for C#-compiled lambdas** *(narrowed in rev 25)*. A parameterless lambda whose body reads an
+finds" was **equivalent for C#-compiled lambdas** at `2720c28` *(narrowed in rev 25; obsolete since rev 25, v4 N-3:
+1a0204c removed the fallback, so the mutant is now killed, 31/56)*. A parameterless lambda whose body reads an
 undeclared parameter can't be compiled, so `OperandSql` falls back either way. The original "with proof" was too
 broad: a hand-built block declares variables the finder didn't register (v3 N2); it does now. The finder only spares that exception for
 every column operand.
@@ -2342,7 +2360,8 @@ every column operand.
 ### 9.28 Verification v3 of `3457e61..2720c28` (non-author; executed, 34 mutants of its own)
 
 Verdict: NOT CLEAN. gx-F1..F4, NF-1 and NF-3 RESOLVED; gx-F5, NF-2 and NF-4 PARTIAL; 1 new minor (a regression in
-2720c28) and 3 nits. Totals: AC-GAP 0, TEST-GAP 3, HOUSE-RULE 2, PLAN-GAP 0, OTHER 0 (perf, N4, is with N1).
+2720c28) and 3 nits. Totals: AC-GAP 0, TEST-GAP 3, HOUSE-RULE 3, PLAN-GAP 0, OTHER 0 (perf, N4, is with N1;
+HOUSE-RULE corrected from 2 in rev 26).
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
@@ -2358,6 +2377,26 @@ Pre-existing, recorded in §8: MySQL `Delete<T>(predicate)` on a cold column cac
 
 Mutations (baseline-aware runner): 5, all killed. They cover: no `Convert` unwrap; failure retried; block variables
 unregistered; enum by name; and the MySQL gx-F5 mutant.
+
+### 9.29 Verification v4 of `2720c28..92bedba` (non-author; a ~150-shape output diff against 3.9.0, three cultures, net48)
+
+Verdict: NOT CLEAN. gx-F5, NF-2, NF-4, v3-N3 and v3-N4 RESOLVED; v3-N1 and v3-N2 PARTIAL. The Changelog's enum and
+SQLite `rowid` claims were executed on 3.9.0 and on HEAD, and are true. 2 minor and 4 nits. Totals: AC-GAP 2,
+TEST-GAP 1, HOUSE-RULE 3, PLAN-GAP 0, OTHER 0.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| v4 N-1 | minor | AC-GAP (fix-introduced) | The unwrap included `ConvertChecked`, which 3.9.0's `BuildValueSql` never read through. In a checked context, `x.Age == (int)capturedDouble` emitted `2.7` (3.9.0: `2`), and an overflow emitted the raw number (3.9.0: rejected). | Only `Convert` is read through. AC12-8 says so. `CheckedConversion_IsEvaluated_NotUnwrapped`. |
+| v4 N-2 | minor | AC-GAP | Since 2720c28, a captured instance property (`this.X`) read its value in the test (3.9.0: `NULL`) but still `NULL` as a branch value. The change was unlisted, and the two positions disagreed. | Branch values go through `OperandSql` too: one path. Changelog **Fixed**. `CapturedInstanceProperty_SameValueInTestAndBranch`. |
+| v4 N-3 | nit | HOUSE-RULE (prose truth) | §9.27's narrowed equivalence claim was obsolete: 1a0204c removed the fallback, so the mutant is killed. | Restated. |
+| v4 N-4 | nit | TEST-GAP | Untested: catch-variable registration, the throw-path message text, and non-`int` enums. All three mutants survived. | Try/catch operand row; `TernaryOperand_ThatThrows_KeepsThe390Message`; `byte`/`long` enum rows. All killed. |
+| v4 N-5 | nit | HOUSE-RULE (bookkeeping) | §9.28 totals said HOUSE-RULE 2; the table has 3. | Corrected. |
+| v4 N-6 | nit | HOUSE-RULE (doc truth) | The Changelog's enum parenthetical understated the change: any enum value, in either position. It also claimed "how FunkyORM stores enums", but PostgreSQL enum parameters fail (pre-existing). | "A literal or a computed value, in the test or a branch"; the storage claim was dropped. §8 records the PostgreSQL parameter failure. |
+
+Pre-existing items found, now in §8: PostgreSQL enum parameters; `char` comparisons in checked projects.
+
+Mutations (baseline-aware runner): 6, all killed. They cover: `ConvertChecked` read through; branches via
+`BuildValueSql`; catch variable unregistered; both message texts; enum via `Int32`.
 
 ---
 

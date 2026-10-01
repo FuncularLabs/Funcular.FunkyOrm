@@ -38,9 +38,11 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 - **A terminal over a scalar projection seen as `IQueryable<object>`** (`Select(x => x.Name).Cast<object>().First()`)
   returned the whole list as its "first element". It now throws the scalar-projection message.
 - `Take(n ≤ 0)` returns an empty result without sending a query; `Skip(n < 0)` acts as `Skip(0)`.
-- **An enum value in an ORDER BY ternary** (a constant branch, or a captured value in the test) was emitted as
+- **An enum value in an ORDER BY ternary** (a literal or a computed value, in the test or a branch) was emitted as
   its name (`'B'`), so the test compared an integer column with text and branch values sorted by name. It's now
-  the underlying number, which is how FunkyORM stores enums and how LINQ orders them.
+  the underlying number, as LINQ orders them.
+- **A property of the enclosing object in an ORDER BY ternary** (captured `this`, e.g. `x.Name == CurrentName ? 0 : 1`
+  in an instance method) was emitted as `NULL`. It's now the property's value, in the test and in the branches.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned

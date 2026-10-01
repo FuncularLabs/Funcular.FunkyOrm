@@ -174,8 +174,9 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         private string BuildCaseExpression(ConditionalExpression conditional)
         {
             string testSql = BuildTestSql(conditional.Test);
-            string trueSql = BuildValueSql(conditional.IfTrue);
-            string falseSql = BuildValueSql(conditional.IfFalse);
+            // Branch values go through the same operand path as the test, so a value reads the same in both positions.
+            string trueSql = OperandSql(conditional.IfTrue, out _);
+            string falseSql = OperandSql(conditional.IfFalse, out _);
             return $"CASE WHEN {testSql} THEN {trueSql} ELSE {falseSql} END";
         }
 
@@ -191,10 +192,11 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
             if (FreeParameterFinder.Reads(operand))
                 return BuildValueSql(operand);
 
-            // Like BuildValueSql, read through conversions: a char or enum comparison compiles through an int
-            // conversion, and a nullable lift wraps the captured value. The value itself is what gets formatted.
+            // Like BuildValueSql, read through Convert: a char or enum comparison compiles through an int conversion,
+            // and a nullable lift wraps the captured value. ConvertChecked is part of the value ((int)2.7 is 2), so it
+            // is evaluated, never read through.
             var inner = operand;
-            while (inner is UnaryExpression unary && (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+            while (inner is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
                 inner = unary.Operand;
 
             object value;
