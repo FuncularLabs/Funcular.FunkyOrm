@@ -258,6 +258,18 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void Last_ReadsOneRow_EmitsRowLimit()
+        {
+            var (marker, ids) = SeedAbc();
+
+            // Last* reads the first row of the inverted order. Without the row limit it reads every row and keeps
+            // the first, which returns the same entity: only the SQL shows the difference.
+            ClearLog();
+            Assert.AreEqual(ids[2], People(marker).Last().Id);
+            StringAssert.Matches(Sql, new Regex(@"\bLIMIT 1\b"), "Last reads one row");
+        }
+
+        [TestMethod]
         public void Last_AfterOrderByNonIdKey_ReturnsLastInOrder()
         {
             var marker = NewMarker();

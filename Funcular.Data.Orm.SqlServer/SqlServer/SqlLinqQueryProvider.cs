@@ -338,40 +338,6 @@ namespace Funcular.Data.Orm.SqlServer
                     {
                         components.Parameters.AddRange(elements.SqlParameters);
                     }
-
-                    if (currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last")
-                    {
-                        // Check if there's already an ORDER BY clause to avoid conflicts
-                        if (string.IsNullOrEmpty(components.OrderByClause))
-                        {
-                            var idProperty = typeof(T).GetProperty("Id");
-                            if (idProperty == null)
-                            {
-                                throw new InvalidOperationException(
-                                    $"Entity type {typeof(T).Name} does not have an 'Id' property. LastOrDefault/Last methods require an Id property for ordering, or use an explicit OrderBy clause.");
-                            }
-
-                            var parameter = Expression.Parameter(typeof(T), "x");
-                            var propertyAccess = Expression.Property(parameter, idProperty);
-                            var orderByLambda = Expression.Lambda(propertyAccess, parameter);
-
-                            var orderByDescendingMethod = typeof(Queryable).GetMethods()
-                                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
-                                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
-
-                            var orderByExpression = Expression.Call(
-                                orderByDescendingMethod,
-                                Expression.Constant(null, typeof(IQueryable<T>)),
-                                Expression.Quote(orderByLambda));
-
-                            var orderByVisitor = new OrderByClauseVisitor<T>(
-                                SqlServerOrmDataProvider.ColumnNamesCache,
-                                SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
-                            orderByVisitor.Visit(orderByExpression);
-                            components.OrderByClause = orderByVisitor.OrderByClause;
-                        }
-                    }
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
@@ -388,6 +354,7 @@ namespace Funcular.Data.Orm.SqlServer
                         orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
+                    components.OrderByTerms = orderByVisitor.OrderByTerms.ToList();
                 }
                 else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
@@ -471,7 +438,47 @@ namespace Funcular.Data.Orm.SqlServer
                     components.RowLimit = 2;
             }
 
+            // Last*: the first row of the inverted order. Every term is inverted whole (own, remote/computed and CASE
+            // fragments); with no explicit order it is Id DESC, qualified when the entity has joins. Paging before
+            // Last* is rejected by the policy, so the row limit never meets a user Skip/Take.
+            if (terminal == "Last" || terminal == "LastOrDefault")
+            {
+                components.Terminal = terminal;
+                components.OrderByClause = components.OrderByTerms.Count > 0
+                    ? "ORDER BY " + string.Join(", ", components.OrderByTerms.Select(t => $"{t.Fragment} {(t.IsDescending ? "ASC" : "DESC")}"))
+                    : DefaultLastOrderBy();
+                components.RowLimit = 1;
+            }
+
             return components;
+        }
+
+        /// <summary>
+        /// The order for <c>Last*</c> without an explicit one: <c>Id DESC</c>, table-qualified when the entity has joins.
+        /// </summary>
+        private string DefaultLastOrderBy()
+        {
+            var idProperty = typeof(T).GetProperty("Id");
+            if (idProperty == null)
+                throw new InvalidOperationException($"Entity type {typeof(T).Name} does not have an 'Id' property. LastOrDefault/Last methods require an Id property for ordering, or use an explicit OrderBy clause.");
+
+            var parameter = Expression.Parameter(typeof(T), "x");
+            var orderByDescending = typeof(Queryable).GetMethods()
+                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
+                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
+            var orderByExpression = Expression.Call(orderByDescending, Expression.Constant(null, typeof(IQueryable<T>)),
+                Expression.Quote(Expression.Lambda(Expression.Property(parameter, idProperty), parameter)));
+
+            var table = _dataProvider.GetTableNameInternal<T>();
+            var remote = _dataProvider.ResolveRemoteJoins<T>(table);
+            var orderByVisitor = new OrderByClauseVisitor<T>(
+                SqlServerOrmDataProvider.ColumnNamesCache,
+                SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                remote.PropertyToColumnMap,
+                remote.IndividualJoinClauses?.Count > 0 ? table : null);
+            orderByVisitor.Visit(orderByExpression);
+            return orderByVisitor.OrderByClause;
         }
 
         /// <summary>
@@ -761,6 +768,13 @@ namespace Funcular.Data.Orm.SqlServer
                 // Under DISTINCT with a custom projection, every ORDER BY key must be part of the SELECT list.
                 if (!string.IsNullOrEmpty(components.SelectClause))
                 {
+                    // Last* with no explicit order would use Id DESC, which the projection doesn't carry.
+                    if ((components.Terminal == "Last" || components.Terminal == "LastOrDefault") && components.OrderByTerms.Count == 0)
+                        throw new NotSupportedException(
+                            $"{components.Terminal}() after Distinct() with a custom Select(...) projection requires an explicit " +
+                            "OrderBy whose keys are in the projection (the default Id DESC order is not). Add an OrderBy before " +
+                            "the Select, or materialize first.");
+
                     // Paging with no explicit OrderBy would inject a default `ORDER BY id` below, which is not in
                     // a custom projection — reject with a clear message instead of letting the DB error out.
                     if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
@@ -793,7 +807,7 @@ namespace Funcular.Data.Orm.SqlServer
                     selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
             }
 
-            // Single*: SELECT [DISTINCT] TOP (n), with no ORDER BY synthesized.
+            // Single* (no ORDER BY synthesized) and Last* (its inverted order): SELECT [DISTINCT] TOP (n).
             if (components.RowLimit.HasValue)
             {
                 var trimmedRowLimitSelect = selectPart.TrimStart();

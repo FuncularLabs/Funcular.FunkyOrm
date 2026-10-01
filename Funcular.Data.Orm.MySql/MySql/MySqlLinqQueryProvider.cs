@@ -269,36 +269,6 @@ namespace Funcular.Data.Orm.MySql
                         if (elements.JoinClausesList != null) components.JoinClausesList.AddRange(elements.JoinClausesList);
                     }
                     if (elements.SqlParameters != null) components.Parameters.AddRange(elements.SqlParameters);
-
-                    if (currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last")
-                    {
-                        if (string.IsNullOrEmpty(components.OrderByClause))
-                        {
-                            var idProperty = typeof(T).GetProperty("Id");
-                            if (idProperty == null)
-                                throw new InvalidOperationException($"Entity type {typeof(T).Name} does not have an 'Id' property.");
-
-                            var parameter = Expression.Parameter(typeof(T), "x");
-                            var propertyAccess = Expression.Property(parameter, idProperty);
-                            var orderByLambda = Expression.Lambda(propertyAccess, parameter);
-
-                            var orderByDescendingMethod = typeof(Queryable).GetMethods()
-                                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
-                                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
-
-                            var orderByExpression = Expression.Call(
-                                orderByDescendingMethod,
-                                Expression.Constant(null, typeof(IQueryable<T>)),
-                                Expression.Quote(orderByLambda));
-
-                            var orderByVisitor = new MySqlOrderByClauseVisitor<T>(
-                                MySqlOrmDataProvider.ColumnNamesCache,
-                                MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
-                            orderByVisitor.Visit(orderByExpression);
-                            components.OrderByClause = orderByVisitor.OrderByClause;
-                        }
-                    }
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
@@ -313,6 +283,7 @@ namespace Funcular.Data.Orm.MySql
                         orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
+                    components.OrderByTerms = orderByVisitor.OrderByTerms.ToList();
                 }
                 else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
@@ -396,7 +367,47 @@ namespace Funcular.Data.Orm.MySql
                     components.RowLimit = 2;
             }
 
+            // Last*: the first row of the inverted order. Every term is inverted whole (own, remote/computed and CASE
+            // fragments); with no explicit order it is Id DESC, qualified when the entity has joins. Paging before
+            // Last* is rejected by the policy, so the row limit never meets a user Skip/Take.
+            if (terminal == "Last" || terminal == "LastOrDefault")
+            {
+                components.Terminal = terminal;
+                components.OrderByClause = components.OrderByTerms.Count > 0
+                    ? "ORDER BY " + string.Join(", ", components.OrderByTerms.Select(t => $"{t.Fragment} {(t.IsDescending ? "ASC" : "DESC")}"))
+                    : DefaultLastOrderBy();
+                components.RowLimit = 1;
+            }
+
             return components;
+        }
+
+        /// <summary>
+        /// The order for <c>Last*</c> without an explicit one: <c>Id DESC</c>, table-qualified when the entity has joins.
+        /// </summary>
+        private string DefaultLastOrderBy()
+        {
+            var idProperty = typeof(T).GetProperty("Id");
+            if (idProperty == null)
+                throw new InvalidOperationException($"Entity type {typeof(T).Name} does not have an 'Id' property.");
+
+            var parameter = Expression.Parameter(typeof(T), "x");
+            var orderByDescending = typeof(Queryable).GetMethods()
+                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
+                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
+            var orderByExpression = Expression.Call(orderByDescending, Expression.Constant(null, typeof(IQueryable<T>)),
+                Expression.Quote(Expression.Lambda(Expression.Property(parameter, idProperty), parameter)));
+
+            var table = _dataProvider.GetTableNameInternal<T>();
+            var remote = _dataProvider.ResolveRemoteJoins<T>(table);
+            var orderByVisitor = new MySqlOrderByClauseVisitor<T>(
+                MySqlOrmDataProvider.ColumnNamesCache,
+                MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                remote.PropertyToColumnMap,
+                remote.IndividualJoinClauses?.Count > 0 ? table : null);
+            orderByVisitor.Visit(orderByExpression);
+            return orderByVisitor.OrderByClause;
         }
 
         private string BuildAggregateClause(MethodCallExpression methodCall, string whereClause, List<MySqlParameter> existingParameters, MySqlParameterGenerator parameterGenerator, MySqlExpressionTranslator translator)
@@ -589,6 +600,13 @@ namespace Funcular.Data.Orm.MySql
                 // Under DISTINCT with a custom projection, every ORDER BY key must be in the SELECT list.
                 if (!string.IsNullOrEmpty(components.SelectClause))
                 {
+                    // Last* with no explicit order would use Id DESC, which the projection doesn't carry.
+                    if ((components.Terminal == "Last" || components.Terminal == "LastOrDefault") && components.OrderByTerms.Count == 0)
+                        throw new NotSupportedException(
+                            $"{components.Terminal}() after Distinct() with a custom Select(...) projection requires an explicit " +
+                            "OrderBy whose keys are in the projection (the default Id DESC order is not). Add an OrderBy before " +
+                            "the Select, or materialize first.");
+
                     if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
                         throw new InvalidOperationException(
                             "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit " +
@@ -663,7 +681,7 @@ namespace Funcular.Data.Orm.MySql
             else if (components.Skip.HasValue)
                 commandText += $"\r\nLIMIT 18446744073709551615 OFFSET {components.Skip.Value}";
 
-            // Single*: a row limit when the user didn't page (RowLimit is never set alongside Skip/Take).
+            // Single*/Last*: a row limit when the user didn't page (RowLimit is never set alongside Skip/Take).
             if (components.RowLimit.HasValue)
                 commandText += $"\r\nLIMIT {components.RowLimit.Value}";
 
