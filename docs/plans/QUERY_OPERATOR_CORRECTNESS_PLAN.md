@@ -1605,6 +1605,19 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - README "upgrade strongly recommended".
   - Usage.md: `LongCount`.
   → AC13-9.
+  - **Status (2026-10-01): done.**
+    - `Advanced.md` §5 and `FUNKYORM_AI_ADVANCED.md` §5 carry the operator table between the markers. They also
+      give the paging rule, the one-`OrderBy` rule, the `Last`/`Distinct` note, the base-type/interface rule, and
+      the unlisted operators. Both docs mention `LongCount` in their aggregate sections. The AI doc gains quick
+      rules 9–12.
+    - Changelog `[3.10.0] - Unreleased` has **Fixed**, **Changed** and **Known issues**. Changed lists every rule
+      with the shapes that happened to be correct in 3.9.0 (AC13-5, rev 21); Known issues follows §8. Each
+      claim was checked against §1 and the AC text. SQL Server's whole-number `Average` truncation is stated as
+      fact, because S10 executed it (§8's "to be confirmed" is resolved).
+    - README: a 3.10.0 "upgrade strongly recommended" line. Usage.md: `LongCount` and the one-`OrderBy` rule,
+      both linking to `Advanced.md` §5.
+    - `OperatorDocTable_MatchesSupportedOperators` went red → green on both docs, so **every suite is green**.
+      **Mutations: 3, all killed** (a missing operator, an extra operator, a missing marker).
 - **Task 11 — Gauntlet and release.**
   - Mutation runs recorded; net48/net9 runs.
   - A fresh non-author adversarial pass, then fix-verification.

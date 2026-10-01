@@ -371,6 +371,9 @@ var sorted = provider.Query<Person>()
     .ThenBy(p => p.FirstName)
     .ToList();
 ```
+Use one `OrderBy` and add keys with `ThenBy`/`ThenByDescending`. Since v3.10 a second `OrderBy` throws
+`NotSupportedException`; see [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310) for the full list of
+translated operators and the rules for operators after `Skip`/`Take`.
 
 ### Paging (`Skip` / `Take`)
 ```csharp
@@ -424,6 +427,12 @@ var count = provider.Query<Person>().Count(p => p.Gender == "Female");
 SELECT COUNT(*) 
 FROM [Person] 
 WHERE [Gender] = @p0
+```
+
+**Counting past `int.MaxValue`** (v3.10): `LongCount` works like `Count` and returns a `long`. SQL Server computes
+it with `COUNT_BIG(*)`.
+```csharp
+long total = provider.Query<Person>().LongCount(p => p.Gender == "Female");
 ```
 
 **Filtering aggregates by computed & remote attributes:** aggregates honor the same view-replacing

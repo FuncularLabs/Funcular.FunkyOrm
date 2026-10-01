@@ -2,6 +2,76 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.10.0] - Unreleased
+
+Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12),
+[#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)). **Upgrade strongly recommended:** several
+operators returned wrong results without an error in 3.9.0 and earlier. All four providers.
+
+### Fixed
+- **`Single`/`SingleOrDefault` dropped their predicate and never checked cardinality.**
+  `Single(p => p.Id == 42)` returned the *first row of the table*, and `Single()` over many rows returned one of
+  them. Both now apply the predicate as `WHERE`, read at most two rows (`TOP (2)` / `LIMIT 2`, with no ORDER BY
+  added), and follow LINQ: two or more matches throw, and `Single` throws on none.
+- **`Last`/`LastOrDefault` returned the first row.** They now invert every ordering key (own, remote, computed
+  and `CASE` keys) and read one row; with no `OrderBy` they use `Id DESC`.
+- **`LongCount` threw `InvalidCastException`.** It now returns a `long`, built like `Count` (SQL Server uses
+  `COUNT_BIG(*)`).
+- **Ordering on entities with remote joins** ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12)):
+  own columns in ORDER BY are now table-qualified (`person.id`). Ordering by an own column that a joined table
+  also has (typically `id`), with a narrow projection that leaves that column out, failed with "Ambiguous column
+  name". On SQLite, unordered paging on such an
+  entity orders by `{table}.rowid`, and `Skip(n)` without `Take` emits `LIMIT -1 OFFSET n` instead of invalid SQL.
+- **A ternary ORDER BY key comparing a member with `null`** (`p.M == null ? 0 : 1`, either operand order) emitted
+  `= NULL`, which SQL Server rejected and the other providers evaluated wrongly. It now emits `IS NULL` /
+  `IS NOT NULL`.
+- **A repeated ordering key** (`OrderBy(a).ThenBy(a)`) failed on SQL Server (error 169). The later duplicate is
+  dropped; it can't change the order.
+- **The non-generic `IQueryProvider.Execute(expression)`** returned the whole list for a terminal such as
+  `First`. It now returns the single element (or throws, as LINQ does).
+- **SQLite: reusing a `Query<T>()` root** let a later query inherit an earlier one's projection, parameters or
+  ordering. Each query now starts clean.
+- **Queries over a base-class or interface view:** enumerating a `Cast<Base>()` query, or paging an
+  `IQueryable<Base>` view, threw `InvalidCastException`. Both now return the entity rows.
+- **A terminal over a scalar projection seen as `IQueryable<object>`** (`Select(x => x.Name).Cast<object>().First()`)
+  returned the whole list as its "first element". It now throws the scalar-projection message.
+- `Take(n ≤ 0)` returns an empty result without sending a query; `Skip(n < 0)` acts as `Skip(0)`.
+
+### Changed
+These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
+wrong results silently in 3.9.0; a few happened to be correct, and are listed so you can find them before
+upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310).
+- **Operators FunkyORM doesn't translate** were silently dropped or mistranslated: `Reverse`, `TakeWhile`,
+  `SkipWhile`, `TakeLast`, `SkipLast` and `ElementAt` were ignored (`TakeWhile(p => false)` returned every row).
+  Every operator not on the supported list now throws, including set and join operators, `Contains`,
+  `Aggregate`, `DefaultIfEmpty`, `MinBy`/`MaxBy`, and indexed, comparer and default-value overloads.
+  Happened to be correct before: `OrderBy(k).ElementAt(0)`; `DefaultIfEmpty()` over a non-empty set.
+- **Operators after `Skip`/`Take`** were applied *before* the page (`Take(5).Count()` counted the whole table).
+  Only `Select`, `Cast`/`OfType`, one `Take` after a `Skip`, and a parameterless `First*`/`Single*` are allowed
+  after paging now. Happened to be correct before: `Take(k).Distinct()` over a keyed entity, `Take(k).Any()`,
+  `Take(10).Take(5)`, and `Skip(0)` followed by `Where`/`Count`/etc. (page 1 of a `Skip(page * size)` helper).
+- **A second `OrderBy`/`OrderByDescending`** (even across `Where`/`Select`/`Distinct`) produced the wrong key
+  priority. It now throws; write `query.OrderBy(later).ThenBy(earlier)`. Happened to be correct before, when the
+  orders coincided: e.g. `OrderBy(a).Where(w).OrderByDescending(k).First()`.
+- **A predicate written against a base type or interface** over a converted query threw
+  `InvalidCastException`, or for `Single*` returned an unrelated row. It now throws a message telling you to
+  apply it to the concrete `IQueryable<T>` (or a generic helper constrained to a base class).
+- **`Cast`/`OfType`** other than an identity cast or a reference conversion (`Cast<object>()`,
+  `Cast<BaseClass>()`) now throw. So does an identity `OfType` over a nullable or reference member, which
+  would drop nulls.
+- **`Last`/`LastOrDefault` after `Distinct()` with a custom projection** need an explicit `OrderBy` on a
+  projected key.
+- **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
+  `EnsureSupported`) and `ScalarProjectionGuard`.
+
+### Known issues (fixed in 3.10.1)
+Aggregates keep their 3.9 behavior in 3.10.0:
+- `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
+  and SQLite.
+- `Average` over a `decimal` or `float` column throws.
+- `Min`/`Max`/`Average` over a nullable column on an empty set throw instead of returning `null`.
+- Some `Min`/`Max` result types throw after the round-trip.
+
 ## [3.9.0] - 2026-07-06
 
 ### Added
