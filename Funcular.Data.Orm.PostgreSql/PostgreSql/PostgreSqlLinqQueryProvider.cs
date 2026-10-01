@@ -194,7 +194,7 @@ namespace Funcular.Data.Orm.PostgreSql
             {
                 var currentCall = methodCalls[i];
 
-                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
+                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "LongCount" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
                     components.OuterMethodCall = currentCall;
                 }
@@ -284,7 +284,7 @@ namespace Funcular.Data.Orm.PostgreSql
                     components.OrderByClause = orderByVisitor.OrderByClause;
                     components.OrderByTerms = orderByVisitor.OrderByTerms.ToList();
                 }
-                else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
+                else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "LongCount") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
@@ -422,7 +422,7 @@ namespace Funcular.Data.Orm.PostgreSql
             string methodName = methodCall.Method.Name;
             bool isAny = methodName == "Any";
             bool isAll = methodName == "All";
-            bool isCount = methodName == "Count";
+            bool isCount = methodName == "Count" || methodName == "LongCount"; // LongCount: the same rows, an Int64 result
             bool isPredicateBased = isAny || isAll || isCount;
 
             if (isPredicateBased)
@@ -701,6 +701,8 @@ namespace Funcular.Data.Orm.PostgreSql
                         return (TResult)(object)(Convert.ToInt32(result) == 1);
                     else if (components.OuterMethodCall?.Method.Name == "Count")
                         return (TResult)(object)Convert.ToInt32(result);
+                    else if (components.OuterMethodCall?.Method.Name == "LongCount")
+                        return (TResult)(object)Convert.ToInt64(result);
                     else if (components.OuterMethodCall?.Method.Name == "Average")
                         return (TResult)(object)Convert.ToDouble(result);
                     else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max" || components.OuterMethodCall?.Method.Name == "Sum")

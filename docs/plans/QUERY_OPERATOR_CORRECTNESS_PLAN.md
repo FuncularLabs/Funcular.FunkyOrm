@@ -1558,6 +1558,15 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Remaining reds: `LongCount` (Task 8), the SQLite reuse rows (Task 9), and the doc-table test (Task 10).
 - **Task 8 — `LongCount`** (4 providers).
   → AC13-3, covariant `LongCount` row of AC13-4, AC13-5's `Allowed[LongCount*]` rows.
+  - **Status (2026-10-01): done (4 providers).**
+    - `LongCount` is recorded as the outer aggregate and built like `Count`: same WHERE, predicate and
+      reverse-key rejection. SQL Server emits `COUNT_BIG(*)`; the result converts to `Int64`.
+    - Red → green on every provider: the four `LongCount_*` tests (`LongCount_EmitsCountBig` is SQL Server
+      only), `Allowed[LongCount, LongCountPredicate]`, and 8 covariant `LongCount` rows. No green → red.
+    - PostgreSQL and MySQL are now fully green. Remaining reds: the four SQLite reuse rows (Task 9) and the
+      SQL Server doc-table test (Task 10).
+    - **Mutations run (SQL Server, baseline-aware runner): 6, all killed.** They cover: not the outer aggregate;
+      not routed to the builder; `COUNT(*)`; an `Int32` result; reverse key allowed; predicate ignored.
 - **Task 9 — SQLite state reset; coverage lift.**
   - State reset → AC13-13.
   - Direct visitor tests.
