@@ -453,7 +453,7 @@ var recent = provider.Query<CallListQueryRow>()
 
 **⚠️ Limitation — reverse (one-to-many) remote filters.** If a `[RemoteKey]`/`[RemoteProperty]` resolves through a
 *reverse* join (joining on a child's foreign key, e.g. `Country ← Address ← PersonAddress → Person`), the join
-fans the base rows out one-per-child. Filtering **`Count`/`Sum`/`Average`** (or `All`) by such a property would
+fans the base rows out one-per-child. Filtering **`Count`/`LongCount`/`Sum`/`Average`** (or `All`) by such a property would
 therefore return an inflated number, so FunkyORM **throws `NotSupportedException`** instead — aggregate in memory:
 
 ```csharp

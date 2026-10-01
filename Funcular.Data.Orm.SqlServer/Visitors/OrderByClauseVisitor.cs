@@ -235,21 +235,30 @@ namespace Funcular.Data.Orm.Visitors
             if (FreeParameterFinder.Reads(operand))
                 return BuildValueSql(operand);
 
+            // Like BuildValueSql, read through conversions: a char or enum comparison compiles through an int
+            // conversion, and a nullable lift wraps the captured value. The value itself is what gets formatted.
+            var inner = operand;
+            while (inner is UnaryExpression unary && (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+                inner = unary.Operand;
+
             object value;
-            if (operand is ConstantExpression constant)
+            if (inner is ConstantExpression constant)
                 value = constant.Value;
-            else if (operand is MemberExpression member && member.Member is FieldInfo field
+            else if (inner is MemberExpression member && member.Member is FieldInfo field
                      && (member.Expression == null || member.Expression is ConstantExpression))
                 value = field.GetValue((member.Expression as ConstantExpression)?.Value); // a captured variable or static field
             else
             {
                 try
                 {
-                    value = Expression.Lambda(Expression.Convert(operand, typeof(object))).Compile().DynamicInvoke();
+                    value = Expression.Lambda(Expression.Convert(inner, typeof(object))).Compile().DynamicInvoke();
                 }
                 catch
                 {
-                    return BuildValueSql(operand); // reports the unsupported expression
+                    // Not retried: a second evaluation could see another outcome than the one that failed.
+                    throw new NotSupportedException(inner is MemberExpression
+                        ? $"Unsupported member expression in ORDER BY: {inner}"
+                        : $"Unsupported expression in ORDER BY branch: {inner.NodeType}");
                 }
             }
 
@@ -278,6 +287,20 @@ namespace Funcular.Data.Orm.Visitors
                 foreach (var parameter in node.Parameters)
                     _declared.Add(parameter);
                 return base.VisitLambda(node);
+            }
+
+            protected override Expression VisitBlock(BlockExpression node)
+            {
+                foreach (var variable in node.Variables)
+                    _declared.Add(variable);
+                return base.VisitBlock(node);
+            }
+
+            protected override CatchBlock VisitCatchBlock(CatchBlock node)
+            {
+                if (node.Variable != null)
+                    _declared.Add(node.Variable);
+                return base.VisitCatchBlock(node);
             }
 
             protected override Expression VisitParameter(ParameterExpression node)
@@ -416,6 +439,8 @@ namespace Funcular.Data.Orm.Visitors
                     return $"'{dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)}'";
                 case bool b:
                     return b ? "1" : "0";
+                case Enum e:
+                    return Convert.ToString(Convert.ChangeType(e, Enum.GetUnderlyingType(e.GetType()), CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
                 case Guid g:
                     return $"'{g}'";
                 case byte _:

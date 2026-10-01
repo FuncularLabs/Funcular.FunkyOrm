@@ -17,6 +17,15 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 25 (verification v3 of `3457e61..2720c28`, 2026-10-01) — what changed:** 1 regression and 3 partials
+> closed, plus 3 nits (§9.28).
+> - **AC12-8:** operands are read through conversions, as before 2720c28, so a captured `char` stays `'x'`.
+>   Enum constants are their underlying number.
+> - An operand is evaluated once, also when it throws. Block and catch variables count as declared.
+> - The gx-F5 pin on MySQL.
+> - §9.27's equivalence claim is narrowed.
+> - §8: the MySQL cold-cache `Delete`, and the corrected SQLite `rowid` scope.
+
 > **Revision 24 (Task 11 gauntlet: full-branch pass and fix-verification on `3457e61`, 2026-10-01) — what changed:**
 > 9 findings (§9.26, §9.27).
 > - **AC12-8:** the null may be any operand that reads no parameter of the ordering lambda, including one with a lambda
@@ -743,7 +752,9 @@ providers** unless stated.
   (`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`), orders rows the way LINQ-to-objects does. The
   `null` may be a literal or a value held in a variable (a captured `string` or `int?`) *(rev 22, r67-1)*: any operand
   that reads no parameter of the ordering lambda and evaluates to null, including one with a lambda of its own
-  (`names.FirstOrDefault(n => …)`). Each such operand is evaluated once *(rev 24, NF-1/NF-2)*.
+  (`names.FirstOrDefault(n => …)`). Each such operand is evaluated once *(rev 24, NF-1/NF-2)*, also when it throws.
+  It's read through conversions, so a captured `char` stays a char literal, and an enum value is its underlying
+  number *(rev 25)*.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
   dropped; they can never break a tie, so the order is unchanged.
 
@@ -1036,12 +1047,12 @@ providers** unless stated.
 |---|---|---|
 | AC12-1 | `[DataTestMethod] OwnColumnOrdering_OnJoinEntity_QualifiedSql_ExecutesInOrder` — {OrderBy, OrderByDesc, ThenBy-after-remote, ThenByDesc-after-remote} × {full, subset-without-key, scalar-of-FirstName} × {paged, unpaged} (24 rows); every row is `OrderBy…[Skip/Take].Select(…)`, with ordering and paging before the projection | all 4 |
 | AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix`, `ComputedMemberOrderBy_EmitsExpression_Unchanged`; direct, with the qualifier set: `MapHit_ComputedFragment_NeverPrefixed` | all 4 |
-| AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390`; *(rev 24)* `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` (SQL Server, PostgreSQL, SQLite; MySQL has no computed-attribute entity) | all 4 |
+| AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390`; *(rev 24)* `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` (all 4; MySQL's uses `ProjectScorecard`, rev 25) | all 4 |
 | AC12-4 | `TernaryOrderBy_OwnColumns_OnJoinEntity_QualifiedInsideCase` | all 4 |
 | AC12-5 | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (asserts `{table}.id DESC` and the returned `FirstName`) | all 4 |
 | AC12-6 | `Distinct_Projection_JoinEntity_OrderByKeyInProjection_Executes`, `Distinct_Projection_JoinEntity_OrderByKeyNotInProjection_ThrowsExisting` | all 4 |
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
-| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree` | all 4 |
+| AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow` | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
@@ -1162,6 +1173,10 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | A value operand evaluated more than once *(rev 24)* | `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree` |
 | The 3.9.0 visitor constructor removed or qualifying *(rev 24)* | `Constructor_390Signature_IsKept` (removal also breaks the build: internal callers use it) |
 | The doc-table parser misses a valid separator form *(rev 24)* | `TableParser_AcceptsEverySeparatorForm` |
+| Operand evaluated without unwrapping `Convert` (a captured `char` as its code point) *(rev 25)* | `CapturedCharAndEnum_FormatAsTheirValues` |
+| An evaluation failure retried through `BuildValueSql` *(rev 25)* | `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected` |
+| Block variables treated as free parameters *(rev 25)* | `BlockOperand_DeclaredVariable_DoesNotReadTheRow` |
+| Enum constants formatted by name *(rev 25)* | `CapturedCharAndEnum_FormatAsTheirValues` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
@@ -1727,8 +1742,14 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **net48 twin from a clean checkout:** `dotnet build FunkyORM.sln` doesn't copy the old-style csproj's transitive
   DLLs (System.Memory and others), so 68 of 76 fail until they're present in `bin` (fv). The local gate passes
   because `bin` is already populated. Convert the project to SDK style in a follow-up.
-- **SQLite view-backed entity with remote joins:** unordered paging now fails (`no such column: v.rowid`) instead
-  of paging in a meaningless order (gx). Recorded in the Changelog.
+- **SQLite base without a `rowid` (a view or a `WITHOUT ROWID` table) with exactly one remote join:** unordered
+  paging now fails (`no such column`) instead of paging by the joined table's `rowid`, a meaningless order. With
+  no joins or with two or more, it already failed in 3.9.0 (gx; scope corrected by v3 N3). Recorded in the
+  Changelog.
+- **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
+  an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
+  this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
+  pass with their class. Follow-up issue.
 - SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
 - Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
   `Single*` without user `Skip`/`Take` no longer routes through it (row limit). With user paging it still
@@ -2313,9 +2334,30 @@ TEST-GAP 2, HOUSE-RULE 1, PLAN-GAP 0, OTHER 0.
 
 Mutations for the round (baseline-aware runner, SQL Server visitor): 6 run. 4 killed. "3.9.0 constructor removed"
 doesn't compile, because internal callers use it; the reflection test pins it for compiled consumers. "Finder never
-finds" is **equivalent**, with proof: a parameterless lambda whose body reads an undeclared parameter can't be
-compiled, so `OperandSql` falls back to `BuildValueSql` either way. The finder only spares that exception for
+finds" is **equivalent for C#-compiled lambdas** *(narrowed in rev 25)*. A parameterless lambda whose body reads an
+undeclared parameter can't be compiled, so `OperandSql` falls back either way. The original "with proof" was too
+broad: a hand-built block declares variables the finder didn't register (v3 N2); it does now. The finder only spares that exception for
 every column operand.
+
+### 9.28 Verification v3 of `3457e61..2720c28` (non-author; executed, 34 mutants of its own)
+
+Verdict: NOT CLEAN. gx-F1..F4, NF-1 and NF-3 RESOLVED; gx-F5, NF-2 and NF-4 PARTIAL; 1 new minor (a regression in
+2720c28) and 3 nits. Totals: AC-GAP 0, TEST-GAP 3, HOUSE-RULE 2, PLAN-GAP 0, OTHER 0 (perf, N4, is with N1).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| gx-F5 (partial) | — | TEST-GAP | MySQL *has* a computed-attribute entity (`ProjectScorecard`); the mutant survived there. | Pin added to `MySqlOrderByQualificationTests`. The mutant is killed (run with its class; see §8 on run-alone cleanup). |
+| NF-2 (partial) | — | TEST-GAP | On an evaluation failure, the `catch` retried through `BuildValueSql`. `ThrowOnce()` ran twice and emitted `= NULL`. | The failure is reported, not retried, with the same message text. `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`. |
+| NF-4 (partial) | — | HOUSE-RULE (sibling drift) | `Usage.md:456` still omitted `LongCount`. | Added. |
+| v3-N1 | minor | TEST-GAP (fix-introduced) | `OperandSql` evaluated the `Convert` node that `BuildValueSql` unwraps: a captured `char` became its code point (`initial = 120`, SQL Server Msg 245; SQLite misordered). Captured enums changed `'B'` → `2`, unpinned. | Conversions are unwrapped before evaluating, which also restores the field fast path (v3-N4). `FormatConstant` formats an enum as its underlying number (test and branch positions; Changelog **Fixed**). `CapturedCharAndEnum_FormatAsTheirValues`. |
+| v3-N2 | nit | HOUSE-RULE (prose truth) | §9.27's "equivalent, with proof" was false for hand-built blocks: block and catch variables weren't registered as declared. | Registered. `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; the claim is narrowed to C#-compiled lambdas. |
+| v3-N3 | nit | HOUSE-RULE (doc truth) | The Changelog's SQLite `rowid` note was wrong in two cases (executed): a `WITHOUT ROWID` base with one join paged in 3.9.0, and a view with two or more joins already failed. | Rescoped to "a base without a `rowid` and exactly one remote join" in the Changelog and §8. |
+| v3-N4 | nit | (with N1) | A captured value inside `Convert` still compiled a delegate on every visit (2000 visits: 13 ms on 3.9.0, 314 ms on 2720c28). | Fixed by N1's unwrap: `Convert(field)` takes the field fast path. |
+
+Pre-existing, recorded in §8: MySQL `Delete<T>(predicate)` on a cold column cache.
+
+Mutations (baseline-aware runner): 5, all killed. They cover: no `Convert` unwrap; failure retried; block variables
+unregistered; enum by name; and the MySQL gx-F5 mutant.
 
 ---
 

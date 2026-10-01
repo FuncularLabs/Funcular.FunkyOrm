@@ -107,6 +107,18 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             Assert.AreEqual("COALESCE(project.score, 0) ASC", OrderByList(), "the [SqlExpression] fragment, unchanged from 3.9.0");
         }
 
+        [TestMethod]
+        public void ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified()
+        {
+            // AC12-3: no joins, so own columns stay bare, as in 3.9.0, though computed attributes fill the resolution map.
+            var marker = NewMarker();
+
+            ClearLog();
+            _provider.Query<ProjectScorecard>().Where(p => p.Name == marker).OrderBy(p => p.Name).ThenBy(p => p.Id).ToList();
+
+            Assert.AreEqual("name ASC, id ASC", OrderByList());
+        }
+
         #endregion
 
         #region AC12-3

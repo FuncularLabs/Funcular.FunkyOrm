@@ -38,6 +38,9 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 - **A terminal over a scalar projection seen as `IQueryable<object>`** (`Select(x => x.Name).Cast<object>().First()`)
   returned the whole list as its "first element". It now throws the scalar-projection message.
 - `Take(n ≤ 0)` returns an empty result without sending a query; `Skip(n < 0)` acts as `Skip(0)`.
+- **An enum value in an ORDER BY ternary** (a constant branch, or a captured value in the test) was emitted as
+  its name (`'B'`): SQL Server failed to convert it for an integer column, and the other providers ordered by the
+  name. It's now the underlying number, which is how FunkyORM stores enums and how LINQ orders them.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -72,10 +75,10 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
   property and a constructor overload that takes a table qualifier; their 3.9.0 constructor is unchanged, so code
   compiled against 3.9.0 keeps binding.
-- **SQLite: unordered paging on a view-backed entity with remote joins** now orders by the base view's `rowid`,
-  which a view doesn't have, so it fails with `no such column`. In 3.9.0 it paged by a joined table's `rowid`, a
-  meaningless order. Add an explicit `OrderBy` (a view with no joins, or a `WITHOUT ROWID` table, already failed
-  in 3.9.0).
+- **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
+  exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
+  the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
+  such an entity already failed in 3.9.0.)
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

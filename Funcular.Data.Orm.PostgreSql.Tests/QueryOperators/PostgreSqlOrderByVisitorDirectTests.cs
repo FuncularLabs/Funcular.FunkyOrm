@@ -238,6 +238,74 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             Assert.AreEqual($"CASE WHEN {first} IS NULL THEN 0 ELSE 1 END", nullFirst, "the column stays in the test");
         }
 
+        private static string ThrowOnce()
+        {
+            if (_evaluations++ == 0)
+                throw new InvalidOperationException("first call");
+            return null;
+        }
+
+        [TestMethod]
+        public void TernaryOperand_ThatThrows_EvaluatedOnce_Rejected()
+        {
+            // A retry after the failure could see a different outcome (here: null) and emit SQL the check never saw.
+            _evaluations = 0;
+            Assert.ThrowsException<NotSupportedException>(() => Fragment(p => p.FirstName == ThrowOnce() ? 0 : 1));
+            Assert.AreEqual(1, _evaluations, "the operand is evaluated once, also when it throws");
+        }
+
+        public enum ProbeKind
+        {
+            A = 1,
+            B = 2,
+        }
+
+        public class CharProbe
+        {
+            public int Id { get; set; }
+            public char Initial { get; set; }
+            public char? MaybeInitial { get; set; }
+            public ProbeKind Kind { get; set; }
+        }
+
+        private static string ProbeFragment<TKey>(Expression<Func<CharProbe, TKey>> key)
+        {
+            var visitor = new PostgreSqlOrderByClauseVisitor<CharProbe>(new ConcurrentDictionary<string, string>(), new List<PropertyInfo>());
+            visitor.Visit(new List<CharProbe>().AsQueryable().OrderBy(key).Expression);
+            return visitor.OrderByTerms.Single().Fragment;
+        }
+
+        [TestMethod]
+        public void CapturedCharAndEnum_FormatAsTheirValues()
+        {
+            var initial = ProbeFragment(x => x.Initial);
+            var maybe = ProbeFragment(x => x.MaybeInitial);
+            var kind = ProbeFragment(x => x.Kind);
+            var c = 'x';
+            char? nc = 'y';
+            var k = ProbeKind.B;
+
+            // A char or enum comparison compiles through an int conversion. A captured char stays a char literal, as
+            // in 3.9.0; an enum is its underlying number, which is how it's stored and how LINQ orders it.
+            Assert.AreEqual($"CASE WHEN {initial} = 'x' THEN 0 ELSE 1 END", ProbeFragment(x => x.Initial == c ? 0 : 1));
+            Assert.AreEqual($"CASE WHEN {maybe} = 'y' THEN 0 ELSE 1 END", ProbeFragment(x => x.MaybeInitial == nc ? 0 : 1));
+            Assert.AreEqual($"CASE WHEN {kind} = 2 THEN 0 ELSE 1 END", ProbeFragment(x => x.Kind == k ? 0 : 1));
+            Assert.AreEqual($"CASE WHEN {initial} = 'x' THEN 2 ELSE 1 END", ProbeFragment(x => x.Initial == c ? ProbeKind.B : ProbeKind.A));
+        }
+
+        [TestMethod]
+        public void BlockOperand_DeclaredVariable_DoesNotReadTheRow()
+        {
+            // A hand-built operand can declare block variables; they don't make it row-dependent.
+            var p = Expression.Parameter(typeof(PersonDetailEntity), "p");
+            var v = Expression.Variable(typeof(string), "v");
+            var block = Expression.Block(new[] { v }, Expression.Assign(v, Expression.Constant(null, typeof(string))), v);
+            var key = Expression.Lambda<Func<PersonDetailEntity, int>>(Expression.Condition(
+                Expression.Equal(Expression.Property(p, "FirstName"), block), Expression.Constant(0), Expression.Constant(1)), p);
+
+            Assert.AreEqual($"CASE WHEN {Fragment(x => x.FirstName)} IS NULL THEN 0 ELSE 1 END", Fragment(key));
+        }
+
         [TestMethod]
         public void Constructor_390Signature_IsKept()
         {
