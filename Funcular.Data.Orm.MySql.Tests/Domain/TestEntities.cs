@@ -9,13 +9,31 @@ namespace Funcular.Data.Orm.MySql.Tests.Domain
     // PascalCase property names to snake_case columns (FirstName -> first_name,
     // Line1 -> line_1, DateUtcCreated -> dateutc_created), so no [Column] attributes are needed.
 
-    [Table("person")]
-    public class Person
+    /// <summary>
+    /// Implemented by the person entities so tests can query through an interface-typed source
+    /// (<c>IQueryable&lt;IHasPersonId&gt;</c>). Exposes only <see cref="Id"/>: over an interface source a member
+    /// resolves to its property name, which matches a column only for <c>Id</c>.
+    /// </summary>
+    public interface IHasPersonId
+    {
+        int Id { get; }
+    }
+
+    /// <summary>
+    /// Shared base of <see cref="Person"/> and <see cref="PersonWithEmployer"/>, so tests can query through a
+    /// base-class source (<c>IQueryable&lt;PersonBase&gt;</c> over <c>Query&lt;PersonWithEmployer&gt;()</c>).
+    /// </summary>
+    public abstract class PersonBase : IHasPersonId
     {
         public int Id { get; set; }
         public string FirstName { get; set; }
-        public string MiddleInitial { get; set; }
         public string LastName { get; set; }
+    }
+
+    [Table("person")]
+    public class Person : PersonBase
+    {
+        public string MiddleInitial { get; set; }
         public DateTime? Birthdate { get; set; }
         public string Gender { get; set; }
         public Guid? UniqueId { get; set; }
@@ -68,12 +86,8 @@ namespace Funcular.Data.Orm.MySql.Tests.Domain
     /// populated from a generated LEFT JOIN.
     /// </summary>
     [Table("person")]
-    public class PersonWithEmployer
+    public class PersonWithEmployer : PersonBase
     {
-        public int Id { get; set; }
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
-
         [RemoteLink(typeof(Organization))]
         public int? EmployerId { get; set; }
 

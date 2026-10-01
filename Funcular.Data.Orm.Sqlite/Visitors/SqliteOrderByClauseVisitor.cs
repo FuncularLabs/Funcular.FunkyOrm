@@ -34,15 +34,26 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         }
 
         private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
+        private readonly string _tableQualifier;
 
+        /// <param name="tableQualifier">When the query has joins, the base table name used to qualify own
+        /// columns (<c>{table}.{column}</c>); <c>null</c> otherwise.</param>
         public SqliteOrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
-            IReadOnlyDictionary<string, string> propertyToColumnMap = null)
+            IReadOnlyDictionary<string, string> propertyToColumnMap = null,
+            string tableQualifier = null)
             : base(columnNames, unmappedProperties)
         {
             _propertyToColumnMap = propertyToColumnMap;
+            _tableQualifier = tableQualifier;
         }
+
+        /// <summary>
+        /// The translated ordering terms, in order, after duplicate removal.
+        /// </summary>
+        public IReadOnlyList<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms =>
+            throw new NotImplementedException("OrderByTerms is not implemented yet (3.10 Task 6).");
 
         /// <summary>
         /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute

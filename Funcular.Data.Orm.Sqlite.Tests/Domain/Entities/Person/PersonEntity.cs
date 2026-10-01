@@ -5,7 +5,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Person
 {
     [Table("person")]
     [Serializable]
-    public class PersonEntity : PersistenceStateEntity
+    public class PersonEntity : PersistenceStateEntity, IHasPersonId
     {
         private int _id;
         private string _firstName;
