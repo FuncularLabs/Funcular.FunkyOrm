@@ -345,6 +345,36 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             StringAssert.Contains(ex.Message, ScalarGuardMessage);
         }
 
+        public static IEnumerable<object[]> ScalarSequenceRows =>
+            from shape in new[] { "Skip.Take", "Take", "Distinct", "enumerated" }
+            from spelling in Spellings
+            select new object[] { shape, spelling };
+
+        /// <summary>
+        /// Left alone (P7b–e): lambda-free sequence operators and plain enumeration over a converted scalar source are
+        /// correct in 3.9.0 and must stay so. Kills a guard that rejects valid enumeration, and a policy that rejects
+        /// lambda-free operators over a converted source.
+        /// </summary>
+        [DataTestMethod]
+        [DynamicData(nameof(ScalarSequenceRows))]
+        public void Covariant_ScalarSource_SequenceOrEnumeration_MatchesOracle(string shape, string spelling)
+        {
+            var (marker, _) = SeedAbc();
+
+            AssertMatchesOracle(marker, q =>
+            {
+                switch (shape)
+                {
+                    case "Skip.Take": return ConvertScalar(q.OrderBy(p => p.FirstName).Select(p => p.FirstName), spelling).Skip(1).Take(1).ToList();
+                    case "Take": return ConvertScalar(q.OrderBy(p => p.FirstName).Select(p => p.FirstName), spelling).Take(2).ToList();
+                    // Every seeded row shares the marker LastName: Distinct collapses three rows to one.
+                    case "Distinct": return ConvertScalar(q.Select(p => p.LastName), spelling).Distinct().ToList();
+                    case "enumerated": return ConvertScalar(q.OrderBy(p => p.FirstName).Select(p => p.FirstName), spelling).ToList();
+                    default: throw new ArgumentOutOfRangeException(nameof(shape));
+                }
+            }, $"{shape} {spelling}");
+        }
+
         [TestMethod]
         public void ScalarDistinctLast_ScalarGuardWins()
         {
@@ -581,6 +611,13 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.Count());
             StringAssert.Contains(ex.Message, CastMessage);
             Assert.IsFalse(ex.Message.Contains(PagingMessage), "the inner D5 failure wins over the outer D8 one: " + ex.Message);
+
+            // An outer failure that doesn't depend on inner state (I1 on the unrelated type's lambda) must not win either:
+            // a walk that met outer nodes first would report I1 here.
+            var withPredicate = People(marker).Cast<Address>().Where(a => a.Id > 0);
+            var ex2 = AssertThrowsNoQuery<NotSupportedException>(() => withPredicate.ToList());
+            StringAssert.Contains(ex2.Message, CastMessage);
+            Assert.IsFalse(ex2.Message.Contains(I1Message), "the inner D5 failure wins over the outer I1 one: " + ex2.Message);
         }
 
         #endregion

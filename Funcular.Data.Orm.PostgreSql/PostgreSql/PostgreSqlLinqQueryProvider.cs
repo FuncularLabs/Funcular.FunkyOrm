@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Runtime.ExceptionServices;
 using System.Reflection;
 using Npgsql;
 using Funcular.Data.Orm.PostgreSql.Visitors;
@@ -9,6 +10,7 @@ using Funcular.Data.Orm.Attributes;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Diagnostics;
 
+using Funcular.Data.Orm.Linq;
 namespace Funcular.Data.Orm.PostgreSql
 {
     /// <summary>
@@ -37,7 +39,32 @@ namespace Funcular.Data.Orm.PostgreSql
 
         public object Execute(Expression expression)
         {
-            return Execute<IEnumerable<T>>(expression);
+            // I2: a collection (IQueryable-typed) expression returns the list; a terminal (First, Count, ...) returns
+            // its single result. Pinning IEnumerable<T> here returned the whole list as the "result" of a First.
+            var resultType = typeof(IQueryable).IsAssignableFrom(expression.Type)
+                ? typeof(IEnumerable<>).MakeGenericType(ElementTypeOf(expression.Type))
+                : expression.Type;
+            try
+            {
+                return GenericExecuteMethod.MakeGenericMethod(resultType).Invoke(this, new object[] { expression });
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                // Surface the real exception (type and stack trace), not the reflection wrapper.
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+
+        private static readonly MethodInfo GenericExecuteMethod = typeof(PostgreSqlLinqQueryProvider<T>).GetMethods()
+            .Single(m => m.Name == nameof(Execute) && m.IsGenericMethodDefinition);
+
+        private static Type ElementTypeOf(Type sequenceType)
+        {
+            var enumerable = sequenceType.IsGenericType && sequenceType.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+                ? sequenceType
+                : sequenceType.GetInterfaces().First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+            return enumerable.GetGenericArguments()[0];
         }
 
         public TResult Execute<TResult>(Expression expression)
@@ -55,7 +82,9 @@ namespace Funcular.Data.Orm.PostgreSql
                 return ExecuteScalarProjection<TResult>(components, expression);
             }
 
-            bool isCollection = typeof(IEnumerable<T>).IsAssignableFrom(typeof(TResult)) && typeof(TResult) != typeof(T);
+            // I2: collection vs single row is decided by the expression's shape, not TResult. A terminal over an
+            // IQueryable<object> view requests object, and an enumerated Cast<object>() requests IEnumerable<object>.
+            bool isCollection = typeof(IQueryable).IsAssignableFrom(expression.Type);
 
             TResult executeResult;
             if (components.IsAggregate)
@@ -80,21 +109,10 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
         {
-            // A scalar projection yields List<memberType>; that is only valid when the caller expects a collection
-            // (ToList/enumeration → TResult is IEnumerable<memberType>/List<memberType>). ANY reducing terminal
-            // (First/Single/Count/Any/Sum/LongCount/ElementAt/Contains/Aggregate/…) produces a different TResult —
-            // reject uniformly BY RESULT TYPE rather than an operator blocklist. (Parameterless numeric aggregates
-            // are caught earlier in ParseExpression before their missing selector argument is dereferenced.)
+            // A scalar projection yields List<memberType>, so it supports enumeration only: every terminal is rejected,
+            // decided by the expression's shape (I2).
+            ScalarProjectionGuard.EnsureCollectionResult(expression, typeof(TResult), components.ScalarMemberType);
             var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
-            if (!typeof(TResult).IsAssignableFrom(listType))
-            {
-                var op = (expression as MethodCallExpression)?.Method.Name;
-                var opText = (op != null && op != "Select") ? $" followed by {op}()" : "";
-                throw new NotSupportedException(
-                    $"A scalar projection Select(x => x.Member){opText} is only supported for a list/enumeration " +
-                    $"result in this version. Materialize then apply the operator in memory " +
-                    $"(query.Select(x => x.Member).ToList()...), or aggregate off the base query.");
-            }
 
             string commandText = BuildQueryComponents(components);
             var entities = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
@@ -112,6 +130,9 @@ namespace Funcular.Data.Orm.PostgreSql
 
         private QueryComponents ParseExpression(Expression expression, PostgreSqlParameterGenerator parameterGenerator, PostgreSqlExpressionTranslator translator)
         {
+            // Reject unsupported operators, and supported ones in unsupported positions, before translating anything.
+            QueryOperatorPolicy.EnsureSupported(expression);
+
             var components = new QueryComponents();
             components.Parameters = new List<NpgsqlParameter> { };
 
@@ -137,16 +158,6 @@ namespace Funcular.Data.Orm.PostgreSql
                 else if (i == methodCalls.Count - 1 && components.OuterMethodCall == null)
                 {
                     components.OuterMethodCall = currentCall;
-                }
-
-                if (currentCall.Method.Name == "GroupBy")
-                {
-                    // GroupBy is not translated to SQL. Fail clearly here rather than letting the result path
-                    // materialize T and then throw an obscure InvalidCastException (same class as the top-level
-                    // Select guard). Group in memory after materializing.
-                    throw new NotSupportedException(
-                        "GroupBy is not supported in this version — it is not translated to SQL. Materialize " +
-                        "first and group in memory: query.ToList().GroupBy(...).");
                 }
 
                 // A scalar projection changes the element type from T to the projected member. The chain is walked
@@ -260,14 +271,6 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
                 else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
-                    // A parameterless numeric aggregate after a scalar projection has no selector argument — guard
-                    // it here before BuildAggregateClause dereferences Arguments[1].
-                    if (components.ScalarSelector != null)
-                        throw new NotSupportedException(
-                            $"A scalar projection Select(x => x.Member) followed by {currentCall.Method.Name}() is " +
-                            $"not supported in this version. Aggregate off the base query " +
-                            $"(e.g. query.{currentCall.Method.Name}(x => x.Member)), or materialize and apply in " +
-                            $"memory: query.Select(x => x.Member).ToList().{currentCall.Method.Name}().");
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }

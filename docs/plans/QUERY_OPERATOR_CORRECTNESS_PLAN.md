@@ -1452,6 +1452,31 @@ Each task lists the tests it turns green. Every implementation task starts with 
   → AC13-4 (except the entity-source covariant `LongCount`/`Single`/`Last` rows), AC13-6, AC13-7, AC13-8,
   AC13-10 (rejection rows, and the allowed `Take.Cast<object>()`-enumerated and Q7 rows, which depend on
   I2), AC13-12, AC13-15 (non-generic `Execute` dispatch).
+  - **Status (2026-10-01): done.**
+    - Core `QueryOperatorPolicy`:
+      - the allow-list is built from `Queryable` by name and shape and matches the pinned 52;
+      - pass 1 runs outer→inner with the own-root check;
+      - pass 2 runs inner→outer with D8 → D10 → D5/I3 → I1 and the row type `R`.
+    - Core `ScalarProjectionGuard` (I2).
+    - Each provider:
+      - calls the policy first in `ParseExpression`;
+      - decides `isCollection` by expression shape;
+      - runs the guard first in `ExecuteScalarProjection`;
+      - dispatches the non-generic `Execute` by shape, unwrapping `TargetInvocationException`;
+      - drops the inline `GroupBy` and parameterless-scalar-aggregate guards.
+    - Every Task 4 row is green on all four providers. No green → red anywhere; the existing suites are unchanged.
+      The remaining reds belong to Tasks 5–8 and 10:
+
+      | Suite | Red |
+      |---|---|
+      | SQL Server | 85 |
+      | SQLite | 85 |
+      | PostgreSQL | 82 |
+      | MySQL | 82 |
+
+    - The net48 twin is 7/7 and the net9 twin 3/3.
+    - **Mutations run: 42, all killed.** One ("pass 2 walks outer→inner") first survived; §9.21 has the
+      test fix.
 - **Task 5 — `Single*` row limit, `Skip`/`Take` values, empty-`Take` short-circuit (I2-based)** (4 providers).
   → AC13-1, AC13-10 (remaining allowed rows, and empty rows), entity-source covariant `Single` row of AC13-4,
   AC13-5's `Allowed[SinglePredicate]`/`[SingleOrDefaultPredicate]` rows.
@@ -1966,6 +1991,13 @@ FV2-1/2/3 RESOLVED on every applicable provider. The `All`/`Any` kill set is the
 post-FV-5 rows. Employer seeding doesn't change what the two `Last` tests rule out. Task mappings are complete.
 All four counts were reproduced. One nit (FV3-1, TEST-GAP): the `AnyPredicateTrue` comment overstated its
 kill. The comment was corrected and the predicate left unchanged, as the reviewer advised.
+
+### 9.21 Test gaps found during Task 4 (author-found; no reviewer had flagged them)
+
+| # | Blame | Finding | Disposition |
+|---|---|---|---|
+| T4-1 | TEST-GAP | `Covariant_ScalarSource_SequenceOrEnumeration_MatchesOracle` (§4.2 AC13-4, "left alone") was never written in any suite. Two §4.4 mutations named it as their killer. The Task 1 reviews checked name parity *between* suites, not against the matrix. | Added to all four: {`Skip.Take`, `Take`, `Distinct`, enumerated} × both spellings. Green pins; they now kill "guard rejects valid enumeration" and "lambda-free operators over a converted source rejected". |
+| T4-2 | TEST-GAP | `Rejected_Pass2InnerFailureWins` survived a naive outer→inner pass 2. The outer D8 failure depends on inner paging state, so a reversed walk never raised it. | Second shape added: `Cast<Unrelated>().Where(a => a.Id > 0)` (outer I1 failure independent of inner state) must report D5. The mutation is now killed. |
 
 ---
 
