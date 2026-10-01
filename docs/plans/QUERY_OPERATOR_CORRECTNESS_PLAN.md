@@ -11,7 +11,26 @@
 
 > **Status (2026-09-30)**:
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
-> - Task 0 is waiting on a clean fix-verification of this revision (r7, scoped to the rev-7 diff).
+> - Task 0 is waiting on a clean fix-verification of this revision (r8, scoped to the rev-8 diff). Owner
+>   instruction: once clean, post the ACs and start Task 1.
+
+> **Revision 8 (Task 0 fix-verification r7, 2026-09-30) — what changed:**
+> The r7 reviewer found 6 issues at `765792a`: 0 blocker, 1 major, 5 minor. Blame: AC-GAP 1, TEST-GAP 3,
+> HOUSE-RULE 1, PLAN-GAP 1. Disposition is in §9.7. **No silent wrong result** got past I1–I3.
+> - **Major (#1):** rev 7's "every lambda over a converted source fails in 3.9.0" was false. My I1 probes
+>   only covered `object`. Over a **base-class/interface** source, `OrderBy*`, selector aggregates and scalar
+>   `Select` are correct today (r7 J1–J20, executed). **Owner decision: reject only where 3.9.0 fails.**
+>   I1 now covers only the predicate operators that hard-cast to `Func<T,…>` (`Where`; `First*`/`Single*`/
+>   `Last*`/`Any`/`All`/`Count`/`LongCount` with a predicate); everything else is left alone.
+> - **#5 (house rule):** the non-generic `IQueryProvider.Execute` returns the whole list for a `First`
+>   (K1). It now dispatches by expression shape (I2), as new **AC13-15**.
+> - **#2:** I1 defers to the parse loop after any non-subset `Select`. The scalar/subset predicates are
+>   identical to the parse loop's.
+> - **#3:** ‡ defined per operator.
+> - **#4:** the composition-message assertion strengthened.
+> - **#6:** type-filter wording.
+> - **Task 1 simplification (author, verified):** all four schemas already have a `User` table with no `id`
+>   column, so the no-`id` entity needs **no schema changes**.
 
 > **Revision 7 (Task 0 fix-verification r6, 2026-09-30) — what changed:**
 > The r6 reviewer found 8 issues at `44e78b4`: 0 blocker, 1 major, 7 minor. Blame: AC-GAP 1, TEST-GAP 7.
@@ -303,7 +322,10 @@ Same shapes on PostgreSQL (local PG 18), MySQL and SQLite. Each probe seeded thr
     - `Count`/`Any`/`First*` are correct (P5, P5b, P13, P13b, r6 Q9a/b).
     - `LongCount`/`Single*`/`Last*` are broken for every source (§1.1).
     - Lambda-free sequence operators followed by a terminal are correct (r6 Q3a–e).
-    - Every lambda fails (§1.5 I1a–h).
+    - **Predicate** lambdas (`Where`, predicate terminals) fail with `InvalidCastException` (§1.5
+      I1a/b/d/e/f/g, J5/J6/J14/J15). **Non-predicate** lambdas (`OrderBy*`, selector aggregates, scalar
+      `Select`) over a **base-class or interface** source are correct (r7 J1–J20). Over `object`, an
+      `OrderBy` on a cast member works (J8); an unsupported body fails cleanly (I1c).
   - Over a **scalar** source, a row-returning terminal returns the whole projected list. That happens directly
     (P6, P7) and after covariant `Skip`/`Take`/`Distinct` (r6 Q1a–e): a silent wrong result.
 - **`Queryable.Cast<TResult>` always creates a node**, even `Cast<T>()` on an `IQueryable<T>` (P1, P2). The
@@ -353,8 +375,10 @@ net9 with a mimic provider. Results are for 3.9.0.
 | P13 | `IQueryable<object> c = q; c.Count()` | Correct |
 | P13b | `IQueryable<object> c = q.OrderBy(Id).Skip(1); c.First()` | Correct (row Id=2) |
 
-**Author probes for I1 (rev 7, SQL Server)**: every lambda over a converted entity source, `o` =
-`IQueryable<object>` of the entity.
+**Author probes for I1 (rev 7, SQL Server)**: lambdas over an entity source converted to **`object`**
+(`o` = `IQueryable<object>` of the entity). *Rev 8 correction:* these only covered `object` and the hard-cast
+operators. The r7 J-probes below show that non-predicate lambdas over a **base-class or interface** source
+work, so I1 was narrowed.
 
 | # | Shape | 3.9.0 result |
 |---|---|---|
@@ -384,12 +408,35 @@ net9 with a mimic provider. Results are for 3.9.0.
 | Q11 | boxing `Select(p => p.Id).Cast<object>()…` | `NotSupportedException` already |
 | Q12 | rev 6's type-based `isCollection` rule, transcribed | Misclassifies `T : IEnumerable<object>` terminals (why I2 uses the expression shape) |
 
+**r7 reviewer probes (SQL Server, executed, cited by ID).** Here `b` = `IQueryable<PersonEntity>` over
+`db.Query<Person>()` (`Person : PersonEntity`), `d` = `IQueryable<PersonEntity>` over
+`db.Query<PersonDetailEntity>()`, and `i` = an interface-typed source.
+
+| ID | Shape | 3.9.0 result |
+|---|---|---|
+| J1 | `b.OrderByDescending(p => p.Id).First()` | Correct (max id) |
+| J2, J3, J3b, J13 | `b.Max/Min/Sum/Average(p => p.Id)` | Correct |
+| J4 | `b.Select(p => p.FirstName).ToList()` | Correct (sequence-equal to the concrete query) |
+| J7 | `db.Query<Person>().Cast<PersonEntity>().OrderByDescending(Id).First()` | Correct |
+| J8 | `o.OrderByDescending(x => ((PersonEntity)x).Id).First()` | Correct |
+| J9 | `b.OrderBy(LastName).ThenByDescending(Id).Skip(1).First()` | Correct |
+| J10, J12 | other base-typed `OrderBy`/aggregate shapes | Correct |
+| J16–J18 | `d.OrderBy(…)` / `d.Max(…)` (join entity via base type) | Correct |
+| J19, J20 | `i.Max(x => x.Id)` / `i.OrderByDescending(x => x.Id).First()` | Correct |
+| J5, J6, J14, J15 | base-typed `Where` / predicate terminals | `InvalidCastException` |
+| J11 | `object`-param subset `Select(new T { … })` | Throws |
+| K1 | non-generic `IQueryProvider.Execute(<First expr>)` | **Whole `List<T>` (8,546) returned** as the "first" element |
+| K2 | non-generic `Execute(<collection expr>)` | Correct |
+| L1 | `Select(p => new Dto { … }).Where(d => …)` | `Select`-shape guard message |
+| M1–M3 | entity/scalar `Distinct()` then `Count`/`Any` | "Distinct() combined with an aggregate" `NotSupported` |
+| N1, N2 | `o.Distinct().Where(…)`, `q.Cast<object>().Distinct().Where(…)` | `InvalidCastException` |
+| N3 | base-typed `Take(5).ToList()` (`IEnumerable<PersonEntity>` over `Person`) | `InvalidCastException` (P14 class; fixed by I2) |
+| N4 | scalar-guard message text | Matches the 3.9.0 message the plan reuses |
+
 **Still unexecuted** (Task 1 red tests):
 - the new 3.10 behaviors themselves;
 - the net48/net9 rendering of `MethodInfo` signatures for the literal set;
-- the r6 Q-probes on PostgreSQL/MySQL/SQLite (the paths are structurally identical in source);
-- `o.Distinct().Where(…)` over a converted entity source. Expected `InvalidCastException`, through the same
-  `Where` hard cast as I1a, but not itself run. Task 1's red run confirms it.
+- the r6/r7 probes on PostgreSQL/MySQL/SQLite (the paths are structurally identical in source).
 
 ---
 
@@ -484,24 +531,29 @@ providers** unless stated.
 
   **Covariance follows the three §5.2.1 invariants (rev 7).** A conversion (the no-node
   `IQueryable<TBase> b = q`, or a reference-conversion `Cast<TBase>()`) never changes the row type `R`.
-  - **I1.** A lambda-bearing operator whose lambda parameter isn't `T`, and which isn't outer to a scalar
-    `Select`, is rejected before any query with the I1 message. In 3.9.0 every such shape threw
-    (§1.5 I1a–h). After a scalar `Select`, the existing composition guard rejects all lambdas with its own
-    message (AC13-8).
+  - **I1 (rev 8: narrowed by the owner).** A **predicate** lambda (`Where`; `First*`/`Single*`/`Last*`/
+    `Any`/`All`/`Count`/`LongCount` with a predicate) whose parameter isn't `T`, and which isn't outer to a
+    non-subset `Select`, is rejected before any query with the I1 message. Every such shape throws
+    `InvalidCastException` in 3.9.0 (§1.5 I1a/b/d/e/f/g, J5/J6/J14/J15, N1/N2).
+  - After a scalar `Select`, the existing composition guard rejects all lambdas with its own message
+    (AC13-8). After any other non-subset `Select`, the `Select`-shape guard rejects the `Select` (L1, I1h).
   - **I2.**
-    - Over a scalar projection, every **terminal** is rejected with the scalar-guard message, however it's
-      reached: directly (P6, P7) or after covariant `Skip`/`Take`/`Distinct` (r6 Q1a–e). In 3.9.0 those
+    - Over a scalar projection, every terminal **that reaches execution** is rejected with the scalar-guard
+      message. That covers terminals reached directly (P6, P7) or after a covariant `Distinct` (Q1c/Q1e)
+      or after `Skip`/`Take` where D8 allows the terminal (`First*`/`Single*`; Q1a/b/d). In 3.9.0 those
       return the whole list.
-    - Over an entity source, enumeration of a converted source returns the entity rows (P14 fixed).
+    - Over an entity source, enumeration of a converted source returns the entity rows. This fixes P14 and
+      base-typed paging (N3).
   - **Left alone** (correct in 3.9.0, and still correct):
     - parameterless terminals over a converted entity source (`Count`/`Any`/`First*`; P5, P13, Q9);
       `LongCount`/`Single*`/`Last*` get the AC13-1/2/3 semantics;
     - lambda-free `Skip`/`Take`/`Distinct` over any converted source (Q3a–e, P7b–P7e);
-    - enumeration of a converted scalar source (P7e).
+    - enumeration of a converted scalar source (P7e);
+    - **non-predicate lambdas over a base-class or interface source**: `OrderBy*`/`ThenBy*`, selector
+      aggregates and scalar `Select` (J1–J4, J7–J13, J16–J20).
 
-    After `Skip`/`Take`, D8 still governs (e.g. covariant `Count` after `Take` gets the D8 message).
-  - **Other projected types** (a `Select` to a DTO or an expression): the parse loop's `Select`-shape guard
-    rejects the `Select` with its own message (I1h).
+    After `Skip`/`Take`, D8 still governs (e.g. covariant `Count` after `Take` gets the D8 message). After
+    `Distinct`, the existing "Distinct() combined with an aggregate" guard governs `Count`/`Any` (M1–M3).
 
   Lambdas nested inside allowed operators aren't inspected, so `Where(p => ids.Contains(p.Id))` still works.
   The rejection table covers, at minimum:
@@ -511,7 +563,8 @@ providers** unless stated.
     `SelectMany`, `Join`, `GroupJoin`, `Append`, `Prepend`, `SequenceEqual`, `Chunk`.
   - **Reducing:** `Contains`, `Aggregate`, `DistinctBy`, `MinBy`, `MaxBy`, and parameterless `Min()`/`Max()`
     on an entity.
-  - **Type filters:** non-identity `Cast`/`OfType`, and `OfType` over a nullable element (D5).
+  - **Type filters:** `Cast`/`OfType` outside D5/I3: boxing or unrelated-type `Cast`; non-identity `OfType`;
+    `OfType` over a nullable or reference scalar.
   - **Unsupported overloads of allowed operators:** indexed `Where`/`Select`; comparer overloads;
     default-value overloads; `Take(Range)`; non-generic `Sum()`/`Average()`.
 - **AC13-5** Every shape built only from allowed operators, in allowed positions, that returned correct
@@ -595,6 +648,9 @@ providers** unless stated.
 - **AC13-14** *(SQLite)* `Skip(n)` without `Take` executes: it emits `LIMIT -1 OFFSET n`. That covers
   `Skip(n).ToList()` and `Skip(n).First()`. (`Skip(n).Single()` is capped by AC13-1, so it emits
   `LIMIT 2 OFFSET n`.)
+- **AC13-15** *(I2, rev 8)* The non-generic `IQueryProvider.Execute(expression)` returns the single
+  element (or throws, as LINQ would) for a terminal expression such as `First`, and the list for a
+  collection expression. In 3.9.0 it returns the whole list for `First` (r7 K1).
 
 ---
 
@@ -640,8 +696,9 @@ providers** unless stated.
 - **Test entities.**
   - Join entity: `PersonDetailEntity` (SQL Server/PG/SQLite) or `PersonWithEmployer` (MySQL); every joined
     table has an `id` column.
-  - A **no-`id` entity** (a table keyed `<table>_id`) is added in Task 1 (§6) to the schema scripts and the
-    local databases.
+  - **No-`id` entity: the existing `User` table** (rev 8). In all four schemas its key is `Key` and it has
+    no `id` column: SQL Server `[User]([Key] …)`, MySQL `` `user`(`key` …) ``, PostgreSQL `"User"("Key" …)`,
+    SQLite `"User"("Key" …)`. A `User` entity exists in every test project. **No schema-script changes.**
 - **Cleanup** deletes run in a transaction. **Subset projections** don't populate `Id`.
 - **SQLite** gets a shared temp-DB schema helper.
 - **DB-free tests don't inherit a DB fixture.**
@@ -673,7 +730,7 @@ providers** unless stated.
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle` | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig` | all 4 |
-| AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 allow-list shape, including `ScalarProjection_ParameterlessSum`; covariant shapes are in the invariant rows below — note `((IQueryable<object>)q).Take(5)` is now **allowed**, F2), `Allowed_PredicateWithCollectionContains_NotRejected`, `NonQueryableSpineMethod_Rejected`, `NonCallNonRootSpineNode_Rejected` (DB-free, hand-built `Convert` node), `ForeignQueryableConstantRoot_Rejected` (DB-free: a constant whose value is a composed queryable)<br>**Covariance invariants (§5.2.1, rev 7).** Each row is spelled both ways (no-node `IQueryable<object> o = …` and `.Cast<object>()`) and, where marked ‡, also "after an allowed sequence operator" (`…Take(3)`, `…Skip(1)`, `…Distinct()` before the terminal).<br>• **I1:** `Covariant_EntitySource_Lambda_Rejected_I1Message_NoQuery` over {`Where`, `OrderBy`, `Any(pred)`, `Count(pred)`, `First(pred)`, `Select`, subset-`Select`-then-`Where`, **`Distinct()`-then-`Where`**}, asserting the I1 message (red on 3.9.0: I1a–h). The `Distinct` row is the one that separates a lambda-parameter check from a `TSource` check. `Covariant_ScalarSource_Lambda_KeepsCompositionMessage` (the composition guard still wins after a scalar `Select`).<br>• **I2 (scalar terminals):** `Covariant_ScalarSource_Terminal_Rejected_NoQuery` ‡ over {First, FirstOrDefault, Single, SingleOrDefault, Last, LastOrDefault, Count, Any}, asserting the scalar-guard message. Red on 3.9.0: the whole list is returned (P6, P7, Q1a–e), or Count/Any give the old message (P7f, Q9c).<br>• **I2 (entity enumeration):** `Covariant_EntitySource_Enumerated_MatchesOracle` ‡ (P14, Q3d red).<br>• **Left alone:** `Covariant_EntitySource_ParameterlessTerminal_MatchesOracle` ‡ over {Count, LongCount, Any, First, FirstOrDefault, Single (pre-filtered to one row), Last}, at the root, after `Where`/`OrderBy`/subset `Select` (Q3, Q9, P5, P13); `Covariant_ScalarSource_SequenceOrEnumeration_MatchesOracle` over {`Skip.Take`, `Take`, `Distinct`, `Cast<object>()` enumerated} (P7b–e, Q8).<br>• **D8 interplay:** `Covariant_EntitySource_AfterPaging_D8Governs` over {`Skip(1)`→First: allowed; `Take(5)`→Count: D8 message; `Take(5)`→Where: D8 message (D8 precedes I1)}.<br>• `Covariant_OtherProjectedSource_SelectShapeGuardMessage` (I1h).<br>**`ScalarProjectionGuard`**, DB-free and direct: `ScalarProjectionGuard_Terminal_Throws` (object, string, `First<object>(…)`), `ScalarProjectionGuard_Collection_Passes` (`IEnumerable<object>`, string, `Select(…)`). It's also pinned end to end by the I2 rows above. | all 4 + Core |
+| AC13-4 | `[DataTestMethod] Rejected_Operator_ThrowsNotSupported_NamesOperator_NoQueryExecuted` (one row per AC13-4 allow-list shape, including `ScalarProjection_ParameterlessSum`; covariant shapes are in the invariant rows below — note `((IQueryable<object>)q).Take(5)` is now **allowed**, F2), `Allowed_PredicateWithCollectionContains_NotRejected`, `NonQueryableSpineMethod_Rejected`, `NonCallNonRootSpineNode_Rejected` (DB-free, hand-built `Convert` node), `ForeignQueryableConstantRoot_Rejected` (DB-free: a constant whose value is a composed queryable)<br>**Covariance invariants (§5.2.1, rev 7).** Each row is spelled both ways (no-node `IQueryable<object> o = …` and `.Cast<object>()`) and, where marked ‡, also "after an allowed sequence operator". **‡ is defined per operator (rev 8):** after `Take`/`Skip`, only `First*`/`Single*` (D8 rejects the rest; those cells are D8 rows); after `Distinct`, only `First*`/`Single*`/`Last*` (`Count`/`Any` hit the existing Distinct+aggregate guard, M1–M3, which is a regression row).<br>• **I1 (predicate lambdas):** `Covariant_PredicateLambda_Rejected_I1Message_NoQuery` over {`Where`, `First(pred)`, `Single(pred)`, `Any(pred)`, `All`, `Count(pred)`, `LongCount(pred)`, subset-`Select`-then-`Where`, **`Distinct()`-then-`Where`**} × {`object` source, **base-class source** `IQueryable<PersonEntity>` over `Query<PersonDetailEntity>()`}, asserting the I1 message. Red on 3.9.0: `InvalidCastException` (I1a/b/d/e/f/g, J5/J6/J14/J15, N1/N2). The `Distinct` row separates a lambda-parameter check from a `TSource` check.<br>• **I1 out of scope, left alone:** `Covariant_BaseClassSource_NonPredicateLambda_MatchesOracle` over {`OrderBy`→First, `OrderByDescending`→First, `OrderBy.ThenByDescending.Skip(1).First()`, `Max`/`Min`/`Sum`/`Average`(selector), scalar `Select` enumerated} × {base class (J1–J4, J9, J16–J18), interface (J19/J20)}, plus `o.OrderByDescending(x => ((PersonEntity)x).Id).First()` (J8). Green on 3.9.0 and must stay green.<br>• `Covariant_BaseClassSource_PagedEnumerated_MatchesOracle` (`b.Take(5).ToList()`; red on 3.9.0, N3; fixed by I2).<br>• `Covariant_ScalarSource_Lambda_KeepsCompositionMessage`: asserts the substring **"must be the outermost query operator"**, on both converted and non-converted shapes.<br>• **I2 (scalar terminals):** `Covariant_ScalarSource_Terminal_Rejected_NoQuery` ‡ over {First, FirstOrDefault, Single, SingleOrDefault, Last, LastOrDefault}, asserting the scalar-guard message. Red on 3.9.0: the whole list is returned (P6, P7, Q1a–e). `Covariant_ScalarSource_CountAny_Regression` (non-‡; **green** on 3.9.0 with the same message, P7f/Q9c/N4: a regression row, not red). `ScalarDistinctLast_ScalarGuardWins` (`s.Distinct().Last()`: the Last/Distinct check lives in `BuildQueryComponents`, which runs after `ScalarProjectionGuard`, so the scalar-guard message wins).<br>• **I2 (entity enumeration):** `Covariant_EntitySource_Enumerated_MatchesOracle` ‡ (P14, Q3d red).<br>• **Left alone:** `Covariant_EntitySource_ParameterlessTerminal_MatchesOracle` ‡ over {Count, LongCount, Any, First, FirstOrDefault, Single (pre-filtered to one row), Last}, at the root, after `Where`/`OrderBy`/subset `Select` (Q3, Q9, P5, P13); `Covariant_ScalarSource_SequenceOrEnumeration_MatchesOracle` over {`Skip.Take`, `Take`, `Distinct`, `Cast<object>()` enumerated} (P7b–e, Q8).<br>• **D8 interplay:** `Covariant_EntitySource_AfterPaging_D8Governs` over {`Skip(1)`→First: allowed; `Take(5)`→Count: D8 message; `Take(5)`→Where: D8 message (D8 precedes I1)}.<br>• `Covariant_OtherProjectedSource_SelectShapeGuardMessage`: `q.Select(p => new Dto { … }).Where(…)` gets the `Select`-shape message, not I1's (r7 L1).<br>**`ScalarProjectionGuard`**, DB-free and direct: `ScalarProjectionGuard_Terminal_Throws` (object, string, `First<object>(…)`), `ScalarProjectionGuard_Collection_Passes` (`IEnumerable<object>`, string, `Select(…)`). It's also pinned end to end by the I2 rows above. | all 4 + Core |
 | AC13-5 | `[DataTestMethod] Allowed_Operator_MatchesOracle` (one row per allowed family, with its expected outcome); the four existing suites | all 4 |
 | AC13-6 | `OfType_Identity_AtRoot_IsNoOp`, `OfType_Identity_AfterOrderBy_IsNoOp`, `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp`, `OfType_Identity_OverNullableScalar_Rejected` (seeded nulls), `OfType_NonIdentity_Throws`, `Cast_Identity_IsNoOp` (`q.Cast<PersonEntity>().ToList()`; P1 shows it's a real node), `Cast_ReferenceConversion_Count_MatchesOracle` and `Cast_ReferenceConversion_OrderedFirst_MatchesOracle` (P5, P5b), `Cast_ReferenceConversion_Enumerated_MatchesOracle` (`q.Where(marker).Cast<object>().ToList()`; red on 3.9.0, P14), `Cast_ReferenceConversion_BaseClass_Enumerated_MatchesOracle` (Q4c red; MySQL's test entities get a base class/marker interface in Task 1), `Cast_ReferenceConversion_Interface_Count_MatchesOracle` (`Cast<INotifyPropertyChanged>()`, Q4d), `Cast_BackToEntityAfterTransparentCast_IsNoOp` (Q4a), `OfType_Entity_AfterTransparentCast_IsNoOp` (Q4b), `Cast_Boxing_Rejected` (`Select(p => p.Id).Cast<object>()`), `Cast_NonIdentity_UnrelatedType_Throws` (`Cast<AddressEntity>()` on a person query) | all 4 + Core |
 | AC13-7 | `SupportedOperators_ExactLiteralSetPinned`, `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet`, `NonQueryableOverload_IsRejected` (MSTest: `SqlServer.Tests` net8, `SqlServer.Tests.NetFramework` net48); xUnit twin `QueryOperatorPolicyLiteralSetTests` (`SqlServer.Tests.DotNet9` net9) | Core, 3 runtimes |
@@ -683,6 +740,7 @@ providers** unless stated.
 | AC13-12 | `[DataTestMethod] Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` over {OrderBy.OrderBy, OrderBy.ThenBy.OrderByDescending, OrderBy.Where.OrderBy, OrderBy.Select(**subset**).OrderBy, OrderBy.Distinct.OrderBy}, each asserting the D10 message; `ThenBy_OnRoot_IsPrimaryOrder` (`((IOrderedQueryable<T>)q).ThenByDescending(p => p.Id).Where(marker)` returns rows in **descending** id order, the same as `OrderByDescending(p => p.Id).Where(marker)`; ascending would be indistinguishable from no order, r6 Q10) | all 4 |
 | AC13-13 | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder`, `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc`, `SqliteRoot_ReusedAfterParameterizedProjection_NoDuplicateParameters` | SQLite |
 | AC13-14 | `SkipOnly_ToList_Executes`, `SkipOnly_First_ReturnsExpectedRow` (SQLite red; regression rows in the others); SQLite only: `SkipOnly_EmitsLimitMinusOneOffset` (SQL shape) | all 4 |
+| AC13-15 | `NonGenericExecute_First_ReturnsSingleRow` (red on 3.9.0, K1: whole list), `NonGenericExecute_FirstOnEmpty_Throws`, `NonGenericExecute_Collection_Unchanged` (K2) | all 4 |
 
 ### 4.3 Interface coverage (new/changed members → tests)
 
@@ -690,6 +748,7 @@ providers** unless stated.
 |---|---|
 | Core `QueryOperatorPolicy.EnsureSupported(Expression expression)` *(new, public, `void`)* | `QueryOperatorPolicyTests.*`; every `Rejected_*`/`Allowed_*`/`Operator_AfterPaging_*`/`Ordering_AfterEarlierOrdering_*`/`Covariant_*` row |
 | Core `ScalarProjectionGuard.EnsureCollectionResult(Expression expression, Type resultType, Type memberType)` *(new, public; I2)* | `ScalarProjectionGuard_Terminal_Throws`, `ScalarProjectionGuard_Collection_Passes` (direct); end to end through `Covariant_ScalarSource_Terminal_Rejected_NoQuery` and every existing scalar-projection test |
+| `*LinqQueryProvider.Execute(Expression)` (non-generic) — dispatch by expression shape *(I2, rev 8)* | `NonGenericExecute_First_ReturnsSingleRow`, `NonGenericExecute_FirstOnEmpty_Throws`, `NonGenericExecute_Collection_Unchanged` |
 | `*LinqQueryProvider.Execute` — `isCollection` = `IQueryable` expression shape *(I2)* | `Cast_ReferenceConversion_Enumerated_MatchesOracle`, `Covariant_EntitySource_Enumerated_MatchesOracle`; all existing enumeration tests |
 | Core `QueryOperatorPolicy.IsAllowed(MethodInfo)` *(new, **public** — no `InternalsVisibleTo` dependency, which would break if the assemblies are strong-named later)* | `ClassifierSweep_*`, `NonQueryableOverload_IsRejected`, the net9 xUnit twin |
 | Core `QueryOperatorPolicy.SupportedOperators` *(new, public read-only)* | `SupportedOperators_ExactLiteralSetPinned`, `OperatorDocTable_MatchesSupportedOperators` |
@@ -730,9 +789,13 @@ providers** unless stated.
 | Add `Reverse` to the allow-list | `Rejected_…[Reverse]`, `SupportedOperators_ExactLiteralSetPinned` |
 | Match by name instead of overload | `Rejected_…[IndexedWhere]`, `[OrderByWithComparer]`, `[DistinctWithComparer]`, `[TakeRange]` |
 | `GetGenericMethodDefinition()` without `IsGenericMethod` | `NonQueryableOverload_IsRejected`, `Rejected_…[ScalarProjection_ParameterlessSum]` |
-| I1 removed (lambda parameter type not checked) | `Covariant_EntitySource_Lambda_Rejected_I1Message_NoQuery` rows (`InvalidCastException`, not the I1 message) |
-| I1 applied outer to a scalar `Select` too (masks the composition message) | `Covariant_ScalarSource_Lambda_KeepsCompositionMessage`, existing `ScalarProjection_ThenComposingLambdaOperators_*` |
-| I1 compares `TSource` with the source element type instead of checking the lambda parameter type (the rev 3–6 approach) | `Covariant_EntitySource_Lambda_Rejected_I1Message_NoQuery[o.Distinct().Where(…)]`: after a covariant `Distinct<object>`, `TSource == source` (`object`), so a `TSource` check lets it through to the `InvalidCastException` (r6 Q2 mechanism). Not `Take`/`Skip`, where D8 rejects first. |
+| I1 removed (predicate lambda parameter type not checked) | `Covariant_PredicateLambda_Rejected_I1Message_NoQuery` rows (`InvalidCastException`, not the I1 message) |
+| I1 applied to **every** lambda operator (the rev 7 strict rule) | `Covariant_BaseClassSource_NonPredicateLambda_MatchesOracle` rows (J1–J20 would be rejected) |
+| I1 omits one hard-cast operator (e.g. `LongCount(pred)`, `All`, `Single(pred)`) | that operator's `Covariant_PredicateLambda_Rejected_I1Message_NoQuery` row (`InvalidCastException`) |
+| I1 applied outer to a scalar `Select` too (masks the composition message) | `Covariant_ScalarSource_Lambda_KeepsCompositionMessage` (asserts "must be the outermost query operator"; the existing `ScalarProjection_ThenComposingLambdaOperators_*` tests only assert the operator name, which the I1 message also contains, so they can't kill this) |
+| I1 applied outer to a non-subset (DTO) `Select` (masks the `Select`-shape message) | `Covariant_OtherProjectedSource_SelectShapeGuardMessage` |
+| Non-generic `Execute(Expression)` still pins `IEnumerable<T>` | `NonGenericExecute_First_ReturnsSingleRow` (whole list, or `InvalidCastException` under I2-only) |
+| I1 compares `TSource` with the source element type instead of checking the lambda parameter type (the rev 3–6 approach) | `Covariant_PredicateLambda_Rejected_I1Message_NoQuery[o.Distinct().Where(…)]`: after a covariant `Distinct<object>`, `TSource == source` (`object`), so a `TSource` check lets it through to the `InvalidCastException` (r6 Q2 mechanism; executed N1/N2). Not `Take`/`Skip`, where D8 rejects first. |
 | `ScalarProjectionGuard` decides by `TResult` assignability (not expression shape) | `Covariant_ScalarSource_Terminal_Rejected_NoQuery[First/Single/Last, both spellings, ‡]` (whole list returned, Q1a–e/P6/P7) and `ScalarProjectionGuard_Terminal_Throws` |
 | `ScalarProjectionGuard` call removed or bypassed in one provider (call-site mutation) | that provider's `Covariant_ScalarSource_Terminal_Rejected_NoQuery` rows (end to end) |
 | Guard rejects valid enumeration | `ScalarProjectionGuard_Collection_Passes`, `Covariant_ScalarSource_SequenceOrEnumeration_MatchesOracle` |
@@ -751,7 +814,7 @@ providers** unless stated.
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
 | Policy inside the loop instead of a pre-pass | `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` |
 | Drop the `GroupBy` message | `GroupBy_Rejected_KeepsDedicatedMessage` |
-| Identity check against the entity type instead of the source element type | `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp` |
+| Identity check against the entity type `T` instead of the row type `R` | `OfType_Identity_AfterScalarProjection_NonNullable_IsNoOp` |
 | Identity `OfType` allowed over a nullable scalar | `OfType_Identity_OverNullableScalar_Rejected` |
 | Reject all `Cast`/`OfType` | `OfType_Identity_AtRoot_IsNoOp`, `Cast_Identity_IsNoOp` |
 | Reject reference-conversion `Cast` (D5 before the owner's amendment) | `Cast_ReferenceConversion_Count_MatchesOracle`, `Cast_ReferenceConversion_OrderedFirst_MatchesOracle` |
@@ -851,16 +914,28 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
    - **Covariance: three invariants (rev 7 redesign, after four consecutive rounds of fix-introduced
      findings on the rev 3–6 cell table).** Each invariant is local and independent of how a conversion was
      spelled, so there's no type-flow to lose.
-     - **I1 — every lambda binds to the entity (pre-pass).** A lambda-bearing spine operator (`Where`,
-       `Select`, `OrderBy*`, `ThenBy*`, predicate terminals, selector aggregates, `All`) must have
-       `lambda.Parameters[0].Type == T`.
-       - The one exception: operators **outer to a scalar `Select`**. Those are left to the parse loop's
-         existing scalar-composition guard, which rejects every lambda after a scalar `Select` with its
-         existing message (AC13-8).
-       - Anything else is rejected with the I1 message.
-       - *Evidence:* every lambda over a converted entity source fails in 3.9.0, either with
-         `InvalidCastException` from the hard cast to `Func<T,…>` (§1.5 I1a/b/d/e/f/g) or an unrelated
-         `NotSupportedException` (I1c/h). So I1 changes no working query.
+     - **I1 — predicate lambdas bind to the entity (pre-pass). Narrowed in rev 8 by the owner: reject
+       only where 3.9.0 fails.**
+       - **Scope:** the operators whose predicate the translator **hard-casts** to `Expression<Func<T,…>>`.
+         Those are `Where`; `First*`/`Single*`/`Last*` with a predicate; and `Any`/`All`/`Count`/`LongCount`
+         with a predicate (SqlLinqQueryProvider.cs:223/:261/:475; siblings PG :173/:199/:361,
+         MySql :173/:199/:363, Sqlite :175/:200/:376).
+       - For these, `lambda.Parameters[0].Type` must be `T`; otherwise they're rejected with the I1 message.
+       - *Evidence:* every such shape over a converted source throws `InvalidCastException` in 3.9.0
+         (§1.5 I1a/b/d/e/f/g, r7 J5/J6/J14/J15, N1/N2).
+       - **Out of scope, and left alone:** `OrderBy*`/`ThenBy*`, selector aggregates (`Sum`/`Min`/`Max`/
+         `Average`) and `Select`. They resolve by member or parameter generically and **return correct
+         results over a base-class or interface source in 3.9.0** (r7 J1–J4, J7–J13, J16–J20, e.g.
+         `IQueryable<PersonEntity> b = db.Query<PersonDetailEntity>(); b.OrderBy(…)`), or they already fail
+         cleanly (I1c's visitor message, I1h's `Select`-shape message).
+       - **Exception:** operators outer to any **non-subset `Select`** are left to the parse loop. After a
+         scalar `Select`, the composition guard rejects every lambda with its existing message. After any
+         other non-subset `Select`, the `Select`-shape guard rejects the `Select` itself. The pre-pass uses
+         the parse loop's exact predicates:
+         - **scalar:** body is a `MemberExpression` on the lambda's `ParameterExpression`, a `PropertyInfo`,
+           `CanWrite` (SqlLinqQueryProvider.cs ~364-374);
+         - **subset:** body is a `MemberInitExpression` of type `T`;
+         - **anything else** is "other".
      - **I2 — collection vs single row is decided from the expression, not `TResult` (execution).**
        "Collection" means `typeof(IQueryable).IsAssignableFrom(expression.Type)`; otherwise it's a
        **terminal**. Used in three places:
@@ -910,8 +985,9 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
      - Positional (D8): `"{Op}(...) after Skip/Take is not translated …"`.
      - D10, second `OrderBy*`: `"A second OrderBy is not translated; use ThenBy, or put the primary key
        first."`
-     - I1: `"{Op}(...) takes a lambda over {ParamType}, but the query's rows are {T}. Apply {Op} before
-       converting the element type (IQueryable<…>/Cast<…>), or query the concrete type."`
+     - I1: `"{Op}(...) takes a predicate over {ParamType}, but the query's rows are {T}. Apply {Op} before
+       converting the element type (IQueryable<…>/Cast<…>), make the helper generic
+       (`where TEntity : {ParamType}`), or query the concrete type."`
      - I2, scalar terminal: the existing scalar-guard message, which names the operator and says scalar
        projections support enumeration only (materialize first).
      - Boxing or unrelated-type `Cast` (D5): `"Cast<{X}>() is not translated; FunkyORM supports only
@@ -933,6 +1009,13 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
      - This fixes P14 (`Cast<object>()` enumerated), and it's exact for pathological types such as
        `T : IEnumerable<object>` (r6 F3a). Paths that work today are unchanged: enumeration always has an
        `IQueryable` expression, and terminals never do.
+   - **I2 in the non-generic `IQueryProvider.Execute(Expression)` (rev 8).** Today it pins
+     `TResult = IEnumerable<T>` (SqlLinqQueryProvider.cs:70-73; siblings :38-41), so a terminal expression
+     returns the whole list as its "result" (r7 K1, a silent wrong result).
+     - It dispatches on the expression shape instead: an `IQueryable`-typed expression goes to
+       `Execute<IEnumerable<elementType>>`; anything else goes to `Execute<expression.Type>`, via
+       `MakeGenericMethod`.
+     - Collection calls are unchanged (K2).
    - **I2 in `ScalarProjectionGuard` (rev 5; reworked in rev 7).** A Core public helper,
      `ScalarProjectionGuard.EnsureCollectionResult(Expression expression, Type resultType, Type memberType)`,
      is called first by `ExecuteScalarProjection` in all four providers.
@@ -953,7 +1036,9 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
    - `Last*` inverts every term. With no terms it uses `Id DESC`, table-qualified when the entity has joins
      (the §5.1.2 call site passes the qualifier).
    - It uses `RowLimit = 1` with that ORDER BY. `Last` throws on empty; `LastOrDefault` returns `null`.
-   - With `Distinct` + custom projection and no explicit order, it throws, naming `Last`.
+   - With `Distinct` + custom projection and no explicit order, it throws, naming `Last`. This check lives in
+     `BuildQueryComponents`, next to the existing `Distinct` guards. On the scalar path,
+     `ScalarProjectionGuard` runs first and wins (`ScalarDistinctLast_ScalarGuardWins`).
    - This replaces the current `LastOrDefault(pred)` block. D10 (no second `OrderBy*`) plus System.Linq
      (a `ThenBy*` can only follow the root or an ordering call, §1.5 P3/P4) guarantee the ordering terms form
      one contiguous chain, so the inversion is well defined.
@@ -996,21 +1081,17 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - ✅ Owner answered the §10 questions (3.10.1), amended D5 (reference-conversion `Cast`), filed the
     sort-helper crash as follow-up #16, and deferred signing.
   - ✅ Executed premise probes recorded (§1.5), including the r6 reviewer's and the I1 probes.
-  - ⏳ Fix-verification r7 of the rev-7 diff must be clean. Focus: the I1–I3 invariants, which replace the
-    rev 3–6 covariance cell table.
+  - ✅ r7: 6 findings (§9.7). The owner narrowed I1 to predicate lambdas ("reject only where 3.9.0 fails").
+  - ⏳ Fix-verification r8 of the rev-8 diff must be clean. Then post the ACs, including AC13-15, and start
+    Task 1 (owner instruction).
   - Then post the §3 ACs to #12/#13 and start Task 1.
 - **Task 1 — Stubs, schema, harness, red tests.**
   - Compile-only stubs so the red run fails at runtime: policy members throw `NotImplementedException`; plus
     the visitor `tableQualifier`, `OrderByTerms`, and the `QueryComponents` members.
-  - **Schema:** add the no-`id` entity table to:
-    - `Database/integration_test_db.sql`
-    - `Database/MySql/integration_test_db.sql`
-    - `Database/PostgreSql/integration_test_db.sql`
-    - `Database/Sqlite/integration_test_schema.sql`
-    - the SQLite schema helper
-
-    Apply it to the three local servers with an idempotent `CREATE TABLE IF NOT EXISTS`, or the SQL Server
-    equivalent.
+  - **Schema:** no script changes. The no-`id` rows use the existing `User` table (§4.1). The SQLite temp-DB
+    helper creates the join tables (`country`, `organization`, `address`, `person`, `person_address`, as
+    `SqliteRemoteFeaturesTests` does today) plus the `"User"` table DDL from
+    `Database/Sqlite/integration_test_schema.sql`. That script alone lacks `organization`/`country`.
   - Harness, SQLite helper, and the net48/net9 links.
   - Add a base class or marker interface to MySQL's test entities, for the D5 base-class/interface `Cast`
     rows.
@@ -1025,7 +1106,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
   by expression shape; Core `ScalarProjectionGuard`) + wiring + dead-guard removal** (4 providers).
   → AC13-4 (except the entity-source covariant `LongCount`/`Single`/`Last` rows), AC13-6, AC13-7, AC13-8,
   AC13-10 (rejection rows, and the allowed `Take.Cast<object>()`-enumerated and Q7 rows, which depend on
-  I2), AC13-12.
+  I2), AC13-12, AC13-15 (non-generic `Execute` dispatch).
 - **Task 5 — `Single*` row limit, `Skip`/`Take` values, empty-`Take` short-circuit (I2-based)** (4 providers).
   → AC13-1, AC13-10 (remaining allowed rows, and empty rows), entity-source covariant `Single` row of AC13-4.
 - **Task 6 — Visitor `OrderByTerms` + ternary null** (4 providers).
@@ -1272,6 +1353,27 @@ marked R5-1..R5-8 as 4 RESOLVED / 4 PARTIAL (R5-2 → F7/F8a; R5-3 → F1; R5-4 
 self-correction: the first draft of I3 widened `OfType` to reference conversions, beyond the owner's
 amendment, and was narrowed back to identity before commit. Another: a drafted I1 mutation killer used
 `Take(3)`, where D8 preempts, and was replaced by the `Distinct()` row.
+
+### 9.7 Task 0 fix-verification r7 of `765792a`
+
+Totals: AC-GAP 1, TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 0.
+- **Fix-introduced:** #1 (the claim was new; the rejection itself came from the rev 3–6 rule), #2, #3, #4.
+- **Pre-existing:** #5 and #6.
+
+The reviewer executed J/K/L/M/N probes (SQL Server), now in §1.5. F1–F8 of r6: all RESOLVED.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| 1 | MAJOR | AC-GAP | yes (claim) | "Every lambda over a converted source fails in 3.9.0" is false: base-class/interface `OrderBy*`/selector aggregates/scalar `Select` are correct (J1–J20) | **Owner: reject only where 3.9.0 fails.** I1 narrowed to the hard-cast predicate operators. False statements corrected (§1.4, §1.5, §5.2.1, AC13-4). Rows: base-class non-predicate (must stay green), base-class and `object` predicate (I1 message), base-typed paging (N3 → I2). Mutation rows for "I1 strict" and "I1 omits an operator". The I1 message suggests a generic helper. |
+| 2 | minor | TEST-GAP | yes | I1 masked the `Select`-shape message after a DTO `Select`; I1h was used by two rows with different expectations; the scalar predicate was unspecified | I1 defers after any non-subset `Select`; predicates are identical to the parse loop's. `OtherProjectedSource` row re-spelled as L1. I1h no longer in the I1 row (`Select` is out of I1's scope). |
+| 3 | minor | TEST-GAP | yes | ‡ cross-product contradicted D8 and the Distinct+aggregate guard; scalar `Count`/`Any` mislabeled red | ‡ defined per operator. `Count`/`Any` scalar rows are regression rows. AC13-4 I2 says "every terminal that reaches execution". `s.Distinct().Last()` precedence pinned (scalar guard wins; the Last/Distinct check is in `BuildQueryComponents`). |
+| 4 | minor | TEST-GAP | yes | Existing composition tests can't kill "I1 outer to scalar Select" | The killer asserts "must be the outermost query operator"; existing tests are dropped from the killer list. |
+| 5 | minor | HOUSE-RULE (pattern 4) | no (pre-existing; I2's "every path" claim new) | Non-generic `Execute(Expression)` returns the whole list for `First` (K1) | Fixed: dispatch by expression shape. AC13-15 + 3 rows + a mutation row; mapped to Task 4. |
+| 6 | minor | PLAN-GAP | no | Type-filter wording contradicted D5/I3 | Reworded; mutation says "instead of `R`". |
+
+**Author self-check while applying rev 8:** a drafted Task 1 line had the SQLite helper load only
+`integration_test_schema.sql`, which lacks `organization`/`country`. It was corrected to combine that script
+with the existing join-table DDL before commit.
 
 ---
 
