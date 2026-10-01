@@ -363,6 +363,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 
             Assert.AreEqual($"CASE WHEN {first} = 'inst' THEN 0 ELSE 1 END", Fragment(p => p.FirstName == InstanceName ? 0 : 1));
             Assert.AreEqual($"CASE WHEN {Fragment(p => p.Id)} > 0 THEN 'inst' ELSE 'z' END", Fragment(p => p.Id > 0 ? InstanceName : "z"));
+            Assert.AreEqual($"CASE WHEN {Fragment(p => p.Id)} > 0 THEN 'z' ELSE 'inst' END", Fragment(p => p.Id > 0 ? "z" : InstanceName));
         }
 
         [TestMethod]

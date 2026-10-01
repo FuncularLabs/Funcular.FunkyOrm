@@ -17,6 +17,10 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 27 (verification v5 of `92bedba..3f38bb6`, 2026-10-01) — what changed:** 5 nits, no code defect (§9.30).
+>   The ELSE branch is pinned. The Changelog and docs state the full scope of the null, enum and captured-`this`
+>   changes. Comment and §8 wording fixed.
+
 > **Revision 26 (verification v4 of `2720c28..92bedba`, 2026-10-01) — what changed:** 2 minor and 4 nits (§9.29).
 > - **AC12-8:** only `Convert` is read through; `ConvertChecked` is evaluated, as in 3.9.0. Branch values share the
 >   test's operand path, so a captured instance property reads the same in both positions (was `NULL`).
@@ -1189,6 +1193,7 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Catch variables treated as free *(rev 26)* | `BlockOperand_DeclaredVariable_DoesNotReadTheRow` (try/catch operand) |
 | Throw-path message text changed *(rev 26)* | `TernaryOperand_ThatThrows_KeepsThe390Message` |
 | Enums formatted through `Int32` (overflows for a `long` enum) *(rev 26)* | `CapturedCharAndEnum_FormatAsTheirValues` (`byte`/`long` enums) |
+| The ELSE branch value via `BuildValueSql` *(rev 27)* | `CapturedInstanceProperty_SameValueInTestAndBranch` (ELSE row) |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
 | Classifier allow-by-default | `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet` |
 | Per-TFM computed expectation instead of the literal set | `SupportedOperators_ExactLiteralSetPinned` (literal count/signatures) |
@@ -1761,8 +1766,9 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **PostgreSQL enum parameters (pre-existing; v4).** `Where(x => x.Kind == k)` throws `InvalidCastException`
   ("Writing values of '…' is not supported for parameters having NpgsqlDbType 'Integer'") on 3.9.0 and on this
   branch. Reading enum columns works. Follow-up issue.
-- **Checked-arithmetic projects (pre-existing; v4):** every `char` comparison in an ORDER BY ternary throws, because
-  the column side becomes `ConvertChecked`, which `BuildValueSql` doesn't unwrap. Same on 3.9.0.
+- **Checked-arithmetic projects (pre-existing; v4, v5):** a `char` or `byte` comparison in an ORDER BY ternary (any
+  comparison whose column side is converted) throws. The column side becomes `ConvertChecked`, which
+  `BuildValueSql` doesn't unwrap. Same on 3.9.0.
 - **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
@@ -2397,6 +2403,26 @@ Pre-existing items found, now in §8: PostgreSQL enum parameters; `char` compari
 
 Mutations (baseline-aware runner): 6, all killed. They cover: `ConvertChecked` read through; branches via
 `BuildValueSql`; catch variable unregistered; both message texts; enum via `Int32`.
+
+### 9.30 Verification v5 of `92bedba..3f38bb6` (non-author; a 266-shape parity matrix: 4 providers × 2 cultures × net8, plus net48)
+
+Verdict: NOT CLEAN, on nits only. N-1, N-3, N-4 and N-5 RESOLVED; N-2 and N-6 PARTIAL. Every output difference from
+3.9.0 (70 shapes) falls in one of four classes: `IS [NOT] NULL`, enum numbers, a captured `this` property's value, and
+a throwing `this` getter. Evaluation counts match 3.9.0, apart from the `this` getter. Totals: TEST-GAP 1, HOUSE-RULE 4.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| v5-1 (N-2 residual) | nit | TEST-GAP (fix-introduced) | Only THEN was pinned: "ELSE via `BuildValueSql`" survived all four suites. | ELSE row added. Mutant killed on all four. |
+| v5-2 (N-6 residual) | nit | HOUSE-RULE (doc truth) | "A literal … in the test" was false: the compiler folds an enum literal to a number, which 3.9.0 already emitted. | "A captured or computed value in the test, or any enum value in a branch", with a note on folded literals. |
+| v5-3 | nit | HOUSE-RULE (unlisted difference) | A throwing `this` getter (3.9.0: never called, `NULL`) now throws `NotSupportedException`, and the getter runs once per translation. | Added to the Changelog's captured-`this` entry. |
+| v5-4 | nit | HOUSE-RULE (understatement) | The null scope said "literal or variable"; computed nulls changed too. | "Or computed without reading the row" in the Changelog, `Advanced.md` and the AI doc. |
+| v5-5 | nit | HOUSE-RULE (prose drift) | The `OperandSql` summary named only the test, not branches. §8's checked-project entry named only `char`; `byte` throws too. | Both reworded. |
+
+Advisory, not done: a captured `this` property compiles a delegate per visit (≈85 µs; 3.9.0 was fast only because it
+emitted `NULL`). A `PropertyInfo` fast path is a possible follow-up. One pre-existing, out-of-scope finding was
+reported to the owner directly.
+
+Mutations: the ELSE-branch mutant, killed on all four providers.
 
 ---
 

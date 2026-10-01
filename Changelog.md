@@ -24,7 +24,7 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   name". On SQLite, unordered paging on such an
   entity orders by `{table}.rowid`, and `Skip(n)` without `Take` emits `LIMIT -1 OFFSET n` instead of invalid SQL.
 - **A ternary ORDER BY key comparing a member with `null`** (`p.M == null ? 0 : 1`, either operand order, the null
-  written as a literal or held in a variable) emitted
+  written as a literal, held in a variable, or computed without reading the row) emitted
   `= NULL`, which SQL Server rejected and the other providers evaluated wrongly. It now emits `IS NULL` /
   `IS NOT NULL`.
 - **A repeated ordering key** (`OrderBy(a).ThenBy(a)`) failed on SQL Server (error 169). The later duplicate is
@@ -38,11 +38,14 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 - **A terminal over a scalar projection seen as `IQueryable<object>`** (`Select(x => x.Name).Cast<object>().First()`)
   returned the whole list as its "first element". It now throws the scalar-projection message.
 - `Take(n ≤ 0)` returns an empty result without sending a query; `Skip(n < 0)` acts as `Skip(0)`.
-- **An enum value in an ORDER BY ternary** (a literal or a computed value, in the test or a branch) was emitted as
-  its name (`'B'`), so the test compared an integer column with text and branch values sorted by name. It's now
-  the underlying number, as LINQ orders them.
+- **An enum value in an ORDER BY ternary** (a captured or computed value in the test, or any enum value in a
+  branch) was emitted as its name (`'B'`), so the test compared an integer column with text and branch values
+  sorted by name. It's now the underlying number, as LINQ orders them. (An enum literal in the test was already a
+  number: the compiler folds it.)
 - **A property of the enclosing object in an ORDER BY ternary** (captured `this`, e.g. `x.Name == CurrentName ? 0 : 1`
   in an instance method) was emitted as `NULL`. It's now the property's value, in the test and in the branches.
+  The getter now runs once per translation, and one that throws is reported as `NotSupportedException` (3.9.0
+  never called it).
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned

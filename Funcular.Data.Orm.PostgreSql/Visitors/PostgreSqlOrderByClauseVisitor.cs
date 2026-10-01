@@ -181,10 +181,11 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
         }
 
         /// <summary>
-        /// The SQL for one operand of a ternary test. An operand that reads no parameter of the ordering lambda (a
-        /// literal, a captured variable, a call such as <c>names.FirstOrDefault(n =&gt; ...)</c>) is evaluated once and
-        /// formatted as a constant, so its null check and its SQL can't disagree; anything else is translated as a
-        /// column or value. <paramref name="isNull"/> reports an operand that is or evaluates to null.
+        /// The SQL for one operand of a ternary test, or for a THEN/ELSE value. An operand that reads no parameter of
+        /// the ordering lambda (a literal, a captured variable, a call such as
+        /// <c>names.FirstOrDefault(n =&gt; ...)</c>) is evaluated once and formatted as a constant, so its null check
+        /// and its SQL can't disagree; anything else is translated as a column or value. <paramref name="isNull"/>
+        /// reports an operand that is or evaluates to null.
         /// </summary>
         private string OperandSql(Expression operand, out bool isNull)
         {
