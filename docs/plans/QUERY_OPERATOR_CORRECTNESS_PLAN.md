@@ -12,10 +12,19 @@
 > **Status (2026-10-01)**:
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
 > - **Task 0 is complete:** fix-verification r16 of rev 16 (`ed772fb`) is CLEAN, with nits only (§9.16).
->   The §3 ACs are posted to #12/#13. The rev 21 amendments (AC13-2 one-row read, AC13-5 examples) are not
->   posted yet.
-> - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
->   remediated. Tasks 8–11 remain.
+>   The §3 ACs are posted to #12/#13, and the rev 21–29 amendments to #13.
+> - **Tasks 1–11 are complete** on all four providers (§6 statuses). `development/3.10` was pushed at `66bde1e`
+>   after a CLEAN verification.
+> - **Task 12** (owner decision 2026-10-01: ORDER BY values as parameters, before the beta) is in its review loop
+>   (§9.33–§9.36).
+> - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
+
+> **Revision 34 (fix-verification of `66bde1e..4e9030f`, 2026-10-01) — what changed:** no product code changed.
+>   - §8: the SQLite culture entry now names the write path too (F1).
+>   - AC12-10 wording (F2).
+>   - The status block above is brought up to date.
+>   - §9.36 and the Task 12 status.
+>   - Outside the plan: the operator-table wording (F3), and the probe table becomes a fixture table (F4).
 
 > **Revision 33 (fix-verification of `66bde1e..403597b`, 2026-10-01) — what changed:** literal mode no longer
 >   looks for placeholders (R1). The AC12-10 LINQ-parity sentence is narrowed to the test position (R3). Also
@@ -808,7 +817,7 @@ providers** unless stated.
     text, and a dropped term binds nothing.
   Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
   characters, compared in a ternary's test, orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no
-  value appears in the command text. A command carries only the
+  quoted value appears in the command text, in any position *(rev 34, F2)*. A command carries only the
   parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
   generator and still inline values; MySQL's inline literal also escapes backslashes.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
@@ -1817,6 +1826,10 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Mutations: 4. 3 were killed. The fourth reverts nit B and survived as an equivalent mutant: `Bind` can't
       throw for a non-null string, so the order is unobservable. The reorder is defensive only.
     - Suites: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708; net48 76/76; net9 5/5.
+  - **Verification layer 3 (rev 34, §9.36).** Docs and test infrastructure only; no product code changed.
+    - The probe table is a fixture table, so concurrent runs no longer race to drop it.
+    - Six concurrent pairs of the probe test: 12 of 12 passed, and no rows were left behind.
+    - Suites: SqlServer 882, Sqlite 785, PostgreSql 757, MySql 708; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -1973,9 +1986,17 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - PostgreSQL with `standard_conforming_strings=off` treats a backslash in a literal as an escape, which is
     MySQL's problem.
   - MySQL with `NO_BACKSLASH_ESCAPES` keeps the doubled backslash, which changes the value but can't be exploited.
-- **SQLite under the ar-SA culture: reading a date throws `FormatException` (pre-existing; rev 33 reviewer,
-  executed on `66bde1e`; not re-run by the author).** Follow-up candidate: parse stored dates with the invariant
-  culture.
+- **SQLite writes and reads dates in the current culture (pre-existing in 3.9.0; rev 33/34 reviewers, executed;
+  the author confirmed the code by reading).** `SqliteDialect.CreateParameter` formats a `DateTime` as
+  `yyyy-MM-dd HH:mm:ss.fff`, and a `DateTimeOffset` as `yyyy-MM-dd HH:mm:ss.fffffffK`, with no culture
+  (`SqliteDialect.cs:241, 243`).
+  - Under fi-FI, a date is stored as `2026-01-02 03.04.05.000`. Read back under en-US, it throws
+    `FormatException`.
+  - Under ar-SA, the stored year is Hijri. Read back under en-US, it silently becomes a year-1447 date. Reading
+    any date under ar-SA throws.
+  - WHERE and ORDER BY comparisons against such rows mismatch silently (same at `66bde1e` and HEAD).
+  - Follow-up candidate, owner's call (before 3.10.0 or in 3.10.1): write *and* parse with `InvariantCulture`.
+    Fixing the parse alone would leave the stored values wrong.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2648,6 +2669,23 @@ Verdict: NOT CLEAN on minor items. N1–N5 resolved:
 | C | nit | OTHER | The N5 test left `legacy_datetime_probe` in the shared database. | The test drops it in `finally`. |
 
 Also recorded in §8: the literal-mode wording (`DefaultLastOrderBy` builds one), and SQLite under ar-SA (pre-existing).
+
+### 9.36 Fix-verification of `66bde1e..4e9030f` (non-author; 56 shapes × 4 providers × 2 cultures × 3 shas; 17 mutants of its own, all killed)
+
+Verdict: NOT CLEAN on one plan item; the code layer is clean.
+- R1, R2, R3, B and C are resolved, and A partly.
+- Nit B's surviving mutant is confirmed equivalent: `Bind` is non-virtual and cannot throw.
+- HEAD equals `403597b` on all 448 provider rows, and is never worse than `66bde1e`.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| F1 | minor | PLAN-GAP | §8's SQLite culture entry named only the read. The write path (`SqliteDialect.cs:241, 243`) is culture-dependent too: fi-FI stores `.` time separators, and ar-SA stores a Hijri year. Comparisons mismatch silently. Pre-existing in 3.9.0. | §8 entry rewritten; the follow-up is now "write and parse with `InvariantCulture`". Raised to the owner. |
+| F2 | nit | HOUSE-RULE | AC12-10's "no value appears in the command text" contradicted "numbers … stay inline". | Now "no quoted value". |
+| F3 | nit | HOUSE-RULE | The AI doc omitted chars. Neither operator table said that PostgreSQL decides a value's null test. | Both fixed. |
+| F4 | nit | OTHER | Dropping the probe table in `finally` raced across concurrent runs sharing `funky_db`: 4 failures in 20 pairs. | `legacy_datetime_probe` is now a fixture table (`SqlServerTestFixture.EnsureSchema`, like `non_identity_*`); the test deletes only its own rows. |
+
+Also fixed: the status block at the top was stale. Tooling: two anchors in `main_mutations_t12v.py` (#6, #7) were
+re-pointed to the rev 33 code; the reviewer had ported both and they are killed.
 
 ---
 

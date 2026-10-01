@@ -102,6 +102,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                         );
                     END
 
+                    -- A legacy datetime (not datetime2) column, for the 3.10 ORDER BY value tests.
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'legacy_datetime_probe')
+                    BEGIN
+                        CREATE TABLE legacy_datetime_probe (
+                            id INT IDENTITY(1,1) PRIMARY KEY,
+                            label NVARCHAR(50) NOT NULL,
+                            stamp DATETIME NOT NULL
+                        );
+                    END
+
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[person]') AND name = 'employer_id') 
                     BEGIN 
                         ALTER TABLE person ADD employer_id INT NULL; 

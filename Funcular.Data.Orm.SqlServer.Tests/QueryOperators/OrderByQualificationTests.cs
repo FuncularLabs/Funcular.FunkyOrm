@@ -5,7 +5,6 @@ using System.Linq.Expressions;
 using System.Linq;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project;
-using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
@@ -512,15 +511,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         {
             // A datetime (not datetime2) column. 3.9.0's text converts to datetime, so .003 matches the stored .003; a
             // datetime2 parameter compares the column as .0033333 and misses (verification N5). LINQ-to-objects reads
-            // the stored value back as .0033333 too, so this pins 3.9.0's order rather than the oracle's.
-            using (var connection = new SqlConnection(_connectionString))
-            {
-                connection.Open();
-                using var create = connection.CreateCommand();
-                create.CommandText = "IF OBJECT_ID(N'dbo.legacy_datetime_probe') IS NULL CREATE TABLE legacy_datetime_probe "
-                                     + "(id INT IDENTITY(1,1) PRIMARY KEY, label NVARCHAR(50) NOT NULL, stamp DATETIME NOT NULL);";
-                create.ExecuteNonQuery();
-            }
+            // the stored value back as .0033333 too, so this pins 3.9.0's order rather than the oracle's. The table is a
+            // fixture table (SqlServerTestFixture.EnsureSchema); this test touches only its own rows.
             var marker = NewMarker();
             var stamp = new DateTime(2026, 1, 2, 3, 4, 6, 3);
             try
@@ -539,12 +531,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             }
             finally
             {
-                // The table exists only for this test: drop it, rows and all.
-                using var connection = new SqlConnection(_connectionString);
-                connection.Open();
-                using var drop = connection.CreateCommand();
-                drop.CommandText = "DROP TABLE IF EXISTS legacy_datetime_probe;";
-                drop.ExecuteNonQuery();
+                _provider.BeginTransaction();
+                _provider.Delete<LegacyDateTimeProbe>(p => p.Label == marker);
+                _provider.CommitTransaction();
             }
         }
 
