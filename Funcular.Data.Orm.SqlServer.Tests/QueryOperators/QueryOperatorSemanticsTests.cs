@@ -451,7 +451,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 ["FirstPredicate"] = q => q.First(p => p.FirstName == "a"), // "a" is neither the first row nor the max id
                 ["FirstOrDefault"] = q => q.OrderBy(p => p.Id).FirstOrDefault(),
                 ["FirstOrDefaultPredicate"] = q => q.FirstOrDefault(p => p.FirstName == "zzz"),
-                ["Single"] = q => q.Where(p => p.FirstName == "b").Single(),
+                ["Single"] = q => q.Where(p => p.FirstName == "a").Single(),
                 ["SinglePredicate"] = q => q.Single(p => p.FirstName == "a"),
                 ["SingleOrDefault"] = q => q.Where(p => p.FirstName == "zzz").SingleOrDefault(),
                 ["SingleOrDefaultPredicate"] = q => q.SingleOrDefault(p => p.FirstName == "a"),

@@ -243,7 +243,10 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var marker = NewMarker();
             var employer = SeedEmployer("Q310Org_" + marker);
             SeedPerson(marker, "a", employer);
-            SeedPerson(marker, "b", null); // the seeded null
+            // The seeded null. §4.1 seeds remote LEFT-JOIN keys non-null, but this one is harmless: no predicate or
+            // ordering references a remote member (the CASE reads the own column employer_id and is never NULL; Id
+            // breaks ties), so the NULL-joined remote columns can't change which rows match or their order.
+            SeedPerson(marker, "b", null);
             SeedPerson(marker, "c", employer);
 
             Expression<Func<PersonWithEmployer, int>> key;

@@ -5,7 +5,6 @@ using System.Linq.Expressions;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Project;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Npgsql;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
 {
@@ -106,35 +105,6 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
             _provider.Query<ProjectScorecardFull>().Where(p => p.Name == marker).OrderBy(p => p.EffectiveScore).ToList();
 
             Assert.AreEqual("COALESCE(project.score, 0) ASC", OrderByList(), "the [SqlExpression] fragment, unchanged from 3.9.0");
-        }
-
-        /// <summary>
-        /// The PostgreSQL fixture doesn't create the project tables (the SQL Server fixture does); mirror the idempotent
-        /// DDL of <c>PostgreSqlComputedAttributeIntegrationTests</c> so this row doesn't depend on test order.
-        /// </summary>
-        private void EnsureProjectTables()
-        {
-            using (var connection = new NpgsqlConnection(_connectionString))
-            {
-                connection.Open();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = @"
-                        CREATE TABLE IF NOT EXISTS project (
-                            id SERIAL PRIMARY KEY, name VARCHAR(200) NOT NULL, organization_id INT NOT NULL, lead_id INT NULL,
-                            category_id INT NULL, budget NUMERIC(12,2) NULL, score INT NULL, metadata JSONB NULL,
-                            dateutc_created TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc'),
-                            dateutc_modified TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc'));
-                        CREATE TABLE IF NOT EXISTS project_milestone (
-                            id SERIAL PRIMARY KEY, project_id INT NOT NULL, title VARCHAR(200) NOT NULL,
-                            status VARCHAR(50) NOT NULL DEFAULT 'pending', due_date DATE NULL, completed_date DATE NULL);
-                        CREATE TABLE IF NOT EXISTS project_note (
-                            id SERIAL PRIMARY KEY, project_id INT NOT NULL, author_id INT NULL, content TEXT NOT NULL,
-                            category VARCHAR(50) NOT NULL DEFAULT 'general',
-                            dateutc_created TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc'));";
-                    command.ExecuteNonQuery();
-                }
-            }
         }
 
         #endregion

@@ -23,6 +23,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         private const string CompositionMessage = "must be the outermost query operator";
         private const string SelectShapeMessage = "A top-level Select must project to";
         private const string ScalarGuardMessage = "is only supported for a list/enumeration result";
+        private const string CastMessage = "supports only identity and reference-conversion casts";
 
         /// <summary>Spells a conversion both ways: the no-node reference conversion, or a <c>Cast</c> node.</summary>
         private static IQueryable<TBase> Convert<TBase>(IQueryable<PersonWithEmployer> query, string spelling) where TBase : class =>
@@ -92,18 +93,25 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => run(query, other));
             StringAssert.Contains(ex.Message, op);
+            // The policy's message, not an older guard that happens to name the operator (AC13-8).
+            StringAssert.Contains(ex.Message, PolicyMessage);
         }
 
         [TestMethod]
         public void Allowed_PredicateWithCollectionContains_NotRejected()
         {
             var (marker, ids) = SeedAbc();
-            var wanted = new List<int> { ids[0], ids[2] };
+            var expected = new List<int> { ids[0], ids[2] };
+            var list = new List<int>(expected);
+            IEnumerable<int> sequence = expected;
 
-            // Lambdas nested inside allowed operators aren't inspected: Enumerable.Contains stays legal here.
-            var rows = People(marker).Where(p => wanted.Contains(p.Id)).OrderBy(p => p.Id).ToList();
+            // Lambdas nested inside allowed operators aren't inspected: neither List<T>.Contains (an instance method)
+            // nor Enumerable.Contains (a static non-Queryable method, through IEnumerable<int>) is rejected.
+            var byList = People(marker).Where(p => list.Contains(p.Id)).OrderBy(p => p.Id).ToList();
+            var bySequence = People(marker).Where(p => sequence.Contains(p.Id)).OrderBy(p => p.Id).ToList();
 
-            CollectionAssert.AreEqual(wanted, rows.Select(r => r.Id).ToList());
+            CollectionAssert.AreEqual(expected, byList.Select(r => r.Id).ToList(), "List<T>.Contains");
+            CollectionAssert.AreEqual(expected, bySequence.Select(r => r.Id).ToList(), "Enumerable.Contains");
         }
 
         [TestMethod]
@@ -413,9 +421,17 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             if (position == "root")
             {
                 // At the root nothing can scope the query before the conversion: compare with the concrete query.
+                if (terminal == "Single")
+                {
+                    // Single over the whole table must throw "more than one element", on both sides.
+                    Assert.ThrowsException<InvalidOperationException>(() => RunTerminal(_provider.Query<PersonWithEmployer>(), terminal));
+                    Assert.ThrowsException<InvalidOperationException>(() =>
+                        RunTerminal(Convert<object>(_provider.Query<PersonWithEmployer>(), spelling), terminal));
+                    return;
+                }
                 AssertSameOutcome(() => RunTerminal(_provider.Query<PersonWithEmployer>(), terminal),
                     () => RunTerminal(Convert<object>(_provider.Query<PersonWithEmployer>(), spelling), terminal), terminal + " at root",
-                    requireSuccess: terminal != "Single");
+                    requireSuccess: true);
                 return;
             }
 
@@ -500,6 +516,17 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void ScalarProjection_WithReducingTerminals_ThrowNotSupported()
+        {
+            var (marker, _) = SeedAbc();
+
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).LongCount());
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).ElementAt(0));
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).Contains(1));
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).Aggregate((a, b) => a + b));
+        }
+
+        [TestMethod]
         public void ScalarProjection_WithSingleOrLast_ThrowsNotSupported()
         {
             var (marker, _) = SeedAbc();
@@ -530,6 +557,30 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
             StringAssert.Contains(ex.Message, "Reverse");
             Assert.IsFalse(ex.Message.Contains(PagingMessage), "the allow-list failure must win over D8: " + ex.Message);
+        }
+
+        [TestMethod]
+        public void Rejected_OutermostAllowListFailureWins()
+        {
+            var (marker, _) = SeedAbc();
+            var query = People(marker).Reverse().TakeWhile(p => p.Id > 0);
+
+            // Pass 1 walks outer→inner; with two allow-list failures the outermost (TakeWhile) is reported.
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, "TakeWhile");
+            Assert.IsFalse(ex.Message.Contains("Reverse"), "the outermost failure wins: " + ex.Message);
+        }
+
+        [TestMethod]
+        public void Rejected_Pass2InnerFailureWins()
+        {
+            var (marker, _) = SeedAbc();
+            var query = People(marker).Cast<Address>().Take(1);
+
+            // Pass 2 walks inner→outer: the unrelated-type Cast (D5) is met before Count-after-Take (D8).
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.Count());
+            StringAssert.Contains(ex.Message, CastMessage);
+            Assert.IsFalse(ex.Message.Contains(PagingMessage), "the inner D5 failure wins over the outer D8 one: " + ex.Message);
         }
 
         #endregion

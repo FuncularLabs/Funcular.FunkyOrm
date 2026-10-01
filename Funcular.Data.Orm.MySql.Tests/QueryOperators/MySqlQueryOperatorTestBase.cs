@@ -64,6 +64,25 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             return person.Id;
         }
 
+        private readonly List<string> _projectMarkers = new List<string>();
+
+        /// <summary>Seeds a project (for computed members such as <c>EffectiveScore = COALESCE(score, 0)</c>).</summary>
+        protected int SeedProject(string marker, int organizationId, int? score)
+        {
+            if (!_projectMarkers.Contains(marker))
+                _projectMarkers.Add(marker);
+            var project = new Project
+            {
+                Name = marker,
+                OrganizationId = organizationId,
+                Score = score,
+                DateUtcCreated = DateTime.UtcNow,
+                DateUtcModified = DateTime.UtcNow
+            };
+            _provider.Insert(project);
+            return project.Id;
+        }
+
         /// <summary>Seeds people in order (ascending ids), all under one employer.</summary>
         protected List<int> SeedPeople(string marker, int? employerId, params string[] firstNames) =>
             firstNames.Select(f => SeedPerson(marker, f, employerId)).ToList();
@@ -84,11 +103,13 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         {
             try
             {
-                if (_markers.Count == 0 && _employers.Count == 0)
+                if (_markers.Count == 0 && _employers.Count == 0 && _projectMarkers.Count == 0)
                     return;
                 _provider.BeginTransaction();
                 try
                 {
+                    foreach (var marker in _projectMarkers)
+                        _provider.Delete<Project>(p => p.Name == marker);
                     foreach (var marker in _markers)
                         _provider.Delete<Person>(p => p.LastName == marker);
                     foreach (var organizationId in _employers)

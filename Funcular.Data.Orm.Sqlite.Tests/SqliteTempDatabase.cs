@@ -42,9 +42,10 @@ CREATE TABLE IF NOT EXISTS project_note (id INTEGER PRIMARY KEY AUTOINCREMENT, p
                 if (File.Exists(path))
                     File.Delete(path);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                // A handle is still open: leave the file. The transactional cleanup has already removed the seeded rows.
+                // A handle is still open (Windows reports a locked file either way): leave the file. The transactional
+                // cleanup has already removed the seeded rows.
             }
         }
     }

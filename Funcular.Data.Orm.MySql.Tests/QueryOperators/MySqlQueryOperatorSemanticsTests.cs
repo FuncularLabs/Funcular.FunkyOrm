@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text.RegularExpressions;
 using Funcular.Data.Orm.Attributes;
 using Funcular.Data.Orm.MySql.Tests.Domain;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -95,6 +96,38 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 
         #endregion
 
+        #region Harness positive control
+
+        /// <summary>
+        /// <c>AssertNoQuery</c> relies on every execution path logging its command. If a new reader path skipped
+        /// <c>Log</c>, "no query executed" would pass vacuously: this pins that each path is observed.
+        /// </summary>
+        [TestMethod]
+        public void Harness_LogObservesEveryExecutionPath()
+        {
+            var (marker, _) = SeedAbc();
+            var query = People(marker);
+            var paths = new Dictionary<string, Action>
+            {
+                ["enumeration"] = () => query.ToList(),
+                ["entity terminal"] = () => query.OrderBy(p => p.Id).FirstOrDefault(),
+                ["Count"] = () => query.Count(),
+                ["Any"] = () => query.Any(),
+                ["selector aggregate"] = () => query.Max(p => p.Id),
+                ["scalar projection"] = () => query.Select(p => p.Id).ToList(),
+                ["non-generic Execute"] = () => query.Provider.Execute(query.Expression),
+            };
+
+            foreach (var path in paths)
+            {
+                ClearLog();
+                path.Value();
+                Assert.AreNotEqual(string.Empty, Sql, path.Key + " must log its command");
+            }
+        }
+
+        #endregion
+
         #region AC13-1 Single / SingleOrDefault
 
         [TestMethod]
@@ -155,7 +188,8 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var row = People(marker).Single(p => p.FirstName == "b");
 
             Assert.AreEqual(ids[1], row.Id);
-            StringAssert.Contains(Sql, "LIMIT 2", "Single reads at most two rows");
+            // Word-bounded: a plain substring would also accept "LIMIT 2147483647".
+            StringAssert.Matches(Sql, new Regex(@"\bLIMIT 2\b"), "Single reads at most two rows");
             Assert.IsFalse(Sql.Contains("ORDER BY"), "no ORDER BY may be synthesized for Single (not the paging path): " + Sql);
         }
 
@@ -228,8 +262,11 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         {
             var (marker, ids) = SeedAbc();
 
-            // Rules out the first row (3.9.0).
+            // Rules out the first row (3.9.0). The SQL assert carries the kill where an unordered read comes back in
+            // InnoDB clustered-index (id) order, which is not a guarantee: taking its last row lands on the max id by chance.
+            ClearLog();
             Assert.AreEqual(ids[2], People(marker).Last().Id);
+            StringAssert.Contains(OrderByList(), $"{PersonTable}.id DESC", "default Id DESC, table-qualified on a join entity");
         }
 
         [TestMethod]
@@ -266,13 +303,35 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var employerB = SeedEmployer("Q310B_" + marker);
             var employerA = SeedEmployer("Q310A_" + marker);
             SeedPerson(marker, "a", employerB);
-            SeedPerson(marker, "b", employerA);
-            var c = SeedPerson(marker, "c", employerB);
+            var b = SeedPerson(marker, "b", employerB);
+            SeedPerson(marker, "c", employerA);
 
-            // Order: (A,b) (B,a) (B,c) → last is c. Not inverting the remote term gives b.
+            // Order: (A,c) (B,a) (B,b) → last is b, which is not the max id: rules out an Id DESC fallback (c) and
+            // not inverting the remote term (c).
+            ClearLog();
             var row = People(marker).OrderBy(p => p.EmployerName).ThenBy(p => p.Id).Last();
 
-            Assert.AreEqual(c, row.Id);
+            Assert.AreEqual(b, row.Id);
+            StringAssert.Contains(OrderByList(), $"{PersonTable}.id DESC", "the inverted explicit Id term stays qualified");
+        }
+
+        [TestMethod]
+        public void Last_AfterComputedOrderBy_InvertsComputedTerm()
+        {
+            var marker = NewMarker();
+            var organization = SeedEmployer("Q310Org_" + marker);
+            // EffectiveScore = COALESCE(score, 0). Scores in id order 9, null, 5 → ascending order (0) (5) (9) → last is
+            // the score-9 project, the MIN id. No inversion gives the null-score one; an Id DESC fallback the score-5 one.
+            var expected = SeedProject(marker, organization, 9);
+            SeedProject(marker, organization, null);
+            SeedProject(marker, organization, 5);
+
+            ClearLog();
+            var row = _provider.Query<ProjectScorecard>().Where(p => p.Name == marker).OrderBy(p => p.EffectiveScore).Last();
+
+            Assert.AreEqual(expected, row.Id);
+            // Spelling captured from 3.9.0 (6542796) by a throwaway probe of OrderByDescending(EffectiveScore), 2026-10-01.
+            StringAssert.Contains(OrderByList(), "COALESCE(project.score, 0) DESC", "a computed fragment is inverted whole");
         }
 
         [TestMethod]
@@ -292,9 +351,12 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         [TestMethod]
         public void LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle()
         {
-            var (marker, _) = SeedAbc();
+            var marker = NewMarker();
+            SeedPeople(marker, null, "c", "b", "a");
 
-            AssertMatchesOracle(marker, q => q.OrderBy(p => p.Id).LastOrDefault(p => p.FirstName != "c"));
+            // By FirstName: a, b, c → matching (!= "c"): a, b → last is b. Among the matches the max id is a, so an
+            // Id DESC fallback that ignores the explicit order gives a.
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName).LastOrDefault(p => p.FirstName != "c"));
         }
 
         [TestMethod]
@@ -356,11 +418,11 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         {
             var (marker, _) = SeedAbc();
 
-            object count = People(marker).LongCount();
+            // The static type is long; the failure mode in 3.9.0 is the InvalidCastException while producing it.
+            long count = People(marker).LongCount();
 
-            Assert.IsInstanceOfType(count, typeof(long));
             Assert.AreEqual(3L, count);
-            Assert.AreEqual(People(marker).Count(), (int)(long)count);
+            Assert.AreEqual(People(marker).Count(), (int)count);
         }
 
         [TestMethod]
@@ -375,6 +437,13 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         [TestMethod]
         public void LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported()
         {
+            // Precondition: the entity really resolves PersonId through a reverse join, so Count (3.9.0) already throws
+            // the reverse-join message. Without it, the LongCount assert could pass or fail for an unrelated reason.
+            var precondition = Assert.ThrowsException<NotSupportedException>(() =>
+                _provider.Query<OrganizationReverseDetailEntity>().Where(c => c.PersonId == 1).Count(),
+                "precondition: Count filtered by the reverse key throws the reverse-join message");
+            StringAssert.Contains(precondition.Message, "reverse", "precondition");
+
             var ex = Assert.ThrowsException<NotSupportedException>(() =>
                 _provider.Query<OrganizationReverseDetailEntity>().Where(c => c.PersonId == 1).LongCount());
             StringAssert.Contains(ex.Message, "reverse");
@@ -392,22 +461,22 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 ["SelectScalar"] = q => q.OrderBy(p => p.FirstName).Select(p => p.FirstName).ToList(),
                 ["OrderBy"] = q => q.OrderBy(p => p.FirstName).ToList(),
                 ["OrderByDescending"] = q => q.OrderByDescending(p => p.FirstName).ToList(),
-                // One shared employer: EmployerId ties and Id decides.
-                ["ThenBy"] = q => q.OrderBy(p => p.EmployerId).ThenBy(p => p.Id).ToList(),
-                ["ThenByDescending"] = q => q.OrderBy(p => p.EmployerId).ThenByDescending(p => p.Id).ToList(),
+                // One shared employer: EmployerId ties and FirstName decides (PersonWithEmployer maps no Gender).
+                ["ThenBy"] = q => q.OrderBy(p => p.EmployerId).ThenBy(p => p.FirstName).ToList(),
+                ["ThenByDescending"] = q => q.OrderBy(p => p.EmployerId).ThenByDescending(p => p.FirstName).ToList(),
                 ["SkipTake"] = q => q.OrderBy(p => p.Id).Skip(1).Take(1).ToList(),
-                ["Distinct"] = q => q.OrderBy(p => p.FirstName).Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Distinct().ToList(),
+                ["Distinct"] = q => q.Select(p => p.EmployerId).Distinct().ToList(), // three rows, one employer: Distinct must collapse them
                 ["First"] = q => q.OrderBy(p => p.Id).First(),
-                ["FirstPredicate"] = q => q.First(p => p.FirstName == "b"),
+                ["FirstPredicate"] = q => q.First(p => p.FirstName == "a"), // "a" is neither the first row nor the max id
                 ["FirstOrDefault"] = q => q.OrderBy(p => p.Id).FirstOrDefault(),
                 ["FirstOrDefaultPredicate"] = q => q.FirstOrDefault(p => p.FirstName == "zzz"),
-                ["Single"] = q => q.Where(p => p.FirstName == "b").Single(),
-                ["SinglePredicate"] = q => q.Single(p => p.FirstName == "b"),
+                ["Single"] = q => q.Where(p => p.FirstName == "a").Single(),
+                ["SinglePredicate"] = q => q.Single(p => p.FirstName == "a"),
                 ["SingleOrDefault"] = q => q.Where(p => p.FirstName == "zzz").SingleOrDefault(),
-                ["SingleOrDefaultPredicate"] = q => q.SingleOrDefault(p => p.FirstName == "b"),
-                ["Last"] = q => q.OrderBy(p => p.FirstName).Last(),
-                ["LastPredicate"] = q => q.OrderBy(p => p.Id).Last(p => p.FirstName != "c"),
-                ["LastOrDefault"] = q => q.OrderBy(p => p.Id).LastOrDefault(),
+                ["SingleOrDefaultPredicate"] = q => q.SingleOrDefault(p => p.FirstName == "a"),
+                ["Last"] = q => q.OrderByDescending(p => p.FirstName).Last(),
+                ["LastPredicate"] = q => q.OrderByDescending(p => p.FirstName).Last(p => p.FirstName != "a"),
+                ["LastOrDefault"] = q => q.OrderByDescending(p => p.FirstName).LastOrDefault(),
                 ["LastOrDefaultPredicate"] = q => q.OrderBy(p => p.Id).LastOrDefault(p => p.FirstName == "zzz"),
                 ["Any"] = q => q.Any(),
                 ["AnyPredicate"] = q => q.Any(p => p.FirstName == "b"),
@@ -459,7 +528,10 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         [DataRow("OfTypeIdentity")]
         public void Allowed_Operator_MatchesOracle(string family)
         {
-            var (marker, _) = SeedAbc();
+            // Seeded b, a, c (ascending ids), so FirstName order differs from id order: a dropped or ignored ordering,
+            // or a Last* that falls back to Id DESC, gives a different answer.
+            var marker = NewMarker();
+            SeedPeople(marker, SeedEmployer("Q310Org_" + marker), "b", "a", "c");
 
             AssertMatchesOracle(marker, AllowedFamilies[family], family);
         }
@@ -508,7 +580,22 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             SeedPerson(marker, "b", null); // a seeded null: OfType would have to drop it
             var query = People(marker).Select(p => p.EmployerId).OfType<int?>();
 
-            AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, "OfType");
+            StringAssert.Contains(ex.Message, "!= null", "the message points to filtering nulls before the projection");
+        }
+
+        [TestMethod]
+        public void OfType_Identity_OverReferenceScalar_Rejected()
+        {
+            var (marker, _) = SeedAbc();
+            // person.first_name is NOT NULL and PersonWithEmployer maps no nullable own string column, so no null is
+            // seeded: the rejection is by the element type (a reference type OfType may have to filter), not by the data.
+            var query = People(marker).Select(p => p.FirstName).OfType<string>();
+
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, "OfType");
+            StringAssert.Contains(ex.Message, "!= null", "the message points to filtering nulls before the projection");
         }
 
         [TestMethod]
@@ -517,7 +604,8 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var (marker, _) = SeedAbc();
             var query = People(marker).OfType<PersonBase>();
 
-            AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, "OfType");
         }
 
         [TestMethod]
@@ -593,7 +681,8 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var (marker, _) = SeedAbc();
             var query = People(marker).Select(p => p.Id).Cast<object>();
 
-            AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, "supports only identity and reference-conversion casts");
         }
 
         [TestMethod]
@@ -602,7 +691,8 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             var (marker, _) = SeedAbc();
             var query = People(marker).Cast<Address>();
 
-            AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, "supports only identity and reference-conversion casts");
         }
 
         #endregion

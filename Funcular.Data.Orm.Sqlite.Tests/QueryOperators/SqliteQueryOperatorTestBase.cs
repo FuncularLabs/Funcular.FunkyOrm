@@ -8,6 +8,7 @@ using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Address;
 using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Country;
 using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Organization;
 using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Project;
 
 namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 {
@@ -52,15 +53,16 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             };
         }
 
-        // MSTest's InheritanceBehavior has no "After" member; BeforeEachDerivedClass runs this for each derived class.
-        [ClassCleanup(InheritanceBehavior.BeforeEachDerivedClass)]
-        public static void DeleteDatabases()
+        /// <summary>
+        /// Deletes only <paramref name="testClass"/>'s database: another class may still be using its own. Each derived
+        /// class calls this from its own <c>[ClassCleanup]</c> with <c>typeof</c> itself. An inherited cleanup can't tell
+        /// the classes apart: MSTest runs the inherited cleanups together at the end of the assembly, all with the last
+        /// test's <see cref="TestContext"/>.
+        /// </summary>
+        protected static void DeleteClassDatabase(Type testClass)
         {
-            foreach (var type in DatabasePaths.Keys.ToList())
-            {
-                if (DatabasePaths.TryRemove(type, out var path))
-                    SqliteTempDatabase.Delete(path);
-            }
+            if (DatabasePaths.TryRemove(testClass, out var path))
+                SqliteTempDatabase.Delete(path);
         }
 
         protected string NewMarker()
@@ -100,6 +102,25 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             return person.Id;
         }
 
+        private readonly List<string> _projectMarkers = new List<string>();
+
+        /// <summary>Seeds a project (for computed members such as <c>EffectiveScore = COALESCE(score, 0)</c>).</summary>
+        protected int SeedProject(string marker, int organizationId, int? score)
+        {
+            if (!_projectMarkers.Contains(marker))
+                _projectMarkers.Add(marker);
+            var project = new ProjectEntity
+            {
+                Name = marker,
+                OrganizationId = organizationId,
+                Score = score,
+                DateUtcCreated = DateTime.UtcNow,
+                DateUtcModified = DateTime.UtcNow
+            };
+            _provider.Insert(project);
+            return project.Id;
+        }
+
         /// <summary>Seeds people in order (ascending ids), all under one employer.</summary>
         protected List<int> SeedPeople(string marker, int? employerId, params string[] firstNames) =>
             firstNames.Select(f => SeedPerson(marker, f, employerId)).ToList();
@@ -120,11 +141,13 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
         {
             try
             {
-                if (_markers.Count == 0 && _employers.Count == 0)
+                if (_markers.Count == 0 && _employers.Count == 0 && _projectMarkers.Count == 0)
                     return;
                 _provider.BeginTransaction();
                 try
                 {
+                    foreach (var marker in _projectMarkers)
+                        _provider.Delete<ProjectEntity>(p => p.Name == marker);
                     foreach (var marker in _markers)
                         _provider.Delete<PersonEntity>(p => p.LastName == marker);
                     foreach (var (countryId, addressId, organizationId) in _employers)

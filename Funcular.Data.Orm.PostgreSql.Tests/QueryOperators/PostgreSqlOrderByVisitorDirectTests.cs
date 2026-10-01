@@ -59,6 +59,19 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void MapHit_ComputedFragment_NeverPrefixed()
+        {
+            // A computed member ([SqlExpression]/[JsonPath]/[SubqueryAggregate]) resolves through the map to a full
+            // expression; on a join entity it must not gain the base-table prefix. PostgreSQL leaves a [SqlExpression]
+            // fragment's own-table reference unquoted (COALESCE(project.score, 0), captured from 3.9.0).
+            var map = new Dictionary<string, string> { ["Gender"] = "COALESCE(person.gender, 'U')" };
+
+            var visitor = Visit(Source.OrderBy(p => p.Gender).ThenByDescending(p => p.Id).Expression, "person", map);
+
+            Assert.AreEqual("ORDER BY COALESCE(person.gender, 'U') ASC, person.id DESC", visitor.OrderByClause);
+        }
+
+        [TestMethod]
         public void OrderByTerms_ExposeFragmentsAndDirections()
         {
             var visitor = Visit(Source.OrderBy(p => p.Id).ThenByDescending(p => p.FirstName).Expression, "person");

@@ -14,6 +14,9 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
     [TestClass]
     public class SqliteOrderByQualificationTests : SqliteQueryOperatorTestBase
     {
+        [ClassCleanup]
+        public static void DeleteDatabase() => DeleteClassDatabase(typeof(SqliteOrderByQualificationTests));
+
         #region AC12-1
 
         [DataTestMethod]

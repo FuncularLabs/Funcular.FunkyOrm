@@ -71,6 +71,22 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void MapHit_ComputedFragment_NeverPrefixed()
+        {
+            // A computed member ([SqlExpression]/[JsonPath]/[SubqueryAggregate]) resolves through the map to a full
+            // expression; with a table qualifier it must not gain the base-table prefix. The fragment is
+            // ProjectScorecard.EffectiveScore as 3.9.0 resolves it (unquoted, like every MySQL computed fragment).
+            var map = new Dictionary<string, string> { [nameof(ProjectScorecard.EffectiveScore)] = "COALESCE(project.score, 0)" };
+            var columns = new ConcurrentDictionary<string, string>();
+            columns[typeof(ProjectScorecard).GetProperty(nameof(ProjectScorecard.Id)).ToDictionaryKey()] = "id";
+            var visitor = new MySqlOrderByClauseVisitor<ProjectScorecard>(columns, new List<PropertyInfo>(), map, "project");
+
+            visitor.Visit(new List<ProjectScorecard>().AsQueryable().OrderBy(p => p.EffectiveScore).ThenByDescending(p => p.Id).Expression);
+
+            Assert.AreEqual("ORDER BY COALESCE(project.score, 0) ASC, project.id DESC", visitor.OrderByClause);
+        }
+
+        [TestMethod]
         public void OrderByTerms_ExposeFragmentsAndDirections()
         {
             var visitor = Visit(Source.OrderBy(p => p.Id).ThenByDescending(p => p.FirstName).Expression, "person");
