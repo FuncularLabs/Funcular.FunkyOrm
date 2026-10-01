@@ -127,8 +127,19 @@ namespace Funcular.Data.Orm.SqlServer
             // IQueryable<object> view requests object, and an enumerated Cast<object>() requests IEnumerable<object>.
             bool isCollection = typeof(IQueryable).IsAssignableFrom(expression.Type);
 
+            // Take(n <= 0): no command. Decided by the expression's shape (I2), never by TResult.
+            if (components.IsEmptyByTake)
+                return EmptyResult<TResult>(expression, isCollection);
+
             TResult executeResult;
-            if (components.IsAggregate)
+            if (components.Terminal == "Single" || components.Terminal == "SingleOrDefault")
+            {
+                // Up to two rows through the list path, then LINQ's cardinality rules.
+                string commandText = BuildQueryComponents(components);
+                var rows = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
+                executeResult = SingleOf<TResult>(rows, components.Terminal, ((MethodCallExpression)expression).Arguments.Count == 2);
+            }
+            else if (components.IsAggregate)
             {
                 executeResult = HandleAggregateQuery<TResult>(components, expression);
             }
@@ -154,6 +165,8 @@ namespace Funcular.Data.Orm.SqlServer
             // decided by the expression's shape (I2).
             ScalarProjectionGuard.EnsureCollectionResult(expression, typeof(TResult), components.ScalarMemberType);
             var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
+            if (components.IsEmptyByTake)
+                return (TResult)Activator.CreateInstance(listType);
 
             string commandText = BuildQueryComponents(components);
             var entities = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
@@ -167,6 +180,36 @@ namespace Funcular.Data.Orm.SqlServer
             foreach (var e in entities)
                 list.Add(boxed(e));
             return (TResult)(object)list;
+        }
+
+        /// <summary>
+        /// The result of a <c>Take(n &lt;= 0)</c> query on the entity path: an empty list for a collection, "no elements"
+        /// for <c>First</c>/<c>Single</c>/<c>Last</c>, <c>default</c> for <c>*OrDefault</c>.
+        /// </summary>
+        private static TResult EmptyResult<TResult>(Expression expression, bool isCollection)
+        {
+            if (isCollection)
+                return (TResult)(object)new List<T>();
+            var terminal = (expression as MethodCallExpression)?.Method.Name;
+            if (terminal == "First" || terminal == "Single" || terminal == "Last")
+                throw new InvalidOperationException("Sequence contains no elements");
+            return default(TResult);
+        }
+
+        /// <summary>
+        /// LINQ's <c>Single</c>/<c>SingleOrDefault</c> cardinality over the (at most two) rows read.
+        /// </summary>
+        private static TResult SingleOf<TResult>(List<T> rows, string terminal, bool hasPredicate)
+        {
+            if (rows.Count > 1)
+                throw new InvalidOperationException(hasPredicate
+                    ? "Sequence contains more than one matching element"
+                    : "Sequence contains more than one element");
+            if (rows.Count == 1)
+                return (TResult)(object)rows[0];
+            if (terminal == "Single")
+                throw new InvalidOperationException(hasPredicate ? "Sequence contains no matching element" : "Sequence contains no elements");
+            return default(TResult);
         }
 
         /// <summary>
@@ -257,15 +300,20 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     object value = ((ConstantExpression)currentCall.Arguments[1]).Value;
                     if (value != null)
-                        components.Skip = (int)value;
+                        components.Skip = Math.Max(0, (int)value); // Skip(n < 0) behaves as Skip(0)
                 }
                 else if (currentCall.Method.Name == "Take")
                 {
                     object value = ((ConstantExpression)currentCall.Arguments[1]).Value;
                     if (value != null)
+                    {
                         components.Take = (int)value;
+                        // Take(n <= 0) is empty: it's answered without a command (Execute / ExecuteScalarProjection).
+                        if ((int)value <= 0)
+                            components.IsEmptyByTake = true;
+                    }
                 }
-                else if ((currentCall.Method.Name == "FirstOrDefault" || currentCall.Method.Name == "First" || currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last") && currentCall.Arguments.Count == 2)
+                else if ((currentCall.Method.Name == "FirstOrDefault" || currentCall.Method.Name == "First" || currentCall.Method.Name == "SingleOrDefault" || currentCall.Method.Name == "Single" || currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last") && currentCall.Arguments.Count == 2)
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
                     var whereExpression = (Expression<Func<T, bool>>)lambda;
@@ -410,6 +458,18 @@ namespace Funcular.Data.Orm.SqlServer
                 throw new NotSupportedException(
                     "Distinct() combined with an aggregate (e.g. Count) is not supported in this version. " +
                     "Apply the aggregate without Distinct, or materialize the distinct rows and count client-side.");
+
+            // Single*: read at most two rows to check cardinality. Without user paging that is a row limit (no ORDER BY
+            // is synthesized); with user Skip/Take it caps the page at min(Take ?? 2, 2).
+            var terminal = (expression as MethodCallExpression)?.Method.Name;
+            if (terminal == "Single" || terminal == "SingleOrDefault")
+            {
+                components.Terminal = terminal;
+                if (components.Skip.HasValue || components.Take.HasValue)
+                    components.Take = Math.Min(components.Take ?? 2, 2);
+                else
+                    components.RowLimit = 2;
+            }
 
             return components;
         }
@@ -731,6 +791,14 @@ namespace Funcular.Data.Orm.SqlServer
                 var trimmedSelect = selectPart.TrimStart();
                 if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
                     selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
+            }
+
+            // Single*: SELECT [DISTINCT] TOP (n), with no ORDER BY synthesized.
+            if (components.RowLimit.HasValue)
+            {
+                var trimmedRowLimitSelect = selectPart.TrimStart();
+                var keyword = trimmedRowLimitSelect.StartsWith("SELECT DISTINCT ", StringComparison.OrdinalIgnoreCase) ? "SELECT DISTINCT " : "SELECT ";
+                selectPart = keyword + $"TOP ({components.RowLimit.Value}) " + trimmedRowLimitSelect.Substring(keyword.Length);
             }
 
             // If fromPart contains a WHERE clause from the base command, strip it

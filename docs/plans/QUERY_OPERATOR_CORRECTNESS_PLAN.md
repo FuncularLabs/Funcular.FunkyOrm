@@ -1480,6 +1480,20 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **Task 5 — `Single*` row limit, `Skip`/`Take` values, empty-`Take` short-circuit (I2-based)** (4 providers).
   → AC13-1, AC13-10 (remaining allowed rows, and empty rows), entity-source covariant `Single` row of AC13-4,
   AC13-5's `Allowed[SinglePredicate]`/`[SingleOrDefaultPredicate]` rows.
+  - **Status (2026-10-01): done (4 providers).**
+    - `Single*`: predicates route to WHERE; the terminal is recorded.
+      - No user paging: `RowLimit = 2` (SQL Server `SELECT [DISTINCT] TOP (2)`, the others `LIMIT 2`), with no
+        ORDER BY synthesized.
+      - User paging: `Take = min(Take ?? 2, 2)`.
+      - Reads go through the list path, then LINQ's cardinality rules.
+    - `Skip(n < 0)` clamps to 0. `Take(n <= 0)` sets `IsEmptyByTake`, which is answered without a command:
+      - on the entity path after the scalar dispatch (empty list / "no elements" / `default`, by expression shape);
+      - on the scalar path after `ScalarProjectionGuard`.
+    - Red → green on every provider: every AC13-1 test, every `Take0_*`/`TakeNonPositive` row, `SkipNegative`
+      (already green on SQLite), the two `Allowed[Single*Predicate]` rows, and the root `Single` covariant rows.
+    - No green → red; the existing suites are unchanged.
+    - **Mutations run (SQL Server): 13, all killed.** One was first written in the wrong direction ("decides by
+      `TResult` assignability" must mean `TResult ⊇ List<T>`); corrected and killed.
 - **Task 6 — Visitor `OrderByTerms` + ternary null** (4 providers).
   → AC12-8.
 - **Task 7 — `Last*`** (4 providers).
