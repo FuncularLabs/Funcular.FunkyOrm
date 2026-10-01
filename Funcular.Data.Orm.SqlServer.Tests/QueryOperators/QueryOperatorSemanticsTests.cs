@@ -274,10 +274,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         public void Last_AfterOrderByThenByDescending_InvertsEveryTerm()
         {
             var marker = NewMarker();
-            SeedPerson(marker, "a", gender: "G1");
-            SeedPerson(marker, "b", gender: "G1");
-            SeedPerson(marker, "a", gender: "G2");
-            SeedPerson(marker, "b", gender: "G2");
+            var employer = SeedEmployer("Q310Country_" + marker);
+            SeedPerson(marker, "a", employer, gender: "G1");
+            SeedPerson(marker, "b", employer, gender: "G1");
+            SeedPerson(marker, "a", employer, gender: "G2");
+            SeedPerson(marker, "b", employer, gender: "G2");
 
             // Order: (G1,b) (G1,a) (G2,b) (G2,a) → last is (G2,a). Inverting only the first term gives (G2,b).
             AssertMatchesOracle(marker, q => q.OrderBy(p => p.Gender).ThenByDescending(p => p.FirstName).Last());
@@ -324,9 +325,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         public void Last_AfterTernaryOrderBy_InvertsCaseTerm()
         {
             var marker = NewMarker();
-            SeedPerson(marker, "a", middleInitial: "Z");
-            SeedPerson(marker, "b", middleInitial: "M");
-            SeedPerson(marker, "c", middleInitial: "Z");
+            var employer = SeedEmployer("Q310Country_" + marker);
+            SeedPerson(marker, "a", employer, middleInitial: "Z");
+            SeedPerson(marker, "b", employer, middleInitial: "M");
+            SeedPerson(marker, "c", employer, middleInitial: "Z");
 
             // Keys a=0, b=1, c=0 → order a, c, b → last is b. Not inverting the CASE term gives c.
             AssertMatchesOracle(marker, q => q.OrderBy(p => p.MiddleInitial == "Z" ? 0 : 1).ThenBy(p => p.Id).Last());
@@ -470,7 +472,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 ["LastOrDefaultPredicate"] = q => q.OrderBy(p => p.Id).LastOrDefault(p => p.FirstName == "zzz"),
                 ["Any"] = q => q.Any(),
                 ["AnyPredicate"] = q => q.Any(p => p.FirstName == "zzz"), // false only if the predicate is applied
+                ["AnyPredicateTrue"] = q => q.Any(p => p.FirstName == "a"), // true: a negated predicate gives false
                 ["All"] = q => q.All(p => p.FirstName != "a"), // false: "a" is seeded
+                ["AllTrue"] = q => q.All(p => p.FirstName != "zzz"), // true: dropping the NOT in NOT EXISTS gives false
                 ["Count"] = q => q.Count(),
                 ["CountPredicate"] = q => q.Count(p => p.FirstName != "a"),
                 ["LongCount"] = q => q.LongCount(),
@@ -514,7 +518,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         [DataRow("LastOrDefaultPredicate")]
         [DataRow("Any")]
         [DataRow("AnyPredicate")]
+        [DataRow("AnyPredicateTrue")]
         [DataRow("All")]
+        [DataRow("AllTrue")]
         [DataRow("Count")]
         [DataRow("CountPredicate")]
         [DataRow("LongCount")]

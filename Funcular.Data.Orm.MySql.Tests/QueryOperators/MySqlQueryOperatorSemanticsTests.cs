@@ -489,7 +489,9 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 ["LastOrDefaultPredicate"] = q => q.OrderBy(p => p.Id).LastOrDefault(p => p.FirstName == "zzz"),
                 ["Any"] = q => q.Any(),
                 ["AnyPredicate"] = q => q.Any(p => p.FirstName == "zzz"), // false only if the predicate is applied
+                ["AnyPredicateTrue"] = q => q.Any(p => p.FirstName == "a"), // true: a negated predicate gives false
                 ["All"] = q => q.All(p => p.FirstName != "a"), // false: "a" is seeded
+                ["AllTrue"] = q => q.All(p => p.FirstName != "zzz"), // true: dropping the NOT in NOT EXISTS gives false
                 ["Count"] = q => q.Count(),
                 ["CountPredicate"] = q => q.Count(p => p.FirstName != "a"),
                 ["LongCount"] = q => q.LongCount(),
@@ -533,7 +535,9 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         [DataRow("LastOrDefaultPredicate")]
         [DataRow("Any")]
         [DataRow("AnyPredicate")]
+        [DataRow("AnyPredicateTrue")]
         [DataRow("All")]
+        [DataRow("AllTrue")]
         [DataRow("Count")]
         [DataRow("CountPredicate")]
         [DataRow("LongCount")]

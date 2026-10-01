@@ -14,7 +14,14 @@
 > - **Task 0 is complete:** fix-verification r16 of rev 16 (`ed772fb`) is CLEAN, with nits only (§9.16).
 >   The §3 ACs are posted to #12/#13.
 > - **Task 1's tests are written and red-run** on all four providers (§6 Task 1 status; §1.5 t1 rows). The
->   test review's 18 findings (§9.17) and fix-verification FV1's 5 (§9.18) are folded in; FV2 is pending before Task 2.
+>   test review's 18 findings (§9.17) and fix-verification FV1's 5 (§9.18) and FV2's 3 (§9.19) are folded in; FV3 is pending before Task 2.
+
+> **Revision 20 (Task 1 fix-verification FV2, 2026-10-01) — what changed:** FV2 found 1 minor issue and 2 nits
+> (§9.19).
+> - `All` and `Any` keep both their true and false oracle rows.
+> - The FV-5 premise is corrected.
+> - The red `Allowed` rows are mapped to Tasks 5/7/8.
+> - The §6 counts are updated.
 
 > **Revision 19 (Task 1 fix-verification FV1, 2026-10-01) — what changed:** FV1 found 2 minor issues and 3 nits
 > (§9.18).
@@ -1389,14 +1396,14 @@ Each task lists the tests it turns green. Every implementation task starts with 
     `f17bc65` (Core tests, literal set), `6542796` (SQL Server suite) and `97e7d56` (PostgreSQL/MySQL/SQLite
     ports, harness `requireSuccess`).
     - The existing suites are unchanged after the entity change and with the new tests: 250, 167, 143, 94.
-    - New rows, green / red on the stubs (after the §9.17 review fixes):
+    - New rows, green / red on the stubs (after the §9.17–§9.19 fixes):
 
       | Suite | Green | Red | Rows |
       |---|---|---|---|
-      | SQL Server (incl. Core net8 9 rows and the 2 doc-table rows) | 169 | 311 | 480 |
-      | SQLite | 147 | 327 | 474 |
-      | PostgreSQL | 170 | 299 | 469 |
-      | MySQL | 170 | 299 | 469 |
+      | SQL Server (incl. Core net8 9 rows and the 2 doc-table rows) | 171 | 311 | 482 |
+      | SQLite | 149 | 327 | 476 |
+      | PostgreSQL | 172 | 299 | 471 |
+      | MySQL | 172 | 299 | 471 |
       | Core on net48 / net9 (separate projects) | 0 | 7 / 3 | 7 / 3 |
 
     - Every red message was read and fails for its 3.9.0 reason. The greens are regression pins.
@@ -1406,7 +1413,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Evidence: the t1 rows in §1.5.
     - ✅ Test review by two non-author reviewers: 18 findings, folded in (§9.17).
     - ✅ Fix-verification FV1 of the review fixes: 2 minor + 3 nits, all folded in (§9.18).
-    - ⏳ Fix-verification FV2 of the FV1 fixes runs before Task 2.
+    - ✅ Fix-verification FV2: 1 minor + 2 nits, folded in (§9.19).
+    - ⏳ Fix-verification FV3 of the FV2 fixes runs before Task 2.
 - **Task 2 — #12 qualifier + duplicate removal** (4 providers).
   → AC12-1…AC12-4, AC12-6, AC12-9.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
@@ -1417,13 +1425,14 @@ Each task lists the tests it turns green. Every implementation task starts with 
   AC13-10 (rejection rows, and the allowed `Take.Cast<object>()`-enumerated and Q7 rows, which depend on
   I2), AC13-12, AC13-15 (non-generic `Execute` dispatch).
 - **Task 5 — `Single*` row limit, `Skip`/`Take` values, empty-`Take` short-circuit (I2-based)** (4 providers).
-  → AC13-1, AC13-10 (remaining allowed rows, and empty rows), entity-source covariant `Single` row of AC13-4.
+  → AC13-1, AC13-10 (remaining allowed rows, and empty rows), entity-source covariant `Single` row of AC13-4,
+  AC13-5's `Allowed[SinglePredicate]`/`[SingleOrDefaultPredicate]` rows.
 - **Task 6 — Visitor `OrderByTerms` + ternary null** (4 providers).
   → AC12-8.
 - **Task 7 — `Last*`** (4 providers).
-  → AC13-2, AC12-5, covariant `Last` row of AC13-4.
+  → AC13-2, AC12-5, covariant `Last` row of AC13-4, AC13-5's `Allowed[Last*]` rows.
 - **Task 8 — `LongCount`** (4 providers).
-  → AC13-3, covariant `LongCount` row of AC13-4.
+  → AC13-3, covariant `LongCount` row of AC13-4, AC13-5's `Allowed[LongCount*]` rows.
 - **Task 9 — SQLite state reset; coverage lift.**
   - State reset → AC13-13.
   - Direct visitor tests.
@@ -1905,7 +1914,23 @@ FV1 confirmed:
 | FV-2 | minor | PLAN-GAP | yes | The new `OfType` message asserts went beyond §5.2 (null hint promised only for `Nullable<>`; nothing for non-identity `OfType`) | §5.2 message spec amended to match the tests. |
 | FV-3 | nit | TEST-GAP | yes | Harness positive control skipped the `Single*`/`Last*`/`LongCount` paths | Added. |
 | FV-4 | nit | HOUSE-RULE | yes | The reseeded `LastOrDefault` predicate test seeded a null remote LEFT-JOIN key in an oracle row | Seeds an employer. |
-| FV-5 | nit | TEST-GAP | no | `Allowed[AnyPredicate]` / `[All]` were true with or without the predicate | `== "zzz"` / `!= "a"`. |
+| FV-5 | nit | TEST-GAP | no | `Allowed[AnyPredicate]` was true with or without the predicate | `== "zzz"` (false). The `All` half rested on a false premise: dropping `All`'s predicate already throws on 3.9.0. See FV2-1. |
+
+### 9.19 Fix-verification FV2 of `6fb304c..774a640`
+
+**Totals:** TEST-GAP 1, HOUSE-RULE 1, PLAN-GAP 1.
+
+FV2 confirmed:
+- FV-1 to FV-4 RESOLVED on all four providers;
+- the `OrderByList()` asserts pin the shape's top-level ORDER BY, and the oracle read emits none;
+- the expected inverted text matches a correct 3.10 implementation;
+- the counts.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| FV2-1 | minor | TEST-GAP | yes | FV-5 swapped `All`'s all-true row for an all-false one. The all-true row was MySQL's only kill of "drop the NOT in NOT EXISTS" | Both kept on all four: `All` (false) and `AllTrue`; `AnyPredicate` (false) and `AnyPredicateTrue`. |
+| FV2-2 | nit | PLAN-GAP | yes | §6 counts label stale; red `Allowed` rows unmapped to tasks | Relabelled; mapped to Tasks 5/7/8. |
+| FV2-3 | nit | HOUSE-RULE | no | FV-4's class not propagated: two more `Last` oracle tests seeded null employer keys (SQL Server, PostgreSQL, SQLite) | Employer seeded. |
 
 ---
 
