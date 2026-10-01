@@ -4,13 +4,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Address;
+using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Country;
+using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Organization;
+using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
+namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
 {
     /// <summary>
     /// Harness for the 3.10 query-operator tests (#12/#13), per the plan's §4.1:
@@ -18,11 +18,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
     /// <item>each test seeds its own marker-tagged rows (<c>LastName == marker</c>) and scopes every query by it;</item>
     /// <item>seeded <c>FirstName</c> order equals <c>Id</c> order unless a test says otherwise;</item>
     /// <item>"nothing executed" means the log stays empty after the <see cref="IQueryable"/> is obtained;</item>
-    /// <item>SQL-shape asserts normalize whitespace;</item>
-    /// <item>cleanup deletes run in a transaction.</item>
+    /// <item>SQL-shape asserts normalize whitespace (PostgreSQL emits <c>LIMIT</c>/<c>OFFSET</c> on separate lines);</item>
+    /// <item>cleanup deletes run in a transaction (PostgreSQL's <c>Delete</c> requires one).</item>
     /// </list>
     /// </summary>
-    public abstract class QueryOperatorTestBase : SqlServerTestFixture
+    public abstract class PostgreSqlQueryOperatorTestBase : PostgreSqlTestFixture
     {
         private readonly List<string> _markers = new List<string>();
         private readonly List<(int CountryId, int AddressId, int OrganizationId)> _employers = new List<(int, int, int)>();
@@ -118,7 +118,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         /// <summary>
         /// The top-level ORDER BY list of the last logged command (normalized, without the keyword), or null. Takes
-        /// the LAST <c>ORDER BY</c>: computed members can carry their own inside subqueries in the SELECT list.
+        /// the LAST <c>ORDER BY</c>: computed members can carry their own inside subqueries in the SELECT list
+        /// (PostgreSQL's <c>[JsonCollection]</c> subqueries do). Stops at <c>LIMIT</c>/<c>OFFSET</c> or the logged
+        /// parameters.
         /// </summary>
         protected string OrderByList()
         {
@@ -126,7 +128,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var at = sql.LastIndexOf("ORDER BY ", StringComparison.Ordinal);
             if (at < 0)
                 return null;
-            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: OFFSET | FETCH | @p__linq__|$)");
+            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: LIMIT | OFFSET | @p__linq__|$)");
             return match.Success ? match.Groups[1].Value.Trim() : null;
         }
 

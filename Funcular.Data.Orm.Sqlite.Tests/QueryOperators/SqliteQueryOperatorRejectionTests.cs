@@ -1,19 +1,16 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Person;
 
-namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
+namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 {
     /// <summary>
     /// #13: rejected shapes (AC13-4) including the covariance invariants I1/I2, message precedence (AC13-8), operators
     /// after Skip/Take (AC13-10) and a second OrderBy (AC13-12). Every rejection asserts exactly
-    /// <see cref="NotSupportedException"/> and that no SQL ran.
+    /// <see cref="NotSupportedException"/> and that no SQL ran. Rows that must execute order by <c>FirstName</c>
+    /// (seeded in <c>Id</c> order): on SQLite a bare <c>id</c> is ambiguous on the join entity (#12, §1.3).
     /// </summary>
     [TestClass]
-    public class QueryOperatorRejectionTests : QueryOperatorTestBase
+    public class SqliteQueryOperatorRejectionTests : SqliteQueryOperatorTestBase
     {
         private const string PolicyMessage = "is not translated to SQL in this version";
         private const string PagingMessage = "after Skip/Take";
@@ -100,7 +97,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var wanted = new List<int> { ids[0], ids[2] };
 
             // Lambdas nested inside allowed operators aren't inspected: Enumerable.Contains stays legal here.
-            var rows = People(marker).Where(p => wanted.Contains(p.Id)).OrderBy(p => p.Id).ToList();
+            var rows = People(marker).Where(p => wanted.Contains(p.Id)).OrderBy(p => p.FirstName).ToList();
 
             CollectionAssert.AreEqual(wanted, rows.Select(r => r.Id).ToList());
         }
@@ -137,7 +134,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 Expression.Constant(composed, typeof(IQueryable<PersonDetailEntity>)), Expression.Constant(1));
             var query = composed.Provider.CreateQuery<PersonDetailEntity>(spine);
 
-            // 3.9.0 drops the composed Where and reads the whole table.
+            // 3.9.0 drops the composed Where and reads the whole table (on SQLite, Take's default ORDER BY rowid fails).
             AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
         }
 
@@ -222,6 +219,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
             switch (shape)
             {
+                // These two order by Id by definition (IHasPersonId exposes only Id; J8 casts to read Id). On SQLite
+                // 3.9.0 the concrete shape throws #12's "ambiguous column name: id", so they're red until Task 2.
                 case "Interface.OrderByDescending(Id).First":
                     AssertSameOutcome(() => (object)People(marker).OrderByDescending(x => x.Id).First(),
                         () => Convert<IHasPersonId>(People(marker), spelling).OrderByDescending(x => x.Id).First(), shape, requireSuccess: true);
@@ -247,7 +246,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             {
                 case "OrderBy.First": return query.OrderBy(x => x.FirstName).First();
                 case "OrderByDescending.First": return query.OrderByDescending(x => x.FirstName).First();
-                case "OrderBy.ThenByDescending.Skip(1).First": return query.OrderBy(x => x.Gender).ThenByDescending(x => x.Id).Skip(1).First();
+                case "OrderBy.ThenByDescending.Skip(1).First": return query.OrderBy(x => x.Gender).ThenByDescending(x => x.FirstName).Skip(1).First();
                 case "Max": return query.Max(x => x.Id);
                 case "Min": return query.Min(x => x.Id);
                 case "Sum": return query.Sum(x => x.Id);
@@ -264,7 +263,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         {
             var (marker, _) = SeedAbc();
 
-            // 3.9.0: InvalidCastException (N3); I2 decides collection-ness by the expression's shape.
+            // 3.9.0: InvalidCastException (N3); I2 decides collection-ness by the expression's shape. On SQLite 3.9.0 the
+            // default ORDER BY rowid fails first (AC12-7).
             AssertMatchesOracle(marker, q => Convert<PersonEntity>(q, spelling).Take(5).ToList());
         }
 
@@ -316,7 +316,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var converted = ConvertScalar(People(marker).Select(p => p.FirstName), spelling);
             var source = AtPosition(converted, position);
 
-            // 3.9.0 returns the whole projected list as the "row".
+            // 3.9.0 returns the whole projected list as the "row". (On SQLite, after Take/Skip, the unordered paging SQL
+            // fails first: AC12-7's ambiguous rowid, AC13-14's OFFSET without LIMIT.)
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => RunTerminal(source, terminal));
             StringAssert.Contains(ex.Message, ScalarGuardMessage);
         }
@@ -356,7 +357,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         {
             var (marker, _) = SeedAbc();
 
-            AssertMatchesOracle(marker, q => AtPosition(Convert<object>(q.OrderBy(p => p.Id), spelling), position).ToList());
+            AssertMatchesOracle(marker, q => AtPosition(Convert<object>(q.OrderBy(p => p.FirstName), spelling), position).ToList());
         }
 
         private static IQueryable<object> AtPosition(IQueryable<object> source, string position)
@@ -427,10 +428,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 switch (position)
                 {
                     case "afterWhere": before = scoped; break;
-                    case "afterOrderBy": before = scoped.OrderBy(p => p.Id); break;
+                    case "afterOrderBy": before = scoped.OrderBy(p => p.FirstName); break;
                     case "afterSubsetSelect": before = scoped.Select(p => new PersonDetailEntity { Id = p.Id, FirstName = p.FirstName }); break;
-                    case "afterTake": return RunTerminal(Convert<object>(scoped.OrderBy(p => p.Id), spelling).Take(5), terminal);
-                    case "afterSkip": return RunTerminal(Convert<object>(scoped.OrderBy(p => p.Id), spelling).Skip(0), terminal);
+                    case "afterTake": return RunTerminal(Convert<object>(scoped.OrderBy(p => p.FirstName), spelling).Take(5), terminal);
+                    case "afterSkip": return RunTerminal(Convert<object>(scoped.OrderBy(p => p.FirstName), spelling).Skip(0), terminal);
                     case "afterDistinct": return RunTerminal(Convert<object>(scoped, spelling).Distinct(), terminal);
                     default: throw new ArgumentOutOfRangeException(nameof(position));
                 }
@@ -452,7 +453,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             switch (shape)
             {
                 case "Skip(1).First":
-                    AssertMatchesOracle(marker, q => Convert<object>(q.OrderBy(p => p.Id), spelling).Skip(1).First());
+                    AssertMatchesOracle(marker, q => Convert<object>(q.OrderBy(p => p.FirstName), spelling).Skip(1).First());
                     break;
                 case "Take(5).Count":
                 {

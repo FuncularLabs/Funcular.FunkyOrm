@@ -2,18 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
+namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
 {
     /// <summary>
     /// #13: rejected shapes (AC13-4) including the covariance invariants I1/I2, message precedence (AC13-8), operators
     /// after Skip/Take (AC13-10) and a second OrderBy (AC13-12). Every rejection asserts exactly
-    /// <see cref="NotSupportedException"/> and that no SQL ran.
+    /// <see cref="NotSupportedException"/> and that no SQL ran. The guard substrings below were checked against
+    /// <c>PostgreSqlLinqQueryProvider</c>; the policy substrings come from the plan's §5.2.
     /// </summary>
     [TestClass]
-    public class QueryOperatorRejectionTests : QueryOperatorTestBase
+    public class PostgreSqlQueryOperatorRejectionTests : PostgreSqlQueryOperatorTestBase
     {
         private const string PolicyMessage = "is not translated to SQL in this version";
         private const string PagingMessage = "after Skip/Take";
@@ -494,6 +495,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
             StringAssert.Contains(ex.Message, "GroupBy is not supported in this version");
+        }
+
+        // New in the siblings (§4.2 AC13-8): SQL Server has this test in its existing ScalarProjectionTests.
+        [TestMethod]
+        public void ScalarProjection_WithReducingTerminals_ThrowNotSupported()
+        {
+            var (marker, _) = SeedAbc();
+
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).LongCount());
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).ElementAt(0));
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).Contains(1));
+            Assert.ThrowsException<NotSupportedException>(() => People(marker).Select(p => p.Id).Aggregate((a, b) => a + b));
         }
 
         [TestMethod]

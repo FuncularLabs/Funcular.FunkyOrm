@@ -2,18 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.MySql.Tests.Domain;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
+namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 {
     /// <summary>
     /// #13: rejected shapes (AC13-4) including the covariance invariants I1/I2, message precedence (AC13-8), operators
     /// after Skip/Take (AC13-10) and a second OrderBy (AC13-12). Every rejection asserts exactly
-    /// <see cref="NotSupportedException"/> and that no SQL ran.
+    /// <see cref="NotSupportedException"/> and that no SQL ran. The base-class source is
+    /// <c>IQueryable&lt;PersonBase&gt;</c> over <c>Query&lt;PersonWithEmployer&gt;()</c>.
     /// </summary>
     [TestClass]
-    public class QueryOperatorRejectionTests : QueryOperatorTestBase
+    public class MySqlQueryOperatorRejectionTests : MySqlQueryOperatorTestBase
     {
         private const string PolicyMessage = "is not translated to SQL in this version";
         private const string PagingMessage = "after Skip/Take";
@@ -24,7 +25,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         private const string ScalarGuardMessage = "is only supported for a list/enumeration result";
 
         /// <summary>Spells a conversion both ways: the no-node reference conversion, or a <c>Cast</c> node.</summary>
-        private static IQueryable<TBase> Convert<TBase>(IQueryable<PersonDetailEntity> query, string spelling) where TBase : class =>
+        private static IQueryable<TBase> Convert<TBase>(IQueryable<PersonWithEmployer> query, string spelling) where TBase : class =>
             spelling == "implicit" ? (IQueryable<TBase>)query : query.Cast<TBase>();
 
         private static IQueryable<object> ConvertScalar(IQueryable<string> query, string spelling) =>
@@ -34,8 +35,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         #region AC13-4 allow-list table
 
-        private static readonly Dictionary<string, (string Operator, Func<IQueryable<PersonDetailEntity>, IQueryable<PersonDetailEntity>, object> Run)> RejectedShapes =
-            new Dictionary<string, (string, Func<IQueryable<PersonDetailEntity>, IQueryable<PersonDetailEntity>, object>)>
+        private static readonly Dictionary<string, (string Operator, Func<IQueryable<PersonWithEmployer>, IQueryable<PersonWithEmployer>, object> Run)> RejectedShapes =
+            new Dictionary<string, (string, Func<IQueryable<PersonWithEmployer>, IQueryable<PersonWithEmployer>, object>)>
             {
                 ["Reverse"] = ("Reverse", (q, o) => q.Reverse().ToList()),
                 ["TakeWhile"] = ("TakeWhile", (q, o) => q.TakeWhile(p => p.Id > 0).ToList()),
@@ -55,11 +56,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 ["SelectMany"] = ("SelectMany", (q, o) => q.SelectMany(p => new[] { p }).ToList()),
                 ["Join"] = ("Join", (q, o) => q.Join(o, a => a.Id, b => b.Id, (a, b) => a).ToList()),
                 ["GroupJoin"] = ("GroupJoin", (q, o) => q.GroupJoin(o, a => a.Id, b => b.Id, (a, bs) => a).ToList()),
-                ["Append"] = ("Append", (q, o) => q.Append(new PersonDetailEntity()).ToList()),
-                ["Prepend"] = ("Prepend", (q, o) => q.Prepend(new PersonDetailEntity()).ToList()),
+                ["Append"] = ("Append", (q, o) => q.Append(new PersonWithEmployer()).ToList()),
+                ["Prepend"] = ("Prepend", (q, o) => q.Prepend(new PersonWithEmployer()).ToList()),
                 ["SequenceEqual"] = ("SequenceEqual", (q, o) => q.SequenceEqual(o)),
                 ["Chunk"] = ("Chunk", (q, o) => q.Chunk(2).ToList()),
-                ["Contains"] = ("Contains", (q, o) => q.Contains(new PersonDetailEntity())),
+                ["Contains"] = ("Contains", (q, o) => q.Contains(new PersonWithEmployer())),
                 ["Aggregate"] = ("Aggregate", (q, o) => q.Aggregate((a, b) => a)),
                 ["DistinctBy"] = ("DistinctBy", (q, o) => q.DistinctBy(p => p.FirstName).ToList()),
                 ["MinBy"] = ("MinBy", (q, o) => q.MinBy(p => p.Id)),
@@ -70,10 +71,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 ["IndexedSelect"] = ("Select", (q, o) => q.Select((p, i) => p).ToList()),
                 ["OrderByWithComparer"] = ("OrderBy", (q, o) => q.OrderBy(p => p.FirstName, StringComparer.Ordinal).ToList()),
                 ["ThenByWithComparer"] = ("ThenBy", (q, o) => q.OrderBy(p => p.Id).ThenBy(p => p.FirstName, StringComparer.Ordinal).ToList()),
-                ["DistinctWithComparer"] = ("Distinct", (q, o) => q.Distinct(EqualityComparer<PersonDetailEntity>.Default).ToList()),
-                ["FirstOrDefaultWithDefault"] = ("FirstOrDefault", (q, o) => q.FirstOrDefault(new PersonDetailEntity())),
-                ["SingleOrDefaultWithDefault"] = ("SingleOrDefault", (q, o) => q.Where(p => p.FirstName == "zzz").SingleOrDefault(new PersonDetailEntity())),
-                ["LastOrDefaultWithDefault"] = ("LastOrDefault", (q, o) => q.LastOrDefault(new PersonDetailEntity())),
+                ["DistinctWithComparer"] = ("Distinct", (q, o) => q.Distinct(EqualityComparer<PersonWithEmployer>.Default).ToList()),
+                ["FirstOrDefaultWithDefault"] = ("FirstOrDefault", (q, o) => q.FirstOrDefault(new PersonWithEmployer())),
+                ["SingleOrDefaultWithDefault"] = ("SingleOrDefault", (q, o) => q.Where(p => p.FirstName == "zzz").SingleOrDefault(new PersonWithEmployer())),
+                ["LastOrDefaultWithDefault"] = ("LastOrDefault", (q, o) => q.LastOrDefault(new PersonWithEmployer())),
                 ["TakeRange"] = ("Take", (q, o) => q.Take(0..2).ToList()),
                 ["ScalarProjection_ParameterlessSum"] = ("Sum", (q, o) => q.Select(p => p.Id).Sum()),
             };
@@ -119,11 +120,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         public void NonCallNonRootSpineNode_Rejected()
         {
             var marker = NewMarker();
-            var root = _provider.Query<PersonDetailEntity>();
-            Expression<Func<PersonDetailEntity, bool>> predicate = p => p.LastName == marker;
-            var spine = Expression.Call(typeof(Queryable), nameof(Queryable.Where), new[] { typeof(PersonDetailEntity) },
-                Expression.Convert(root.Expression, typeof(IQueryable<PersonDetailEntity>)), Expression.Quote(predicate));
-            var query = root.Provider.CreateQuery<PersonDetailEntity>(spine);
+            var root = _provider.Query<PersonWithEmployer>();
+            Expression<Func<PersonWithEmployer, bool>> predicate = p => p.LastName == marker;
+            var spine = Expression.Call(typeof(Queryable), nameof(Queryable.Where), new[] { typeof(PersonWithEmployer) },
+                Expression.Convert(root.Expression, typeof(IQueryable<PersonWithEmployer>)), Expression.Quote(predicate));
+            var query = root.Provider.CreateQuery<PersonWithEmployer>(spine);
 
             AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
         }
@@ -133,9 +134,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         {
             var (marker, _) = SeedAbc();
             var composed = People(marker); // its Expression is a Where call, not this constant
-            var spine = Expression.Call(typeof(Queryable), nameof(Queryable.Take), new[] { typeof(PersonDetailEntity) },
-                Expression.Constant(composed, typeof(IQueryable<PersonDetailEntity>)), Expression.Constant(1));
-            var query = composed.Provider.CreateQuery<PersonDetailEntity>(spine);
+            var spine = Expression.Call(typeof(Queryable), nameof(Queryable.Take), new[] { typeof(PersonWithEmployer) },
+                Expression.Constant(composed, typeof(IQueryable<PersonWithEmployer>)), Expression.Constant(1));
+            var query = composed.Provider.CreateQuery<PersonWithEmployer>(spine);
 
             // 3.9.0 drops the composed Where and reads the whole table.
             AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
@@ -164,13 +165,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var (marker, _) = SeedAbc();
             var run = source == "object"
                 ? PredicateOperation<object>(People(marker), op, spelling, x => x != null)
-                : PredicateOperation<PersonEntity>(People(marker), op, spelling, p => p.Id > 0);
+                : PredicateOperation<PersonBase>(People(marker), op, spelling, p => p.Id > 0);
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(run);
             StringAssert.Contains(ex.Message, I1Message);
         }
 
-        private static Action PredicateOperation<TBase>(IQueryable<PersonDetailEntity> query, string op, string spelling,
+        private static Action PredicateOperation<TBase>(IQueryable<PersonWithEmployer> query, string op, string spelling,
             Expression<Func<TBase, bool>> predicate) where TBase : class
         {
             var source = Convert<TBase>(query, spelling);
@@ -189,7 +190,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 case "LongCount": return () => source.LongCount(predicate);
                 case "SubsetSelectThenWhere":
                 {
-                    var subset = Convert<TBase>(query.Select(p => new PersonDetailEntity { Id = p.Id, FirstName = p.FirstName }), spelling);
+                    var subset = Convert<TBase>(query.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName }), spelling);
                     return () => subset.Where(predicate).ToList();
                 }
                 // After a covariant Distinct<TBase>, TSource == the source element type: only a lambda-parameter
@@ -232,22 +233,23 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                     break;
                 case "Object.OrderByDescending(cast Id).First":
                     AssertSameOutcome(() => (object)People(marker).OrderByDescending(x => x.Id).First(),
-                        () => Convert<object>(People(marker), spelling).OrderByDescending(x => ((PersonEntity)x).Id).First(), shape, requireSuccess: true);
+                        () => Convert<object>(People(marker), spelling).OrderByDescending(x => ((PersonBase)x).Id).First(), shape, requireSuccess: true);
                     break;
                 default:
                     AssertSameOutcome(() => BaseShape(People(marker), shape),
-                        () => BaseShape(Convert<PersonEntity>(People(marker), spelling), shape), shape, requireSuccess: true);
+                        () => BaseShape(Convert<PersonBase>(People(marker), spelling), shape), shape, requireSuccess: true);
                     break;
             }
         }
 
-        private static object BaseShape<TBase>(IQueryable<TBase> query, string shape) where TBase : PersonEntity
+        private static object BaseShape<TBase>(IQueryable<TBase> query, string shape) where TBase : PersonBase
         {
             switch (shape)
             {
                 case "OrderBy.First": return query.OrderBy(x => x.FirstName).First();
                 case "OrderByDescending.First": return query.OrderByDescending(x => x.FirstName).First();
-                case "OrderBy.ThenByDescending.Skip(1).First": return query.OrderBy(x => x.Gender).ThenByDescending(x => x.Id).Skip(1).First();
+                // PersonBase has no Gender: LastName (the marker) ties, so Id decides (the r7 J9 shape).
+                case "OrderBy.ThenByDescending.Skip(1).First": return query.OrderBy(x => x.LastName).ThenByDescending(x => x.Id).Skip(1).First();
                 case "Max": return query.Max(x => x.Id);
                 case "Min": return query.Min(x => x.Id);
                 case "Sum": return query.Sum(x => x.Id);
@@ -265,7 +267,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var (marker, _) = SeedAbc();
 
             // 3.9.0: InvalidCastException (N3); I2 decides collection-ness by the expression's shape.
-            AssertMatchesOracle(marker, q => Convert<PersonEntity>(q, spelling).Take(5).ToList());
+            AssertMatchesOracle(marker, q => Convert<PersonBase>(q, spelling).Take(5).ToList());
         }
 
         [DataTestMethod]
@@ -411,8 +413,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             if (position == "root")
             {
                 // At the root nothing can scope the query before the conversion: compare with the concrete query.
-                AssertSameOutcome(() => RunTerminal(_provider.Query<PersonDetailEntity>(), terminal),
-                    () => RunTerminal(Convert<object>(_provider.Query<PersonDetailEntity>(), spelling), terminal), terminal + " at root",
+                AssertSameOutcome(() => RunTerminal(_provider.Query<PersonWithEmployer>(), terminal),
+                    () => RunTerminal(Convert<object>(_provider.Query<PersonWithEmployer>(), spelling), terminal), terminal + " at root",
                     requireSuccess: terminal != "Single");
                 return;
             }
@@ -423,12 +425,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
                 var scoped = terminal == "Last" || terminal == "Count" || terminal == "LongCount" || terminal == "Any"
                     ? q
                     : q.Where(p => p.FirstName == "b");
-                IQueryable<PersonDetailEntity> before;
+                IQueryable<PersonWithEmployer> before;
                 switch (position)
                 {
                     case "afterWhere": before = scoped; break;
                     case "afterOrderBy": before = scoped.OrderBy(p => p.Id); break;
-                    case "afterSubsetSelect": before = scoped.Select(p => new PersonDetailEntity { Id = p.Id, FirstName = p.FirstName }); break;
+                    case "afterSubsetSelect": before = scoped.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName }); break;
                     case "afterTake": return RunTerminal(Convert<object>(scoped.OrderBy(p => p.Id), spelling).Take(5), terminal);
                     case "afterSkip": return RunTerminal(Convert<object>(scoped.OrderBy(p => p.Id), spelling).Skip(0), terminal);
                     case "afterDistinct": return RunTerminal(Convert<object>(scoped, spelling).Distinct(), terminal);
@@ -476,7 +478,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         public void Covariant_OtherProjectedSource_SelectShapeGuardMessage()
         {
             var (marker, _) = SeedAbc();
-            var query = People(marker).Select(p => new PersonEntity { FirstName = p.FirstName }).Where(p => p.FirstName != null);
+            // Person is a different type from the queried PersonWithEmployer: a DTO-shaped Select.
+            var query = People(marker).Select(p => new Person { FirstName = p.FirstName }).Where(p => p.FirstName != null);
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
             StringAssert.Contains(ex.Message, SelectShapeMessage, "I1 must not mask the Select-shape message after a DTO Select");
@@ -490,7 +493,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         public void GroupBy_Rejected_KeepsDedicatedMessage()
         {
             var (marker, _) = SeedAbc();
-            var query = People(marker).GroupBy(p => p.Gender);
+            var query = People(marker).GroupBy(p => p.FirstName);
 
             var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
             StringAssert.Contains(ex.Message, "GroupBy is not supported in this version");
@@ -533,8 +536,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         #region AC13-10 after Skip/Take: rejected rows
 
-        private static readonly Dictionary<string, Func<IQueryable<PersonDetailEntity>, object>> RejectedAfterPaging =
-            new Dictionary<string, Func<IQueryable<PersonDetailEntity>, object>>
+        private static readonly Dictionary<string, Func<IQueryable<PersonWithEmployer>, object>> RejectedAfterPaging =
+            new Dictionary<string, Func<IQueryable<PersonWithEmployer>, object>>
             {
                 ["Count"] = q => q.Take(2).Count(),
                 ["LongCount"] = q => q.Take(2).LongCount(),
@@ -574,14 +577,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         #region AC13-12 a second OrderBy
 
-        private static readonly Dictionary<string, Func<IQueryable<PersonDetailEntity>, object>> SecondOrderings =
-            new Dictionary<string, Func<IQueryable<PersonDetailEntity>, object>>
+        private static readonly Dictionary<string, Func<IQueryable<PersonWithEmployer>, object>> SecondOrderings =
+            new Dictionary<string, Func<IQueryable<PersonWithEmployer>, object>>
             {
                 ["OrderBy.OrderBy"] = q => q.OrderBy(p => p.FirstName).OrderBy(p => p.Id).ToList(),
                 ["OrderBy.ThenBy.OrderByDescending"] = q => q.OrderBy(p => p.FirstName).ThenBy(p => p.Id).OrderByDescending(p => p.Id).ToList(),
                 ["OrderBy.Where.OrderBy"] = q => q.OrderBy(p => p.FirstName).Where(p => p.Id > 0).OrderBy(p => p.Id).ToList(),
                 ["OrderBy.Select(subset).OrderBy"] = q => q.OrderBy(p => p.FirstName)
-                    .Select(p => new PersonDetailEntity { Id = p.Id, FirstName = p.FirstName }).OrderBy(p => p.Id).ToList(),
+                    .Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName }).OrderBy(p => p.Id).ToList(),
                 ["OrderBy.Distinct.OrderBy"] = q => q.OrderBy(p => p.FirstName).Distinct().OrderBy(p => p.Id).ToList(),
             };
 

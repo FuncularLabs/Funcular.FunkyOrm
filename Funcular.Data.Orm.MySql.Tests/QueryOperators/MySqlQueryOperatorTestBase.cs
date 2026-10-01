@@ -4,13 +4,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.MySql.Tests.Domain;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
+namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 {
     /// <summary>
     /// Harness for the 3.10 query-operator tests (#12/#13), per the plan's §4.1:
@@ -21,14 +18,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
     /// <item>SQL-shape asserts normalize whitespace;</item>
     /// <item>cleanup deletes run in a transaction.</item>
     /// </list>
+    /// The join entity is <see cref="PersonWithEmployer"/>: one remote hop, <c>EmployerId → organization</c>. Rows are
+    /// inserted as <see cref="Person"/> (it maps the whole person table) and queried as the join entity.
     /// </summary>
-    public abstract class QueryOperatorTestBase : SqlServerTestFixture
+    public abstract class MySqlQueryOperatorTestBase : MySqlTestFixture
     {
         private readonly List<string> _markers = new List<string>();
-        private readonly List<(int CountryId, int AddressId, int OrganizationId)> _employers = new List<(int, int, int)>();
+        private readonly List<int> _employers = new List<int>();
 
         /// <summary>The base table of the person entities, used in qualified-SQL asserts.</summary>
         protected const string PersonTable = "person";
+
+        [TestInitialize]
+        public void InitQueryOperatorProvider() => InitProvider();
 
         protected string NewMarker()
         {
@@ -37,28 +39,23 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             return marker;
         }
 
-        /// <summary>Seeds Country → Address → Organization; returns the organization id.</summary>
-        protected int SeedEmployer(string countryName)
+        /// <summary>Seeds an Organization (the join entity's only remote table); returns its id.</summary>
+        protected int SeedEmployer(string name)
         {
-            var country = new CountryEntity { Name = countryName };
-            _provider.Insert(country);
-            var address = new AddressEntity { Line1 = "1 Q310 St", City = "Q310", StateCode = "NY", PostalCode = "10001", CountryId = country.Id };
-            _provider.Insert(address);
-            var org = new OrganizationEntity { Name = "Q310Org_" + Guid.NewGuid().ToString("N").Substring(0, 8), HeadquartersAddressId = address.Id };
+            var org = new Organization { Name = name };
             _provider.Insert(org);
-            _employers.Add((country.Id, address.Id, org.Id));
+            _employers.Add(org.Id);
             return org.Id;
         }
 
-        protected int SeedPerson(string marker, string firstName, int? employerId = null, string middleInitial = "M",
-            string gender = "X")
+        protected int SeedPerson(string marker, string firstName, int? employerId = null)
         {
-            var person = new PersonEntity
+            var person = new Person
             {
                 FirstName = firstName,
                 LastName = marker,
-                MiddleInitial = middleInitial,
-                Gender = gender,
+                MiddleInitial = "M", // not mapped by PersonWithEmployer
+                Gender = "X",        // not mapped by PersonWithEmployer
                 EmployerId = employerId,
                 DateUtcCreated = DateTime.UtcNow,
                 DateUtcModified = DateTime.UtcNow
@@ -75,35 +72,38 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         protected (string Marker, List<int> Ids) SeedAbc()
         {
             var marker = NewMarker();
-            var employer = SeedEmployer("Q310Country_" + marker);
+            var employer = SeedEmployer("Q310Org_" + marker);
             return (marker, SeedPeople(marker, employer, "a", "b", "c"));
         }
 
-        protected IQueryable<PersonDetailEntity> People(string marker) =>
-            _provider.Query<PersonDetailEntity>().Where(p => p.LastName == marker);
+        protected IQueryable<PersonWithEmployer> People(string marker) =>
+            _provider.Query<PersonWithEmployer>().Where(p => p.LastName == marker);
 
         [TestCleanup]
         public void DeleteSeededRows()
         {
-            if (_markers.Count == 0 && _employers.Count == 0)
-                return;
-            _provider.BeginTransaction();
             try
             {
-                foreach (var marker in _markers)
-                    _provider.Delete<PersonEntity>(p => p.LastName == marker);
-                foreach (var (countryId, addressId, organizationId) in _employers)
+                if (_markers.Count == 0 && _employers.Count == 0)
+                    return;
+                _provider.BeginTransaction();
+                try
                 {
-                    _provider.Delete<OrganizationEntity>(organizationId);
-                    _provider.Delete<AddressEntity>(addressId);
-                    _provider.Delete<CountryEntity>(countryId);
+                    foreach (var marker in _markers)
+                        _provider.Delete<Person>(p => p.LastName == marker);
+                    foreach (var organizationId in _employers)
+                        _provider.Delete<Organization>(organizationId);
+                    _provider.CommitTransaction();
                 }
-                _provider.CommitTransaction();
+                catch
+                {
+                    _provider.RollbackTransaction();
+                    throw;
+                }
             }
-            catch
+            finally
             {
-                _provider.RollbackTransaction();
-                throw;
+                DisposeProvider();
             }
         }
 
@@ -118,7 +118,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
 
         /// <summary>
         /// The top-level ORDER BY list of the last logged command (normalized, without the keyword), or null. Takes
-        /// the LAST <c>ORDER BY</c>: computed members can carry their own inside subqueries in the SELECT list.
+        /// the LAST <c>ORDER BY</c>: computed members can carry their own inside subqueries in the SELECT list. MySQL
+        /// emits <c>LIMIT n [OFFSET m]</c> after it.
         /// </summary>
         protected string OrderByList()
         {
@@ -126,7 +127,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var at = sql.LastIndexOf("ORDER BY ", StringComparison.Ordinal);
             if (at < 0)
                 return null;
-            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: OFFSET | FETCH | @p__linq__|$)");
+            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: LIMIT | OFFSET | @p__linq__|$)");
             return match.Success ? match.Groups[1].Value.Trim() : null;
         }
 
@@ -152,18 +153,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         #region Oracle
 
         /// <summary>
-        /// Runs <paramref name="shape"/> against a fresh <c>Query&lt;PersonDetailEntity&gt;()</c> scoped to the marker, and
+        /// Runs <paramref name="shape"/> against a fresh <c>Query&lt;PersonWithEmployer&gt;()</c> scoped to the marker, and
         /// against the marker's rows materialized and ordered by id (LINQ to objects), then compares by id/value, or by
         /// exception type. Shapes must have a total order where order matters (§4.1).
         /// </summary>
-        protected void AssertMatchesOracle<TResult>(string marker, Func<IQueryable<PersonDetailEntity>, TResult> shape, string because = null)
+        protected void AssertMatchesOracle<TResult>(string marker, Func<IQueryable<PersonWithEmployer>, TResult> shape, string because = null)
         {
-            var oracleRows = _provider.Query<PersonDetailEntity>().Where(p => p.LastName == marker).ToList();
+            var oracleRows = _provider.Query<PersonWithEmployer>().Where(p => p.LastName == marker).ToList();
             Assert.IsTrue(oracleRows.Count > 0, "oracle seed must not be empty");
             var oracleSource = oracleRows.OrderBy(p => p.Id).AsQueryable();
 
             var expected = Evaluate(() => shape(oracleSource));
-            var actual = Evaluate(() => shape(_provider.Query<PersonDetailEntity>().Where(p => p.LastName == marker)));
+            var actual = Evaluate(() => shape(_provider.Query<PersonWithEmployer>().Where(p => p.LastName == marker)));
             AssertSameOutcome(expected, actual, because);
         }
 
@@ -215,7 +216,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             {
                 case null:
                     return "<null>";
-                case PersonEntity e:
+                case PersonBase e:
                     return $"{e.Id}|{e.FirstName}|{e.LastName}";
                 case string s:
                     return "\"" + s + "\"";

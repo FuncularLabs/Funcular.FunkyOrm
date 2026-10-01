@@ -1,34 +1,67 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
-using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Address;
+using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Country;
+using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Organization;
+using Funcular.Data.Orm.Sqlite.Tests.Domain.Entities.Person;
 
-namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
+namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
 {
     /// <summary>
-    /// Harness for the 3.10 query-operator tests (#12/#13), per the plan's §4.1:
+    /// Harness for the 3.10 query-operator tests (#12/#13) on SQLite, per the plan's §4.1:
     /// <list type="bullet">
+    /// <item>each test class gets a fresh temp database from <see cref="SqliteTempDatabase"/>, deleted at class cleanup;</item>
     /// <item>each test seeds its own marker-tagged rows (<c>LastName == marker</c>) and scopes every query by it;</item>
     /// <item>seeded <c>FirstName</c> order equals <c>Id</c> order unless a test says otherwise;</item>
     /// <item>"nothing executed" means the log stays empty after the <see cref="IQueryable"/> is obtained;</item>
-    /// <item>SQL-shape asserts normalize whitespace;</item>
+    /// <item>SQL-shape asserts normalize whitespace (SQLite emits <c>LIMIT</c>/<c>OFFSET</c> on separate lines);</item>
     /// <item>cleanup deletes run in a transaction.</item>
     /// </list>
     /// </summary>
-    public abstract class QueryOperatorTestBase : SqlServerTestFixture
+    public abstract class SqliteQueryOperatorTestBase
     {
+        private static readonly ConcurrentDictionary<Type, string> DatabasePaths = new ConcurrentDictionary<Type, string>();
+
         private readonly List<string> _markers = new List<string>();
         private readonly List<(int CountryId, int AddressId, int OrganizationId)> _employers = new List<(int, int, int)>();
 
+        protected string _connectionString;
+        protected SqliteOrmDataProvider _provider;
+        protected readonly StringBuilder _sb = new StringBuilder();
+
         /// <summary>The base table of the person entities, used in qualified-SQL asserts.</summary>
         protected const string PersonTable = "person";
+
+        [TestInitialize]
+        public void Setup()
+        {
+            _sb.Clear();
+            var path = DatabasePaths.GetOrAdd(GetType(), t => SqliteTempDatabase.Create("funky_sqlite_q310_" + t.Name));
+            _connectionString = $"Data Source={path}";
+            _provider = new SqliteOrmDataProvider(_connectionString)
+            {
+                Log = s =>
+                {
+                    Debug.WriteLine(s);
+                    _sb.AppendLine(s);
+                }
+            };
+        }
+
+        // MSTest's InheritanceBehavior has no "After" member; BeforeEachDerivedClass runs this for each derived class.
+        [ClassCleanup(InheritanceBehavior.BeforeEachDerivedClass)]
+        public static void DeleteDatabases()
+        {
+            foreach (var type in DatabasePaths.Keys.ToList())
+            {
+                if (DatabasePaths.TryRemove(type, out var path))
+                    SqliteTempDatabase.Delete(path);
+            }
+        }
 
         protected string NewMarker()
         {
@@ -85,25 +118,32 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         [TestCleanup]
         public void DeleteSeededRows()
         {
-            if (_markers.Count == 0 && _employers.Count == 0)
-                return;
-            _provider.BeginTransaction();
             try
             {
-                foreach (var marker in _markers)
-                    _provider.Delete<PersonEntity>(p => p.LastName == marker);
-                foreach (var (countryId, addressId, organizationId) in _employers)
+                if (_markers.Count == 0 && _employers.Count == 0)
+                    return;
+                _provider.BeginTransaction();
+                try
                 {
-                    _provider.Delete<OrganizationEntity>(organizationId);
-                    _provider.Delete<AddressEntity>(addressId);
-                    _provider.Delete<CountryEntity>(countryId);
+                    foreach (var marker in _markers)
+                        _provider.Delete<PersonEntity>(p => p.LastName == marker);
+                    foreach (var (countryId, addressId, organizationId) in _employers)
+                    {
+                        _provider.Delete<OrganizationEntity>(organizationId);
+                        _provider.Delete<AddressEntity>(addressId);
+                        _provider.Delete<CountryEntity>(countryId);
+                    }
+                    _provider.CommitTransaction();
                 }
-                _provider.CommitTransaction();
+                catch
+                {
+                    _provider.RollbackTransaction();
+                    throw;
+                }
             }
-            catch
+            finally
             {
-                _provider.RollbackTransaction();
-                throw;
+                _provider?.Dispose();
             }
         }
 
@@ -126,7 +166,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var at = sql.LastIndexOf("ORDER BY ", StringComparison.Ordinal);
             if (at < 0)
                 return null;
-            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: OFFSET | FETCH | @p__linq__|$)");
+            var match = Regex.Match(sql.Substring(at), @"^ORDER BY (.+?)(?: LIMIT | OFFSET | @p__linq__|$)");
             return match.Success ? match.Groups[1].Value.Trim() : null;
         }
 
