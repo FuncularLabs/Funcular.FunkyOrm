@@ -11,8 +11,8 @@
 
 > **Status (2026-09-30)**:
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
-> - Task 0 is waiting on a clean fix-verification of this revision (r16, scoped to the rev-16 diff). Owner
->   instruction: once clean, post the ACs and start Task 1.
+> - **Task 0 is complete:** fix-verification r16 of rev 16 (`ed772fb`) is CLEAN, with nits only (§9.16).
+>   The §3 ACs are posted to #12/#13, and Task 1 is under way (owner instruction).
 
 > **Revision 16 (Task 0 fix-verification r15, 2026-09-30) — what changed:** r15 found 1 minor issue and 2
 > nits at `ef994af`. All three are in sentences rev 15 added. Disposition is in §9.15. Each fix **removes**
@@ -804,7 +804,8 @@ providers** unless stated.
     message wins.
   - **Empty results without SQL:** `Take(n ≤ 0)` returns an empty sequence, whether it's the full entity,
     a subset projection, a scalar projection, or `Skip(n).Take(0)`. On the entity path (the entity, a subset
-    projection, or a converted entity source), `First`/`Single` then throw and `*OrDefault` returns `null`.
+    projection, or a converted entity source), parameterless `First*`/`Single*` then act as on an empty
+    sequence: `First`/`Single` throw and `*OrDefault` returns `null`.
     Over a scalar projection, parameterless `First*`/`Single*`, `*OrDefault` included, throw the scalar
     guard's `NotSupportedException` instead (I2; §5.2.6).
   - `Skip(n < 0)` behaves as `Skip(0)`.
@@ -1306,7 +1307,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - ✅ r7: 6 findings (§9.7). The owner narrowed I1 to predicate lambdas ("reject only where 3.9.0 fails").
   - ✅ r8: 9 findings (§9.8), r9: 4 (§9.9), r10: 1 + 6 nits (§9.10), r11: 2 + 3 nits (§9.11), r12: 3 + 2
     nits (§9.12), r13: 1 + 1 draft + 3 nits (§9.13), r14: 1 + 4 nits (§9.14), r15: 1 + 2 nits (§9.15). Text and test-spec only.
-  - ⏳ Fix-verification r16 of the rev-16 diff must be clean. Then post the §3 ACs, including AC13-15, to
+  - ✅ r16 of `ed772fb`: **CLEAN**, nits only (§9.16). Then post the §3 ACs to #12/#13 and start Task 1. Then post the §3 ACs, including AC13-15, to
     #12/#13 and start Task 1 (owner instruction).
 - **Task 1 — Stubs, schema, harness, red tests.**
   - Compile-only stubs so the red run fails at runtime: policy members throw `NotImplementedException`; plus
@@ -1757,9 +1758,22 @@ Rev 16 therefore fixes by deleting text.
 
 | # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
 |---|---|---|---|---|---|
-| R15-1 | minor | AC-GAP | yes | AC13-10's "Other terminals after `Take` get D8's message first" contradicts AC13-8: allow-list rejections come first. Predicate `First*`/`Single*` get D8's message, not the scalar guard's | Sentence deleted; "parameterless" added. Precedence stays solely in AC13-8. |
+| R15-1 | minor | AC-GAP | yes | AC13-10's "Other terminals after `Take` get D8's message first" contradicts AC13-8: allow-list rejections come first. Predicate `First*`/`Single*` get D8's message, not the scalar guard's | Sentence deleted; "parameterless" added. Precedence stays in AC13-8. |
 | R15-2 | nit | HOUSE-RULE | yes | §8 claimed path- and order-dependence, which doesn't apply on SQL Server | Replaced with a pointer to r11-C2. |
 | R15-3 | nit | HOUSE-RULE | yes (ef994af) | "Always `id`" ignores the cross-provider static cache | Scoped to a single-provider process, with a cross-reference to §8. |
+
+### 9.16 Task 0 fix-verification r16 of `ed772fb`: CLEAN
+
+r16 verified R15-1, R15-2 and R15-3 RESOLVED. It found 3 nits and nothing blocking. Verdict: "Plan: CLEAN;
+Drafts: OK to post; ACs safe to post: yes; Task 1 blocked: no". The nits were applied in the reviewer's
+own wording, in the commit after `ed772fb`. That commit isn't separately verified; Task 11's pre-push
+adversarial pass covers it.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| R16-1 | nit | AC-GAP | partly | AC13-10's entity-path `Take(0)` sentence lacked "parameterless", so it read as covering `FirstOrDefault(pred)`, which D8 rejects | "Parameterless `First*`/`Single*` then act as on an empty sequence". |
+| R16-2 | nit | AC-GAP | no | The AC13-4 draft's after-`Skip`/`Take` scalar clause lacked "parameterless" | Draft fixed. |
+| R16-3 | nit | HOUSE-RULE | yes | §9.15 said "solely in AC13-8", but AC13-10 keeps its D8-over-D10 bullet | "Solely" removed. |
 
 ---
 
