@@ -58,6 +58,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void MapHit_ComputedFragment_NeverPrefixed()
+        {
+            // A computed member ([SqlExpression]/[JsonPath]/[SubqueryAggregate]) resolves through the map to a full
+            // expression; on a join entity it must not gain the base-table prefix.
+            var map = new Dictionary<string, string> { ["Gender"] = "COALESCE(person.gender, 'U')" };
+
+            var visitor = Visit(Source.OrderBy(p => p.Gender).ThenByDescending(p => p.Id).Expression, "person", map);
+
+            Assert.AreEqual("ORDER BY COALESCE(person.gender, 'U') ASC, person.id DESC", visitor.OrderByClause);
+        }
+
+        [TestMethod]
         public void OrderByTerms_ExposeFragmentsAndDirections()
         {
             var visitor = Visit(Source.OrderBy(p => p.Id).ThenByDescending(p => p.FirstName).Expression, "person");

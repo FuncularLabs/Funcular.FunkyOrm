@@ -8,6 +8,7 @@ using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
@@ -67,6 +68,25 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             return person.Id;
         }
 
+        private readonly List<string> _projectMarkers = new List<string>();
+
+        /// <summary>Seeds a project (for computed members such as <c>EffectiveScore = COALESCE(score, 0)</c>).</summary>
+        protected int SeedProject(string marker, int organizationId, int? score)
+        {
+            if (!_projectMarkers.Contains(marker))
+                _projectMarkers.Add(marker);
+            var project = new ProjectEntity
+            {
+                Name = marker,
+                OrganizationId = organizationId,
+                Score = score,
+                DateUtcCreated = DateTime.UtcNow,
+                DateUtcModified = DateTime.UtcNow
+            };
+            _provider.Insert(project);
+            return project.Id;
+        }
+
         /// <summary>Seeds people in order (ascending ids), all under one employer.</summary>
         protected List<int> SeedPeople(string marker, int? employerId, params string[] firstNames) =>
             firstNames.Select(f => SeedPerson(marker, f, employerId)).ToList();
@@ -90,6 +110,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             _provider.BeginTransaction();
             try
             {
+                foreach (var marker in _projectMarkers)
+                    _provider.Delete<ProjectEntity>(p => p.Name == marker);
                 foreach (var marker in _markers)
                     _provider.Delete<PersonEntity>(p => p.LastName == marker);
                 foreach (var (countryId, addressId, organizationId) in _employers)
