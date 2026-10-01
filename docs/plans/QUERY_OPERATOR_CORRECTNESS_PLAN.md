@@ -11,8 +11,16 @@
 
 > **Status (2026-09-30)**:
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
-> - Task 0 is waiting on a clean fix-verification of this revision (r15, scoped to the rev-15 diff). Owner
+> - Task 0 is waiting on a clean fix-verification of this revision (r16, scoped to the rev-16 diff). Owner
 >   instruction: once clean, post the ACs and start Task 1.
+
+> **Revision 16 (Task 0 fix-verification r15, 2026-09-30) — what changed:** r15 found 1 minor issue and 2
+> nits at `ef994af`. All three are in sentences rev 15 added. Disposition is in §9.15. Each fix **removes**
+> text rather than rewording it:
+> - **R15-1:** the AC13-10 sentence "Other terminals after `Take` get D8's message first" is deleted;
+>   precedence is AC13-8's job. The scalar `Take(0)` sentence now says "parameterless".
+> - **R15-2:** §8's spelling sentence is replaced by a pointer to r11-C2.
+> - **R15-3:** r11-C2's SQL Server `id` claim is scoped to a single-provider process.
 
 > **Revision 15 (Task 0 fix-verification r14, 2026-09-30) — what changed:** r14 found 1 minor issue and 4
 > nits at `0ce6cf1`, plus 1 optional draft edit. It said "Drafts: OK to post; ACs safe to post: yes; Task 1
@@ -574,7 +582,7 @@ SQLite):**
 | r10-L1 | SQLite temp DB mimicking FunkyORM's insert (`last_insert_rowid()`); `ORDER BY rowid` / `ORDER BY id` | `INTEGER PRIMARY KEY`: Get-by-key works; `INT PRIMARY KEY`: Get-by-key finds nothing. `ORDER BY rowid` runs on both; `ORDER BY id`: "no such column" |
 | r11-A1 | SQL Server interface source: `Max(x => x.EmployerId)`, `Min(x => x.DateUtcCreated)` (with and without a prior read, before and after an `OrderBy`); `Max(x => x.Gender)` on the interface and the concrete query | "Invalid column name 'employerid'/'dateutccreated'" in every order (not cache-order-dependent); `Max(Gender)`: `NotSupportedException` "Unsupported selector type System.String" on both sources |
 | r11-L2 | real FunkyORM SQLite provider, non-`id` `[Key]`: `INTEGER PRIMARY KEY` vs `INT PRIMARY KEY`, Insert / Get / `Query().Where(…).ToList()` | `INTEGER`: Insert returns keys 1–3, Get and `Query` work, INSERT omits the key. `INT`: Insert reports 1–3 but stores NULL; Get returns null; `Query` returns key 0 |
-| r11-C2 | *(code read)* fallback column name for a member the cache doesn't hold | Cache key is `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56). Visitors, all four providers: `[Column]` ?? `Name.ToLower()`, then cached (e.g. SqlServer BaseExpressionVisitor.cs:50-52). Aggregate path: SQL Server lowercases (SqlServerOrmDataProvider.cs:2314-2320); PostgreSQL/MySQL use `Name`, enclosed if reserved (PostgreSqlOrmDataProvider.cs:1555-1563, MySqlOrmDataProvider.cs:1590-1598); SQLite uses Core's `Name` (OrmDataProvider.cs:381-388). Both paths `GetOrAdd` the same entry of Core's single static `_columnNames` (OrmDataProvider.cs:32), keyed by `ToDictionaryKey()` (aggregate path: SqlLinqQueryProvider.cs:600, PostgreSqlLinqQueryProvider.cs:434, MySqlLinqQueryProvider.cs:436, SqliteLinqQueryProvider.cs:449), so on every provider whichever path writes first fixes the emitted spelling. On SQL Server both paths lowercase, so `Id` is always emitted as `id`. On PostgreSQL, MySQL and SQLite the aggregate path keeps `Name`, so `Id` is emitted as `id` or `Id` depending on which path wrote first. SQL Server's bare-name lookup (:2318) is filled only by `GetColumnOrdinals` (:2263), which has no callers |
+| r11-C2 | *(code read)* fallback column name for a member the cache doesn't hold | Cache key is `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56). Visitors, all four providers: `[Column]` ?? `Name.ToLower()`, then cached (e.g. SqlServer BaseExpressionVisitor.cs:50-52). Aggregate path: SQL Server lowercases (SqlServerOrmDataProvider.cs:2314-2320); PostgreSQL/MySQL use `Name`, enclosed if reserved (PostgreSqlOrmDataProvider.cs:1555-1563, MySqlOrmDataProvider.cs:1590-1598); SQLite uses Core's `Name` (OrmDataProvider.cs:381-388). Both paths `GetOrAdd` the same entry of Core's single static `_columnNames` (OrmDataProvider.cs:32), keyed by `ToDictionaryKey()` (aggregate path: SqlLinqQueryProvider.cs:600, PostgreSqlLinqQueryProvider.cs:434, MySqlLinqQueryProvider.cs:436, SqliteLinqQueryProvider.cs:449), so on every provider whichever path writes first fixes the emitted spelling. On SQL Server both paths lowercase, so `Id` is emitted as `id` (in a single-provider process; the static cache is also shared across providers, §8). On PostgreSQL, MySQL and SQLite the aggregate path keeps `Name`, so `Id` is emitted as `id` or `Id` depending on which path wrote first. SQL Server's bare-name lookup (:2318) is filled only by `GetColumnOrdinals` (:2263), which has no callers |
 | r12-L3 | *(r12 reviewer)* real FunkyORM SQLite provider, temp DB: `Min`/`Max(x => x.Gender)` on the concrete and interface sources; an interface aggregate followed by a visitor `OrderByDescending(x => x.Id)` | `Max(Gender)` returns a value on both sources (`SELECT MAX(person.Gender)`). The visitor then emits `ORDER BY Id DESC`: the two paths share one cache entry, so the first writer fixes the spelling. `Id` binds to column `id` |
 | r13-L1 | *(r13 reviewer)* real FunkyORM 3.9.0 SQLite provider, temp DB: interface `Max(x => x.Id)` and `OrderByDescending(x => x.Id).First()` vs the concrete query, in both cache orders | Equal to the concrete query (4 and 4) in both orders. SQL is `MAX(person.Id)` / `ORDER BY Id DESC` when the aggregate runs first, `id` when the visitor runs first |
 
@@ -797,8 +805,8 @@ providers** unless stated.
   - **Empty results without SQL:** `Take(n ≤ 0)` returns an empty sequence, whether it's the full entity,
     a subset projection, a scalar projection, or `Skip(n).Take(0)`. On the entity path (the entity, a subset
     projection, or a converted entity source), `First`/`Single` then throw and `*OrDefault` returns `null`.
-    Over a scalar projection, `First*`/`Single*`, `*OrDefault` included, throw the scalar guard's
-    `NotSupportedException` instead (I2; §5.2.6). Other terminals after `Take` get D8's message first.
+    Over a scalar projection, parameterless `First*`/`Single*`, `*OrDefault` included, throw the scalar
+    guard's `NotSupportedException` instead (I2; §5.2.6).
   - `Skip(n < 0)` behaves as `Skip(0)`.
 - **AC13-11** *(deferred to 3.10.1 — §10.)*
 - **AC13-12** *(D10)* `OrderBy*` after any earlier `OrderBy*`/`ThenBy*` on the spine throws
@@ -1297,8 +1305,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - ✅ Executed premise probes recorded (§1.5), including the r6 reviewer's and the I1 probes.
   - ✅ r7: 6 findings (§9.7). The owner narrowed I1 to predicate lambdas ("reject only where 3.9.0 fails").
   - ✅ r8: 9 findings (§9.8), r9: 4 (§9.9), r10: 1 + 6 nits (§9.10), r11: 2 + 3 nits (§9.11), r12: 3 + 2
-    nits (§9.12), r13: 1 + 1 draft + 3 nits (§9.13), r14: 1 + 4 nits (§9.14). Text and test-spec only.
-  - ⏳ Fix-verification r15 of the rev-15 diff must be clean. Then post the §3 ACs, including AC13-15, to
+    nits (§9.12), r13: 1 + 1 draft + 3 nits (§9.13), r14: 1 + 4 nits (§9.14), r15: 1 + 2 nits (§9.15). Text and test-spec only.
+  - ⏳ Fix-verification r16 of the rev-16 diff must be clean. Then post the §3 ACs, including AC13-15, to
     #12/#13 and start Task 1 (owner instruction).
 - **Task 1 — Stubs, schema, harness, red tests.**
   - Compile-only stubs so the red run fails at runtime: policy members throw `NotImplementedException`; plus
@@ -1411,8 +1419,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **Interface-member column resolution (pre-existing).** Over an interface-typed source
   (`IQueryable<IFoo>`), a lambda referencing an interface member doesn't get the entity's mapped column.
   The column cache is keyed by `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56), so the member gets a
-  fallback derived from its property name. Its spelling depends on the path, and on which path writes the
-  shared cache entry first (r11-C2).
+  fallback derived from its property name (spelling: r11-C2).
   - **SQL Server** (executed): members whose column is named differently fail with "invalid column"
     (`FirstName`, `LastName`, `EmployerId`, `DateUtcCreated`; J21, S8/S9, r11-A1). `Id` and `Gender` work
     in `OrderBy*` and a settable scalar `Select` (J19/J20, r9-I1, r10-S1). A scalar `Select` of a get-only
@@ -1735,6 +1742,24 @@ claim rests on a code read alone.
 | R14-4 | nit | PLAN-GAP | no | AC13-10 said scalar "terminals throw"; only `First*`/`Single*` reach that point | §3 now names `First*`/`Single*`, `*OrDefault` included. |
 | R14-5 | nit | TEST-GAP | no | `Take(0)` converted-entity outcomes pinned only for the `Cast<object>` spelling | `Take0_ImplicitObject_Terminal_NoQuery` added; mutation row uses `Name[row]`. |
 | R14-D1 | optional (draft) | — | — | AC13-6 draft promised an `OfType` message text that §3 doesn't | Parenthetical dropped. |
+
+### 9.15 Task 0 fix-verification r15 of `ef994af`
+
+**Totals:** AC-GAP 1, TEST-GAP 0, HOUSE-RULE 0, PLAN-GAP 0, OTHER 0, plus 2 nits (HOUSE-RULE).
+
+r15 verified R14-1, R14-2, R14-3, R14-5 and R14-D1 RESOLVED, and R14-4 PARTIAL. It re-checked every r11-C2
+file:line. It confirmed that the cache is a single Core static, that the visitors receive it through
+their constructors, that `DiscoverColumns` writes only concrete-type keys, and that `GetColumnOrdinals`
+has no callers, tests included.
+
+**Process note.** For four rounds, each new finding has come from a sentence the previous fix *added*.
+Rev 16 therefore fixes by deleting text.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| R15-1 | minor | AC-GAP | yes | AC13-10's "Other terminals after `Take` get D8's message first" contradicts AC13-8: allow-list rejections come first. Predicate `First*`/`Single*` get D8's message, not the scalar guard's | Sentence deleted; "parameterless" added. Precedence stays solely in AC13-8. |
+| R15-2 | nit | HOUSE-RULE | yes | §8 claimed path- and order-dependence, which doesn't apply on SQL Server | Replaced with a pointer to r11-C2. |
+| R15-3 | nit | HOUSE-RULE | yes (ef994af) | "Always `id`" ignores the cross-provider static cache | Scoped to a single-provider process, with a cross-reference to §8. |
 
 ---
 
