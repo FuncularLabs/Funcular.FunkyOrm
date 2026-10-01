@@ -41,5 +41,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             ScalarProjectionGuard.EnsureCollectionResult(select, typeof(IEnumerable<object>), typeof(string));
             ScalarProjectionGuard.EnsureCollectionResult(Names.Expression, typeof(List<string>), typeof(string));
         }
+
+        [TestMethod]
+        public void ScalarProjectionGuard_NullArgument_ThrowsArgumentNull()
+        {
+            var ex = Assert.ThrowsException<ArgumentNullException>(() =>
+                ScalarProjectionGuard.EnsureCollectionResult(null, typeof(List<string>), typeof(string)));
+            Assert.AreEqual("expression", ex.ParamName);
+            ex = Assert.ThrowsException<ArgumentNullException>(() =>
+                ScalarProjectionGuard.EnsureCollectionResult(Names.Expression, null, typeof(string)));
+            Assert.AreEqual("resultType", ex.ParamName);
+            ex = Assert.ThrowsException<ArgumentNullException>(() =>
+                ScalarProjectionGuard.EnsureCollectionResult(Names.Expression, typeof(List<string>), null));
+            Assert.AreEqual("memberType", ex.ParamName);
+        }
     }
 }

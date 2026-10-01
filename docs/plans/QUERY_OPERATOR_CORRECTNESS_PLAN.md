@@ -1572,6 +1572,32 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - Direct visitor tests.
   - MySQL provider to ≥85%.
   → §4.5.
+  - **Status (2026-10-01): done.**
+    - **D11:** SQLite clears `_lastSelectProjection`, `_lastSelectParameters` and `_lastOrderByClause` at the top
+      of every parse, before the bare-root return. (`OrderByTerms` lives on the per-parse `QueryComponents`, so
+      there's no field to reset.) The four `SqliteRoot_Reused*` tests went red → green, and the SQLite suite is
+      fully green.
+      - **Mutations: 5, 4 killed.** The survivor, "omit the parameters reset", is **equivalent**: the parameters
+        are read only under a non-empty projection, which is reset alongside. The reset is kept, as §5.2.8 lists it.
+    - **Coverage:** in each suite's `*OrderByVisitorDirectTests`, `Ternary_Branch_BuildsCase` (17 rows),
+      `UnsupportedShape_ThrowsNotSupported` (13 rows), `NoOrdering_EmptyClauseAndNoTerms`,
+      `LambdaNode_VisitsItsBody` and `ConvertedMemberKey_OrdersByItsColumn`. Also
+      `ScalarProjectionGuard_NullArgument_ThrowsArgumentNull`.
+      - Expected column fragments come from the visitor itself, so the rows pin the shape each branch builds.
+      - **Mutations: 13, all killed** (SQL Server visitor and Core guard).
+    - Coverage after Task 9 (cobertura `line-rate`; the Core files are taken from the suite that tests them
+      directly):
+
+      | Touched file | SQL Server | SQLite | MySQL | PostgreSQL |
+      |---|---|---|---|---|
+      | `*LinqQueryProvider.cs` | 90.9% | 94.2% | 93.1% | 93.1% |
+      | `*OrderByClauseVisitor.cs` | 100% | 100% | 100% | 100% |
+      | `QueryComponents.cs` | 100% | 100% | 100% | 100% |
+      | Core `QueryOperatorPolicy.cs` | 99.5% | | | |
+      | Core `ScalarProjectionGuard.cs` / `OrderByTerm.cs` | 100% / 100% | | | |
+
+      The `*QueryComponents.cs` prefixed files aren't touched by this work.
+    - The only red left is the SQL Server doc-table test (Task 10).
 - **Task 10 — Docs.**
   - Operator table + doc test.
   - Changelog 3.10.0: **Fixed**, **Changed** (untranslated operators, operators after paging, and a second
