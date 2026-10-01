@@ -11,8 +11,25 @@
 
 > **Status (2026-09-30)**:
 > - All decisions D1–D12 are made by the owner, and the owner has answered the three §10 questions.
-> - Task 0 is waiting on a clean fix-verification of this revision (r12, scoped to the rev-12 diff). Owner
+> - Task 0 is waiting on a clean fix-verification of this revision (r13, scoped to the rev-13 diff). Owner
 >   instruction: once clean, post the ACs and start Task 1.
+
+> **Revision 13 (Task 0 fix-verification r12, 2026-09-30) — what changed:** r12 found 3 minor issues and 2
+> nits at `b846f9a`, all text or test-spec. It said "Drafts: OK to post; ACs safe to post: yes; Task 1
+> blocked: no". Disposition is in §9.12.
+> - **Redesign, not another rewording.** The interface-source paragraph produced a fix-introduced finding in
+>   r10, r11 and r12. Each time, a more detailed description of pre-existing, out-of-scope behavior outran
+>   its probes. §1.4, AC13-4 and §5.2.1 now say only what the tests rely on: "unchanged from 3.9.0; only
+>   `Id` is pinned, and it equals the concrete query". The per-member, per-provider detail lives in §8
+>   alone, each claim labelled with the provider it was executed on.
+> - **R12-1:** the claim "a string selector aggregate is unsupported on any source" is removed; it's false
+>   on SQLite (r12-L3). String `Min`/`Max` is D9's result-type issue (§8, §10).
+> - **R12-2:** r11-C2 no longer says "`Id` → `id` on all four". FunkyORM emits `id` or `Id`, depending on
+>   path and cache order (r12-L3). Binding on PostgreSQL and MySQL is left to Task 1's red run.
+> - **R12-3:** AC13-10's `Take(0)` outcomes are pinned. A new `ScalarProjection_Take0_Terminal_ThrowsScalarGuard_NoQuery`
+>   runs over all four terminals (renamed from `…_First_…`), and `Take0_SubsetProjection_Terminal_NoQuery`
+>   covers the subset projection. The mutation row covers a `*OrDefault` short-circuit before the guard.
+> - **Nits:** Task 1's executed-vs-code-read sentence; the §9.11 totals.
 
 > **Revision 12 (Task 0 fix-verification r11, 2026-09-30) — what changed:** r11 found 2 minor issues and 3
 > nits at `019e9b4`, all text. It said "ACs safe to post: no (AC13-4's interface sentence); Task 1 blocked:
@@ -388,19 +405,10 @@ Same shapes on PostgreSQL (local PG 18), MySQL and SQLite. Each probe seeded thr
     - **Non-predicate** lambdas (`OrderBy*`, selector aggregates, scalar `Select`):
       - over a **base-class** source, they return the same results as the concrete query (r7 J1–J4, J7, J9,
         J10, J12, J13, J16–J18);
-      - over an **interface** source, a member gets FunkyORM's **fallback column name**, not the entity's
-        mapped column (pre-existing, §8; r11-C2). That's the property name, lowercased by the visitors
-        and by SQL Server's aggregate path, and as-is in the other providers' aggregate paths.
-        - `OrderBy*` and a scalar `Select` of a settable member work where the column has that name
-          (`Id`, `Gender`; J19/J20, r9-I1, r10-S1). So do selector aggregates (`Max(x => x.Id)`; S9c,
-          r9-I2).
-        - Otherwise the database reports "invalid column" (`FirstName`, `LastName`, `EmployerId`,
-          `DateUtcCreated`; J21, r8 S8/S9, r11-A1).
-        - A string selector aggregate (`Max(x => x.Gender)`) is unsupported on any source, including the
-          concrete one (r11-A1).
-        - A scalar `Select` of a **get-only** member is rejected by the `Select`-shape guard (r9-I2).
-
-        3.10.0 doesn't change this;
+      - over an **interface** source, they behave as in 3.9.0, which only partly works: a member doesn't
+        resolve to the entity's mapped column (pre-existing; details in §8). The plan relies on one shape
+        only: `OrderByDescending(x => x.Id).First()` and `Max(x => x.Id)` equal the concrete query (SQL
+        Server: S9c, r9-I2, r10-S1; SQLite: r12-L3). 3.10.0 doesn't change any of this;
       - over `object`, an `OrderBy` on a cast member works (J8), and an unsupported body fails cleanly (I1c).
   - Over a **scalar** source, a row-returning terminal returns the whole projected list. That happens directly
     (P6, P7) and after covariant `Skip`/`Take`/`Distinct` (r6 Q1a–e): a silent wrong result.
@@ -541,14 +549,15 @@ SQLite):**
 | r10-L1 | SQLite temp DB mimicking FunkyORM's insert (`last_insert_rowid()`); `ORDER BY rowid` / `ORDER BY id` | `INTEGER PRIMARY KEY`: Get-by-key works; `INT PRIMARY KEY`: Get-by-key finds nothing. `ORDER BY rowid` runs on both; `ORDER BY id`: "no such column" |
 | r11-A1 | SQL Server interface source: `Max(x => x.EmployerId)`, `Min(x => x.DateUtcCreated)` (with and without a prior read, before and after an `OrderBy`); `Max(x => x.Gender)` on the interface and the concrete query | "Invalid column name 'employerid'/'dateutccreated'" in every order (not cache-order-dependent); `Max(Gender)`: `NotSupportedException` "Unsupported selector type System.String" on both sources |
 | r11-L2 | real FunkyORM SQLite provider, non-`id` `[Key]`: `INTEGER PRIMARY KEY` vs `INT PRIMARY KEY`, Insert / Get / `Query().Where(…).ToList()` | `INTEGER`: Insert returns keys 1–3, Get and `Query` work, INSERT omits the key. `INT`: Insert reports 1–3 but stores NULL; Get returns null; `Query` returns key 0 |
-| r11-C2 | *(code read)* fallback column name for a member the cache doesn't hold | Cache key is `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56). Visitors, all four providers: `[Column]` ?? `Name.ToLower()`, then cached (e.g. SqlServer BaseExpressionVisitor.cs:50-52). Aggregate path: SQL Server lowercases (SqlServerOrmDataProvider.cs:2314-2320); PostgreSQL/MySQL use `Name`, enclosed if reserved (PostgreSqlOrmDataProvider.cs:1555-1563, MySqlOrmDataProvider.cs:1590-1598); SQLite uses Core's `Name` (OrmDataProvider.cs:381-388). `Id` → `id` on all four |
+| r11-C2 | *(code read)* fallback column name for a member the cache doesn't hold | Cache key is `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56). Visitors, all four providers: `[Column]` ?? `Name.ToLower()`, then cached (e.g. SqlServer BaseExpressionVisitor.cs:50-52). Aggregate path: SQL Server lowercases (SqlServerOrmDataProvider.cs:2314-2320); PostgreSQL/MySQL use `Name`, enclosed if reserved (PostgreSqlOrmDataProvider.cs:1555-1563, MySqlOrmDataProvider.cs:1590-1598); SQLite uses Core's `Name` (OrmDataProvider.cs:381-388). So `Id` is emitted as `id` or `Id` depending on the path. SQL Server's bare-name lookup (:2318) is filled only by `GetColumnOrdinals` (:2263), which has no callers |
+| r12-L3 | *(r12 reviewer)* real FunkyORM SQLite provider, temp DB: `Min`/`Max(x => x.Gender)` on the concrete and interface sources; an interface aggregate followed by a visitor `OrderByDescending(x => x.Id)` | `Max(Gender)` returns a value on both sources (`SELECT MAX(person.Gender)`). The visitor then emits `ORDER BY Id DESC`: the two paths share one cache entry, so the first writer fixes the spelling. `Id` binds to column `id` |
 
 **Still unexecuted** (Task 1 red tests):
 - the new 3.10 behaviors themselves;
 - the net48/net9 rendering of `MethodInfo` signatures for the literal set;
-- the r6–r11 SQL Server probes on the other providers. The visitor paths are structurally identical; the
-  aggregate fallback name differs by provider (r11-C2), but the Task 1 interface rows use only `Id`, which
-  resolves to `id` on all four;
+- the r6–r11 SQL Server probes on PostgreSQL and MySQL (SQLite's interface `Id` rows: r12-L3). The Task 1
+  interface rows use only `Id`, which FunkyORM emits as `id` or `Id` (r11-C2). Whether that binds to column
+  `id` on PostgreSQL and MySQL is confirmed by the red run;
 - `Average` vs in-memory LINQ on PostgreSQL and SQLite (it doesn't gate 3.10.0, because the
   `UnchangedFromConcrete` rows compare with the concrete query, not with in-memory LINQ);
 - `single_probe` identity Insert/Get/Query on **SQL Server** (no existing coverage), and PostgreSQL's
@@ -674,15 +683,10 @@ providers** unless stated.
     - **non-predicate lambdas** (`OrderBy*`/`ThenBy*`, selector aggregates, scalar `Select`) over a
       **base-class** source: unchanged from the concrete query (J1–J4, J7, J9, J10, J12, J13, J16–J18).
 
-    **Unchanged, not "correct":** over an **interface** source, a member gets FunkyORM's fallback column
-    name (the property name), not the entity's mapped column (pre-existing, §8; r11-C2).
-    - `OrderBy*`, selector aggregates, and a scalar `Select` of a settable member work where the column has
-      that name (`Id`, `Gender`; J19/J20, S9c, r9-I1, r9-I2, r10-S1).
-    - Otherwise the database reports "invalid column" (J21, r8 S8/S9, r11-A1).
-    - A string selector aggregate is unsupported on any source (r11-A1).
-    - A scalar `Select` of a get-only member is rejected by the `Select`-shape guard (r9-I2).
-
-    3.10.0 doesn't change this.
+    **Unchanged, not "correct":** over an **interface** source, non-predicate lambdas behave as in 3.9.0,
+    where a member doesn't resolve to the entity's mapped column (pre-existing, §8). The tests pin only `Id`
+    (`OrderByDescending(x => x.Id).First()`, `Max(x => x.Id)`), which equals the concrete query. 3.10.0
+    doesn't change this.
 
     After `Skip`/`Take`, D8 still governs (e.g. covariant `Count` after `Take` gets the D8 message). After
     `Distinct`, the existing "Distinct() combined with an aggregate" guard governs `Count`/`Any` (r7 M1–M3).
@@ -906,7 +910,7 @@ providers** unless stated.
 | AC13-7 | `SupportedOperators_ExactLiteralSetPinned`, `ClassifierSweep_EveryQueryableMethod_MatchesLiteralSet`, `NonQueryableOverload_IsRejected` (MSTest: `SqlServer.Tests` net8, `SqlServer.Tests.NetFramework` net48); xUnit twin `QueryOperatorPolicyLiteralSetTests` (`SqlServer.Tests.DotNet9` net9) | Core, 3 runtimes |
 | AC13-8 | `GroupBy_Rejected_KeepsDedicatedMessage`; existing scalar tests; new in the siblings: `ScalarProjection_WithReducingTerminals_ThrowNotSupported`; `ScalarProjection_WithSingleOrLast_ThrowsNotSupported`; `Rejected_OperatorOuterToFailingInnerOperator_PolicyMessageWins` (`Select(p => p.Id).Where(x => x > 0).Reverse()`); `Rejected_AllowListFailureBeatsPass2Failure` (`q.Take(5).Where(w).Reverse()` → the `Reverse` message, not D8's) | all 4 |
 | AC13-9 | `OperatorDocTable_MatchesSupportedOperators` (reads the table from both docs); prose reviewed in the gauntlet | SqlServer.Tests |
-| AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, OrderByDescending, OrderBy(a).Skip(n).OrderBy(b) [D8 wins over D10], Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip} — each row asserts the "after Skip/Take" message; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, `Skip.Select(subset).Take`, `Skip.Select(scalar).Take`, `Skip.OfType<T>().Take`, `Skip.Cast<T>().Take`, `Take.Cast<object>()` enumerated, `Skip.Take.Select(p => p.FirstName).Cast<object>()` enumerated (Q7), Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault(), OfType-identity entity, `Skip(n).Select(p => p.Id).OfType<int>()`, Skip-only.First()}; `[DataTestMethod] TakeNonPositive_ReturnsEmpty_NoQuery` over {Take(0) full, Take(0) subset, Take(0) scalar, Skip(2).Take(0), Take(-1), `Take(0).Cast<object>()` enumerated}; `Take0_First_Throws_NoQuery`, `Take0_FirstOrDefault_ReturnsNull_NoQuery`, `Take0_Single_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery`, `Take0_CastObject_First_Throws_NoQuery` and `Take0_CastObject_FirstOrDefault_ReturnsNull_NoQuery` (I2: not an empty list as "first"); `ScalarProjection_Take0_First_ThrowsScalarGuard_NoQuery` (`ScalarProjectionGuard` wins over the empty short-circuit); `SkipNegative_BehavesAsSkipZero` | all 4 |
+| AC13-10 | `[DataTestMethod] Operator_AfterPaging_Rejected_BeforeAnyQuery` over {Count, LongCount, Any, All, Sum, Average, Min, Max, Where, First(pred), Single(pred), Last, OrderBy, OrderByDescending, OrderBy(a).Skip(n).OrderBy(b) [D8 wins over D10], Distinct, Skip-after-Skip, Take-after-Take, Take-then-Skip} — each row asserts the "after Skip/Take" message; `[DataTestMethod] Operator_AfterPaging_Allowed_MatchesOracle` over {Skip.Take, `Skip.Select(subset).Take`, `Skip.Select(scalar).Take`, `Skip.OfType<T>().Take`, `Skip.Cast<T>().Take`, `Take.Cast<object>()` enumerated, `Skip.Take.Select(p => p.FirstName).Cast<object>()` enumerated (Q7), Select subset, Select scalar, First(), FirstOrDefault(), Single(), SingleOrDefault(), OfType-identity entity, `Skip(n).Select(p => p.Id).OfType<int>()`, Skip-only.First()}; `[DataTestMethod] TakeNonPositive_ReturnsEmpty_NoQuery` over {Take(0) full, Take(0) subset, Take(0) scalar, Skip(2).Take(0), Take(-1), `Take(0).Cast<object>()` enumerated}; `Take0_First_Throws_NoQuery`, `Take0_FirstOrDefault_ReturnsNull_NoQuery`, `Take0_Single_Throws_NoQuery`, `Take0_SingleOrDefault_ReturnsNull_NoQuery`, `Take0_CastObject_First_Throws_NoQuery` and `Take0_CastObject_FirstOrDefault_ReturnsNull_NoQuery` (I2: not an empty list as "first"); `[DataTestMethod] Take0_SubsetProjection_Terminal_NoQuery` over {First throws, FirstOrDefault → null, Single throws, SingleOrDefault → null} (the entity path); `[DataTestMethod] ScalarProjection_Take0_Terminal_ThrowsScalarGuard_NoQuery` over {First, FirstOrDefault, Single, SingleOrDefault} (`ScalarProjectionGuard` wins over the empty short-circuit for every terminal); `SkipNegative_BehavesAsSkipZero` | all 4 |
 | AC13-12 | `[DataTestMethod] Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` over {OrderBy.OrderBy, OrderBy.ThenBy.OrderByDescending, OrderBy.Where.OrderBy, OrderBy.Select(**subset**).OrderBy, OrderBy.Distinct.OrderBy}, each asserting the D10 message; `ThenBy_OnRoot_IsPrimaryOrder` (`((IOrderedQueryable<T>)q).ThenByDescending(p => p.Id).Where(marker)` returns rows in **descending** id order, the same as `OrderByDescending(p => p.Id).Where(marker)`; ascending would be indistinguishable from no order, r6 Q10) | all 4 |
 | AC13-13 | `SqliteRoot_ReusedAfterProjection_BareRootNotNarrowed`, `SqliteRoot_ReusedAfterOrderedQuery_BareRootNoInheritedOrder`, `SqliteRoot_ReusedAfterOrderedQuery_ThenLast_UsesIdDesc`, `SqliteRoot_ReusedAfterParameterizedProjection_NoDuplicateParameters` | SQLite |
 | AC13-14 | `SkipOnly_ToList_Executes`, `SkipOnly_First_ReturnsExpectedRow` (SQLite red; regression rows in the others); SQLite only: `SkipOnly_EmitsLimitMinusOneOffset` (SQL shape) | all 4 |
@@ -927,7 +931,7 @@ providers** unless stated.
 | `*OrderByClauseVisitor` ternary null handling | AC12-8; direct tests |
 | `QueryComponents.Terminal`, `.RowLimit`, `.OrderByTerms`, `.IsEmptyByTake` *(new)* | AC13-1, AC13-2, AC13-10 |
 | `*LinqQueryProvider.ParseExpression` (pre-pass call; Single/Last/LongCount branches; negative `Skip` clamp; empty-`Take` flag) | AC13-* |
-| `*LinqQueryProvider.Execute` / `ExecuteScalarProjection` (empty-`Take` short-circuit) | AC13-10 `Take0_*`, `TakeNonPositive_*` |
+| `*LinqQueryProvider.Execute` / `ExecuteScalarProjection` (empty-`Take` short-circuit) | AC13-10 `Take0_*`, `TakeNonPositive_*`, `ScalarProjection_Take0_Terminal_*` |
 | `*LinqQueryProvider.BuildQueryComponents` (row limit; SQLite `rowid` qualification; SQLite `LIMIT -1 OFFSET`) | AC13-1, AC12-7, AC13-14 |
 | `*LinqQueryProvider.ExecuteQuery` (cardinality) | AC13-1 |
 | `*LinqQueryProvider.BuildAggregateClause` / `HandleAggregateQuery` (`LongCount` only) | AC13-3 |
@@ -994,7 +998,7 @@ providers** unless stated.
 | Positional guard rejects `Skip.Take` or `Skip`-only `First` | `Operator_AfterPaging_Allowed_MatchesOracle` rows |
 | `Take(0)` sent to the DB | `TakeNonPositive_ReturnsEmpty_NoQuery` rows |
 | Empty-`Take` short-circuit only on the entity path | `TakeNonPositive_…[Take(0) scalar]` |
-| Empty-`Take` short-circuit placed before the scalar dispatch (bypasses the result-type guard) | `ScalarProjection_Take0_First_ThrowsScalarGuard_NoQuery` |
+| Empty-`Take` short-circuit placed before the scalar dispatch (bypasses the result-type guard), including one that returns `default` for `*OrDefault` before the guard | `ScalarProjection_Take0_Terminal_ThrowsScalarGuard_NoQuery` (all four rows; the `*OrDefault` rows kill the `default` variant) |
 | No negative-`Skip` clamp | `SkipNegative_BehavesAsSkipZero` |
 | Allow a second `OrderBy` / only check adjacent calls | `Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery` rows (incl. across `Where`/`Select`/`Distinct`) |
 | D10 evaluated before D8 at the same node | `Operator_AfterPaging_Rejected_…[OrderBy(a).Skip(n).OrderBy(b)]` (expects the D8 message) |
@@ -1102,11 +1106,8 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
          - Over a **base-class** source they return the same results as the concrete query in 3.9.0 (r7
            J1–J4, J7, J9, J10, J12, J13, J16–J18, e.g.
            `IQueryable<PersonEntity> b = db.Query<PersonDetailEntity>(); b.OrderBy(…)`).
-         - Over an **interface** source, a member gets the fallback column name (pre-existing, §8;
-           r11-C2). `OrderBy*`, selector aggregates and a settable scalar `Select` work where the column has
-           that name (`Id`, `Gender`; J19/J20, S9c, r9-I1, r9-I2, r10-S1). Otherwise the database reports
-           "invalid column" (J21, S8/S9, r11-A1). A string selector aggregate is unsupported on any source
-           (r11-A1). A scalar `Select` of a get-only member is rejected by the `Select`-shape guard (r9-I2).
+         - Over an **interface** source they behave as in 3.9.0, where a member doesn't resolve to the
+           entity's mapped column (pre-existing, §8). Only `Id` is relied on (S9c, r9-I2, r10-S1, r12-L3).
          - Otherwise they already fail cleanly (I1c's visitor message, I1h's `Select`-shape message).
          - I1 doesn't change any of this.
        - **Exception:** operators outer to any **non-subset `Select`** are left to the parse loop. After a
@@ -1238,7 +1239,7 @@ covered by the DB-free direct visitor tests. Per-file numbers go into the PR.
        handles the entity path (`R = T`).
      - `ExecuteScalarProjection` checks it **after** `ScalarProjectionGuard` (I2), with `R` = the scalar
        member type. `Select(p => p.Id).Take(0).First()` therefore throws the scalar guard's
-       `NotSupportedException`, not "no elements".
+       `NotSupportedException`, not "no elements". So do `FirstOrDefault`/`Single`/`SingleOrDefault`.
    - Outcomes, decided by **I2** (expression shape), never by `TResult` assignability:
      - collection → an empty `List<R>`, returned as `TResult` through covariance;
      - terminal `First`/`Single` → throw "no elements";
@@ -1268,9 +1269,9 @@ Each task lists the tests it turns green. Every implementation task starts with 
     sort-helper crash as follow-up #16, and deferred signing.
   - ✅ Executed premise probes recorded (§1.5), including the r6 reviewer's and the I1 probes.
   - ✅ r7: 6 findings (§9.7). The owner narrowed I1 to predicate lambdas ("reject only where 3.9.0 fails").
-  - ✅ r8: 9 findings (§9.8), r9: 4 (§9.9), r10: 1 + 6 nits (§9.10), r11: 2 + 3 nits (§9.11). Text and
-    test-spec only.
-  - ⏳ Fix-verification r12 of the rev-12 diff must be clean. Then post the §3 ACs, including AC13-15, to
+  - ✅ r8: 9 findings (§9.8), r9: 4 (§9.9), r10: 1 + 6 nits (§9.10), r11: 2 + 3 nits (§9.11), r12: 3 + 2
+    nits (§9.12). Text and test-spec only.
+  - ⏳ Fix-verification r13 of the rev-13 diff must be clean. Then post the §3 ACs, including AC13-15, to
     #12/#13 and start Task 1 (owner instruction).
 - **Task 1 — Stubs, schema, harness, red tests.**
   - Compile-only stubs so the red run fails at runtime: policy members throw `NotImplementedException`; plus
@@ -1284,8 +1285,9 @@ Each task lists the tests it turns green. Every implementation task starts with 
     MySQL's `PersonBase` (§4.1). That supports the base-class/interface rows and the D5 base-class/interface
     `Cast` rows. Then run the four existing suites to confirm the entity change is behavior-neutral.
   - Write every §4.2 test and record red (or expected-green for regression rows).
-  - Confirm §1.5's "still unexecuted" items through that red run. Everything else in §1.5 is executed, or is
-    a labelled code read about FunkyORM's own output (r9-C1, r11-C2): P8 error 169, P9 alias binding, P10 SQLite `OFFSET`, P1 `Cast` nodes.
+  - Confirm §1.5's "still unexecuted" items through that red run. Everything else in §1.5 is executed (e.g.
+    P8 error 169, P9 alias binding, P10 SQLite `OFFSET`, P1 `Cast` nodes), or is a labelled code read about
+    FunkyORM's own output (r9-C1, r11-C2).
 - **Task 2 — #12 qualifier + duplicate removal** (4 providers).
   → AC12-1…AC12-4, AC12-6, AC12-9.
 - **Task 3 — SQLite `rowid` qualification + `LIMIT -1 OFFSET`.**
@@ -1379,13 +1381,20 @@ Each task lists the tests it turns green. Every implementation task starts with 
   `SignAssembly=False`. When signing is scheduled, the `InternalsVisibleTo` friends must be signed and their
   entries public-key-qualified. The new `IsAllowed` and `ScalarProjectionGuard` seams are public, so they
   add no `InternalsVisibleTo` dependency.
-- **Interface-member column resolution (pre-existing; r7 J21, r8 S8/S9, r11-A1, r11-C2).** Over an
-  interface-typed source (`IQueryable<IFoo>`), a lambda referencing an interface member doesn't get the
-  entity's mapped column. The column cache is keyed by `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56),
-  so an interface member never hits the entity's entry and falls back to its property name. The
-  visitors lowercase it and cache the fallback. In the aggregate path, SQL Server lowercases it and the
-  other providers use it as-is. So `FirstName` → `firstname` and the database reports "invalid column".
-  It's loud, not silent, and affects only interface-typed queries. Follow-up issue candidate; not in 3.10.0.
+- **Interface-member column resolution (pre-existing).** Over an interface-typed source
+  (`IQueryable<IFoo>`), a lambda referencing an interface member doesn't get the entity's mapped column.
+  The column cache is keyed by `DeclaringType.Name.Prop` (GeneralExtensions.cs:52-56), so the member gets a
+  fallback derived from its property name, spelled per path (r11-C2).
+  - **SQL Server** (executed): members whose column is named differently fail with "invalid column"
+    (`FirstName`, `LastName`, `EmployerId`, `DateUtcCreated`; J21, S8/S9, r11-A1). `Id` and `Gender` work
+    in `OrderBy*` and a settable scalar `Select` (J19/J20, r9-I1, r10-S1). A scalar `Select` of a get-only
+    member is rejected by the `Select`-shape guard (r9-I2).
+  - **SQLite** (executed): the visitor and aggregate paths share one cache entry, so the fallback's
+    spelling depends on which ran first (r12-L3).
+  - **PostgreSQL, MySQL:** not probed beyond Task 1's `Id` rows.
+
+  It's loud, not silent, and affects only interface-typed queries. String `Min`/`Max` selectors are the
+  separate D9 result-type issue (above), on any source. Follow-up issue candidate; not in 3.10.0.
 - **Static identifier caches are shared across providers (pre-existing; r8 incidental).** `_tableNames`,
   `_columnNames` and `_mappedTypes` are `static` on the Core `OrmDataProvider`. Using the same entity type
   with two providers in one process makes the second emit the first provider's quoting (PostgreSQL emitted
@@ -1621,7 +1630,7 @@ behavior) and found them true. It re-read every §3 AC: "ACs safe to post: yes; 
 
 ### 9.11 Task 0 fix-verification r11 of `019e9b4`, plus the public-AC fidelity check
 
-**Totals:** AC-GAP 1, TEST-GAP 0, HOUSE-RULE 1, PLAN-GAP 2, OTHER 0, plus 3 nits.
+**Totals:** AC-GAP 1, TEST-GAP 0, HOUSE-RULE 1, PLAN-GAP 1, OTHER 0, plus 3 nits (all PLAN-GAP).
 
 r11 replayed r9-I2 and r10-S1 on SQL Server and the SQLite key probes with the real provider; all held. It
 confirmed that every r9/r10 ID resolves to exactly one §1.5 row and that no matrix or mutation row drifted.
@@ -1638,6 +1647,29 @@ and both were applied. It also surfaced FC-5 below, which is a defect in §3 its
 | R11-4 | nit | PLAN-GAP | no (extended) | The fallback isn't lowercased in every path, and "never filled" was wrong (the visitor caches the fallback) | §8 and "still unexecuted" corrected (r11-C2). |
 | R11-5 | nit | PLAN-GAP | no | AC13-6 cited only Q4d; duplicate Task 0 line | r9-I2 added; duplicate removed. |
 | FC-5 | minor | AC-GAP | no (rev 3) | AC13-10: "`*OrDefault` returns `null`" after `Take(0)`, read literally, covers a scalar projection, but §5.2.6 and the matrix make the scalar guard throw | AC scoped to the entity path; the scalar case points to I2/§5.2.6. The test already existed. |
+
+### 9.12 Task 0 fix-verification r12 of `b846f9a`, plus the public-AC drafts
+
+**Totals:** AC-GAP 0, TEST-GAP 1, HOUSE-RULE 2, PLAN-GAP 0, OTHER 0, plus 2 nits (PLAN-GAP).
+
+r12 confirmed the following as RESOLVED:
+- R11-2, with schema citations and coverage tests checked;
+- R11-5;
+- every new evidence ID.
+
+It re-ran r11-L2 (SQLite) and r11-A1, r9-I2, r10-S1 (SQL Server). The drafts had no must-fix items; three
+optional edits were applied.
+
+**Process note.** The interface paragraph has had a fix-introduced finding in three consecutive rounds:
+r10 N1, R11-1, and now R12-1/R12-2. Per the test-first rule "two fix-introduced findings in a row: stop,
+redesign", rev 13 removes those claims instead of refining them. See the revision note.
+
+| # | Sev | Blame | Fix-introduced | Finding (short) | Disposition |
+|---|---|---|---|---|---|
+| R12-1 | minor | HOUSE-RULE | yes | "A string selector aggregate is unsupported on any source" generalized a SQL Server probe; false on SQLite. AC13-4/§5.2.1 still grouped aggregates with `Gender` | Paragraph collapsed to the `Id`-only claim. String `Min`/`Max` stays D9 (§8). r12-L3 recorded. |
+| R12-2 | minor | HOUSE-RULE | yes | r11-C2's "`Id` → `id` on all four" was wrong (`Id` is emitted on PG/MySQL/SQLite aggregates, and the spelling is order-dependent) and was a database claim backed only by a code read | Row corrected. PG/MySQL binding goes to Task 1's red run. The `GetColumnOrdinals` sub-nit was verified (no callers) and recorded. |
+| R12-3 | minor | TEST-GAP | partly (FC-5) | AC13-10's `Take(0)` subset-projection outcomes and scalar `*OrDefault`/`Single*` outcomes had no named test | `ScalarProjection_Take0_Terminal_ThrowsScalarGuard_NoQuery` (4 rows, renamed from `…_First_…`); `Take0_SubsetProjection_Terminal_NoQuery`; mutation row widened. |
+| N1, N2 | nit | PLAN-GAP | yes | Task 1's examples read as code reads; the §9.11 totals were miscounted | Both fixed. |
 
 ---
 
