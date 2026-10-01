@@ -7,6 +7,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using MySqlConnector;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Funcular.Data.Orm.MySql.Visitors
 {
@@ -38,8 +39,11 @@ namespace Funcular.Data.Orm.MySql.Visitors
         private readonly string _tableQualifier;
         private readonly MySqlParameterGenerator _parameterGenerator;
         private readonly List<MySqlParameter> _parameters = new List<MySqlParameter>();
-        private readonly Dictionary<(bool IsText, string Text), string> _parameterNames =
-            new Dictionary<(bool IsText, string Text), string>();
+        private readonly List<(bool IsText, string Text)> _pendingValues = new List<(bool IsText, string Text)>();
+        private readonly HashSet<string> _termKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        // Stands for a value in a term's SQL until the term is added (ValueSql, AddOrderByClause).
+        private static readonly Regex Placeholder = new Regex("\u0001(\\d+)\u0001", RegexOptions.Compiled);
 
         /// <summary>The 3.9.0 constructor (no table qualifier), kept for binary compatibility.</summary>
         public MySqlOrderByClauseVisitor(
@@ -62,8 +66,8 @@ namespace Funcular.Data.Orm.MySql.Visitors
         }
 
         /// <param name="parameterGenerator">When given, every value FunkyORM would write as quoted SQL text (a string,
-        /// char, <see cref="Guid"/>, date or other non-numeric value) becomes a command parameter, created the same way
-        /// as WHERE parameters and listed in <see cref="Parameters"/>; equal values share one parameter. Numbers,
+        /// char, <see cref="Guid"/>, date or other non-numeric value) becomes a command parameter carrying that text,
+        /// listed in <see cref="Parameters"/>: one per occurrence, as each literal was its own literal. Numbers,
         /// booleans, enums and <c>NULL</c> stay inline. Without one, values are inlined as literals.</param>
         public MySqlOrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
@@ -105,13 +109,25 @@ namespace Funcular.Data.Orm.MySql.Visitors
         }
 
         /// <summary>
-        /// Adds an ordering term unless an earlier term has the same fragment: a later duplicate can never break a tie.
+        /// Adds an ordering term unless an earlier term is the same: a later duplicate can never break a tie. Terms
+        /// compare by their SQL with each value as its kind and text, so a repeated ternary is a duplicate although each
+        /// value is its own parameter. The values of a dropped term are never bound.
         /// </summary>
         private void AddOrderByClause(string columnName, bool isDescending)
         {
-            if (_orderByClauses.Any(c => string.Equals(c.ColumnName, columnName, StringComparison.Ordinal)))
+            var values = _pendingValues.ToArray();
+            _pendingValues.Clear();
+            // Length-prefixed, so no value's text can pass for the SQL around it.
+            var key = Placeholder.Replace(columnName, m =>
+            {
+                var value = values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)];
+                return "\u0001" + (value.IsText ? "t" : "v") + value.Text.Length.ToString(CultureInfo.InvariantCulture) + ":"
+                       + value.Text + "\u0001";
+            });
+            if (!_termKeys.Add(key))
                 return;
-            _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+            var sql = Placeholder.Replace(columnName, m => Bind(values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)]));
+            _orderByClauses.Add(new OrderByClause { ColumnName = sql, IsDescending = isDescending });
         }
 
         /// <summary>
@@ -391,22 +407,23 @@ namespace Funcular.Data.Orm.MySql.Visitors
         /// <summary>
         /// A value's SQL. With a parameter generator, anything <see cref="FormatConstant"/> would quote becomes a command
         /// parameter carrying the text it would quote (<see cref="LiteralText"/>), so the database converts it as it
-        /// converted 3.9.0's literal. Equal values share one parameter, so identical ternaries still compare equal as
-        /// fragments. Numbers, booleans, enums and <c>NULL</c> stay inline.
+        /// converted 3.9.0's literal there: each occurrence is its own parameter, as each literal was its own literal.
+        /// Until its term is added the value is a placeholder (<see cref="AddOrderByClause"/>). Numbers, booleans,
+        /// enums and <c>NULL</c> stay inline.
         /// </summary>
         private string ValueSql(object value)
         {
             if (_parameterGenerator == null || value == null || value is bool || value is Enum || IsNumber(value))
                 return FormatConstant(value);
 
-            // A string or char never shares a parameter with a Guid or date of the same text:
-            // SQL Server and PostgreSQL type them differently.
-            var key = (IsText: value is string || value is char, Text: LiteralText(value));
-            if (_parameterNames.TryGetValue(key, out var name))
-                return name;
-            var parameter = _parameterGenerator.CreateParameter(key.Text);
+            _pendingValues.Add((value is string || value is char, LiteralText(value)));
+            return "\u0001" + (_pendingValues.Count - 1).ToString(CultureInfo.InvariantCulture) + "\u0001";
+        }
+
+        private string Bind((bool IsText, string Text) value)
+        {
+            var parameter = _parameterGenerator.CreateParameter(value.Text);
             _parameters.Add(parameter);
-            _parameterNames[key] = parameter.ParameterName;
             return parameter.ParameterName;
         }
 

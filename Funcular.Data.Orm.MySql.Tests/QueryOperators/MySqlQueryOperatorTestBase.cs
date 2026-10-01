@@ -75,8 +75,9 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             return person.Id;
         }
 
-        /// <summary>Seeds one person with a set <c>UniqueId</c> and <c>DateUtcCreated</c> (AC12-10's typed values).</summary>
-        protected int SeedTypedPerson(string marker, string firstName, int? employerId, Guid? uniqueId, DateTime created)
+        /// <summary>Seeds one person with a set <c>UniqueId</c>, <c>DateUtcCreated</c> and <c>Birthdate</c> (AC12-10's typed values).</summary>
+        protected int SeedTypedPerson(string marker, string firstName, int? employerId, Guid? uniqueId, DateTime created,
+            DateTime? birthdate = null)
         {
             var person = new Person
             {
@@ -86,6 +87,7 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 Gender = "X",
                 EmployerId = employerId,
                 UniqueId = uniqueId,
+                Birthdate = birthdate,
                 DateUtcCreated = created,
                 DateUtcModified = created
             };

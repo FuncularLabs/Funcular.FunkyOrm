@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq.Expressions;
+using System.Linq;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Project;
+using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
@@ -432,6 +434,115 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
             var name = "Ωmega";
 
             AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == name ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        // Each occurrence of a value is typed where it's used, as each 3.9.0 literal was (verification N1/N2).
+
+        [DataTestMethod]
+        [DataRow(0)]
+        [DataRow(1)]
+        [DataRow(2)]
+        [DataRow(3)]
+        public void TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle(int shape)
+        {
+            var (marker, _) = SeedAbc();
+            var text = "x";
+            Guid? guid = new Guid("1a1a1a1a-0000-0000-0000-00000000000a");
+            DateTime? date = Moment;
+
+            switch (shape)
+            {
+                case 0: AssertMatchesOracle(marker, q => q.OrderBy(p => text == null ? 0 : 1).ThenBy(p => p.Id).ToList()); break;
+                case 1: AssertMatchesOracle(marker, q => q.OrderBy(p => text != null ? p.FirstName : p.LastName).ThenByDescending(p => p.Id).ToList()); break;
+                case 2: AssertMatchesOracle(marker, q => q.OrderBy(p => null == guid ? p.LastName : p.FirstName).ThenByDescending(p => p.Id).ToList()); break;
+                default: AssertMatchesOracle(marker, q => q.OrderBy(p => date != null ? p.FirstName : p.LastName).ThenByDescending(p => p.Id).ToList()); break;
+            }
+        }
+
+        [DataTestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public void TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle(bool lessThan)
+        {
+            // A value typed by its first use (a date) would compare the timestamp with midnight.
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310T12_" + marker);
+            var day = Moment.Date;
+            var noon = day.AddHours(12);
+            SeedTypedPerson(marker, "a", employer, null, day.AddHours(6), day);
+            SeedTypedPerson(marker, "b", employer, null, day.AddHours(11), day);
+            SeedTypedPerson(marker, "c", employer, null, day.AddHours(13), day);
+
+            if (lessThan)
+                AssertMatchesOracle(marker, q => q.OrderBy(p => p.Birthdate > noon ? 1 : 0).ThenBy(p => p.DateUtcCreated < noon ? 1 : 0).ThenBy(p => p.Id).ToList());
+            else
+                AssertMatchesOracle(marker, q => q.OrderBy(p => p.Birthdate == noon ? 1 : 1).ThenBy(p => p.DateUtcCreated > noon ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [DataTestMethod]
+        [DataRow("guid")]
+        [DataRow("date")]
+        public void TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle(string kind)
+        {
+            // Used first as branch values (text), then against a uuid or timestamp column.
+            var marker = NewMarker();
+            var employer = SeedEmployer("Q310T12_" + marker);
+            var guids = new[] { new Guid("3c3c3c3c-0000-0000-0000-00000000000c"), new Guid("1a1a1a1a-0000-0000-0000-00000000000a"), new Guid("2b2b2b2b-0000-0000-0000-00000000000b") };
+            for (var i = 0; i < guids.Length; i++)
+                SeedTypedPerson(marker, "abc".Substring(i, 1), employer, guids[i], Moment.AddSeconds(i - 1));
+            var target = guids[1];
+            var moment = Moment;
+
+            if (kind == "guid")
+                AssertMatchesOracle(marker, q => q.OrderBy(p => p.Id > 0 ? target : target).ThenBy(p => p.UniqueId == target ? 0 : 1).ThenBy(p => p.Id).ToList());
+            else
+                AssertMatchesOracle(marker, q => q.OrderBy(p => p.Id > 0 ? moment : moment).ThenBy(p => p.DateUtcCreated > moment ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [Table("legacy_datetime_probe")]
+        public class LegacyDateTimeProbe
+        {
+            public int Id { get; set; }
+            public string Label { get; set; }
+            public DateTime Stamp { get; set; }
+        }
+
+        [TestMethod]
+        public void TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did()
+        {
+            // A datetime (not datetime2) column. 3.9.0's text converts to datetime, so .003 matches the stored .003; a
+            // datetime2 parameter compares the column as .0033333 and misses (verification N5). LINQ-to-objects reads
+            // the stored value back as .0033333 too, so this pins 3.9.0's order rather than the oracle's.
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using var create = connection.CreateCommand();
+                create.CommandText = "IF OBJECT_ID(N'dbo.legacy_datetime_probe') IS NULL CREATE TABLE legacy_datetime_probe "
+                                     + "(id INT IDENTITY(1,1) PRIMARY KEY, label NVARCHAR(50) NOT NULL, stamp DATETIME NOT NULL);";
+                create.ExecuteNonQuery();
+            }
+            var marker = NewMarker();
+            var stamp = new DateTime(2026, 1, 2, 3, 4, 6, 3);
+            try
+            {
+                var ids = new[] { -1, 0, 1 }.Select(offset =>
+                {
+                    var row = new LegacyDateTimeProbe { Label = marker, Stamp = stamp.AddSeconds(offset) };
+                    _provider.Insert(row);
+                    return row.Id;
+                }).ToList();
+
+                var ordered = _provider.Query<LegacyDateTimeProbe>().Where(p => p.Label == marker)
+                    .OrderBy(p => p.Stamp == stamp ? 0 : 1).ThenBy(p => p.Id).ToList();
+
+                CollectionAssert.AreEqual(new[] { ids[1], ids[0], ids[2] }, ordered.Select(p => p.Id).ToList());
+            }
+            finally
+            {
+                _provider.BeginTransaction();
+                _provider.Delete<LegacyDateTimeProbe>(p => p.Label == marker);
+                _provider.CommitTransaction();
+            }
         }
 
         [TestMethod]

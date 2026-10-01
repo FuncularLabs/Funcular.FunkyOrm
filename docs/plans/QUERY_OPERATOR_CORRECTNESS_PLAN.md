@@ -17,6 +17,12 @@
 > - **Tasks 1–7 are complete** on all four providers (§6 statuses). The Task 4 hostile review (§9.23) is being
 >   remediated. Tasks 8–11 remain.
 
+> **Revision 32 (fix-verification of `66bde1e..7d9b65b`, 2026-10-01) — what changed:** AC12-10 amended again.
+>   Each occurrence of a value is its own parameter, as each literal was its own literal; rev 31's shared
+>   parameters were typed only at their first use on PostgreSQL. A PostgreSQL value compared with `null` is decided
+>   in .NET. Also changed: §4.2/§4.4 rows, the Task 12 status (with corrected red counts), §8 (one entry removed),
+>   and §9.34.
+
 > **Revision 31 (Task 12 hostile review of `66bde1e..e104aad`, 2026-10-01) — what changed:** AC12-10 amended. Each
 >   value is bound as the text 3.9.0 quoted and typed as the literal was, not "like a WHERE parameter" (§9.33).
 >   Also changed: the §4.2/§4.4 rows, the Task 12 status, and five §8 entries.
@@ -781,12 +787,20 @@ providers** unless stated.
   literal, and an enum value is its underlying number *(rev 25; rev 26)*. Branch values take the same path, so a
   value reads the same in the test and in a branch *(rev 26)*.
 - **AC12-10** *(rev 30, owner decision 2026-10-01)* Every value in an ORDER BY ternary that 3.9.0 wrote as quoted SQL
-  text (a string, char, `Guid`, date or other non-numeric value) is sent as a command parameter. *(Rev 31)* The
-  parameter carries the text 3.9.0 quoted, typed as the literal was: untyped on PostgreSQL, text on MySQL and
-  SQLite, and `varchar` on SQL Server, except strings and chars, which are `nvarchar` like WHERE's. A `Guid` or date
-  value therefore compares and sorts as it did in 3.9.0, on every provider. Equal values share one parameter, so
-  duplicate terms are still dropped (AC12-9). A string or char never shares a parameter with a `Guid` or date that
-  has the same text.
+  text (a string, char, `Guid`, date or other non-numeric value) is sent as a command parameter. *(Rev 31–32)*
+  - **What a parameter carries:** the literal's text, typed as the literal was:
+    - untyped on PostgreSQL;
+    - text on MySQL and SQLite;
+    - `varchar` on SQL Server, except strings and chars, which are `nvarchar` like WHERE's.
+
+    The text is culture-invariant. For a `DateTimeOffset` it therefore differs from 3.9.0's current-culture text.
+  - **One parameter per occurrence:** each occurrence of a value is its own parameter, as each literal was its own
+    literal, so the database types each one where it's used.
+  - **On PostgreSQL**, a value compared with `null` is decided in .NET. `IS NULL` can't give an untyped parameter
+    a type.
+  - **Result:** a `Guid` or date value compares and sorts as it did in 3.9.0, on every provider.
+  - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
+    text, and a dropped term binds nothing.
   Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
   characters orders rows as LINQ-to-objects does and never appears in the command text. A command carries only the
   parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
@@ -1090,7 +1104,7 @@ providers** unless stated.
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
 | AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
-| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; direct `ParameterMode_*` (6 tests, incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI, `ParameterMode_Char_IsText`, `ParameterMode_GuidAndStringWithTheSameText_AreSeparateParameters`), `LiteralMode_ValueWithNullText_IsEmptyText`; MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
+| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (8 tests; 9 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`; MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
@@ -1221,14 +1235,18 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Enums formatted through `Int32` (overflows for a `long` enum) *(rev 26)* | `CapturedCharAndEnum_FormatAsTheirValues` (`byte`/`long` enums) |
 | The ELSE branch value via `BuildValueSql` *(rev 27)* | `CapturedInstanceProperty_SameValueInTestAndBranch` (ELSE row) |
 | ORDER BY text values inlined (no generator / always literal) *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` (MySQL: wrong rows; all: SQL-text assert), `ParameterMode_*`, `Last_AfterTextTernaryOrderBy_…` |
-| No parameter reuse for equal values *(rev 30)* | `ParameterMode_EqualValues_ShareOneParameter`, `ThenBy_SameTernaryKeyTwice_Executes` |
+| Duplicate terms not dropped *(rev 30; by term key since rev 32)* | `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ThenBy_SameTernaryKeyTwice_Executes` |
 | Numbers parameterized too *(rev 30)* | `ParameterMode_TextBranchValues_AreParameters_NumbersAndNullStayInline` |
 | ORDER BY parameters not bound to the command *(rev 30)* | the AC12-10 oracle rows |
 | ORDER BY parameters bound to aggregates; earlier visitors' parameters kept *(rev 30)* | `Count_AfterTextTernaryOrderBy_Works`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` (`AssertEveryParameterReferenced`) |
 | Values bound raw and typed by the generator (the e104aad binding) *(rev 31)* | SQL Server `TernaryOrderBy_GuidBranchValues_…`, `…DateTimeOffsetBranchValues_…`; PostgreSQL `TernaryOrderBy_DateTimeValue_…` (UTC rows), `…DateTimeOffsetBranchValues_…`; SQLite `TernaryOrderBy_GuidValue_…`, `TernaryOrderBy_DateTimeValue_…`; MySQL: the direct tests only (its database rows pass with raw values too) |
 | SQL Server: Guids and dates `nvarchar` / strings `varchar` *(rev 31)* | `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` / `TernaryOrderBy_NonAsciiText_MatchesOracle`, `ParameterMode_Char_IsText` |
 | PostgreSQL: values typed by the generator (not `Unknown`) *(rev 31)* | 9 of 130 failed, e.g. `TernaryOrderBy_DateTimeValue_…` (`==`, whole second, unspecified kind) |
-| Parameter key by text only *(rev 31)* | `ParameterMode_GuidAndStringWithTheSameText_AreSeparateParameters` |
+| Equal values share a parameter again (rev 31's binding) *(rev 32)* | PostgreSQL: the N1/N2 oracle rows; all: `ParameterMode_EachOccurrence_IsItsOwnParameter` |
+| Term key without the value's kind / without its length prefix / without values *(rev 32)* | `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept` / `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` / `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` |
+| A dropped term's values bound anyway *(rev 32)* | `ParameterMode_DuplicateTerm_SendsItsParametersOnce` |
+| PostgreSQL: a value's null test sent as `IS NULL` / every null test decided in .NET *(rev 32)* | `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` / the AC12-8 rows |
+| SQL Server: dates bound as `datetime2` *(rev 32)* | `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did` |
 | Date text in the current culture; `DateTimeOffset` as `o` *(rev 31)* | `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` (fi-FI) |
 | Literal mode drifts from `LiteralText` (3.9.0's `ToString()` default) *(rev 31)* | the literal-parity assert in `ParameterMode_GuidsAndDates_…` |
 | A value whose text is null not emptied *(rev 31)* | `LiteralMode_ValueWithNullText_IsEmptyText` |
@@ -1747,7 +1765,8 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **Task 12 — ORDER BY values as parameters** *(rev 30; owner decision 2026-10-01, before the beta)* → AC12-10.
   - **Status (2026-10-01): done (4 providers).**
     - The visitors gain a constructor overload with the provider's parameter generator and a `Parameters` property.
-      `ValueSql` sends quoted-type values as parameters, reusing one per equal value.
+      `ValueSql` sends quoted-type values as parameters, reusing one per equal value (since rev 32: one per
+      occurrence).
     - The providers pass their generator to the ordering visitor, keep the outermost visitor's parameters
       (`QueryComponents.OrderByParameters`), and bind them unless the command is an aggregate.
     - MySQL's literal mode escapes backslashes.
@@ -1765,12 +1784,26 @@ Each task lists the tests it turns green. Every implementation task starts with 
 
     Each value is now bound as `LiteralText(value)`, the text `FormatConstant` quotes, so literal mode and
     parameter mode can't drift apart.
-    - Tests first, red on `e104aad`: SQL Server 2, PostgreSQL 5, MySQL 1, SQLite 8.
+    - Tests first, red on `e104aad`: SQL Server 2, PostgreSQL 5, MySQL 1, SQLite 8. *(Corrected in rev 32, N4.)*
+      `LiteralMode_ValueWithNullText_IsEmptyText` was written after the code. It also fails there, making the counts
+      3/6/2/9: on `e104aad`, a value whose `ToString()` is null crashed the parameter dictionary
+      (`ArgumentNullException`).
       - The first SQLite Guid row passed: its digit-only Guids read the same in either case, so the fixture now
         uses hex letters.
       - The new helper's self-test and the separate-parameter test were green by design; mutations prove them.
     - **Mutations (14, all killed: 4 SQL Server, 4 PostgreSQL, 2 MySQL, 3 SQLite, plus the test helper).**
     - All suites green: SqlServer 870, Sqlite 774, PostgreSql 745, MySql 697; net48 76/76; net9 5/5.
+  - **Verification layer (rev 32, §9.34).** Rev 31 shared one untyped parameter between equal values. PostgreSQL
+    types a parameter once, at its first use, so later uses compared wrongly or failed (N2). A parameter that met
+    only `IS NULL` couldn't be typed at all (N1).
+    - Each value occurrence is now its own parameter: a placeholder until its term is added, then bound unless
+      the term is a duplicate.
+    - Terms compare by a key that writes each value as its kind and length-prefixed text.
+    - On PostgreSQL, a parameter's null test is decided in .NET.
+    - Tests first, red on `7d9b65b`: SQL Server 2, PostgreSQL 11, MySQL 2, SQLite 2. The SQL Server legacy
+      `datetime` test (N5) was green there by design; a mutation proves it.
+    - **Mutations (10, all killed: 3 PostgreSQL, 3 SQL Server, 2 MySQL, 2 SQLite).**
+    - All suites green: SqlServer 881, Sqlite 784, PostgreSql 756, MySql 707; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -1919,9 +1952,6 @@ Each task lists the tests it turns green. Every implementation task starts with 
     `DateTime` (for `timestamp`) and a non-UTC `DateTimeOffset`.
   - ORDER BY values are untyped and unaffected.
   - Follow-up candidate: document that the switch must be set before Npgsql's first use, or set it earlier.
-- **PostgreSQL infers one type per ORDER BY parameter (rev 31 residual; not probed).** Equal values share a
-  parameter (AC12-9). The same string compared with columns of two types in one ORDER BY (`varchar` and `inet`,
-  say) gets one inferred type, so the second comparison can fail. 3.9.0's two literals were typed separately.
 - **ORDER BY dates carry milliseconds (3.9.0's literal text, kept by rev 31).** A `DateTime` with sub-millisecond
   ticks compares with a `datetime2`/`timestamp`/`DATETIME(6)` column as its truncated value, as in 3.9.0; WHERE
   parameters keep the full value.
@@ -2566,6 +2596,23 @@ compared and sorted.
 | F6 | nit | OTHER | Literal-mode notes: PostgreSQL `standard_conforming_strings=off`; MySQL `NO_BACKSLASH_ESCAPES`. | Report only; §8. |
 
 Pre-existing, recorded in §8: SQLite WHERE Guid/date binding (F1); PostgreSQL WHERE timestamps and startup order (F2).
+
+### 9.34 Fix-verification of `66bde1e..7d9b65b` (non-author; 76 shapes × 3 cultures × 4 providers on three shas, raw Npgsql 8/9)
+
+Verdict: NOT CLEAN. F1 and F3–F6 resolved; F2 partly. Rev 31's PostgreSQL fix (untyped parameters), combined with
+parameter sharing, regressed two shapes against 3.9.0.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| N1 | major | AC-GAP | PostgreSQL: a captured non-null value compared with `null` (`s == null ? …`, `s != null ? x.A : x.B`, Guid/date too) became `$n IS NULL` with an untyped parameter: error 42P18. 3.9.0 and `e104aad` ordered correctly. | On PostgreSQL, a parameter's null test is decided in .NET (it holds a non-null value read from no row). Oracle rows: 4 shapes. |
+| N2 | major | AC-GAP | PostgreSQL: a shared untyped parameter took its type from its first use, so later uses inherited it. Silent wrong orders (a date-typed value against a timestamp; `char(n)` padding) and 42883 errors (a Guid or date as branch values, then against a column). `citext` behaviour depended on the first use. | One parameter per occurrence, on all four providers. AC12-9 dropping is kept by a term key (each value as kind plus length-prefixed text); a dropped term binds nothing. Oracle rows: date then timestamp [2], branch then column [Guid, date]. The §8 residual entry is removed. |
+| N3 | minor | HOUSE-RULE (comment truth) | The visitors' `parameterGenerator` doc still said "created the same way as WHERE parameters … equal values share one". AC12-10's "the text 3.9.0 quoted" is false for a `DateTimeOffset`. | Doc rewritten in all four visitors. AC12-10 says the text is culture-invariant and differs from 3.9.0's for a `DateTimeOffset`. |
+| N4 | nit | OTHER (bookkeeping) | Red counts were 3/6/2/9 with the null-text test, not 2/5/1/8. That test's `e104aad` crash (`ArgumentNullException` in the parameter dictionary) wasn't recorded. | Task 12 status corrected and the crash recorded. Rev 32 removes the dictionary. |
+| N5 | nit | TEST-GAP | No test schema has a legacy `datetime` column, so the `datetime2`-versus-`datetime` claim had no executing test. | The SQL Server test creates `legacy_datetime_probe` and pins 3.9.0's order. LINQ-to-objects reads `.003` back as `.0033333`, so it can't be the oracle. Mutation: dates bound as `datetime2`. |
+
+Lesson (AC-GAP twice in a row on the same AC): a parameter that replaces a literal must reproduce the literal's
+typing per occurrence, not per value. Sharing one parameter between equal values is an optimisation the literal
+never had.
 
 ---
 

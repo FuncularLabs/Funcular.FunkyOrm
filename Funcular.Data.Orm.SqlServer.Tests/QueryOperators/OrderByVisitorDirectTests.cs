@@ -464,13 +464,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         }
 
         [TestMethod]
-        public void ParameterMode_EqualValues_ShareOneParameter()
+        public void ParameterMode_DuplicateTerm_SendsItsParametersOnce()
         {
             var visitor = ParameterVisitor();
             visitor.Visit(Source.OrderBy(p => p.FirstName == "b" ? 1 : 0).ThenBy(p => p.FirstName == "b" ? 1 : 0).Expression);
 
             Assert.AreEqual(1, visitor.OrderByTerms.Count, "the same CASE twice is still one term");
-            Assert.AreEqual(1, visitor.Parameters.Count);
+            Assert.AreEqual(1, visitor.Parameters.Count, "the dropped term binds nothing");
         }
 
         [TestMethod]
@@ -537,15 +537,39 @@ namespace Funcular.Data.Orm.SqlServer.Tests.QueryOperators
         }
 
         [TestMethod]
-        public void ParameterMode_GuidAndStringWithTheSameText_AreSeparateParameters()
+        public void ParameterMode_EachOccurrence_IsItsOwnParameter()
         {
-            // Typed differently (SQL Server), or inferred from different columns (PostgreSQL): never shared.
+            // As each 3.9.0 literal was its own literal: the database types each where it's used (verification N2).
+            var text = "b";
+            var (visitor, fragment) = WithParameters(p => p.FirstName == text ? text : text);
+
+            Assert.AreEqual(3, visitor.Parameters.Count);
+            Assert.AreEqual(3, visitor.Parameters.Select(x => x.ParameterName).Distinct().Count(x => fragment.Contains(x)));
+        }
+
+        [TestMethod]
+        public void ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText()
+        {
+            // Without the key's length prefix these two terms would read the same once their values are spelled out.
+            var cut = "\u0001 ELSE \u0001t";
+            var (a2, a3, b2, b3) = ("y" + cut + "z", "w", "y", "z" + cut + "w");
+            var visitor = ParameterVisitor();
+            visitor.Visit(Source.OrderBy(p => p.FirstName == "x" ? a2 : a3).ThenBy(p => p.FirstName == "x" ? b2 : b3).Expression);
+
+            Assert.AreEqual(2, visitor.OrderByTerms.Count);
+        }
+
+        [TestMethod]
+        public void ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept()
+        {
+            // A Guid and a string with the same text are typed differently on SQL Server: not duplicates.
             var g = MarkerGuid;
             var s = g.ToString();
             var visitor = ParameterVisitor();
-            visitor.Visit(Source.OrderBy(p => p.Id > 0 ? g : Guid.Empty).ThenBy(p => p.FirstName == s ? 0 : 1).Expression);
+            visitor.Visit(Source.OrderBy(p => p.Id > 0 ? g : g).ThenBy(p => p.Id > 0 ? s : s).Expression);
 
-            Assert.AreEqual(3, visitor.Parameters.Count);
+            Assert.AreEqual(2, visitor.OrderByTerms.Count);
+            Assert.AreEqual(4, visitor.Parameters.Count);
         }
 
         #endregion
