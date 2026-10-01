@@ -75,6 +75,12 @@
     <Compile Include="SqlDataProviderNetFrameworkIntegrationTests.cs" />
     <Compile Include="SqlDataProviderNetFrameworkPerformanceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Linq\SupportedOperatorSignatures.cs">
+      <Link>Linq\SupportedOperatorSignatures.cs</Link>
+    </Compile>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Linq\QueryOperatorPolicyTests.cs">
+      <Link>Linq\QueryOperatorPolicyTests.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="EPPlus">
