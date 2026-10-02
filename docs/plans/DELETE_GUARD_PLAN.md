@@ -8,11 +8,17 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-02):** rev 8. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
+> **Status (2026-10-02):** rev 9. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
 > rev 4 (`fa06956`). Its re-review (§9.4) found 4 blocking, answered in rev 5 (`5845883`). Its re-review (§9.5) found
 > 4 blocking, answered in rev 6 (`58efaca`). Its re-review (§9.6) is CLEAN. Task 1 is `0167f63` (§5.1), Task 2
-> `bcd254f` (§5.2), and Task 3 the commit that carries rev 8 (§5.3). Task 4 is next.
+> `bcd254f` (§5.2), and Task 3 `3ec5ba9` (§5.3). Task 4's review of `58efaca..3ec5ba9` (§9.7) found 5 blocking
+> findings; the commit that carries rev 9 answers them (§5.4) and is re-verified next.
+
+> **Revision 9 — what changed (Task 4 review, I1-1…I1-6):** D2 evaluates string's `Contains` and a core type's
+> `ToString()` (the owner's decision of 2026-10-02), with AC1, rows and mutations (I1-1). D3 treats a clause nested too
+> deeply to parse as one that doesn't parse (I1-4). Two D3 rows and mutations (I1-5). §6 is corrected and extended
+> (I1-1, I1-4, I1-6). §5.4 and §9.7 record the round.
 
 > **Revision 8 — what changed (Task 3):** §5.3 records Task 3.
 
@@ -172,6 +178,12 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
        `string`, `decimal`, `DateTime`, …). A subtree with a method call or a constructor is Unknown. So the guard
        reads properties, as the visitor does, and never calls a method, a user-defined operator or conversion, or a
        constructor (T0-6; reworded in rev 3, T1-3). An evaluation that throws is Unknown.
+     - **Rev 9 (I1-1; the owner's decision of 2026-10-02):** two kinds of call are evaluable too, because every
+       provider translates them into SQL with only parameters when their operands are parameter-free: `string`'s
+       `Contains` (any overload), and a parameterless `ToString()` whose receiver is an enum or a non-generic, sealed
+       or value type of the core library, or a nullable one of those, so no override outside the core library runs.
+       Any other method call stays
+       Unknown, and no code outside the core library runs except property getters.
      - `Not` inverts; `AndAlso`/`And` on `bool` is False if either side is False, True if both are True, else
        Unknown; `OrElse`/`Or` on `bool` is True if either side is True, False if both are False, else Unknown;
      - `Conditional` folds to its known branch when the test is known, else to the branches' shared known value,
@@ -205,7 +217,8 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
      - a run that is exactly `<number> <op> <number>` (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=`) is True or False; any
        other run is Unknown. `NOT`, `AND` and `OR` use three-valued logic;
      - a clause that doesn't parse (unbalanced parentheses or quotes) is not a tautology: the method returns false,
-       and the other checks still apply.
+       and the other checks still apply. So is a clause nested too deeply to parse on the calling thread's stack
+       (rev 9, I1-4).
 
   So `(t.id = @p OR NOT 1=0)`, `NOT (1=0 AND t.id = @p)`, `(t.first_name IS NOT NULL OR NOT 1=0)` and
   `(t.id IN (@p0, @p1) OR NOT 1=0)` are rejected, while `(t.parent_id = @p AND NOT 1=0)` (the empty `keepIds` idiom),
@@ -260,7 +273,8 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
   - a self-comparison of a member chain by `==`, `>=` or `<=`, also through `Convert`, and the negation of one by
     `!=`, `>` or `<` (SelfReference message);
   - any other body that folds to True: a disjunction with a `true` literal, a captured or static `true`, a `true`
-    property of a captured object (`request.IncludeAll`), or a parameter-free comparison that holds; the De Morgan
+    property of a captured object (`request.IncludeAll`), a parameter-free comparison that holds, or a `Contains` or
+    `ToString()` that D2 evaluates and that holds (`roles.Contains("admin") || …`; rev 9, I1-1); the De Morgan
     forms (`!(x.Id != x.Id && …)`, `!(x.Id != x.Id || x.Id > x.Id)`); a Conditional whose chosen or shared branch is
     True (AlwaysTrue message).
 - **AC2 — Parameter-free predicates keep their message.** `x => true`, `x => 1 < 2`, `x => "abc" == "abc"`, a captured
@@ -303,11 +317,12 @@ SR = SelfReference, AT = AlwaysTrue, NC = NoColumn, OK = Acceptable.
 
 | AC | Test | Class at the seam |
 |---|---|---|
-| AC1, AC2, AC5 | `Classify_ReturnsTheVerdict`, one DataRow per shape. Self-comparisons: `x.Id == x.Id` SR, `x.Id >= x.Id` SR, `x.Id <= x.Id` SR, `x.Id != x.Id` OK, `x.Id > x.Id` OK, `x.Id < x.Id` OK, `!(x.Id != x.Id)` SR, `!(x.Id > x.Id)` SR, `(long)x.Id == (long)x.Id` SR, `(int?)x.Id == (int?)x.Id` SR, `x.Name == x.Name` SR, `x.Id == x.Other` OK. Or: `x.Id == 2 \|\| true` AT, `\|\| capturedTrue` AT, `\|\| StaticFlags.On` AT, `\|\| DateTime.Now > DateTime.MinValue` AT, `\|\| capturedA == capturedA` AT, `\|\| capturedNull == null` AT, `\|\| capturedS == "s"` AT, `\|\| capturedFalse` OK, `x.Id == 2 \| true` AT (non-short-circuit). And: `x.Id == 2 && true` OK, `x.Id == x.Id && x.Id == 2` OK, `x.Id == x.Id \|\| x.Id == 2` AT, `x.Id == 2 & false` OK. De Morgan: `!(x.Id != x.Id && x.Id == 2)` AT, `!(x.Id != x.Id \|\| x.Id > x.Id)` AT, `!(x.Id == 2 && capturedFalse)` AT. Property reads: `x.Id == 2 \|\| request.IncludeAll` AT (an instance property of a captured object). Convert: a hand-built `x.Id == 2 \|\| Convert(Convert(x.Id == x.Id, bool?), bool)` AT. Conditional: `capturedTrue ? x.Id == x.Id : x.Id == 2` AT, `capturedFalse ? x.Id == 2 : x.Id == x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id >= x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id == 2` OK. Not evaluated: `x.Id == 2 \|\| new Holder().Flag` OK, `\|\| Method()` OK, `\|\| (bool)capturedWrapper` OK (user `explicit operator bool`), `\|\| capturedW == capturedW2` OK (user `operator ==`), `\|\| capturedObj.Throws` OK (the read throws). Roots: a hand-built lambda whose body uses another parameter of the entity type, `x'.Id == 2` OK and `x'.Id == x'.Id` SR. Parameter-free: `true`, `1 < 2`, `"abc" == "abc"`, `capturedTrue`, `false` NC. Not folded (rev 7): `x.Id == 2 \|\| (bool)(object)x.Flag` OK (a cast through `object`), `x.Id == 2 \|\| capturedA + 1 == 8` OK (§6). | Red for the SR, AT and NC rows (the seam returns OK); Guard for the OK rows |
-| AC1 | `Classify_NeverCallsMethodsOperatorsOrConstructors` (counters on `Method()`, the `Holder` constructor, the user `explicit operator bool` and the user `operator ==`, each in a disjunction; every count stays 0) | Guard |
+| AC1, AC2, AC5 | `Classify_ReturnsTheVerdict`, one DataRow per shape. Self-comparisons: `x.Id == x.Id` SR, `x.Id >= x.Id` SR, `x.Id <= x.Id` SR, `x.Id != x.Id` OK, `x.Id > x.Id` OK, `x.Id < x.Id` OK, `!(x.Id != x.Id)` SR, `!(x.Id > x.Id)` SR, `(long)x.Id == (long)x.Id` SR, `(int?)x.Id == (int?)x.Id` SR, `x.Name == x.Name` SR, `x.Id == x.Other` OK. Or: `x.Id == 2 \|\| true` AT, `\|\| capturedTrue` AT, `\|\| StaticFlags.On` AT, `\|\| DateTime.Now > DateTime.MinValue` AT, `\|\| capturedA == capturedA` AT, `\|\| capturedNull == null` AT, `\|\| capturedS == "s"` AT, `\|\| capturedFalse` OK, `x.Id == 2 \| true` AT (non-short-circuit). And: `x.Id == 2 && true` OK, `x.Id == x.Id && x.Id == 2` OK, `x.Id == x.Id \|\| x.Id == 2` AT, `x.Id == 2 & false` OK. De Morgan: `!(x.Id != x.Id && x.Id == 2)` AT, `!(x.Id != x.Id \|\| x.Id > x.Id)` AT, `!(x.Id == 2 && capturedFalse)` AT. Property reads: `x.Id == 2 \|\| request.IncludeAll` AT (an instance property of a captured object). Convert: a hand-built `x.Id == 2 \|\| Convert(Convert(x.Id == x.Id, bool?), bool)` AT. Conditional: `capturedTrue ? x.Id == x.Id : x.Id == 2` AT, `capturedFalse ? x.Id == 2 : x.Id == x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id >= x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id == 2` OK. Not evaluated: `x.Id == 2 \|\| new Holder().Flag` OK, `\|\| Method()` OK, `\|\| (bool)capturedWrapper` OK (user `explicit operator bool`), `\|\| capturedW == capturedW2` OK (user `operator ==`), `\|\| capturedObj.Throws` OK (the read throws). Roots: a hand-built lambda whose body uses another parameter of the entity type, `x'.Id == 2` OK and `x'.Id == x'.Id` SR. Parameter-free: `true`, `1 < 2`, `"abc" == "abc"`, `capturedTrue`, `false` NC. Not folded (rev 7): `x.Id == 2 \|\| (bool)(object)x.Flag` OK (a cast through `object`), `x.Id == 2 \|\| capturedA + 1 == 8` OK (§6). Calls (rev 9, I1-1): `x.Id == 2 \|\| capturedS.Contains("s")`, `\|\| capturedS.Contains('s')`, `\|\| capturedS.Contains("s", StringComparison.Ordinal)`, `\|\| "abc".Contains("b")`, `roles.Contains("admin") \|\| x.Id == 2`, `\|\| capturedS.ToString() == "s"`, `\|\| capturedA.ToString() == "7"`, `\|\| capturedDay.ToString() == "Monday"`, `\|\| capturedNullableA.ToString() == "7"` (an `int?`) AT; `\|\| capturedS.Contains("z")`, `\|\| capturedS.StartsWith("s")`, `\|\| capturedNamed.ToString() == "x"` (an `object` holding a class with an override), `\|\| capturedNamedValue.ToString() == "x"` (a struct with an override), `\|\| capturedNullableNamedValue.ToString() == "x"` (a nullable one), `x.Name.Contains("a")` and `x.Id == 2 \|\| capturedS.Contains(x.Name)` (a column as the receiver or the argument) OK. | Red for the SR, AT and NC rows (the seam returns OK); Guard for the OK rows |
+| AC1 | `Classify_NeverCallsMethodsOperatorsOrConstructors` (counters on `Method()`, the `Holder` constructor, the user `explicit operator bool` and the user `operator ==`, each in a disjunction; and (rev 9) the `ToString()` overrides of a class held in an `object`, of a struct and of a nullable struct; every count stays 0) | Guard |
 | AC1, AC2 | `Validate_ThrowsTheMessageOfEachVerdict` [NoColumn, SelfReference, AlwaysTrue: exact message; Acceptable: no throw] | Red for the three rejections; the Acceptable row is a Guard |
 | D1 contract | `PublicMembers_RejectBadArguments` [`Classify(null)`, `Validate(null)`, `HasLiteralTautology(null)`: `ArgumentNullException`; a zero-parameter lambda `() => true` (rev 5, T3-1), a two-parameter lambda and a lambda with an `int` body: `ArgumentException`] (rev 4, T2-4) | Red (the seam stub doesn't check) |
-| AC4 | `HasLiteralTautology_ReturnsTheRuleOrTheFold`. True by the `1=1` rule: `1=1`, `1 = 1`, `(t.id = @p__linq__0 AND 1=1)`, `1=1 = @p`, `CASE WHEN 1 = 1 THEN 1 END = @p`. True by the fold: `1 < 2`, `2 >= 1`, `1.5 > 1`, `1 != 2`, `1 <> 2`, `1 <= 1`, `(2 > 1)`, `NOT NOT 2 > 1`, `t.id = @p OR NOT 1=0`, `t.a = @p or not 1=0` (lower case), `NOT (1=0 AND t.id = @p)`, and in an `OR` with `NOT 1=0` (rev 4, T2-1): `t.first_name IS NOT NULL`, `t.id IN (@p0, @p1)`, `t.id NOT IN (@p0)`, `COALESCE(t.a, 0) = @p`, `CAST(strftime('%Y', t.d) AS INTEGER) = @p`, `t.name LIKE CONCAT(@p, '%')`, `(t.a)::int = @p`, `(SELECT COUNT(*) FROM c WHERE c.pid = t.id) > @p`, `CASE WHEN t.a > 0 THEN 1 ELSE 0 END = @p`, `t.notes = @p`. Also true (rev 5, T3-1): `1=1 AND (` (rule 1 in a clause that doesn't parse), `ordinal = @p OR NOT 1=0`; and (rev 6, T4-2) `t.c = 'abc 1=1` (an unclosed quote masks nothing). False: `1=0`, `1 <> 1`, `2 <= 1`, `NOT 2 > 1`, each of the ten shapes just listed in an `AND` with `NOT 1=0`, and (rev 5, T3-1) `(t.id = @p OR NOT 1=0` (unbalanced), `t.c = 'abc OR NOT 1=0` (an unclosed quote), `CASE WHEN t.a = 0 OR NOT 1 = 0 OR t.b = 0 THEN 0 ELSE 1 END = @p`, `t.a = @p XOR NOT 1=0`, `(1=0 OR t.id = @p)`, `(t.parent_id = @p AND NOT 1=0)`, `(NOT 1=0 AND t.x = @p)`, `2 > 1 AND t.id = @p`, `t.col1=1`, `t.col1 = 1`, `@p__linq__1=1`, `$1=1`, `'1=1'`, `t.c = 'x OR 1=1 OR y'`, `[a OR 1=1 OR b] = @p`, `"1"=1`, `` `1`=1 ``, `t.c = 'a''1=1'`, `t.a * 100 > 50`, `t.a - 1 >= 0`, `5 < 10 * t.a`, `CASE WHEN t.a - 1 >= 0 THEN 1 ELSE 0 END = @p`; and (rev 7) the clauses that don't parse `NOT 1=0 OR`, `NOT 1=0 AND`, `t.id IN (@p OR NOT 1=0`, `CASE WHEN t.a = 1 THEN 1 OR NOT 1=0`, `() OR NOT 1=0` and `t.a = @p) OR NOT 1=0`, and `[a]]1=1] = @p` (an escaped `]`) | Red for the true rows (the seam returns false); Guard for the false rows |
+| AC4 | `HasLiteralTautology_ReturnsTheRuleOrTheFold`. True by the `1=1` rule: `1=1`, `1 = 1`, `(t.id = @p__linq__0 AND 1=1)`, `1=1 = @p`, `CASE WHEN 1 = 1 THEN 1 END = @p`. True by the fold: `1 < 2`, `2 >= 1`, `1.5 > 1`, `1 != 2`, `1 <> 2`, `1 <= 1`, `(2 > 1)`, `NOT NOT 2 > 1`, `t.id = @p OR NOT 1=0`, `t.a = @p or not 1=0` (lower case), `NOT (1=0 AND t.id = @p)`, and in an `OR` with `NOT 1=0` (rev 4, T2-1): `t.first_name IS NOT NULL`, `t.id IN (@p0, @p1)`, `t.id NOT IN (@p0)`, `COALESCE(t.a, 0) = @p`, `CAST(strftime('%Y', t.d) AS INTEGER) = @p`, `t.name LIKE CONCAT(@p, '%')`, `(t.a)::int = @p`, `(SELECT COUNT(*) FROM c WHERE c.pid = t.id) > @p`, `CASE WHEN t.a > 0 THEN 1 ELSE 0 END = @p`, `t.notes = @p`. Also true (rev 5, T3-1): `1=1 AND (` (rule 1 in a clause that doesn't parse), `ordinal = @p OR NOT 1=0`; and (rev 6, T4-2) `t.c = 'abc 1=1` (an unclosed quote masks nothing). False: `1=0`, `1 <> 1`, `2 <= 1`, `NOT 2 > 1`, each of the ten shapes just listed in an `AND` with `NOT 1=0`, and (rev 5, T3-1) `(t.id = @p OR NOT 1=0` (unbalanced), `t.c = 'abc OR NOT 1=0` (an unclosed quote), `CASE WHEN t.a = 0 OR NOT 1 = 0 OR t.b = 0 THEN 0 ELSE 1 END = @p`, `t.a = @p XOR NOT 1=0`, `(1=0 OR t.id = @p)`, `(t.parent_id = @p AND NOT 1=0)`, `(NOT 1=0 AND t.x = @p)`, `2 > 1 AND t.id = @p`, `t.col1=1`, `t.col1 = 1`, `@p__linq__1=1`, `$1=1`, `'1=1'`, `t.c = 'x OR 1=1 OR y'`, `[a OR 1=1 OR b] = @p`, `"1"=1`, `` `1`=1 ``, `t.c = 'a''1=1'`, `t.a * 100 > 50`, `t.a - 1 >= 0`, `5 < 10 * t.a`, `CASE WHEN t.a - 1 >= 0 THEN 1 ELSE 0 END = @p`; and (rev 7) the clauses that don't parse `NOT 1=0 OR`, `NOT 1=0 AND`, `t.id IN (@p OR NOT 1=0`, `CASE WHEN t.a = 1 THEN 1 OR NOT 1=0`, `() OR NOT 1=0` and `t.a = @p) OR NOT 1=0`, and `[a]]1=1] = @p` (an escaped `]`); and (rev 9, I1-5) `NOT 1=0) AND t.x = @p` and `CASE WHEN CASE WHEN t.a = 1 THEN 1 END = 1 OR NOT 1=0 OR t.b = 0 THEN 0 END = @p` | Red for the true rows (the seam returns false); Guard for the false rows |
+| D3 | `HasLiteralTautology_TooDeeplyNested_ReturnsFalse`: 20,000 nested groups around `t.id = @p OR NOT 1=0`, on a 1 MB thread, return false without a stack overflow (rev 9, I1-4) | Guard at the seam; Red at `3ec5ba9` (the test host dies) |
 
 **Integration, a shared harness `Funcular.Data.Orm.SqlServer.Tests/DeleteGuard/DeleteGuardHarness.cs`, compiled into
 SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Tests, as `LinqScopeHarness` is.**
@@ -325,14 +340,14 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 | AC | Test | SQL Server | PostgreSQL | MySQL | SQLite | Class at the seam |
 |---|---|---|---|---|---|---|
 | AC1 | `SelfComparison_IsRejected` [`x.FirstName == x.FirstName`, `x.Id >= x.Id`, `x.Id <= x.Id`, `!(x.Id != x.Id)`, `(long)x.Id == (long)x.Id`] | ✓ | ✓ | ✓ | ✓ | Red on PostgreSQL, MySQL and SQLite (rows deleted); on SQL Server Red for `!(x.Id != x.Id)` only (its regex catches the others, `(long)` included, since the visitor drops `Convert`) |
-| AC1 | `AlwaysTrue_IsRejected` [`x.Id == 2 \|\| true`, `\|\| capturedTrue`, `\|\| StaticFlags.On`, `\|\| request.IncludeAll`, `\|\| capturedA == capturedA`, `\|\| capturedNull == null`, `!(x.Id != x.Id && x.Id == 2)`, `!(x.Id != x.Id \|\| x.Id > x.Id)`] | ✓ | ✓ | ✓ | ✓ | Red: rows deleted, or on SQL Server for the bare-parameter forms a `SqlException`, not the message |
+| AC1 | `AlwaysTrue_IsRejected` [`x.Id == 2 \|\| true`, `\|\| capturedTrue`, `\|\| StaticFlags.On`, `\|\| request.IncludeAll`, `\|\| capturedA == capturedA`, `\|\| capturedNull == null`, `!(x.Id != x.Id && x.Id == 2)`, `!(x.Id != x.Id \|\| x.Id > x.Id)`, and (rev 9, I1-1) `x.Id == 2 \|\| capturedS.Contains("s")`, `roles.Contains("admin") \|\| x.Id == 2`, `x.Id == 2 \|\| capturedS.ToString() == "s"`] | ✓ | ✓ | ✓ | ✓ | Red: rows deleted, or on SQL Server for the bare-parameter forms a `SqlException`, not the message; the rev 9 rows delete every row at `3ec5ba9` |
 | AC1 | `RejectedOnAMissingTable_ReportsTheGuardNotDiscovery` [`x.Id == x.Id`, `x.Id == 2 \|\| true`] on a cold type whose table doesn't exist (T0-3) | ✓ | ✓ | ✓ | ✓ | Red (discovery's error, or `SqliteException`, is thrown first) |
 | AC2 | `ParameterFree_IsRejectedAsNoColumn` [`true`, `1 < 2`, `"abc" == "abc"`, `capturedTrue`, `false`] | ✓ | ✓ | ✓ | ✓ | Guard |
 | AC3 | `IdentifierContainingTrue_IsAccepted` [`x.TrueUp == 1` (column `true_up`), the `zz_dg_TrueUp` table's `x.Amount == 5`] | ✓ | ✓ | ✓ | ✓ | Red (rejected as trivial) |
 | AC4 | `LiteralTautologyInSql_IsRejected` [`x.Id == 2 \|\| new Holder().Flag`, `x.Id == 2 \|\| new Holder().Flag == true`, `x.Id == 2 \|\| !emptyIds.Contains(x.Id)`, `!(emptyIds.Contains(x.Id) && x.Id == 2)`, `x.FirstName != null \|\| !emptyIds.Contains(x.Id)`, `ids.Contains(x.Id) \|\| !emptyIds.Contains(x.Id)`, `!emptyIds.Contains(x.Id)` alone (rev 6, T4-1), `x.Archived \|\| !emptyIds.Contains(x.Id)` (a `bool` column `archived`, rev 7)] | ✓ | ✓ | ✓ | ✓ | Guard for the two `1=1` rows (the substring list catches them); Red for the four `NOT` rows (rows deleted), for `!emptyIds.Contains(x.Id)` alone (the "must reference" message, not AlwaysTrue) and for the `x.Archived` row (rows deleted; on SQL Server a `SqlException`) |
 | D5 | `NullPredicate_KeepsItsMessage` (`Delete<T>(null)`) and `RejectedPredicateWithoutTransaction_KeepsTheTransactionMessage` (`x.Id == x.Id` with no transaction open) (rev 6, T4-1) | ✓ | ✓ | ✓ | ✓ | Guard |
-| AC4, AC5 | `NonTrivialPredicates_DeleteTheMatchingRows` [`x.Id == 2`; `x.Id == 2 && x.FirstName == "b"`; `x.Id == 1 \|\| x.Id == 2`; `ids.Contains(x.Id)`; `x.FirstName.StartsWith("b")`; `x.Id == x.Id && x.Id == 2`; `emptyIds.Contains(x.Id) \|\| x.Id == 2`; `!emptyIds.Contains(x.Id) && x.Id == 2`; `x.Id == 2 && !emptyIds.Contains(x.Id)`; `x.Id == 2 && !otherIds.Contains(x.Id)` (row 2); `x.FirstName != null && !emptyIds.Contains(x.Id)` (rows 1 and 2); `x.Big == 1 && x.Id == 2` with `[SqlExpression("CASE WHEN {Id} * 100 > 50 THEN 1 ELSE 0 END")] Big`; `x.Big2 == 1` alone with `[SqlExpression("CASE WHEN {Id} - 1 >= 1 THEN 1 ELSE 0 END")] Big2` (rows 2 and 3; rev 4, T2-2)] | ✓ | ✓ | ✓ | ✓ | Guard |
-| §6 | `UnevaluatedParameterFreeParts_AreNotTranslated` [`x.Id == 2 \|\| capturedA + 1 == 8`, `\|\| -capturedA == -7`, `\|\| emptyArray.Length == 0`, `\|\| capturedArray[0] == 5`, `\|\| (capturedNullBool ?? true)`, `string.IsNullOrEmpty(capturedNull) \|\| x.FirstName == capturedNull`]: the verdict is Acceptable, the provider throws `NotSupportedException`, no `DELETE` is logged and every row remains (rev 7) | ✓ | ✓ | ✓ | ✓ | Guard |
+| AC4, AC5 | `NonTrivialPredicates_DeleteTheMatchingRows` [`x.Id == 2`; `x.Id == 2 && x.FirstName == "b"`; `x.Id == 1 \|\| x.Id == 2`; `ids.Contains(x.Id)`; `x.FirstName.StartsWith("b")`; `x.Id == x.Id && x.Id == 2`; `emptyIds.Contains(x.Id) \|\| x.Id == 2`; `!emptyIds.Contains(x.Id) && x.Id == 2`; `x.Id == 2 && !emptyIds.Contains(x.Id)`; `x.Id == 2 && !otherIds.Contains(x.Id)` (row 2); `x.FirstName != null && !emptyIds.Contains(x.Id)` (rows 1 and 2); `x.Big == 1 && x.Id == 2` with `[SqlExpression("CASE WHEN {Id} * 100 > 50 THEN 1 ELSE 0 END")] Big`; `x.Big2 == 1` alone with `[SqlExpression("CASE WHEN {Id} - 1 >= 1 THEN 1 ELSE 0 END")] Big2` (rows 2 and 3; rev 4, T2-2); `x.Id == 2 \|\| capturedS.Contains("z")` and `x.FirstName.Contains("b")` (rows 1 and 3; rev 9)] | ✓ | ✓ | ✓ | ✓ | Guard |
+| §6 | `UnevaluatedParameterFreeParts_AreNotTranslated` [`x.Id == 2 \|\| capturedA + 1 == 8`, `\|\| -capturedA == -7`, `\|\| emptyArray.Length == 0`, `\|\| capturedArray[0] == 5`, `\|\| (capturedNullBool ?? true)`, `string.IsNullOrEmpty(capturedNull) \|\| x.FirstName == capturedNull`, and (rev 9) `x.Id == 2 \|\| capturedS.StartsWith("s")` and `\|\| capturedS.EndsWith("s")`]: the verdict is Acceptable, the provider throws (`NotSupportedException`; for `StartsWith`/`EndsWith` a `NullReferenceException`, rev 9), no `DELETE` is logged and every row remains (rev 7) | ✓ | ✓ | ✓ | ✓ | Guard |
 | AC3 | `DeleteGuardCaseTests` (net48, D8): `TrueUpAmount == 5` sync and async, and the `zz_guard_TrueUp` table, each delete exactly row 1 | ✓ (net48) | — | — | — | Red (rejected as trivial) |
 | AC6 | the existing tests of §1, except `DeleteGuardCaseTests` (D8) | ✓ (and net48) | ✓ (cold-cache) | ✓ (cold-cache) | ✓ | Guard |
 | AC7 | Task 4's review checks Task 3's diff against D7's list and a grep of every document for descriptions of the guard (T1-7) | — | — | — | — | — |
@@ -412,6 +427,16 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 | The old substring list kept | `IdentifierContainingTrue_IsAccepted`; `DeleteGuardCaseTests` |
 | A doubled closing quote isn't an escape (rev 7) | its `[a]]1=1] = @p` row |
 | An evaluation that throws isn't Unknown (rev 7) | Classify `\|\| capturedObj.Throws` |
+| `Contains` not evaluated (rev 9) | Classify's `Contains` rows; the harness `capturedS.Contains("s")` and `roles.Contains("admin")` rows |
+| `ToString()` not evaluated (rev 9) | Classify's `ToString()` rows; the harness `capturedS.ToString()` row |
+| Every core-library method evaluated (rev 9) | Classify `\|\| capturedS.StartsWith("s")` (OK) |
+| `ToString()` evaluated whatever its receiver (rev 9) | `Classify_NeverCallsMethodsOperatorsOrConstructors` (the `ToString()` counters) |
+| A nullable receiver not unwrapped (rev 9) | Classify `\|\| capturedNullableA.ToString() == "7"` |
+| Any nullable receiver accepted, whatever its underlying type (rev 9) | `Classify_NeverCallsMethodsOperatorsOrConstructors` (the nullable struct's counter) |
+| D3's stack check removed (rev 9) | `HasLiteralTautology_TooDeeplyNested_ReturnsFalse` (the test host dies) |
+| D3's `InsufficientExecutionStackException` not caught (rev 9) | `HasLiteralTautology_TooDeeplyNested_ReturnsFalse` |
+| D3 ignores tokens after the top-level `OR` (rev 9, I1-5) | its `NOT 1=0) AND t.x = @p` row |
+| D3's `CASE … END` matching ignores a nested `CASE` (rev 9, I1-5) | its nested `CASE` row |
 
 ### 4.4 Where each tier runs
 
@@ -483,6 +508,23 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - The provider-scoped caches plan's pointers (its §4.2 note and §4.4 net48 line) are added when `development/3.10`
   is merged in (Task 4): that branch rewrapped the §4.2 note after `be8de82`, so an edit here would conflict.
 
+### 5.4 Task 4, round 1 (the commit that carries rev 9)
+
+- I1-1 to I1-5 are answered as §9.7 records; I1-6 is recorded in §6 and filed as a separate task.
+- Red first: at `3ec5ba9` the rev 9 Classify rows that expect AlwaysTrue failed, the harness `Contains` and
+  `ToString()` rows deleted every row on all four providers, and `HasLiteralTautology_TooDeeplyNested_ReturnsFalse`
+  killed the test host. The I1-5 rows pass there and fail under their mutations.
+- The rows rev 9 adds ran at the seam and matched their §4.1 class.
+- Every §4.1 row passes: 150 DB-free, 116 in each harness class (SQL Server, SQLite, PostgreSQL, MySQL). Suites, all
+  passing: SqlServer.Tests 1398, PostgreSql.Tests 901, MySql.Tests 854, Sqlite.Tests 800, DotNet9 5, net48 79.
+- Coverage: `DeletePredicateGuard.cs` 407 / 407 (100 %); the provider files are unchanged from §5.2.
+- Mutations: the 47 guard mutants ran on this layer's tests before the nullable rows were added, and the 10 of rev 9
+  on the final tests; each was killed by the rows §4.3 names (the NoColumn row's killer as rev 7 corrects it). The 44
+  provider mutants didn't run again: the providers are unchanged since `bcd254f`, and Task 4's reviewer killed all 44
+  at `3ec5ba9`.
+- The reviewer's 1,500-term nested `OR`, rerun with the fix on a 1 MB thread: SQL Server and SQLite reject the
+  statement, and PostgreSQL and MySQL delete the two matching rows (rolled back), as at `be8de82`.
+
 ## 6. Out of scope (recorded)
 
 - **Always-true shapes D2 doesn't detect** (T0-9). These deleted every row at the seam on all four providers and still
@@ -520,11 +562,23 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   (pre-existing translation limit); the guard doesn't change it.
 - **The column-reference check** (check 4) stays substring-based and can over-accept.
 - **The dead `InternalsVisibleTo("Funcular.Data.Orm.SqlServer")`** in Core is left as it is; D1 adds no grants.
-- **Operators and method calls in a parameter-free part aren't evaluated** (rev 7). D2 evaluates only the nodes it
-  lists, so the guard accepts `x.Id == 2 || capturedA + 1 == 8`, `|| -capturedA == -7`, `|| emptyArray.Length == 0`,
-  `|| capturedArray[0] == 5`, `|| (capturedNullBool ?? true)` and `string.IsNullOrEmpty(filter) || x.Col == filter`.
-  Today every provider's visitor throws `NotSupportedException` for each, sync and async, so nothing is deleted;
-  `UnevaluatedParameterFreeParts_AreNotTranslated` fails if a visitor starts translating one.
+- **Operators and method calls in a parameter-free part aren't evaluated** (rev 7; corrected in rev 9, I1-1). D2
+  evaluates only the nodes it lists, so the guard accepts `x.Id == 2 || capturedA + 1 == 8`, `|| -capturedA == -7`,
+  `|| emptyArray.Length == 0`, `|| capturedArray[0] == 5`, `|| (capturedNullBool ?? true)`,
+  `string.IsNullOrEmpty(filter) || x.Col == filter`, and `|| s.StartsWith("s")` or `EndsWith`. Today every provider
+  fails to translate or run each of them, sync and async (`NotSupportedException`; for `StartsWith`/`EndsWith` on a
+  captured string a `NullReferenceException`), so nothing is deleted; `UnevaluatedParameterFreeParts_AreNotTranslated`
+  fails if a provider starts running one. Rev 7 said every method call failed so; `string`'s `Contains` and
+  `ToString()` ran and deleted every row, and D2 evaluates them since rev 9.
+- **A `Contains` that C# finds false and the server's collation finds true** (rev 9, I1-1): `x.Id == 2 ||
+  s.Contains("s")` with `s = "S"` deleted every row on SQL Server, MySQL and SQLite in Task 4's review. D2 evaluates
+  `Contains` as C# does, like the `s == "s"` case above.
+- **A clause nested too deeply for D3's parser** (rev 9, I1-4) is treated as one that doesn't parse, so its fold isn't
+  checked (rule 1 still is). A 1,500-term nested `OR` runs as at `be8de82`: PostgreSQL and MySQL delete the matching
+  rows; SQL Server and SQLite reject the statement.
+- **A collection `Contains` whose item is a captured object's property** (rev 9, I1-6) is translated as the entity's
+  column of the same name: `x.Id == 2 || ids.Contains(req.Id)` sends `t.id IN (…)`, and deleted rows 1 and 2 on all
+  four providers in Task 4's review. A pre-existing translator defect outside the guard; filed as a separate task.
 - **Date-part translation in WHERE** is a separate pre-existing defect (provider-scoped caches plan §6, OBS-1); the
   owner placed its fix in 3.10.0 (decision 2026-10-02, given in chat), and its plan isn't written yet.
 
@@ -615,3 +669,16 @@ partial. Blame: TEST-GAP 3, PLAN-GAP 1.
 
 Verdict: CLEAN. T4-1 to T4-4 resolved. One non-blocking nit, T5-NB1: §9.5 doesn't say whether §9.4's two nits are
 answered. They are carried, not answered.
+
+### 9.7 Task 4 review of `58efaca..3ec5ba9` (non-author)
+
+Verdict: NOT CLEAN; five blocking findings and one non-blocking. Blame: TEST-GAP 1, PLAN-GAP 1, OTHER 4.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| I1-1 | medium | PLAN-GAP | D2; §6's premise for method calls | Owner decision 2026-10-02: D2 evaluates `string`'s `Contains` and a core type's `ToString()`; AC1, rows and mutations; §6 corrected; the collation case recorded. |
+| I1-2 | low | OTHER | Changelog: the Changed lead, the Fixed comparison clause, the letter-case sentence | Reworded. |
+| I1-3 | low | OTHER | `Usage.md` troubleshooting item 4 | "Before the DELETE is sent", and when SQL runs first; method calls and collation in the Warning. |
+| I1-4 | medium | OTHER | D3's parser recursion | A stack check; a clause too deep to parse returns false; a DB-free row on a 1 MB thread; mutations. |
+| I1-5 | low | TEST-GAP | D3: tokens after the top-level `OR`; nested `CASE` | Two rows; two mutations. |
+| I1-6 | medium | OTHER (non-blocking) | the translators: a captured property as a collection `Contains` item | §6; filed as a separate task. |

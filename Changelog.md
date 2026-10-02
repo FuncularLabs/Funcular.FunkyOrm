@@ -85,16 +85,19 @@ subclasses.
   All four providers:
   - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`), their negations (`!(x.Id != x.Id)`), and
     disjunctions with an always-true operand (`x.Id == 2 || true`, a captured or static `true`, a `true` property of
-    a captured object, or a comparison of constants and captured values that holds, such as `filter == null` with
-    `filter` null) could delete every row. They're now rejected before any SQL runs;
+    a captured object, a comparison of constants and captured values that holds, such as `filter == null` with
+    `filter` null, or a captured string's `Contains` or a captured value's `ToString()` in a comparison that holds,
+    such as `roles.Contains("admin")`) could delete every row. They're now rejected before any SQL runs;
   - a disjunction with a negated `Contains` over an empty collection (`x.Id == 2 || !emptyIds.Contains(x.Id)`, its
     De Morgan form `!(emptyIds.Contains(x.Id) && x.Id == 2)`, and the same after `IS NOT NULL` or `IN (…)`) deleted
     every row. It's now rejected once the WHERE clause is built, before the DELETE runs;
-  - a predicate on a table or column whose name contains `true` in any letter case (a column `true_up` or
-    `TrueUpAmount`, a table `TrueUpLedger`) was rejected as trivial. It's now accepted.
+  - a predicate on a table or column whose name contains `true` (a column `true_up` or `TrueUpAmount`, a table
+    `TrueUpLedger`) was rejected as trivial: in any letter case on the .NET 8 build, in lower case on the
+    netstandard2.0 and .NET Framework 4.8 builds. It's now accepted.
 
-  The checks catch these shapes, not every predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still
-  accepted.
+  The checks evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a
+  core type's `ToString()`, but no arithmetic and no other method call, and they catch these shapes, not every
+  predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -196,12 +199,13 @@ Other changes:
   `InnerException` of an `InvalidOperationException`. That holds for a delete by id, and for a delete by a predicate
   the delete guard doesn't reject before translating it. Some of these calls threw the provider's exception
   directly before. A predicate rejected before translation (see Fixed) reports the guard's message instead.
-- **`Delete`/`DeleteAsync` by predicate reject predicates that a captured value makes always true.** When the
-  condition held, these idioms deleted every row (on SQL Server, the second and third failed with a SQL error
-  instead); they now throw "Delete operation requires a non-trivial WHERE clause.":
+- **`Delete`/`DeleteAsync` by predicate reject these idioms when a captured value makes them always true.** When
+  the condition held, they deleted every row (on SQL Server, the second and third failed with a SQL error instead);
+  they now throw "Delete operation requires a non-trivial WHERE clause.":
   - `filter == null || x.Col == filter` with `filter` null;
   - `isAdmin || x.OwnerId == me` with `isAdmin` true;
-  - `x.Archived || !keepIds.Contains(x.Id)` with `keepIds` empty.
+  - `x.Archived || !keepIds.Contains(x.Id)` with `keepIds` empty;
+  - `roles.Contains("admin") || x.OwnerId == me` with `roles` containing `admin`.
 
   Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
   rejected, now with that message instead of "…must reference at least one column from the target table."

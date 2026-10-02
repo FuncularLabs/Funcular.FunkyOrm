@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Threading;
 
 #pragma warning disable CS1718 // Comparisons of a member with itself are the point of these rows.
 
@@ -66,6 +67,26 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             public override int GetHashCode() => 0;
         }
 
+        public class Named
+        {
+            public static int ToStringCalls;
+            public override string ToString()
+            {
+                ToStringCalls++;
+                return "x";
+            }
+        }
+
+        public struct NamedValue
+        {
+            public static int ToStringCalls;
+            public override string ToString()
+            {
+                ToStringCalls++;
+                return "x";
+            }
+        }
+
         public class Throwing
         {
             public bool Throws => throw new InvalidOperationException("read");
@@ -90,6 +111,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly W capturedW = new W();
         private readonly W capturedW2 = new W();
         private readonly Throwing capturedObj = new Throwing();
+        private readonly string roles = "admin,user";
+        private readonly DayOfWeek capturedDay = DayOfWeek.Monday;
+        private readonly object capturedNamed = new Named();
+        private readonly NamedValue capturedNamedValue = new NamedValue();
+        private readonly int? capturedNullableA = 7;
+        private readonly NamedValue? capturedNullableNamedValue = new NamedValue();
 
         private Dictionary<string, LambdaExpression> Predicates()
         {
@@ -139,6 +166,24 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 // Not folded: a cast through object, and arithmetic on captured values (plan section 6).
                 ["orBoxedFlag"] = P(x => x.Id == 2 || (bool)(object)x.Flag),
                 ["orArithmetic"] = P(x => x.Id == 2 || capturedA + 1 == 8),
+                // String Contains and a core type's ToString(), evaluated (rev 9, I1-1).
+                ["orCapturedContains"] = P(x => x.Id == 2 || capturedS.Contains("s")),
+                ["orCapturedContainsChar"] = P(x => x.Id == 2 || capturedS.Contains('s')),
+                ["orContainsOrdinal"] = P(x => x.Id == 2 || capturedS.Contains("s", StringComparison.Ordinal)),
+                ["orLiteralContains"] = P(x => x.Id == 2 || "abc".Contains("b")),
+                ["rolesContainsOr"] = P(x => roles.Contains("admin") || x.Id == 2),
+                ["orToString"] = P(x => x.Id == 2 || capturedS.ToString() == "s"),
+                ["orIntToString"] = P(x => x.Id == 2 || capturedA.ToString() == "7"),
+                ["orEnumToString"] = P(x => x.Id == 2 || capturedDay.ToString() == "Monday"),
+                ["orNullableToString"] = P(x => x.Id == 2 || capturedNullableA.ToString() == "7"),
+                ["orContainsFalse"] = P(x => x.Id == 2 || capturedS.Contains("z")),
+                ["nameContains"] = P(x => x.Name.Contains("a")),
+                ["orContainsName"] = P(x => x.Id == 2 || capturedS.Contains(x.Name)),
+                // Not evaluated: another string method, and ToString() that could run user code.
+                ["orStartsWith"] = P(x => x.Id == 2 || capturedS.StartsWith("s")),
+                ["orObjectToString"] = P(x => x.Id == 2 || capturedNamed.ToString() == "x"),
+                ["orStructToString"] = P(x => x.Id == 2 || capturedNamedValue.ToString() == "x"),
+                ["orNullableStructToString"] = P(x => x.Id == 2 || capturedNullableNamedValue.ToString() == "x"),
                 // Convert, hand-built.
                 ["handConvert"] = Expression.Lambda<Func<GuardRow, bool>>(
                     Expression.OrElse(Expression.Equal(lambdaId, Expression.Constant(2)), convertedSelf), lambdaParameter),
@@ -203,6 +248,22 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orIncludeAll", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("orBoxedFlag", DeletePredicateVerdict.Acceptable)]
         [DataRow("orArithmetic", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orCapturedContains", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedContainsChar", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orContainsOrdinal", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orLiteralContains", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("rolesContainsOr", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orToString", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orIntToString", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orEnumToString", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orNullableToString", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orContainsFalse", DeletePredicateVerdict.Acceptable)]
+        [DataRow("nameContains", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orContainsName", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orStartsWith", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orObjectToString", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orStructToString", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orNullableStructToString", DeletePredicateVerdict.Acceptable)]
         [DataRow("handConvert", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("condTrueSelf", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("condFalseSelf", DeletePredicateVerdict.AlwaysTrue)]
@@ -232,14 +293,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             Holder.Constructed = 0;
             Wrapper.Conversions = 0;
             W.Comparisons = 0;
+            Named.ToStringCalls = 0;
+            NamedValue.ToStringCalls = 0;
             var predicates = Predicates();
-            foreach (var key in new[] { "orMethod", "orNewHolder", "orWrapperConversion", "orUserOperator" })
+            foreach (var key in new[] { "orMethod", "orNewHolder", "orWrapperConversion", "orUserOperator", "orObjectToString",
+                         "orStructToString", "orNullableStructToString" })
                 DeletePredicateGuard.Classify(predicates[key]);
 
             Assert.AreEqual(0, _methodCalls, "Method() was called");
             Assert.AreEqual(0, Holder.Constructed, "Holder's constructor was called");
             Assert.AreEqual(0, Wrapper.Conversions, "the user-defined explicit operator bool was called");
             Assert.AreEqual(0, W.Comparisons, "the user-defined operator == was called");
+            Assert.AreEqual(0, Named.ToStringCalls, "a class's ToString() override was called");
+            Assert.AreEqual(0, NamedValue.ToStringCalls, "a struct's ToString() override was called");
         }
 
         [DataTestMethod]
@@ -352,6 +418,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("t.c = 'abc OR NOT 1=0", false)]
         [DataRow("CASE WHEN t.a = 0 OR NOT 1 = 0 OR t.b = 0 THEN 0 ELSE 1 END = @p", false)]
         [DataRow("t.a = @p XOR NOT 1=0", false)]
+        [DataRow("NOT 1=0) AND t.x = @p", false)]
+        [DataRow("CASE WHEN CASE WHEN t.a = 1 THEN 1 END = 1 OR NOT 1=0 OR t.b = 0 THEN 0 END = @p", false)]
         [DataRow("NOT 1=0 OR", false)]
         [DataRow("NOT 1=0 AND", false)]
         [DataRow("t.id IN (@p OR NOT 1=0", false)]
@@ -385,6 +453,34 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         public void HasLiteralTautology_ReturnsTheRuleOrTheFold(string whereClause, bool expected)
         {
             Assert.AreEqual(expected, DeletePredicateGuard.HasLiteralTautology(whereClause), whereClause);
+        }
+
+        /// <summary>
+        /// A clause nested too deeply for the parser's stack is one it can't parse: false, not a stack overflow that
+        /// ends the process. It runs on a 1 MB thread, the size of a default thread on Windows.
+        /// </summary>
+        [TestMethod]
+        public void HasLiteralTautology_TooDeeplyNested_ReturnsFalse()
+        {
+            const int depth = 20000;
+            var clause = new string('(', depth) + "t.id = @p OR NOT 1=0" + new string(')', depth);
+            bool? result = null;
+            Exception error = null;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    result = DeletePredicateGuard.HasLiteralTautology(clause);
+                }
+                catch (Exception ex)
+                {
+                    error = ex;
+                }
+            }, 1024 * 1024);
+            thread.Start();
+            thread.Join();
+            Assert.IsNull(error, error?.ToString());
+            Assert.AreEqual(false, result);
         }
     }
 }

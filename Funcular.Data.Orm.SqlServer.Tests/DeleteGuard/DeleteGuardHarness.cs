@@ -93,6 +93,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         private readonly int[] emptyArray = new int[0];
         private readonly int[] capturedArray = { 5 };
         private readonly bool? capturedNullBool = null;
+        private readonly string capturedS = "s";
+        private readonly string roles = "admin,user";
 
         #region Provider seam
 
@@ -141,6 +143,14 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 case "orArithmetic": return x => x.Id == 2 || capturedA + 1 == 8;
                 case "orNegate": return x => x.Id == 2 || -capturedA == -7;
                 case "orEmptyArrayLength": return x => x.Id == 2 || emptyArray.Length == 0;
+                case "orStartsWith": return x => x.Id == 2 || capturedS.StartsWith("s");
+                case "orEndsWith": return x => x.Id == 2 || capturedS.EndsWith("s");
+                // String Contains and ToString() on a captured value (rev 9, I1-1).
+                case "orCapturedContains": return x => x.Id == 2 || capturedS.Contains("s");
+                case "rolesContainsOr": return x => roles.Contains("admin") || x.Id == 2;
+                case "orToString": return x => x.Id == 2 || capturedS.ToString() == "s";
+                case "orContainsFalse": return x => x.Id == 2 || capturedS.Contains("z");
+                case "firstNameContainsB": return x => x.FirstName.Contains("b");
                 case "orArrayIndex": return x => x.Id == 2 || capturedArray[0] == 5;
                 case "orCoalesce": return x => x.Id == 2 || (capturedNullBool ?? true);
                 case "orIsNullOrEmpty": return x => string.IsNullOrEmpty(capturedNull) || x.FirstName == capturedNull;
@@ -211,6 +221,9 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("orCapturedNullIsNull", "sync")] [DataRow("orCapturedNullIsNull", "async")]
         [DataRow("deMorganAnd", "sync")] [DataRow("deMorganAnd", "async")]
         [DataRow("deMorganOr", "sync")] [DataRow("deMorganOr", "async")]
+        [DataRow("orCapturedContains", "sync")] [DataRow("orCapturedContains", "async")]
+        [DataRow("rolesContainsOr", "sync")] [DataRow("rolesContainsOr", "async")]
+        [DataRow("orToString", "sync")] [DataRow("orToString", "async")]
         public async Task AlwaysTrue_IsRejected(string key, string path) =>
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key);
 
@@ -329,8 +342,10 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
 
         /// <summary>
         /// The guard accepts these, because it evaluates no operator other than casts, <c>!</c>, the logical operators and
-        /// comparisons, and no method call (plan section 6). Every provider's visitor rejects them today, so nothing is
-        /// deleted. If a visitor learns to translate one, this row fails, and the guard must learn to evaluate it first.
+        /// comparisons, and no method call other than string's <c>Contains</c> and a core type's <c>ToString()</c> (plan
+        /// section 6). Every provider fails to translate or run them today (<c>NotSupportedException</c>, or for
+        /// <c>StartsWith</c>/<c>EndsWith</c> on a captured string a <c>NullReferenceException</c>), so nothing is deleted.
+        /// If a provider learns to run one, this row fails, and the guard must learn to evaluate it first.
         /// </summary>
         [DataTestMethod]
         [DataRow("orArithmetic", "sync")] [DataRow("orArithmetic", "async")]
@@ -339,6 +354,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("orArrayIndex", "sync")] [DataRow("orArrayIndex", "async")]
         [DataRow("orCoalesce", "sync")] [DataRow("orCoalesce", "async")]
         [DataRow("orIsNullOrEmpty", "sync")] [DataRow("orIsNullOrEmpty", "async")]
+        [DataRow("orStartsWith", "sync")] [DataRow("orStartsWith", "async")]
+        [DataRow("orEndsWith", "sync")] [DataRow("orEndsWith", "async")]
         public async Task UnevaluatedParameterFreeParts_AreNotTranslated(string key, string path)
         {
             RequireDatabase();
@@ -353,10 +370,19 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 {
                     var predicate = Row(key);
                     Assert.AreEqual(DeletePredicateVerdict.Acceptable, DeletePredicateGuard.Classify(predicate), $"{key}: verdict");
-                    if (path == "async")
-                        await Assert.ThrowsExceptionAsync<NotSupportedException>(() => provider.DeleteAsync(predicate), $"{key} {path}");
-                    else
-                        Assert.ThrowsException<NotSupportedException>(() => provider.Delete(predicate), $"{key} {path}");
+                    Exception thrown = null;
+                    try
+                    {
+                        if (path == "async")
+                            await provider.DeleteAsync(predicate);
+                        else
+                            provider.Delete(predicate);
+                    }
+                    catch (Exception ex)
+                    {
+                        thrown = ex;
+                    }
+                    Assert.IsNotNull(thrown, $"{key} {path}: the provider ran the delete");
                     AssertNoDeleteLogged(logged, key, path);
                     Assert.AreEqual(3, provider.GetList<DgRow>().Count, $"{key} {path}: rows were deleted");
                 }
@@ -385,6 +411,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("nameNotNullAndNotEmpty", "sync", "3")] [DataRow("nameNotNullAndNotEmpty", "async", "3")]
         [DataRow("bigAndId2", "sync", "1,3")] [DataRow("bigAndId2", "async", "1,3")]
         [DataRow("big2", "sync", "1")] [DataRow("big2", "async", "1")]
+        [DataRow("orContainsFalse", "sync", "1,3")] [DataRow("orContainsFalse", "async", "1,3")]
+        [DataRow("firstNameContainsB", "sync", "1,3")] [DataRow("firstNameContainsB", "async", "1,3")]
         public async Task NonTrivialPredicates_DeleteTheMatchingRows(string key, string path, string survivors) =>
             await AssertDeletes(Row(key), path, survivors.Split(',').Select(int.Parse).ToArray(), key);
 

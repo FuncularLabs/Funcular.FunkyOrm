@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -60,13 +61,16 @@ namespace Funcular.Data.Orm
         /// <c>!=</c>, <c>&gt;</c> or <c>&lt;</c>.</item>
         /// <item><see cref="DeletePredicateVerdict.AlwaysTrue"/>: the body always holds otherwise, for example a
         /// disjunction with a <c>true</c> literal, a captured or static <c>true</c>, a <c>true</c> property of a captured
-        /// object, or a comparison of constants and captured values that holds.</item>
+        /// object, a comparison of constants and captured values that holds, or a <c>Contains</c> on a captured string
+        /// that holds (<c>roles.Contains("admin") || …</c>).</item>
         /// <item><see cref="DeletePredicateVerdict.Acceptable"/>: anything else.</item>
         /// </list>
         /// Parameter-free <c>bool</c> parts built from constants, field and property reads, casts, the logical
-        /// operators, comparisons and the conditional operator are evaluated. A part that calls a method, a constructor,
-        /// or an operator or conversion declared outside the core library is never evaluated, and counts as unknown,
-        /// as does a part whose evaluation throws.
+        /// operators, comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c>, and a parameterless
+        /// <c>ToString()</c> on an enum or a sealed or value type of the core library (or a nullable one) are evaluated.
+        /// A part that calls any other method, a constructor, or an operator or conversion declared outside the core
+        /// library is never evaluated, and counts as unknown, as does a part whose evaluation throws. So no code outside
+        /// the core library runs, except property getters.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <returns>The verdict.</returns>
@@ -123,7 +127,7 @@ namespace Funcular.Data.Orm
         /// Returns true when the translated <paramref name="whereClause"/> contains a <c>1=1</c> outside quotes, or
         /// folds to true over its literal comparisons (for example <c>t.id = @p OR NOT 1=0</c>, which a negated
         /// <c>Contains</c> over an empty collection produces). A clause that folds to false or unknown, or that can't be
-        /// parsed, returns false.
+        /// parsed (including one nested too deeply to parse on the calling thread's stack), returns false.
         /// </summary>
         /// <param name="whereClause">The WHERE clause, without the <c>WHERE</c> keyword.</param>
         /// <returns>True when the clause always holds by its literals.</returns>
@@ -137,7 +141,17 @@ namespace Funcular.Data.Orm
                 return true;
 
             var tokens = Tokenize(whereClause);
-            return tokens != null && new ClauseParser(tokens).Parse() == Truth.True;
+            if (tokens == null)
+                return false;
+            try
+            {
+                return new ClauseParser(tokens).Parse() == Truth.True;
+            }
+            catch (InsufficientExecutionStackException)
+            {
+                // Nested too deeply to parse on this thread: like any clause that doesn't parse, not a tautology.
+                return false;
+            }
         }
 
         #region Expression tree
@@ -226,8 +240,8 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// True when <paramref name="expression"/> has no parameter and is built only from constants, field and
-        /// property reads, casts, <c>!</c>, the logical operators, comparisons and the conditional operator, with no
-        /// operator or conversion method declared outside the core library.
+        /// property reads, casts, <c>!</c>, the logical operators, comparisons, the conditional operator and the calls
+        /// <see cref="IsEvaluableCall"/> allows, with no operator or conversion method declared outside the core library.
         /// </summary>
         private static bool IsEvaluable(Expression? expression)
         {
@@ -247,9 +261,40 @@ namespace Funcular.Data.Orm
                 case ConditionalExpression conditional:
                     return IsEvaluable(conditional.Test) && IsEvaluable(conditional.IfTrue)
                            && IsEvaluable(conditional.IfFalse);
+                case MethodCallExpression call when IsEvaluableCall(call):
+                {
+                    if (!IsEvaluable(call.Object))
+                        return false;
+                    foreach (var argument in call.Arguments)
+                    {
+                        if (!IsEvaluable(argument))
+                            return false;
+                    }
+                    return true;
+                }
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// The method calls every provider translates into SQL that uses only parameters when their operands are
+        /// parameter-free: <see cref="string"/>'s <c>Contains</c>, and a parameterless <c>ToString()</c> on an enum or on
+        /// a non-generic, sealed or value type of the core library, or a nullable one of those, so that no override
+        /// outside the core library runs.
+        /// </summary>
+        private static bool IsEvaluableCall(MethodCallExpression call)
+        {
+            if (call.Object == null)
+                return false;
+            var receiver = call.Object.Type;
+            if (receiver == typeof(string) && call.Method.DeclaringType == typeof(string) && call.Method.Name == "Contains")
+                return true;
+            if (call.Method.Name != "ToString" || call.Arguments.Count != 0)
+                return false;
+            var type = Nullable.GetUnderlyingType(receiver) ?? receiver;
+            return type.IsEnum
+                   || (type.Assembly == CoreLibrary && !type.IsGenericType && (type.IsValueType || type.IsSealed));
         }
 
         private static bool IsLogicalOrComparison(ExpressionType nodeType)
@@ -573,6 +618,8 @@ namespace Funcular.Data.Orm
 
             private Truth? ParseNot()
             {
+                // Every nesting level (a group or a NOT) passes through here; throws before the stack runs out.
+                RuntimeHelpers.EnsureSufficientExecutionStack();
                 if (Peek?.Is("NOT") == true)
                 {
                     _position++;
