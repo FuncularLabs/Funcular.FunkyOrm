@@ -8,7 +8,7 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 10, the test plan after the ninth Task 0 review (§9.9).
+> **Status (2026-10-01):** rev 11, the test plan after the tenth Task 0 review (§9.10).
 > - The §9.6 reviewer ran the implementer's own tests:
 >   - every expected-red row was red at the seam for its stated reason, and every other row was green there;
 >   - every row was green with a faithful D1–D3;
@@ -22,6 +22,9 @@
 > - The rev 5 reviewer's own rows and faithful D1–D3: every row was green, and every §4.2 mutant was killed on
 >   its listed providers except "D3 before the guard", which survived a guard row on a never-created table with a
 >   type-only assertion (§9.5 G1). The implementer's guard rows kill it (§9.6).
+
+> **Revision 11 — what changed (re-check L1):** documents only. The rev 6 note's "every row went red→green"
+> corrected. The author swept the plan for the same pattern, and no other instance claims more than its record.
 
 > **Revision 10 — what changed (re-check K1–K2):** documents only. The reviewer's text, verbatim, for the §9.8 J1
 > row (K1) and the rev 5 bullet (K2).
@@ -41,8 +44,8 @@
 > - The no-match row's type, key form and class are named (G2).
 > - The coverage metric is defined, with the measured faithful numbers and margin (G3).
 > - D3's error-shape change is scoped to the server providers, and the §4.3 gap sentence corrected (G4).
-> - The rev 3 and rev 4 reviewers ran a faithful D1–D3 sketch: every row went red→green and every listed mutant
->   was killed.
+> - The rev 3 and rev 4 reviewers ran a faithful D1–D3 sketch: every row was green with the sketch, every row except
+>   SQLite's execution row was red at base, and every listed mutant was killed *(wording corrected in rev 11, L1)*.
 
 > **Revision 5 — what changed (re-review F1–F5):**
 > - An async missing-table row; both missing-table rows check coldness after the rollback (F1).
@@ -316,7 +319,7 @@ Local runs are recorded with their sha.
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–9 NOT CLEAN (§9.1–§9.9). Rev 10 is re-checked on its diff.
+1. **Task 0** — test-plan review: revs 1–10 NOT CLEAN (§9.1–§9.10). Rev 11 is re-checked on its diff.
 2. **Task 1** — red tests (§4.1).
    - The pass-through seam is committed at `dd121c5`: `protected internal UnmappedPropertiesFor<T>()` at every listed
      site.
@@ -475,3 +478,11 @@ Verdict: NOT CLEAN on two nits, neither of which would mislead an implementer. J
 |---|---|---|---|---|
 | K1 | nit | PLAN-GAP | The §9.8 J1 row dropped "async": PostgreSQL's and SQLite's sync guards are covered at base. | The reviewer's text. |
 | K2 | nit | PLAN-GAP | "Every row turned green" implied red to green; the guard and no-match rows were already green. | "Every row was green". |
+
+### 9.10 Narrow re-check of rev 10 (`a104d48..9f7e765`; non-author; committed content and the §9.6 artifacts, read-only)
+
+Verdict: NOT CLEAN on one nit, which predates the fix layer. K1 and K2 resolved.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| L1 | nit | PLAN-GAP | Since rev 6, the Revision 6 note said the rev 3 and rev 4 sketches turned "every row red→green"; rev 4's SQLite execution row was never red. | Corrected. The author swept the plan for the same pattern. |
