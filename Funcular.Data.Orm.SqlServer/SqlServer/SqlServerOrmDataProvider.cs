@@ -278,33 +278,9 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-            
-            // Enhanced validation
-            if (string.IsNullOrWhiteSpace(components.WhereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-
-            // Trivial patterns
-            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
-            if (trivialPatterns.Any(p => components.WhereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-
-            // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(components.WhereClause.Trim()))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-
-            // Must reference at least one column from the target table
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-
-            bool columnReferenced = tableColumns.Any(col =>
-                components.WhereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
+            ValidateDeleteWhereClause<T>(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -840,33 +816,9 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-
-            // Enhanced validation
-            if (string.IsNullOrWhiteSpace(components.WhereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-
-            // Trivial patterns
-            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
-            if (trivialPatterns.Any(p => components.WhereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-
-            // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(components.WhereClause.Trim()))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-
-            // Must reference at least one column from the target table
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-
-            bool columnReferenced = tableColumns.Any(col =>
-                components.WhereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
+            ValidateDeleteWhereClause<T>(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -1509,38 +1461,28 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Validates the provided WHERE clause to ensure it meets the requirements for a delete operation.
+        /// Checks the translated WHERE clause of a delete by predicate, which <see cref="DeletePredicateGuard.Validate"/>
+        /// has accepted: it must be non-empty, must not hold by its literals
+        /// (<see cref="DeletePredicateGuard.HasLiteralTautology"/>), must not be a whole-clause self-comparison, and must
+        /// name at least one column of <typeparamref name="T"/>.
         /// </summary>
-        /// <remarks>This method ensures that the WHERE clause is meaningful and safe for use in a delete
-        /// operation. It prevents trivial or invalid conditions that could lead to unintended data
-        /// destruction.</remarks>
-        /// <typeparam name="T">The type representing the target table. The properties of this type are used to validate column references
-        /// in the WHERE clause.</typeparam>
-        /// <param name="whereClause">The SQL WHERE clause to validate. Must be a non-empty, non-trivial expression that references at least one
-        /// column from the target table.</param>
-        /// <exception cref="InvalidOperationException">Thrown if the WHERE clause is null, empty, or consists only of whitespace; if it contains trivial
-        /// expressions (e.g., "1=1"); if it includes self-referencing column expressions (e.g., "column = column"); or
-        /// if it does not reference any columns from the target table.</exception>
-        private void ValidateWhereClause<T>(string whereClause)
+        /// <typeparam name="T">The entity whose table the delete targets.</typeparam>
+        /// <param name="whereClause">The translated WHERE clause, without the <c>WHERE</c> keyword.</param>
+        /// <exception cref="InvalidOperationException">The clause fails one of the checks.</exception>
+        private void ValidateDeleteWhereClause<T>(string whereClause)
         {
             if (string.IsNullOrWhiteSpace(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
 
-            var trivialPatterns = new[]
-            {
-                "1=1", "1 < 2", "1 > 0", "@p__linq__0", "true", "WHERE 1=1", "WHERE 1 < 2"
-            };
-
-            // Check for trivial patterns
-            if (trivialPatterns.Any(p => whereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
+            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
 
-            // Check for self-referencing column expressions (e.g., first_name = first_name)
-            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(whereClause))
+            // Self-referencing column (e.g., x => x.Id == x.Id)
+            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (regex.IsMatch(whereClause.Trim()))
                 throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
 
-            // Check that at least one column from the target table is referenced
+            // Must reference at least one column from the target table
             var tableColumns = typeof(T).GetProperties()
                 .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
                 .Select(p => GetCachedColumnName(p))

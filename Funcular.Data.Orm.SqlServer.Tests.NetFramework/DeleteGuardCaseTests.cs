@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -8,20 +9,16 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
 {
     /// <summary>
-    /// The delete guard's trivial-pattern check on .NET Framework 4.8. Here its <c>Contains(…, OrdinalIgnoreCase)</c>
-    /// binds to <c>GeneralExtensions.Contains</c>, because <c>string</c> has no such overload before .NET Core 2.1.
-    /// Since 3.10.0 that extension uses the comparison it is given, so the check matches case-insensitively, as on
-    /// .NET 8: a WHERE clause containing <c>TRUE</c> in any letter case is rejected (provider-scoped caches plan
-    /// §9.13 FVC-1, §9.14 FVD-2). For these plain-member predicates the WHERE clause names the table as well as the
-    /// column, so both a PascalCase column <c>TrueUpAmount</c> and a table named <c>zz_guard_TrueUp</c> trip it. Each row counts the rows through the
-    /// provider inside its transaction, before the rollback, so a delete that ran before the guard threw shows.
+    /// The delete guard on .NET Framework 4.8 accepts a predicate whose WHERE clause names a column or a table containing
+    /// <c>true</c> in any letter case: a PascalCase column <c>TrueUpAmount</c>, and a table named <c>zz_guard_TrueUp</c>
+    /// (docs/plans/DELETE_GUARD_PLAN.md, AC3 and D8). Each row deletes exactly row 1 inside its transaction, checks the
+    /// surviving ids through the provider, and rolls back.
     /// </summary>
     [TestClass]
     public class DeleteGuardCaseTests
     {
         private const string ColumnTable = "zz_guard_case";
         private const string NamedTable = "zz_guard_TrueUp";
-        private const string TrivialMessage = "Delete operation requires a non-trivial WHERE clause.";
 
         [Table(ColumnTable)]
         public class GuardCaseRow
@@ -59,17 +56,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         }
 
         [TestMethod]
-        public void Delete_WhereClauseNamingTrueInAnyCase_IsRejectedAsTrivial()
+        public void Delete_WhereClauseNamingTrueInAnyCase_DeletesTheMatchingRow()
         {
             using (var provider = new SqlServerOrmDataProvider(_connectionString))
             {
                 provider.BeginTransaction();
                 try
                 {
-                    var exception = Assert.ThrowsException<InvalidOperationException>(
-                        () => provider.Delete<GuardCaseRow>(x => x.TrueUpAmount == 5));
-                    Assert.AreEqual(TrivialMessage, exception.Message);
-                    Assert.AreEqual(2, provider.GetList<GuardCaseRow>().Count, "the rejected delete removed rows");
+                    Assert.AreEqual(1, provider.Delete<GuardCaseRow>(x => x.TrueUpAmount == 5));
+                    CollectionAssert.AreEqual(new[] { 2 }, provider.GetList<GuardCaseRow>().Select(r => r.Id).ToArray());
                 }
                 finally
                 {
@@ -79,17 +74,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         }
 
         [TestMethod]
-        public async Task DeleteAsync_WhereClauseNamingTrueInAnyCase_IsRejectedAsTrivial()
+        public async Task DeleteAsync_WhereClauseNamingTrueInAnyCase_DeletesTheMatchingRow()
         {
             using (var provider = new SqlServerOrmDataProvider(_connectionString))
             {
                 provider.BeginTransaction();
                 try
                 {
-                    var exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                        () => provider.DeleteAsync<GuardCaseRow>(x => x.TrueUpAmount == 5));
-                    Assert.AreEqual(TrivialMessage, exception.Message);
-                    Assert.AreEqual(2, provider.GetList<GuardCaseRow>().Count, "the rejected delete removed rows");
+                    Assert.AreEqual(1, await provider.DeleteAsync<GuardCaseRow>(x => x.TrueUpAmount == 5));
+                    CollectionAssert.AreEqual(new[] { 2 }, provider.GetList<GuardCaseRow>().Select(r => r.Id).ToArray());
                 }
                 finally
                 {
@@ -99,17 +92,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         }
 
         [TestMethod]
-        public void Delete_OnATableNamedWithTrue_IsRejectedAsTrivial()
+        public void Delete_OnATableNamedWithTrue_DeletesTheMatchingRow()
         {
             using (var provider = new SqlServerOrmDataProvider(_connectionString))
             {
                 provider.BeginTransaction();
                 try
                 {
-                    var exception = Assert.ThrowsException<InvalidOperationException>(
-                        () => provider.Delete<GuardNamedTableRow>(x => x.Amount == 5));
-                    Assert.AreEqual(TrivialMessage, exception.Message);
-                    Assert.AreEqual(2, provider.GetList<GuardNamedTableRow>().Count, "the rejected delete removed rows");
+                    Assert.AreEqual(1, provider.Delete<GuardNamedTableRow>(x => x.Amount == 5));
+                    CollectionAssert.AreEqual(new[] { 2 }, provider.GetList<GuardNamedTableRow>().Select(r => r.Id).ToArray());
                 }
                 finally
                 {

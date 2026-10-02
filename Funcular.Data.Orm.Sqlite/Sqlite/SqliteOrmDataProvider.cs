@@ -220,6 +220,7 @@ namespace Funcular.Data.Orm.Sqlite
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
             ValidateWhereClause<T>(components.WhereClause);
             var tableName = GetTableName<T>();
@@ -389,6 +390,7 @@ namespace Funcular.Data.Orm.Sqlite
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
             ValidateWhereClause<T>(components.WhereClause);
             var tableName = GetTableName<T>();
@@ -852,8 +854,7 @@ namespace Funcular.Data.Orm.Sqlite
         {
             if (string.IsNullOrWhiteSpace(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
-            if (trivialPatterns.Any(p => whereClause.Replace(" ", "").Contains(p.Replace(" ", ""), System.StringComparison.OrdinalIgnoreCase)))
+            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
             var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (regex.IsMatch(whereClause))
