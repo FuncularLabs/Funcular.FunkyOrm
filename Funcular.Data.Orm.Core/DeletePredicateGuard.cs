@@ -131,7 +131,9 @@ namespace Funcular.Data.Orm
         /// Returns true when the translated <paramref name="whereClause"/> contains a <c>1=1</c> outside quotes, or
         /// folds to true over its literal comparisons (for example <c>t.id = @p OR NOT 1=0</c>, which a negated
         /// <c>Contains</c> over an empty collection produces). A clause that folds to false or unknown, or that can't be
-        /// parsed (including one nested too deeply to parse on the calling thread's stack), returns false.
+        /// parsed, returns false. A clause nested too deeply for the calling thread's stack is parsed again on a thread
+        /// with a 64 MB stack (an unexpected exception there is raised again on the calling thread); one too deep even
+        /// for that returns false.
         /// </summary>
         /// <param name="whereClause">The WHERE clause, without the <c>WHERE</c> keyword.</param>
         /// <returns>True when the clause always holds by its literals.</returns>

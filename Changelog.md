@@ -99,9 +99,11 @@ subclasses.
   The checks evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a
   core type's `ToString()`, but no arithmetic and no other method call, and they catch these shapes, not every
   predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. They evaluate as C# does, and the
-  database can disagree: `Contains` is sent as a `LIKE` that doesn't escape `%` or `_` and follows the column's
-  collation, and `ToString()` isn't sent at all, so `x.Id == 2 || s.Contains("_")`, or `capturedA.ToString() == "07"`
-  with `capturedA` 7 on SQL Server and MySQL, still deletes every row.
+  database can disagree: a captured string's `Contains` is sent as a `LIKE` between two parameters, which doesn't
+  escape `%` or `_` and compares under the database's default collation (on MySQL, the connection's), not a column's,
+  while SQLite's `LIKE` ignores the case of ASCII letters; and `ToString()` isn't sent at all. So
+  `x.Id == 2 || s.Contains("_")`, `x.Id == 2 || s.Contains("s")` with `s` "S" (on SQL Server, MySQL and SQLite), or
+  `capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL, still deletes every row.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned

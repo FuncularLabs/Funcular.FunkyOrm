@@ -8,13 +8,17 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-02):** rev 10. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
+> **Status (2026-10-02):** rev 11. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
 > rev 4 (`fa06956`). Its re-review (§9.4) found 4 blocking, answered in rev 5 (`5845883`). Its re-review (§9.5) found
 > 4 blocking, answered in rev 6 (`58efaca`). Its re-review (§9.6) is CLEAN. Task 1 is `0167f63` (§5.1), Task 2
 > `bcd254f` (§5.2), and Task 3 `3ec5ba9` (§5.3). Task 4's review of `58efaca..3ec5ba9` (§9.7) found 5 blocking
-> findings, answered in rev 9 (`09033fa`, §5.4). Its fix-verification (§9.8) found 4 blocking; the commit that carries
-> rev 10 answers them (§5.5) and is re-verified next.
+> findings, answered in rev 9 (`09033fa`, §5.4). Its fix-verification (§9.8) found 4 blocking, answered in rev 10
+> (`fcc560c`, §5.5). Its re-verification (§9.9) found 2 blocking, in prose; the commit that carries rev 11 answers
+> them (§5.6) and is re-verified next.
+
+> **Revision 11 — what changed (fix-verification FV2-1, FV2-2):** §6, the Changelog and Usage name the collation a
+> captured string's `Contains` compares under; `HasLiteralTautology`'s XML doc describes the large-stack parse.
 
 > **Revision 10 — what changed (fix-verification FV1-1…FV1-4):** D2 evaluates `ToString` with a format string, and
 > counts a `Contains` with a null search value as True (FV1-1, FV1-2). D3 parses a clause too deep for the calling
@@ -565,6 +569,11 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   doesn't consult a provider for a non-negative value, so its counter couldn't see the mutant; it uses `DateTime`, and
   the five mutants it and the re-raise touch ran again on the final code. The 44 provider mutants didn't run again.
 
+### 5.6 Task 4, fix-verification 2 (the commit that carries rev 11)
+
+- FV2-1 and FV2-2 are answered as §9.9 records: prose in the Changelog, `Usage.md`, §6 and
+  `HasLiteralTautology`'s XML doc. No code or test changed.
+
 ## 6. Out of scope (recorded)
 
 - **Always-true shapes D2 doesn't detect** (T0-9). These deleted every row at the seam on all four providers and still
@@ -611,8 +620,11 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   fails if a provider starts running one. Rev 7 said every method call failed so; `string`'s `Contains` and
   `ToString()` ran and deleted every row, and D2 evaluates them since rev 9.
 - **A `Contains` or `ToString` that C# finds false and the database finds true** (rev 9, I1-1; widened in rev 10,
-  FV1-2). D2 evaluates them as C# does; the providers send `Contains` as a `LIKE` that follows the column's collation
-  and doesn't escape `%`, `_` or `[`, and don't send `ToString` at all. Each of these deleted every row in the reviews:
+  FV1-2; corrected in rev 11, FV2-1). D2 evaluates them as C# does; the providers send a captured string's `Contains`
+  as a `LIKE` between two parameters, which compares under the database's default collation (on MySQL, the
+  connection's), not a column's, and doesn't escape `%`, `_` or `[`; SQLite's `LIKE` ignores the case of ASCII
+  letters; and they don't send `ToString` at all. Each of these deleted every row in the reviews, the first also with
+  every column case-sensitive:
   `x.Id == 2 || s.Contains("s")` with `s = "S"` on SQL Server, MySQL and SQLite; `x.Id == 2 || s.Contains("_")` on
   all four; `x.Id == 2 || capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL. Translator
   defects, pre-existing; filed as a separate task.
@@ -739,3 +751,14 @@ partial. Blame: AC-GAP 2, TEST-GAP 2.
 | FV1-2 | medium | AC-GAP | D2 evaluates as C# does; the database disagrees (wildcards, a null search value, `ToString` not sent) | A `Contains` of null is True, with rows and mutations; the rest disclosed in §6, the Changelog and Usage, and filed as a separate task. |
 | FV1-3 | low | TEST-GAP | D3's stack check failed open below the visitors' depth | A second parse on a 64 MB stack; one-pass matching; rows; mutations; §6. |
 | FV1-4 | low | TEST-GAP | rev 9's receiver rules had no failing row | Counters for a user `Contains`, a user `IFormatProvider` and a `KeyValuePair`; mutations. |
+
+### 9.9 Task 4 fix-verification of `09033fa..fcc560c` (non-author)
+
+Verdict: NOT CLEAN; two blocking findings, in prose, and one non-blocking nit. FV1-1, FV1-3 and FV1-4 resolved; FV1-2
+partial (FV2-1). Blame: TEST-GAP 2.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FV2-1 | low | TEST-GAP | The Changelog, `Usage.md` and §6: the collation a captured string's `Contains` compares under | Named: the database's default (MySQL: the connection's), not a column's; SQLite's `LIKE` ignores ASCII case. |
+| FV2-2 | low | TEST-GAP | `HasLiteralTautology`'s XML doc on a clause too deep to parse | Describes the large-stack parse and the re-raise. |
+| FV2-NB1 | nit | — | §9.8's blame classes differ from the review's, without saying so | Carried. |
