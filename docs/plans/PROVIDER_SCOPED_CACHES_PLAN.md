@@ -8,18 +8,26 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 19. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 20. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
 > gaps and plan nits, fixed in `32674c7`. The verification of `854ef80..32674c7` (§9.13) found that the `Contains`
 > fix changes the delete guard on the netstandard2.0 and net48 builds, documented and pinned in `69ba3bb`. Its
 > verification (§9.14) found the table-name reach, a vacuous count and two wrong citations, fixed in `36bb4b5`. Its
-> verification (§9.15) found two prose nits; this revision's layer fixes them and is verified next.
+> verification (§9.15) found two prose nits, fixed in `8d20875`. Its verification (§9.16) found that the date-part
+> exception is narrower than written, and a pre-existing wrong-results defect recorded in §6; this revision's
+> layer fixes the prose and is verified next.
 > `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
 
+> **Revision 20 — what changed:** the fix-verification of `36bb4b5..8d20875` (§9.16). The date-part exception is a
+> nullable member's `.Value.Year`, `.Month` or `.Day`, not every `.Year` (FVF-1), in the Changelog, §4.2, §9.14 and
+> the rev 19 note. The net48 test comment is scoped to its predicates (FVF-2). §6 records a pre-existing defect the
+> verifier found (OBS-1). Documents and one test comment only.
+
 > **Revision 19 — what changed:** the fix-verification of `69ba3bb..36bb4b5` (§9.15). The Changelog and §4.2 no
-> longer say the WHERE clause always names the table: a date part such as `.Year` doesn't (FVE-1). The cold-cache
+> longer say the WHERE clause always names the table: a nullable member's date part such as `.Value.Year` doesn't
+> (FVE-1; wording corrected in rev 20, FVF-1). The cold-cache
 > plan's rev 21 edits are all tagged (FVE-2). Documents only.
 
 > **Revision 18 — what changed:** the fix-verification of `32674c7..69ba3bb` (§9.14). §4.2 and the Changelog say a
@@ -455,7 +463,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
     `string` has no `Contains(string, StringComparison)` overload: each provider's delete guard calls it with
     `OrdinalIgnoreCase` to look for trivial patterns (`1=1`, `true`, …) in the WHERE clause. There the check is now
     case-insensitive, as on net8.0, so a predicate on a column such as `TrueUpAmount` is rejected as trivial. The
-    WHERE clause also names the table for most members, though not inside a date part such as `.Year`, so most
+    WHERE clause also names the table for most members, though not inside a nullable member's date part such as
+    `.Value.Year` *(wording rev 20, FVF-1)*, so most
     predicate deletes on a table whose name contains `True` are rejected too *(table: rev 18, FVD-2; the date-part
     exception: rev 19, FVE-1)*. Pinned by `DeleteGuardCaseTests` in the net48 project: a column row, sync and async, and a
     table-name row. All three are red with the old body ("No exception thrown") and green with the fix. Each counts
@@ -651,6 +660,12 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 - **Per-instance scopes (D3)** re-run discovery for each new provider instance.
 - **SQLite URI memory names and `file::memory:`** are turned into rooted paths by the existing
   `ResolveConnectionString` (E15). Pre-existing.
+- **A non-nullable date member's `.Year`, `.Month` or `.Day` in a WHERE predicate is dropped** (pre-existing, all
+  four providers; found by the §9.16 verifier, OBS-1). Only a nullable member's `.Value.Year/.Month/.Day` reaches
+  the date-part translation; `x.PostedAt.Year` falls through to the member itself and compares the whole column
+  with the integer. On SQLite, `Delete(x => x.PostedAt.Year > 2020)` deleted 2 rows where 1 matched. Queries take
+  the same path. Not this change's defect; the owner decides its release and whether 3.10's Known issues name it.
+  *(rev 20)*
 
 ## 9. Review dispositions
 
@@ -893,7 +908,7 @@ re-ran, with outputs recorded: "No D3" kills both AC9 rows ("no such column: ZzP
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
-| FVD-2 | low | AC-GAP | The Changelog and §4.2 described the guard change only through a column. The WHERE clause is table-qualified, so on netstandard2.0 and net48 a table whose name contains `True` now rejects predicate deletes whatever the column *(rev 19: except a date part such as `.Year`, §9.15 FVE-1)* (net48 SQL Server and a SQLite netstandard2.0 probe on `zz_psfd_TrueUpLedger`, `Amount == 5`: deleted before, rejected after). | The Changelog and §4.2 say so; `Delete_OnATableNamedWithTrue_IsRejectedAsTrivial` (net48), red with the old body. |
+| FVD-2 | low | AC-GAP | The Changelog and §4.2 described the guard change only through a column. The WHERE clause is table-qualified, so on netstandard2.0 and net48 a table whose name contains `True` now rejects predicate deletes whatever the column *(rev 19: except a nullable member's date part such as `.Value.Year`, §9.15 FVE-1; wording rev 20, FVF-1)* (net48 SQL Server and a SQLite netstandard2.0 probe on `zz_psfd_TrueUpLedger`, `Amount == 5`: deleted before, rejected after). | The Changelog and §4.2 say so; `Delete_OnATableNamedWithTrue_IsRejectedAsTrivial` (net48), red with the old body. |
 | FVD-3 | nit | TEST-GAP | `DeleteGuardCaseTests` counted rows after `RollbackTransaction()`, which undoes any delete, so "the delete runs, then the guard throws" passed. | Each row counts through the provider inside its transaction, before the rollback; that mutant fails all three rows. |
 | FVD-1 | nit | PLAN-GAP | Two of the cold-cache plan's rev 20 SQLite citations had no recorded run behind them: "No D3" cited the §9.12 tests/prose lens and §9.13, and "D1 after `ResolveRemoteJoins`" cited the §9.12 code lens. The saved artifacts hold no such runs; the run that killed "No D3" on SQLite was the §9.12 code lens. | Its rev 21 cites this verification's recorded runs for those two rows. The §9.13 FVC-2 disposition no longer names the runs. |
 
@@ -908,3 +923,16 @@ PLAN-GAP 1.
 |---|---|---|---|---|
 | FVE-1 | nit | AC-GAP | "The WHERE clause qualifies columns with the table name" is false for date parts: every visitor passes the unqualified column to its date-part translation, so on `TrueUpLedger` a `PostedOn.Value.Year == 2020` delete is still accepted (net48 SQL Server and SQLite netstandard2.0 probes). The sentence's "so" also made the column case depend on qualification, which it doesn't. | The Changelog and §4.2 state the column case on its own, then say the table is named for most members, not inside a date part. §9.14's FVD-2 row points here. |
 | FVE-2 | nit | PLAN-GAP | The cold-cache plan's rev 21 changed a third §4.2 row ("D3 in only one …") without a rev 21 tag, and its rev 21 note said two rows. | Tagged; the rev 21 note corrected (that plan's rev 22). |
+
+### 9.16 Fix-verification of `36bb4b5..8d20875` (non-author; all four WHERE visitors read for every member shape; a SQLite netstandard2.0 probe of the date-part shapes; §9.15 checked against the previous verifier's transcript)
+
+FVE-2 holds; FVE-1 is partial (FVF-1). "Most" holds: outside nullable date parts, the shapes that escape
+qualification are remote members, which a delete can't join, and `[SqlExpression]` without tokens. The column
+sentence holds on every provider. §9.15 matches the previous verifier's report. Verdict: NOT CLEAN. Blame: AC-GAP 1,
+HOUSE-RULE 1.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVF-1 | nit | AC-GAP | Fix-introduced: the exception was written as "a date part such as `.Year`", but only a nullable member's `.Value.Year/.Month/.Day` skips the table; a non-nullable `x.PostedAt.Year` is table-qualified, so on `TrueUpLedger` that delete is rejected (SQLite netstandard2.0 probe). | "A nullable member's date part, such as `.Value.Year`" in the Changelog, §4.2, §9.14 and the rev 19 note. |
+| FVF-2 | nit | HOUSE-RULE | The net48 test comment said without condition that the WHERE clause names the table. | Scoped to its plain-member predicates. |
+| OBS-1 | — | — | Out of this change's scope, pre-existing: a non-nullable date member's `.Year/.Month/.Day` in a WHERE predicate is dropped, so the whole column is compared with the integer (SQLite: `Delete(x => x.PostedAt.Year > 2020)` deleted 2 rows where 1 matched). | Recorded in §6; surfaced to the owner with a follow-up task. |

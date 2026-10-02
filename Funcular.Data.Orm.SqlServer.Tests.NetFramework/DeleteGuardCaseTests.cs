@@ -12,8 +12,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
     /// binds to <c>GeneralExtensions.Contains</c>, because <c>string</c> has no such overload before .NET Core 2.1.
     /// Since 3.10.0 that extension uses the comparison it is given, so the check matches case-insensitively, as on
     /// .NET 8: a WHERE clause containing <c>TRUE</c> in any letter case is rejected (provider-scoped caches plan
-    /// §9.13 FVC-1, §9.14 FVD-2). The WHERE clause names the table as well as the column, so both a PascalCase column
-    /// <c>TrueUpAmount</c> and a table named <c>zz_guard_TrueUp</c> trip it. Each row counts the rows through the
+    /// §9.13 FVC-1, §9.14 FVD-2). For these plain-member predicates the WHERE clause names the table as well as the
+    /// column, so both a PascalCase column <c>TrueUpAmount</c> and a table named <c>zz_guard_TrueUp</c> trip it. Each row counts the rows through the
     /// provider inside its transaction, before the rollback, so a delete that ran before the guard threw shows.
     /// </summary>
     [TestClass]
