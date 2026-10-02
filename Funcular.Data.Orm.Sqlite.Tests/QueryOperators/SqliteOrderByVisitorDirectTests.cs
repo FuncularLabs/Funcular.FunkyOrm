@@ -543,21 +543,32 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
         public void ParameterMode_DateOnlyAndTimeOnly_AreIsoText()
         {
             // ISO text: every provider converts it, and it sorts chronologically (rev 39, J3).
-            var day = new DateOnly(2026, 1, 2);
-            var (days, _) = WithParameters(p => p.Id > 0 ? day : DateOnly.MinValue);
-            CollectionAssert.AreEqual(new object[] { "2026-01-02", "0001-01-01" }, days.Parameters.Select(x => x.Value).ToList());
+            // Under fi-FI, whose date and time formats aren't ISO, so a format taken from the current culture
+            // fails on any machine (rev 43, M4).
+            var saved = CultureInfo.CurrentCulture;
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fi-FI");
+            try
+            {
+                var day = new DateOnly(2026, 1, 2);
+                var (days, _) = WithParameters(p => p.Id > 0 ? day : DateOnly.MinValue);
+                CollectionAssert.AreEqual(new object[] { "2026-01-02", "0001-01-01" }, days.Parameters.Select(x => x.Value).ToList());
 
-            var time = new TimeOnly(15, 0, 30);
-            var (times, _) = WithParameters(p => p.Id > 0 ? time : TimeOnly.MinValue);
-            CollectionAssert.AreEqual(new object[] { "15:00:30", "00:00:00" }, times.Parameters.Select(x => x.Value).ToList());
+                var time = new TimeOnly(15, 0, 30);
+                var (times, _) = WithParameters(p => p.Id > 0 ? time : TimeOnly.MinValue);
+                CollectionAssert.AreEqual(new object[] { "15:00:30", "00:00:00" }, times.Parameters.Select(x => x.Value).ToList());
 
-            var fraction = new TimeOnly(10, 0, 30, 500);
-            var (fractions, _) = WithParameters(p => p.Id > 0 ? fraction : TimeOnly.MinValue);
-            Assert.AreEqual("10:00:30.5", fractions.Parameters[0].Value, "the fraction is kept (rev 40, F1)");
+                var fraction = new TimeOnly(10, 0, 30, 500);
+                var (fractions, _) = WithParameters(p => p.Id > 0 ? fraction : TimeOnly.MinValue);
+                Assert.AreEqual("10:00:30.5", fractions.Parameters[0].Value, "the fraction is kept (rev 40, F1)");
 
-            var ticks = new TimeOnly(10, 0, 30).Add(TimeSpan.FromTicks(1234567));
-            var (sevenDigits, _) = WithParameters(p => p.Id > 0 ? ticks : TimeOnly.MinValue);
-            Assert.AreEqual("10:00:30.1234567", sevenDigits.Parameters[0].Value, "all seven digits are kept (rev 41, K3)");
+                var ticks = new TimeOnly(10, 0, 30).Add(TimeSpan.FromTicks(1234567));
+                var (sevenDigits, _) = WithParameters(p => p.Id > 0 ? ticks : TimeOnly.MinValue);
+                Assert.AreEqual("10:00:30.1234567", sevenDigits.Parameters[0].Value, "all seven digits are kept (rev 41, K3)");
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = saved;
+            }
         }
 
         [TestMethod]

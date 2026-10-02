@@ -535,15 +535,11 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             // WHERE sends a DateTimeOffset as its UTC time (MySqlConnector); the ORDER BY value must too, or MySQL drops
             // the offset and the two disagree (rev 39, J2).
             var marker = NewMarker();
-            using (var connection = new MySqlConnection(_connectionString))
-            {
-                connection.Open();
-                using var command = new MySqlCommand(
-                    "INSERT INTO person (first_name, last_name, dateutc_created) VALUES " +
-                    "('a', @m, '2026-01-02 06:00:00'), ('b', @m, '2026-01-02 07:30:00'), ('c', @m, '2026-01-02 08:00:00')", connection);
-                command.Parameters.AddWithValue("@m", marker);
-                command.ExecuteNonQuery();
-            }
+            // Seeded through the harness: inserting a Person discovers its columns, so the cleanup's
+            // Delete<Person>(predicate) works when this test runs alone (rev 43, M1; the cold-cache Delete defect).
+            SeedTypedPerson(marker, "a", null, null, new DateTime(2026, 1, 2, 6, 0, 0));
+            SeedTypedPerson(marker, "b", null, null, new DateTime(2026, 1, 2, 7, 30, 0));
+            SeedTypedPerson(marker, "c", null, null, new DateTime(2026, 1, 2, 8, 0, 0));
             var value = new DateTimeOffset(2026, 1, 2, 12, 0, 0, TimeSpan.FromHours(5)); // 07:00Z
 
             var picked = _provider.Query<PersonCreated>().Where(p => p.LastName == marker && p.Created > value)
