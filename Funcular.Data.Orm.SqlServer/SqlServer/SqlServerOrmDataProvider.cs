@@ -571,7 +571,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Resolves the stored procedure name for <typeparamref name="T"/>: an explicit name wins, then a
         /// <c>[Procedure]</c> attribute, then convention inference against <c>sys.procedures</c> (cached per type in
-        /// this instance's scope, so one database's name never answers for another's). Catalog lookup runs on its own
+        /// this instance's scope). Catalog lookup runs on its own
         /// connection scope and completes before the execution scope opens, so it does not nest scopes inside a
         /// transaction.
         /// </summary>
@@ -2252,7 +2252,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         /// <summary>
         /// Computes the database column name for a property that discovery hasn't cached: its <c>[Column]</c> name, else
-        /// its lower-cased property name. Returns an empty string for properties marked with
+        /// its lower-cased property name, enclosed by the dialect. Returns an empty string for properties marked with
         /// <see cref="NotMappedAttribute"/>. No cache entry is read: a key made of a bare property name would match
         /// any type's property of that name (provider-scoped caches plan, D6).
         /// </summary>

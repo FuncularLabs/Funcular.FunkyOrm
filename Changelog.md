@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 
 Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12),
 [#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)). **Upgrade strongly recommended:** several
-operators returned wrong results without an error in 3.9.0 and earlier. All four providers.
+operators returned wrong results without an error in 3.9.0 and earlier. All four providers. Also: identifier caches
+are scoped per provider, dialect and connection (see Fixed and Changed), which is binary-breaking for `OrmDataProvider`
+subclasses.
 
 ### Security
 - **Values in an ORDER BY ternary are now sent as command parameters.** Before, a text value (`x.Name == input ? 0 :
@@ -71,8 +73,6 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   longer collide.
 - **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
   property whose column differs by underscores (`Label` → `la_bel`) is queryable.
-- **SQL Server: `ComputeColumnName` read a cache entry keyed by the bare property name,** which a same-named property
-  on another type could set. It no longer reads one.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -149,7 +149,7 @@ Other changes:
 - **SQLite:** `:memory:`, `Mode=Memory` (shared cache included) and an empty data source get an unregistered scope per
   provider instance. A provider created per operation on such a database repeats discovery each time.
 - **First cache use of each new built-in provider instance** parses its connection string with the provider's builder
-  once and, unless the scope is per-instance, computes one SHA-256.
+  and, unless the scope is per-instance, computes a SHA-256.
 - **SQLite's SQL uses the database's spelling of convention-mapped columns** (`"country_0".name`, where 3.9.0 emitted
   `.Name`).
 - **A custom SQLite dialect's `EncloseIdentifier` must leave an already-enclosed name unchanged** (`E(E(x)) = E(x)`).

@@ -835,8 +835,8 @@ providers** unless stated.
   Ordering and paging always come **before** the projection: `OrderBy…[ThenBy…][Skip/Take].Select(…)`.
   Ordering *after* a subset `Select` is the §8 divergence, and is never used as a passing shape.
 - **AC12-2** Ordering by a remote/computed member emits exactly its resolved fragment, with no base-table
-  prefix, unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after D5
-  (provider-scoped caches plan).
+  prefix, unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after the
+  provider-scoped caches plan's D5.
 - **AC12-3** For an entity without remote joins, the **ORDER BY translation** of
   `OrderBy*`/`ThenBy*` chains consumed by enumeration or `First*` is byte-identical to 3.9.0. Other ACs change
   ordering SQL on purpose, and are excluded:
@@ -2087,7 +2087,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **Static identifier caches are shared across providers (pre-existing; r8 incidental).** `_tableNames`,
   `_columnNames` and `_mappedTypes` are `static` on the Core `OrmDataProvider`. Using the same entity type
   with two providers in one process makes the second emit the first provider's quoting (PostgreSQL emitted
-  `FROM [User]`). It matters for multi-provider apps. Follow-up issue candidate; not in 3.10.0.
+  `FROM [User]`). It matters for multi-provider apps. *(Fixed in 3.10.0: `docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md`.)*
 - **`is IOrderedQueryable` sort helpers crash on composed queries** (pre-existing; §1.5 P4b). Tracked as
   [#16](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/16) (owner: follow-up, not 3.10.0).
   Candidate fix: `CreateQuery` returns an ordered queryable only when `expression.Type` is
@@ -2366,7 +2366,8 @@ works over a base-class source (S1–S7 executed), so the narrowing has no over-
 | 9 | minor | TEST-GAP | yes | ‡ produces subset-`Select` `Distinct().Last()`, which AC13-2 makes throw | Excluded from ‡; covered by `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`. |
 
 **Recorded follow-ups from r8** (§8): interface-member column resolution; static identifier caches shared
-across providers (the reviewer filed a suggested-task chip for this one).
+across providers (the reviewer filed a suggested-task chip for this one; fixed in 3.10.0 by the provider-scoped caches
+plan).
 
 ### 9.9 Task 0 fix-verification r9 of `8d5ac7a`
 

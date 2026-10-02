@@ -8,9 +8,17 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 12. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-01):** rev 13. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
-> review is next. `GeneralExtensions.cs` coverage is the owner's call (§4.2).
+> review (§9.11) is in progress; this revision records the tests/prose lens and its fixes. `GeneralExtensions.cs`
+> coverage is the owner's call (§4.2).
+
+> **Revision 13 — what changed:** the tests/prose review's findings HRB-1…HRB-9 (§9.11). The Changelog drops a Fixed
+> bullet that no FunkyORM path could reach, and its headline names this change. Over-broad comments are scoped. The
+> 3.10 plan's §8 entry and AC12-2 wording are corrected. The two Core rows are relabelled Red at the seam. The
+> coverage method and baselines are recorded. A DB-free row covers the scope types' members. §9.10 is recorded.
+
+> **Revision 12 — what changed:** Tasks 2–4 recorded in §5.
 
 > **Revision 11 — what changed:** Tasks 1a and 1b are recorded. Three notes from the Task 1b implementer are
 > recorded (§5). D2 names UTF-8. The §9.10 nits R10-1…R10-6 are applied in the reviewer's wording.
@@ -109,7 +117,8 @@
 - **Two key spaces (E3, E7).**
   - `ToDictionaryKey()` is `$"{DeclaringType.Name}.{Name}"`; Core's base method builds `$"{DeclaringType.FullName}.{Name}"`
     by hand.
-  - SQLite has no override, so it never uses discovered names.
+  - SQLite has no override, so its SELECT list and row mapper never use discovered names; its WHERE, ORDER BY and
+    aggregate sites do, through the visitors' `ToDictionaryKey()` reads *(corrected in rev 13, HRB-5)*.
   - With the ignore-underscore-and-case comparer, `Outer_X.Thing.Label` and `OuterX.Thing.Label` collide on both paths
     (E7).
 - **Bare-name keys (SQL Server).** `GetColumnOrdinals` (`:2263-2305`, no callers) writes them; `ComputeColumnName`
@@ -331,6 +340,9 @@ Every row is run alone at the seam and its outcome recorded.
 | AC6 | `ComputeColumnName_IgnoresABareNameKey` | none | Red (planted bare key used) |
 | AC2 | `UnmappedSet_IsComputedFromTheInstanceScope` [per provider]: a column name for `T.X` planted in scope A only; A's instance `GetUnmappedProperties<T>` excludes `X`, B's includes it *(rev 8, R7-4)* | none | Red at the seam (A's plant is seen by B) |
 | AC2 | `CoreGetUnmappedProperties_ReadsTheInstanceScope` (probe subclass of a direct `OrmDataProvider` subclass) *(rev 7, R6-6; listed here in rev 8, R7-4)* | none | Guard: green at the seam; killed by "Core's `GetUnmappedProperties<T>()` reads a static set" |
+| AC2 | `CoreGetTableName_ReadsTheInstanceScope` (direct-subclass probe; two identities) *(Task 4, `3f16bed`)* | none | Red at the seam ("B's scope holds the name A resolved"); killed by "Core's base `GetTableName` reads a static" *(class corrected in rev 13, HRB-6)* |
+| AC2 | `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` (computed set is exactly the `[NotMapped]` property, cached in A's scope only) *(Task 4, `3f16bed`)* | none | Red at the seam ("the set A computed is cached in B's scope"); killed by "the computing lambda writes to a static" and "computes without caching" *(class corrected in rev 13, HRB-6)* |
+| — | `CacheScopeTypesTests` (the mapped-type set's collection members; the registry key's equality) *(rev 13, HRB-8)* | none | Guard; killed by "Count is 0", "Clear is a no-op", "CopyTo ignores the index", "Equals(object) is false", "key equality ignores the dialect" (executed) |
 | AC4 | `MappedSetAccessor_ReadsTheInstanceScope` [per provider]: the internal accessor (Task 1a) of instance A shows a type marked mapped in A's scope (planted), and instance B in another scope doesn't *(rev 8, R7-3)* | none | Red at the seam (one shared set) |
 | AC7 | `LinqSites_ReadTheirOwnScope`. Through the seam accessors, plant valid mappings for the dedicated type `LinqProbe { Id, FirstName }` (`[Table("zz_psc_linq")]`, below) in P2's scope: table `zz_psc_linq`, `FirstName → last_name`, `Id → employer_id`, the type marked mapped. Then run `OrderBy`/`ThenBy`, both `Select` forms, `Last()` without `OrderBy`, `Where` and `First(pred)` (on `"x"`), `Count`/`Any`/`All` with a predicate, and `Max`/`Sum`/`Average` on `Id`. Capture the SQL through `Log` (logged before execution) and assert each site's exact fragment, e.g. `MAX(zz_psc_linq.employer_id)` (SQLite renders `Average` as `ROUND(AVG(…), 10)`) *(rev 8, R7-5)*. | SQL Server (CI), SQLite temp file (CI) | Guard |
 | AC7 | `LinqSites_NeverReadAnotherScope`. P2 plants first. P1 (same database, different identity: `Application Name` on SQL Server and PostgreSQL, `Connection Timeout` on MySQL, `Default Timeout` on SQLite) then plants **the same shape as P2** with distinct values: table `zz_psc_linq`, the type marked mapped, `FirstName → middle_initial`, `Id → id`. P1 runs every site, and the row asserts **P1's own exact fragments** at each one, which proves P1 ran it. Only then does P2 run; P2's exact fragments must show its own plant at every site. *(rev 6, R5-2)* | SQL Server (CI), SQLite temp file (CI) | Red at the seam (shared caches) |
@@ -377,14 +389,17 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 | The providers' instance `GetUnmappedProperties<T>` (four providers) | `UnmappedSet_IsComputedFromTheInstanceScope` (per provider); AC2 `TwoSqliteDatabases_ColumnMissingInFirst_IsReadInSecond` |
 | Core's base `GetCachedColumnName` (D5 changes its key) | AC8; AC3 `FullNamesDifferingOnlyByUnderscores_DoNotShareColumns` |
 | The providers' internal mapped-set accessor (Task 1a) | `MappedSetAccessor_ReadsTheInstanceScope`; the cold-cache observers (Task 5) |
-| Core's `protected GetUnmappedProperties<T>()` (uncalled; D7 makes it read the instance scope) | `CoreGetUnmappedProperties_ReadsTheInstanceScope` (probe subclass of a direct `OrmDataProvider` subclass) |
+| Core's `protected GetUnmappedProperties<T>()` (uncalled; D7 makes it read the instance scope) | `CoreGetUnmappedProperties_ReadsTheInstanceScope` (probe subclass of a direct `OrmDataProvider` subclass); `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` |
+| Core's base `GetTableName<T>()` (reads the instance scope) | `CoreGetTableName_ReadsTheInstanceScope` *(rev 13, HRB-6)* |
+| `ConcurrentTypeSet` (the mapped-type set) and `CacheScopeKey` equality | `CacheScopeTypesTests` *(rev 13, HRB-8)* |
 | `ComputeColumnName` | AC6 |
 | The procedure-name resolver | AC9 |
 | The mapper cache, and SQLite's quote-pair stripping (D11) | AC5 mapper rows; `SqliteBracketDialect_ReadsItsOwnRows`; `SqliteDefaultDialect_ReadsAReservedWordColumn` |
 
 **Coverage.**
-- Coverlet runs per project; the cobertura files are merged with ReportGenerator (installed as a local dotnet tool in
-  Task 4).
+- Coverlet runs per project. *(Rev 13, HRB-6: Task 4 merged the cobertura files by hand, not with ReportGenerator.)*
+  A file's coverage is the distinct line numbers across every cobertura `<class filename>` element for it, unioned
+  across the four suites' reports; a line counts as covered if any element gives it hits.
 - The baseline is recorded per touched file at base, and the result at HEAD. Floor: 85 % per touched file; a file
   below it is reported with its baseline.
 - `GeneralExtensions.Contains` ignores its `comparison` argument (pre-existing). Owner's call: fix it here, or exclude
@@ -437,7 +452,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–9 NOT CLEAN (§9.1–§9.9). Rev 10 is re-checked on its diff.
+1. **Task 0** — test-plan review: revs 1–9 NOT CLEAN (§9.1–§9.9); rev 10 CLEAN with nits (§9.10).
 2. **Task 1a — Seam (no behaviour change, green on its own).**
    - The registry API, the protected properties and the identity members, all returning the existing shared
      statics.
@@ -515,8 +530,9 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
        element, unioned across the four suites (base `7d98e3d` → HEAD):
        - `OrmDataProvider.cs` 81.32 % → 89.95 %;
        - `CacheScope.cs` (new) 88.33 %;
-       - SQL Server 87.09 % / 91.24 %; PostgreSQL 86.94 % / 93.33 %; MySQL 85.28 % / 93.36 %; SQLite 89.77 % /
-         94.42 % (provider / LINQ provider);
+       - provider / LINQ provider, base → HEAD *(baselines added in rev 13, HRB-6)*: SQL Server 84.99 % → 87.09 % /
+         90.96 % → 91.24 %; PostgreSQL 86.64 % → 86.94 % / 93.16 % → 93.33 %; MySQL 84.57 % → 85.28 % / 93.18 % →
+         93.36 %; SQLite 89.25 % → 89.77 % / 94.24 % → 94.42 %;
        - `GeneralExtensions.cs` 19.05 %, unchanged from base. Its one touched line is covered; owner's call (§4.2).
      - Suites at `d781e63`: SqlServer.Tests 980, PostgreSql.Tests 769, MySql.Tests 721, Sqlite.Tests 788, DotNet9 5,
        all passing. net48 76/76 at `019636a`; later commits touch no product file.
@@ -709,3 +725,41 @@ Verdict: NOT CLEAN on one minor finding.
 | R9-1 | minor | PLAN-GAP | R8-3's re-pin contradicts the 3.10 plan's AC12-2 ("unchanged from 3.9.0"). | Task 3 amends AC12-2 and its row, in the reviewer's wording. |
 | R9-2 | nit | PLAN-GAP | D11's new wording was too broad. (a) "Works at 3.9.0" is false for a global-namespace type. (b) Built-in dialects leave only their own enclosure unchanged. (c) The insert/update builders also re-enclose. (d) An older sentence omitted "idempotent". | The reviewer's wording throughout. |
 | R9-3 | nit | PLAN-GAP | AC10's custom-dialect clause named no test. | Its row cites the Guard. |
+
+### 9.10 Task 0 re-check of rev 10 (`1964b7e`; non-author; the rev 9 prototype applied to a `git archive` export, SQLite temp files only) *(recorded in rev 13, HRB-3)*
+
+Verdict: CLEAN, with six nits; none would mislead an implementer. The house practice treats a nits-only pass as
+CLEAN. R9-1…R9-3 resolved. Executed: built-in dialects' `E(E(x))` on 14 inputs; an unconditional bracket dialect at
+3.9.0 and after D5 across six operations and three entity shapes; the two Guards and the default reserved-word row
+under five D11 variants; the full Sqlite.Tests in two modes (one failure, the AC12-2 pin).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| R10-1 | nit | PLAN-GAP | AC12-2 is also posted on issue #12, and the §4.2 row has no quote to replace. | Owner's call to post; the row gains "(SQLite re-pinned after D5)" (rev 11). |
+| R10-2 | nit | PLAN-GAP | "So do the dialects' insert and update builders" was false for SQL Server's dialect. | Scoped to SQLite's dialect and custom dialects that call `EncloseIdentifier` (rev 11). |
+| R10-3 | nit | PLAN-GAP | `E(E(x)) = E(x)` holds for every input only on SQL Server's dialect. | The prose for built-in dialects; the formula as the requirement on custom dialects (rev 11). |
+| R10-4 | nit | PLAN-GAP | The global-namespace condition was broader than true: only a top-level type's keys coincide. | "A top-level type in the global namespace" (rev 11). |
+| R10-5 | nit | PLAN-GAP | §9.9 reversed a kill claim. | Corrected (rev 11). |
+| R10-6 | nit | PLAN-GAP | Two older sentences were edited without a revision marker. | Marked (rev 11). |
+
+### 9.11 Task 5 hostile review of `35c6477..2bbb7d9`: tests/prose lens (non-author; DB-free and SQLite rows alone and as a class; the seam with the Task 1b tests; 18 own mutants)
+
+Verdict: NOT CLEAN on three minor findings and seven nits. The tests are sound:
+- every §4.1 row exists with its planned construction and can fail;
+- at the seam, 66 Red rows fail for their stated reasons and 17 Guards pass;
+- each of the reviewer's 18 mutants is killed by its named rows.
+
+The code lens runs in parallel; its findings are recorded with their own fix layer.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| HRB-1 | minor | HOUSE-RULE | A Fixed bullet described a `ComputeColumnName` bare-key defect no FunkyORM path could reach (only the uncalled `GetColumnOrdinals` wrote such a key). | Bullet dropped; `GetColumnOrdinals` stays in the binary-breaking list. |
+| HRB-2 | minor | PLAN-GAP | Task 4's "the 3.10 plan's §8 entry points here" wasn't done. | The §8 entry and the r8 follow-ups line point here. |
+| HRB-3 | minor | PLAN-GAP | "Task 0 CLEAN (§9.10)" had no §9.10; §5's Task 0 line was stale; rev 12 had no note. | §9.10, the Task 0 line and the rev 12 note added. |
+| HRB-4 | nit | HOUSE-RULE | Comments broader than the code ("never read each other's", "never answers for another's", "never share a key", "no other connection can see", "dialect-enclosed", `ComputeColumnName`'s return, two "once" claims). | Each scoped or deleted. |
+| HRB-5 | nit | HOUSE-RULE | SQLite at 3.9.0 already used discovered names in WHERE, ORDER BY and aggregates. | The test comment and §1 scoped to the SELECT list and row mapper. |
+| HRB-6 | nit | PLAN-GAP | The two Task 4 Core rows are Red at the seam, not Guards, and weren't in §4.1/§4.2; ReportGenerator wasn't used; baselines were missing. | Relabelled and listed; the method and baselines recorded. |
+| HRB-7 | nit | PLAN-GAP | AC12-2's "after D5" named the 3.10 plan's own D5. | "The provider-scoped caches plan's D5". |
+| HRB-8 | nit | HOUSE-RULE | `ConcurrentTypeSet`'s collection members and `CacheScopeKey.Equals(object)` had no test. | `CacheScopeTypesTests`, with five killed mutants. |
+| HRB-9 | nit | PLAN-GAP | The Changelog headline didn't mention this change or its binary break. | One sentence added. |
+| HRB-10 | nit | PLAN-GAP | Historical provider plans still describe the removed statics. | Not annotated. The optional fix was skipped: the PostgreSQL plan isn't UTF-8, and the plans are historical. |

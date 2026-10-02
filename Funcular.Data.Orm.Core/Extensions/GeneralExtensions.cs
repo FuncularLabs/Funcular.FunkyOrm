@@ -39,7 +39,7 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// Converts to a column-cache key: the full name of the property's declaring type, a dot, and the name of the
-        /// property. Two types with the same simple name never share a key.
+        /// property.
         /// </summary>
         /// <param name="propertyInfo">The property information.</param>
         /// <returns>System.String.</returns>

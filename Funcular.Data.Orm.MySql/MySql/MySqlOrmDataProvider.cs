@@ -1067,7 +1067,7 @@ namespace Funcular.Data.Orm.MySql
         /// <summary>
         /// Resolves the stored procedure name for <typeparamref name="T"/>: explicit name wins, then
         /// <c>[Procedure]</c>, then convention inference against information_schema.routines (cached per type in this
-        /// instance's scope, so one database's name never answers for another's). Catalog lookup runs on its own scope
+        /// instance's scope). Catalog lookup runs on its own scope
         /// before the execution scope opens, so it never nests inside a transaction.
         /// </summary>
         private string ResolveProcedureName<T>(string procedureName)

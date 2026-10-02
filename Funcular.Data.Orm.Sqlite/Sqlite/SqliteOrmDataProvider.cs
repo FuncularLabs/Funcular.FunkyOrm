@@ -1174,9 +1174,8 @@ namespace Funcular.Data.Orm.Sqlite
         /// <summary>
         /// The identity of this instance's cache scope (D2, D3): the resolved constructor string, or the supplied
         /// connection's resolved string when that is empty, parsed by <see cref="SqliteConnectionStringBuilder"/> with
-        /// the password removed and taken as the builder's canonical string. Null, a per-instance scope, for a database
-        /// no other connection can see: <c>:memory:</c>, <c>Mode=Memory</c> (shared or not), and an empty data source
-        /// (a private temporary database per connection). Never logged.
+        /// the password removed and taken as the builder's canonical string. Null, a per-instance scope, for
+        /// <c>:memory:</c>, <c>Mode=Memory</c> (shared or not) and an empty data source. Never logged.
         /// </summary>
         protected override string CacheScopeIdentity
         {

@@ -43,9 +43,9 @@ namespace Funcular.Data.Orm
         #region Identifier Cache Scope
 
         // Identifier caches are scoped per (provider runtime type, dialect runtime type, connection identity)
-        // (docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md, D1, D4, D7, D8): providers of different types, dialects or
-        // databases never read each other's table names, column names, unmapped and mapped sets, procedure names or
-        // entity mappers.
+        // (docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md, D1, D4, D7, D8). Providers in different scopes don't share table
+        // names, column names, unmapped and mapped sets, procedure names or entity mappers. What one scope can still
+        // mix (a database changed at run time, an explicit connection to another database) is in the plan's §6.
 
         /// <summary>
         /// The connection identity of this instance's cache scope (D2, D3): null means a per-instance scope that the
@@ -62,9 +62,9 @@ namespace Funcular.Data.Orm
         protected virtual Type? CacheScopeDialectType => null;
 
         /// <summary>
-        /// This instance's cache scope. Resolved on first cache use, after the constructor has set the dialect, and
-        /// once per instance; registered scopes come from the registry's <c>GetOrAdd</c>, so resolution is idempotent
-        /// and thread-safe (D8).
+        /// This instance's cache scope. Resolved on first cache use, after the constructor has set the dialect. Under
+        /// a race the factory can run more than once, but one scope is published, and registered scopes come from the
+        /// registry's <c>GetOrAdd</c>, so every run yields the same set (D8).
         /// </summary>
         internal CacheScope CacheScope =>
             LazyInitializer.EnsureInitialized(ref _cacheScope,

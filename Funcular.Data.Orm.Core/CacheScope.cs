@@ -24,7 +24,7 @@ namespace Funcular.Data.Orm
         /// <summary>The registry key of this scope, or null for a per-instance scope the registry never holds (D3).</summary>
         internal CacheScopeKey? Key { get; }
 
-        /// <summary>Entity type → resolved, dialect-enclosed table name.</summary>
+        /// <summary>Entity type → resolved table name, as the provider's resolver returns it.</summary>
         internal ConcurrentDictionary<Type, string> TableNames { get; } = new ConcurrentDictionary<Type, string>();
 
         /// <summary>
