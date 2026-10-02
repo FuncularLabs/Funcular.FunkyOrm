@@ -8,7 +8,9 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 6, the test plan after the fifth Task 0 review (§9.5).
+> **Status (2026-10-01):** rev 7, the test plan after the sixth Task 0 review (§9.6).
+> - That reviewer ran the implementer's own tests: every row red at the seam for its stated reason, every row
+>   green with a faithful D1–D3, every §4.2 mutant killed, and the §4.3 numbers reproduced exactly.
 > - Task 1 landed the pass-through seam at `dd121c5`. The rev 4 and rev 5 rows are written (uncommitted) and each
 >   was run alone there:
 >   - every expected-red row is red for its stated reason;
@@ -16,6 +18,9 @@
 >   - with the class included, only expected-red rows fail in the four full suites.
 > - The rev 5 reviewer's own faithful D1–D3 turned every row green, and killed every §4.2 mutant on the providers
 >   listed.
+
+> **Revision 7 — what changed (re-review H1–H2):** documents only. Which guard rows cover a line (H1). H2 is a
+> test comment, fixed in Task 2's commit.
 
 > **Revision 6 — what changed (re-review G1–G4):** documents only.
 > - The guard rows' types, existing table and asserted message are named. These are the rows Task 1 built (G1).
@@ -206,7 +211,8 @@
   - for the missing-table rows, the raw provider exception (SQL Server `SqlException` 208, MySQL
     `MySqlException` 1146, PostgreSQL `PostgresException` 42P01) instead of D3's `InvalidOperationException`.
 - **Not red at base:** the guard rows and the no-match row are green at `fae4472`. The guard rows kill mutants
-  (§4.2) and cover a line; the no-match row only covers a line (§4.3). The direct helper rows can fail only once the pass-through seam exists (`dd121c5`), since
+  (§4.2), and SQL Server's async guard row also covers a line (`:337`, the only guard whose throw is on its own
+  line); the no-match row only covers a line (§4.3) *(rev 7, H1)*. The direct helper rows can fail only once the pass-through seam exists (`dd121c5`), since
   the helper (`protected internal`) doesn't exist at `fae4472` *(rev 5, F5)*.
 
 ### 4.2 Mutations each key test must kill (per provider)
@@ -252,7 +258,8 @@ Uncovered at base:
 - `DeleteAsync(long)` on PostgreSQL and SQLite (0/14 each).
 
 The AC9 and missing-table rows cover these gaps on MySQL and PostgreSQL. On SQLite, the execution row covers
-`DeleteAsync(long)`, and the async guard row adds its throw line. AC7 calls the predicate delete and never
+`DeleteAsync(long)` (15/15); the guard rows add no line there, since the guard is one line
+(`SqliteOrmDataProvider.cs:206`) *(rev 7, H1)*. AC7 calls the predicate delete and never
 reaches `Delete(long)` *(rev 6, G4)*.
 
 **The metric** *(rev 6, G3)*. A file's coverage is the distinct line numbers across **every** cobertura
@@ -290,7 +297,7 @@ Local runs are recorded with their sha.
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–5 NOT CLEAN (§9.1–§9.5). Rev 6 is re-reviewed.
+1. **Task 0** — test-plan review: revs 1–6 NOT CLEAN (§9.1–§9.6). Rev 7 is re-checked on its diff.
 2. **Task 1** — red tests (§4.1).
    - The pass-through seam is committed at `dd121c5`: `protected internal UnmappedPropertiesFor<T>()` at every listed
      site.
@@ -405,3 +412,18 @@ Verdict: NOT CLEAN.
 | G2 | nit | PLAN-GAP | The no-match row had no type or key; it is green at the seam only with a key named like its column, and it kills no mutant. | `ColdPkNoMatchAsyncRow`, key `Id`; it is labelled coverage-only. |
 | G3 | minor | HOUSE-RULE | "Deduplicated cobertura" was undefined. The main class's `line-rate` reads 84.78 %, and the plan's "1090 → 1092" came from a sketch. | The metric is defined; the faithful numbers and the 1–2 line margin are recorded; below the floor means a row, not a waiver. |
 | G4 | nit | PLAN-GAP | D3's error-shape change doesn't apply on SQLite (raw `SqliteException` before and after); AC7 never reaches `Delete(long)`. | D3, the Changelog item and §4.3 scoped. |
+
+### 9.6 Task 0 re-review of rev 6 (`44745bd` plus the uncommitted Task 1 tests; non-author; four exports: seam, faithful D1–D3 in both helper forms, mutant switches; 51 rows alone on each; coverlet)
+
+Verdict: NOT CLEAN on two nits.
+- **Resolved:** G1, G2 and G3.
+- **Partial:** G4 (H1).
+- **Tests vs plan:** no row is missing, vacuous or misclassed, and every §4.2 mutant is killed on the listed
+  providers, plus the reviewer's own "D3 late" mutant.
+- **Faithful build:** the full suites pass (SQL Server 265, MySQL 108, PostgreSQL 156, SQLite 176), and every
+  touched file is at least 85 % (SQL Server 85.14 %, MySQL 86.78 %, PostgreSQL 88.88 %, SQLite 90.83 %).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| H1 | nit | PLAN-GAP | Fix-introduced: "the async guard row adds its throw line" on SQLite was false. The guard is one line, already covered by the execution row. Only SQL Server's async guard covers a line. | §4.1 and §4.3 corrected. |
+| H2 | nit | HOUSE-RULE | The SQL Server test file's comment called the no-match row a guard row. | Reworded in Task 2's commit, with the tests. |
