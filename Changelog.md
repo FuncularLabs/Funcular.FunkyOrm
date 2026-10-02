@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Not yet assigned to a release: a 3.9.1 patch, or folded into 3.10.0 (`docs/plans/COLD_CACHE_DELETE_PLAN.md`, Task 4).
+
+### Fixed
+- **`Delete<T>(predicate)` and `DeleteAsync<T>(predicate)` as a type's first use in the process** threw
+  `NotSupportedException: Expression type Parameter is not supported` when the predicate read a member mapped by
+  convention (no `[Column]`), and the type then failed in `Query<T>()` for the rest of the process. They now discover
+  the type's columns first. All four providers.
+- **`Delete<T>(id)` and `DeleteAsync<T>(id)` as a type's first use** named the key column after the property. A key
+  whose column is spelled differently (property `ZzProbePkId`, column `zz_probe_pk_id`) failed. They now discover the
+  type first. SQL Server, MySQL and PostgreSQL.
+- **`ExecProcedure<T>` as a type's first use** no longer leaves `Query<T>()` and `Delete<T>(predicate)` failing for
+  that type afterwards. SQL Server and MySQL.
+
+### Changed
+- On SQL Server, MySQL and PostgreSQL, `Delete<T>(id)`/`DeleteAsync<T>(id)` as a type's first use, on a table that
+  doesn't exist, now throws `InvalidOperationException` with the provider's exception as `InnerException`, as a
+  predicate delete does. Before, the provider's exception was thrown directly.
+
 ## [3.9.0] - 2026-07-06
 
 ### Added
