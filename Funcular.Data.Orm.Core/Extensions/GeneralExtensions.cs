@@ -25,7 +25,8 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Returns true if <paramref name="s"/> contains <paramref name="other"/>.
+        /// Returns true if <paramref name="s"/> contains <paramref name="other"/>, compared with
+        /// <paramref name="comparison"/>; false if <paramref name="s"/> is null.
         /// </summary>
 #if NET8_0_OR_GREATER
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -34,7 +35,7 @@ namespace Funcular.Data.Orm
 #endif
         public static bool Contains(this string s, string other, StringComparison comparison = StringComparison.OrdinalIgnoreCase)
         {
-            return s?.IndexOf(other) > -1;
+            return s?.IndexOf(other, comparison) > -1;
         }
 
         /// <summary>
