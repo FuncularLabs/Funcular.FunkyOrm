@@ -19,6 +19,11 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 44 (fix-verification of `66bde1e..4b7ab2b`, 2026-10-01) — what changed:**
+>   - The MySQL harness discovers `Person` before each test, so its cleanup works when a test runs alone (N1).
+>   - The `DateOnly`/`TimeOnly` test also runs under th-TH (N2).
+>   - §4.3 scope (N3); the §9.45 count (N4); the Task 12 status and §9.46.
+
 > **Revision 43 (fix-verification of `66bde1e..8eaa0d0`, 2026-10-01) — what changed:**
 >   - The MySQL `DateTimeOffset` test seeds through the harness, so it passes when run alone (M1).
 >   - `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` runs under fi-FI (M4).
@@ -1187,7 +1192,7 @@ providers** unless stated.
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
 | AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
-| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (10 tests; 11 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`; *(rev 39)* `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (seven-digit `TimeOnly` pin since rev 41; under fi-FI since rev 43), `TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle` (a sub-second assertion since rev 40), MySQL `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes`; *(rev 41)* `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI). Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
+| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (10 tests; 11 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`; *(rev 39)* `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (seven-digit `TimeOnly` pin since rev 41; under fi-FI since rev 43, and th-TH since rev 44), `TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle` (a sub-second assertion since rev 40), MySQL `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes`; *(rev 41)* `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI). Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
@@ -1225,7 +1230,7 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | `*OrderByClauseVisitor` ternary null handling | AC12-8; direct tests |
 | `*OrderByClauseVisitor` constructor taking a parameter generator *(new, rev 30)* | `ParameterMode_*`; every LINQ ORDER BY path (the AC12-10 oracle rows) |
 | `*OrderByClauseVisitor.Parameters` *(new, rev 30)* | `ParameterMode_*`; `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` |
-| `QueryComponents.OrderByParameters` *(new, rev 30; SQL Server, MySQL, SQLite; PostgreSQL's equivalent)* | `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` |
+| `QueryComponents.OrderByParameters` *(new, rev 30; all four providers)* | `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` |
 | `QueryComponents.Terminal`, `.RowLimit`, `.OrderByTerms`, `.IsEmptyByTake` *(new)* | AC13-1, AC13-2, AC13-10 |
 | `*LinqQueryProvider.ParseExpression` (pre-pass call; Single/Last/LongCount branches; negative `Skip` clamp; empty-`Take` flag) | AC13-* |
 | `*LinqQueryProvider.Execute` / `ExecuteScalarProjection` (empty-`Take` short-circuit) | AC13-10 `Take0_*`, `TakeNonPositive_*`, `ScalarProjection_Take0_Terminal_*` |
@@ -1341,6 +1346,7 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | `TimeOnly` with fewer fraction digits (`HH:mm:ss`, `.F`, `.FFF`, `.FFFFFF`) *(rev 40–41)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (`10:00:30.1234567`); `HH:mm:ss` also the sub-second oracle assertion |
 | MySQL: a `DateTimeOffset` not as its UTC time, or with fewer digits *(rev 39)* | MySQL `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText`; the UTC case also `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes` |
 | `IsNumber` without one of the eleven types, or with `nint`/`nuint`/`Half` *(rev 41)* | `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` |
+| `DateOnly`/`TimeOnly` with the current culture as the format provider (format kept) *(rev 44)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText`: th-TH kills `DateOnly`'s, fi-FI kills `TimeOnly`'s |
 | An inline number, or `LiteralText`'s default, in the current culture *(rev 41)* | `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI) |
 | `AssertEveryParameterReferenced` parsing the joined log by line (the rev 30 helper) *(rev 31)* | `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand` |
 | MySQL literal mode without backslash escaping *(rev 30)* | `LiteralMode_Backslash_IsEscaped` |
@@ -1942,6 +1948,13 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Mutations (8 of 8 killed by `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` alone: `DateOnly` and `TimeOnly` in the current culture, per provider; the MySQL `DateTimeOffset` test passes run alone).
     - Docs M2, M3, M5, M6.
     - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
+  - **Verification layer 13 (rev 44, §9.46).**
+    - Test changes only, both guards:
+      - the MySQL harness discovers `Person` before each test;
+      - the `DateOnly`/`TimeOnly` test also runs under th-TH.
+    - Mutations (8 of 8 killed by `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` alone: `DateOnly` and `TimeOnly` with the current culture as format provider, per provider; the three N1 tests and the rev 39 `DateTimeOffset` test each pass run alone).
+    - Docs N3, N4.
+    - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2015,7 +2028,12 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
-  pass with their class. Follow-up issue.
+  pass with their class. Follow-up issue: the fix is on `fix/mysql-delete-cold-cache`
+  (`docs/plans/COLD_CACHE_DELETE_PLAN.md`).
+  - *(Rev 44, N1)* The MySQL harness now discovers `Person` in `TestInitialize`. Those two tests, plus
+    `Last_AfterComputedOrderBy_InvertsComputedTerm` and the rev 39 `DateTimeOffset` test, pass when run alone.
+  - They no longer reproduce the defect. The cold-cache plan's AC4 (these two tests, run alone, as the fix's
+    evidence on this branch) must be restated at its merge; its own `ColdCacheDeleteTests` rows carry the proof.
 - SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
 - Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
   `Single*` without user `Skip`/`Take` no longer routes through it (row limit). With user paging it still
@@ -2965,7 +2983,7 @@ Incident: the verifier wrote a probe into the main checkout's PostgreSQL direct-
 then restored it. No build or test ran there. Checked afterwards: the file's blob equals HEAD's, and
 `git diff HEAD` is empty.
 
-### 9.45 Fix-verification of `66bde1e..8eaa0d0` (non-author; 26 mutants per provider, 95 provider-mutants, all killed by the named tests; fi-FI value probe in both modes; PostgreSQL null-test probe, 10 shapes)
+### 9.45 Fix-verification of `66bde1e..8eaa0d0` (non-author; 26 mutants (23 per provider plus 3 MySQL-only), 95 provider-mutants, all killed by the named tests; fi-FI value probe in both modes; PostgreSQL null-test probe, 10 shapes)
 
 Verdict: NOT CLEAN.
 - **Resolved:** L1, L3 and L4.
@@ -2979,6 +2997,19 @@ Verdict: NOT CLEAN.
 | M4 | nit | TEST-GAP | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` ran in the machine's culture. Under sv-SE, `DateOnly.ToString()` is already ISO, so the current-culture mutant survived there (executed). | Runs under fi-FI on all four. |
 | M5 | nit | PLAN-GAP | §4.3 had no rows for the generator constructor, `Parameters` or `QueryComponents.OrderByParameters`. | Rows added. |
 | M6 | nit | HOUSE-RULE | "Sub-second rows" described one assertion. | Reworded. |
+
+### 9.46 Fix-verification of `66bde1e..4b7ab2b` (non-author; every QueryOperators method run alone on four providers; culture-forced runs under sv-SE and th-TH; M1/M4/M5 mutants)
+
+Verdict: NOT CLEAN.
+- **Resolved:** M2, M3 and M6.
+- **Resolved for the named items, each with a residual:** M1 (N1), M4 (N2), M5 (N3).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| N1 | minor | TEST-GAP | Three more MySQL tests failed when run alone, for the same cold-cleanup reason as M1, and one leaked rows: `ComputedMemberOrderBy_EmitsExpression_Unchanged`, `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` and `Last_AfterComputedOrderBy_InvertsComputedTerm`. They predate Task 12. | The MySQL harness discovers `Person` in `TestInitialize` (the verifier's validated fix); each of the three passes run alone. Consequence recorded in §8: the cold-cache plan's AC4 no longer reproduces the defect on this branch. |
+| N2 | nit | TEST-GAP | `DateOnly` with the current culture as format provider survived fi-FI, which is Gregorian with `-` as a literal; under th-TH it would send `2569-01-02`. | The test runs under fi-FI and th-TH; both provider mutants are killed. |
+| N3 | nit | HOUSE-RULE | Fix-introduced: the §4.3 row said "PostgreSQL's equivalent", but PostgreSQL has the same member. | "All four providers". |
+| N4 | nit | HOUSE-RULE | The §9.45 count: 26 × 4 ≠ 95. | 23 per provider plus 3 MySQL-only. |
 
 ---
 
