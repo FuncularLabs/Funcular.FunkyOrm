@@ -8,7 +8,11 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 10, the test plan after the ninth Task 0 review (§9.9). Nothing is implemented yet.
+> **Status (2026-10-01):** rev 11. Task 0 CLEAN at `1964b7e` (§9.10). Task 1a, the seam, is `3bb2b58`. Task 1b's rows
+> are written and uncommitted; each was run alone at the seam, with results in §5. Tasks 2–5 are next.
+
+> **Revision 11 — what changed:** Tasks 1a and 1b are recorded. Three notes from the Task 1b implementer are
+> recorded (§5). D2 names UTF-8. The §9.10 nits R10-1…R10-6 are applied in the reviewer's wording.
 > What each reviewer ran and found is recorded in §9.
 
 > **Revision 10 — what changed (R9-1…R9-3):** documents only. Task 3 also amends the 3.10 plan's AC12-2 for the
@@ -26,7 +30,7 @@
 > **Revision 8 — what changed (R7-1…R7-7).** Six rounds running, a fix caused the next finding. So rev 8
 > adopts rules the reviewer already executed instead of designing new ones.
 > - D11 strips any matching quote pair. That rule passed the default, reserved-only, always-bracket and
->   always-backtick (idempotent) dialects in the reviewer's run. A CI row covers a reserved-word column on the default
+>   always-backtick (idempotent) dialects in the reviewer's run *("idempotent" added in rev 10, R9-2(d))*. A CI row covers a reserved-word column on the default
 >   dialect (R7-1).
 > - A SQLite real-read mapper row (R7-2).
 > - An internal mapped-set accessor per provider for observers (R7-3).
@@ -155,7 +159,8 @@
   (`SqlConnectionStringBuilder`, `NpgsqlConnectionStringBuilder`, `MySqlConnectionStringBuilder`,
   `SqliteConnectionStringBuilder`). It calls `Remove("Password")`, which merges every synonym; setting the password
   to empty instead leaves Npgsql's key in place (E12). It then takes the builder's canonical `ConnectionString`.
-  - **The registry key is the SHA-256 of that string** (*rev 4*), so no secret is retained by the registry,
+  - **The registry key is the SHA-256 of that string's UTF-8 bytes** (*rev 4; encoding named in rev 11*), so no
+    secret is retained by the registry,
     including Npgsql `SSL Password` and MySqlConnector `Certificate Password` (E13).
   - **Everything else is kept:** server, port, database, user, search path, `Options`, attach file, application
     name, pooling.
@@ -238,17 +243,21 @@
     - The built-in dialects quote only reserved words (`ISqlDialect.EncloseIdentifier`), so a rule derived from
       the dialect's quoting of `x` finds nothing to strip, and loses reserved-word columns once D5 is in.
     - Executed by the rev 7 reviewer: `ReservedWordTable_InsertAndQuery_Works` read `0` where `42` was expected.
-    - The pair rule passed the default, reserved-only bracket, always-bracket and always-backtick (idempotent) dialects.
+    - The pair rule passed the default, reserved-only, and idempotent always-bracket and always-backtick dialects
+      *(rev 10, R9-2(d); rev 11, R10-6)*.
   - The server providers' mappers have the same limitation, pre-existing (§6).
   - **Idempotent enclosing** *(rev 9, R8-2)*.
     - After D5, SQLite's SQL builders still pass a cached, already enclosed name through
-      `Dialect.EncloseIdentifier` (`SqliteOrmDataProvider.cs:1239`, `:1245`). So do the dialects' insert and update
-      builders, which every provider calls with cached names (SQLite `:1055`, `:1084`). The server providers' own SQL
-      uses the cached name as is.
-    - Each built-in dialect returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`). A custom SQLite dialect must do the same *(rev 10, R9-2)*.
-    - One that wraps unconditionally works at 3.9.0 for entity types in a namespace, and breaks after D5 in reads
-      and writes. Executed by the rev 8 and rev 9 reviewers: `SELECT [[Id]] …` and `INSERT … ([[FirstName]])`, SQLite
-      Error 1. For a type in the global namespace it already failed before D5, since the two keys coincide there.
+      `Dialect.EncloseIdentifier` (`SqliteOrmDataProvider.cs:1239`, `:1245`). So do SQLite's dialect's insert and
+      update builders, which the provider calls with cached names (`:1055`, `:1084`), and a custom dialect's builders
+      if they call its `EncloseIdentifier` *(rev 11, R10-2)*. The server providers' own SQL uses the cached name as
+      is.
+    - Each built-in dialect returns a name it has already enclosed with its own quotes unchanged. A custom SQLite
+      dialect must satisfy `E(E(x)) = E(x)` *(rev 10, R9-2; rev 11, R10-3)*.
+    - One that wraps unconditionally works at 3.9.0 except for a top-level type in the global namespace, and breaks
+      after D5 in reads and writes. Executed by the rev 8–10 reviewers: `SELECT [[Id]] …` and
+      `INSERT … ([[FirstName]])`, SQLite Error 1. A top-level global-namespace type already failed before D5,
+      since the two keys coincide there *(rev 11, R10-4)*.
     - Recorded in §6 and in the Changelog's "Changed", not fixed here.
 
 ## 3. Acceptance criteria
@@ -312,7 +321,7 @@ Every row is run alone at the seam and its outcome recorded.
 | AC4 | `RegistryKey_RetainsNoSecret`. PostgreSQL: the password first, plus `SSL Password`. MySQL: `Certificate Password`. SQL Server and SQLite (no other secret keyword): the key part equals the SHA-256 (64 hex characters) of the canonical identity. | none | Red at the seam |
 | AC4 | `SqliteMemoryAndTemporaryDatabases_NeverShare` [`:memory:`, `Filename=:memory:`, `Mode=Memory`, `Mode=Memory;Cache=Shared`, `""` and `Data Source=` each with an explicit connection] | none | Red at the seam (one shared set) |
 | AC4 | `EmptyIdentity_IsPerProviderType`: two instances of one direct `OrmDataProvider` subclass share; a different subclass doesn't | none | Red at the seam |
-| AC4 | `ExplicitConnection_SuppliesTheIdentity` [all four: empty constructor string; two explicit connections to different databases don't share] | none | Red at the seam |
+| AC4 | `ExplicitConnection_SuppliesTheIdentity` [all four: empty constructor string; two explicit connections to different databases don't share, and two to the same database do *(rev 11)*] | none | Red at the seam |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareNames` | none | Red |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareMappers` (a double-quoting dialect reads `person` first, then the default provider must read the right `Id` and `FirstName`) | SQL Server (CI) | Red (E6/E17: `Id=0`, null) |
 | AC5 | `SqliteBracketDialect_ReadsItsOwnRows` [`[…]`, backtick]: a SQLite provider whose dialect encloses **every** identifier, idempotently (its `EncloseIdentifier` returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`)), reads its own property-named table after D5 *(rev 7, R6-5; rev 9, R8-2)*. (Rev 7's "same with a bracket-quoting dialect" mapper-sharing row is dropped: with D11 its mutation is equivalent, R7-2.) | SQLite temp file (CI) | Guard: green at the seam; killed by "SQLite mapper strips only `"`" once D5 is in, and the backtick row by "the pair rule without backticks" |
@@ -406,7 +415,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 | The internal mapped-set accessor reads a static set | `MappedSetAccessor_ReadsTheInstanceScope` |
 | Core's `GetUnmappedProperties<T>()` reads a static set | `CoreGetUnmappedProperties_ReadsTheInstanceScope` |
 | An empty identity treated as null (per-instance) | AC4 `EmptyIdentity_IsPerProviderType` |
-| A provider ignores the explicit connection's string when the constructor string is empty (per provider) | AC4 `ExplicitConnection_SuppliesTheIdentity` |
+| A provider ignores the explicit connection's string when the constructor string is empty (per provider) | AC4 `ExplicitConnection_SuppliesTheIdentity`, including its same-database-shares assertion (on SQLite the mutation is otherwise invisible: `""` is per-instance there) *(rev 11)* |
 | The registry keyed by the raw identity (no hash) | AC4 `RegistryKey_RetainsNoSecret` |
 | Procedure names left process-wide | AC9 |
 | A LINQ column read redirected to a fresh static: per site (ORDER BY, SELECT, `Last`, `Count`/`Any`/`All` predicate, predicate site), per provider | AC7 `LinqSites_ReadTheirOwnScope` (the Guard's killing mutation) and `LinqSites_NeverReadAnotherScope` |
@@ -439,7 +448,22 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
    - `InternalsVisibleTo("Funcular.Data.Orm.SqlServer.Tests")` in the PostgreSql, MySql and Sqlite projects (a
      product-assembly change, recorded in the Changelog).
    - SqlServer.Tests references the three providers and links `PostgreSqlTestConnection.cs`.
+   - **Done:** `3bb2b58`. Suites at that sha, identical to the base: SqlServer.Tests 885, PostgreSql.Tests 760,
+     MySql.Tests 712, Sqlite.Tests 788, DotNet9 5.
 3. **Task 1b — Red tests** (§4.1) on the seam. Every row is run alone, and its outcome and message recorded.
+   - **Done, uncommitted** until Tasks 2–3 turn the rows green. Each row was run alone at `3bb2b58`: every planned
+     Red row failed for its stated reason, every Guard passed, and no row was stopped.
+   - With the rows, the full suites gain the Red rows as failures: SqlServer.Tests 75, PostgreSql.Tests 8,
+     MySql.Tests 8. No existing test changed outcome.
+   - **Implementer notes** *(rev 11)*:
+     - `ExplicitConnection_SuppliesTheIdentity` also asserts that two explicit connections to the same database
+       share a scope; §4.3 now says why.
+     - `SameProviderType_DifferentDialectType_DoNotShareNames` runs on all four providers, as AC5 says; on SQLite it
+       checks the table name.
+     - The hash rows expect SHA-256 over UTF-8 bytes, compared as hex in either case; D2 now names UTF-8.
+     - Task 3 removes the seam's `EntityMapperCache`/`ProcedureNameCache` overrides, which return the 3.9.0
+       statics.
+     - The PostgreSQL and MySQL mapper rows need a `person` row; with none they fail loudly.
 4. **Task 2 — Core:** real scopes (D1–D3, D8, D9), `ToDictionaryKey` and the base key (D5), the ordinal comparer.
 5. **Task 3 — The four providers:**
    - scope properties replace the statics;
@@ -463,7 +487,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - Re-pinned to the discovered spelling, with its message updated.
      - The 3.10 plan's AC12-2 (`QUERY_OPERATOR_CORRECTNESS_PLAN.md`, "unchanged from 3.9.0") and its §4.2 row are
        amended: "unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after D5
-       (provider-scoped caches plan)" *(rev 10, R9-1)*.
+       (provider-scoped caches plan)" *(rev 10, R9-1)*. The §4.2 row gains "(SQLite re-pinned after D5)". AC12-2
+       is also posted on issue #12; posting the amendment there is the owner's call *(rev 11, R10-1)*.
 6. **Task 4 — Green and gauntlet.**
    - Suites, net48, net9; mutations (§4.3); coverage (§4.2).
    - Changelog: Fixed (AC1, AC2, AC5, AC8, AC9). Changed:
@@ -512,8 +537,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 - **Principals:** Integrated Security with impersonation, and Entra/`AccessToken` principals, share the string's
   scope.
 - **Dialect state:** custom dialects of one type that carry state share a scope.
-- **A custom SQLite dialect that encloses unconditionally** breaks after D5 for entity types in a namespace, in reads
-  and writes: cached names are enclosed again (D11).
+- **A custom SQLite dialect that encloses unconditionally** breaks after D5, in reads and writes: cached names are
+  enclosed again (D11). A top-level global-namespace type already failed at 3.9.0 *(rev 11, R10-4)*.
   Recorded, not fixed.
 - **Server providers' mappers** unquote only their default quote character, so a custom dialect that quotes
   differently maps nothing (pre-existing; D11 fixes SQLite only, because D5 would otherwise newly break it).
@@ -654,7 +679,7 @@ Verdict: NOT CLEAN on one minor finding.
 - **Resolved:** R8-1, R8-2, R8-4 and R8-5.
 - **Partial:** R8-3 (R9-1).
 - **Executed:**
-  - the backtick Guard is killed only by "pair rule without backticks";
+  - "the pair rule without backticks" is killed only by the backtick Guard *(corrected in rev 11, R10-5)*;
   - three always-enclosing dialects fail after D5 in reads and writes, while idempotent ones pass a full round trip;
   - the re-pinned test is the only Sqlite.Tests failure (1/785).
 
