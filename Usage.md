@@ -311,7 +311,7 @@ provider.Update(jane);
 ```
 
 ### Delete
-**Safety First!** Deletes require a transaction and a non-trivial WHERE clause. We don't want you accidentally wiping the table.
+**Safety First!** Deletes require a transaction, and a delete by predicate is rejected when its predicate plainly matches every row (see [Troubleshooting](#4-a-where-clause-predicate-is-required-for-deletes)). We don't want you accidentally wiping the table.
 
 **Delete by ID:**
 ```csharp
@@ -1343,9 +1343,12 @@ You tried to call `.Delete()` without starting a transaction.
 *   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
 
 ### 4. "A WHERE clause (predicate) is required for deletes"
-You tried to delete everything, or used a trivial predicate like `x => true` or `x => 1 == 1`. We stopped you.
-*   **The Fix**: Provide a valid, non-trivial predicate that references at least one column. We explicitly block "delete all" operations to prevent catastrophic data loss.
-    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
+You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also stop a predicate that plainly matches every row, before any SQL runs, with one of these messages:
+*   **"Delete operation WHERE clause must reference at least one column from the target table."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`).
+*   **"Delete operation WHERE clause cannot be a self-referencing column expression."**: it compares a column with itself (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`).
+*   **"Delete operation requires a non-trivial WHERE clause."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, or with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null), or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
+*   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (filter != null) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss.
+    *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
     *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.
 
 ---

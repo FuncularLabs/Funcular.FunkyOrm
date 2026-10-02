@@ -72,8 +72,7 @@ subclasses.
   It now uses the declaring type's full name, and keys compare ordinally, so `Outer_X.Thing` and `OuterX.Thing` no
   longer collide.
 - **`GeneralExtensions.Contains(string, string, StringComparison)` ignored its `comparison` argument** and compared
-  case-sensitively in the current culture. It now uses the comparison it is given. Its effect on deletes is under
-  Changed.
+  case-sensitively in the current culture. It now uses the comparison it is given.
 - **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
   property whose column differs by underscores (`Label` → `la_bel`) is queryable.
 - **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** could run before
@@ -82,6 +81,20 @@ subclasses.
   All four providers.
 - **`ExecProcedure<T>` as a type's first use** no longer leaves `Query<T>()` and `Delete<T>(predicate)` failing for
   that type afterwards. SQL Server and MySQL.
+- **`Delete`/`DeleteAsync` by predicate accepted predicates that match every row, and rejected some that don't.**
+  All four providers:
+  - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`), their negations (`!(x.Id != x.Id)`), and
+    disjunctions with an always-true operand (`x.Id == 2 || true`, a captured or static `true`, a `true` property of
+    a captured object, or a comparison of constants and captured values that holds, such as `filter == null` with
+    `filter` null) could delete every row. They're now rejected before any SQL runs;
+  - a disjunction with a negated `Contains` over an empty collection (`x.Id == 2 || !emptyIds.Contains(x.Id)`, its
+    De Morgan form `!(emptyIds.Contains(x.Id) && x.Id == 2)`, and the same after `IS NOT NULL` or `IN (…)`) deleted
+    every row. It's now rejected once the WHERE clause is built, before the DELETE runs;
+  - a predicate on a table or column whose name contains `true` in any letter case (a column `true_up` or
+    `TrueUpAmount`, a table `TrueUpLedger`) was rejected as trivial. It's now accepted.
+
+  The checks catch these shapes, not every predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still
+  accepted.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -120,6 +133,9 @@ Other changes:
   property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
   property. Their 3.9.0 constructor is unchanged, so code compiled against 3.9.0 keeps binding. Without a generator
   a visitor still inlines values; MySQL's inline literal now also escapes backslashes.
+- **New public API in `Funcular.Data.Orm`:** `DeletePredicateGuard` (`Classify`, `Validate`, `HasLiteralTautology`)
+  and the `DeletePredicateVerdict` enum, the checks each provider's delete by predicate runs. A custom provider can
+  call them.
 - **SQL Server: text in an ORDER BY ternary is now `nvarchar`**, like a WHERE string parameter; 3.9.0's literal was
   `varchar`. Text outside the database's code page now matches (`x.Name == "Ωmega" ? 0 : 1` matched no row before).
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
@@ -177,15 +193,18 @@ Other changes:
 - PostgreSql, MySql and Sqlite grant `InternalsVisibleTo` to `Funcular.Data.Orm.SqlServer.Tests`.
 - On SQL Server, MySQL and PostgreSQL, when a delete inside a transaction is a type's first use and the type's table
   doesn't exist, the provider's missing-table error (SQL Server 208, MySQL 1146, PostgreSQL 42P01) is now the
-  `InnerException` of an `InvalidOperationException`. Some of these calls threw the provider's exception directly
-  before.
-- **On the netstandard2.0 and .NET Framework 4.8 builds, `Delete`/`DeleteAsync` by predicate check the WHERE clause
-  for trivial conditions case-insensitively**, as the .NET 8 build already did. This follows from the
-  `GeneralExtensions.Contains` fix. A WHERE clause containing `true` in any letter case is rejected with "Delete
-  operation requires a non-trivial WHERE clause."; on those builds it was rejected before only in lower case. That
-  includes a predicate on a column such as `TrueUpAmount`. The WHERE clause also names the table for most members
-  (not inside a nullable member's date part, such as `PostedOn.Value.Year`), so most predicate deletes on a table
-  such as `TrueUpLedger` are rejected too.
+  `InnerException` of an `InvalidOperationException`. That holds for a delete by id, and for a delete by a predicate
+  the delete guard doesn't reject before translating it. Some of these calls threw the provider's exception
+  directly before. A predicate rejected before translation (see Fixed) reports the guard's message instead.
+- **`Delete`/`DeleteAsync` by predicate reject predicates that a captured value makes always true.** When the
+  condition held, these idioms deleted every row (on SQL Server, the second and third failed with a SQL error
+  instead); they now throw "Delete operation requires a non-trivial WHERE clause.":
+  - `filter == null || x.Col == filter` with `filter` null;
+  - `isAdmin || x.OwnerId == me` with `isAdmin` true;
+  - `x.Archived || !keepIds.Contains(x.Id)` with `keepIds` empty.
+
+  Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
+  rejected, now with that message instead of "…must reference at least one column from the target table."
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

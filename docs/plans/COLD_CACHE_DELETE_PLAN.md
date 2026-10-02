@@ -150,8 +150,9 @@
 - **D1 — Discover first in the predicate path.** `DiscoverColumns<T>()` is the first statement of
   `GenerateWhereClause<T>` in all four providers, before `ResolveRemoteJoins` and the unmapped cache.
   - **Changed error shape (HR1-1), on SQL Server, MySQL and PostgreSQL:** a cold predicate delete on a missing table
-    throws discovery's `InvalidOperationException` (provider exception inner). This includes predicates that 3.9.0
-    sent to the database, such as a lone method call on a member, or `[Column]` members only *(rev 15, FV2-5)*.
+    throws discovery's `InvalidOperationException` (provider exception inner), when the delete guard doesn't reject
+    the predicate before translating it *(scoped by DELETE_GUARD_PLAN.md D5, which rejects some predicates first)*.
+    This includes predicates that 3.9.0 sent to the database, such as a lone method call on a member, or `[Column]` members only *(rev 15, FV2-5)*.
     Before, the provider's exception was thrown directly. Pinned by `DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError`;
     Changelog "Changed".
 - **D2 — No provider-class path caches an unmapped set for an undiscovered type.**

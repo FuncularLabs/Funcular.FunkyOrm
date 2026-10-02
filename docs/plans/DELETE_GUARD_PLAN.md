@@ -8,11 +8,13 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-02):** rev 7. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
+> **Status (2026-10-02):** rev 8. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
 > rev 4 (`fa06956`). Its re-review (§9.4) found 4 blocking, answered in rev 5 (`5845883`). Its re-review (§9.5) found
-> 4 blocking, answered in rev 6 (`58efaca`). Its re-review (§9.6) is CLEAN. Task 1 is `0167f63` (§5.1); Task 2 is the
-> commit that carries rev 7 (§5.2). Tasks 3 and 4 are next.
+> 4 blocking, answered in rev 6 (`58efaca`). Its re-review (§9.6) is CLEAN. Task 1 is `0167f63` (§5.1), Task 2
+> `bcd254f` (§5.2), and Task 3 the commit that carries rev 8 (§5.3). Task 4 is next.
+
+> **Revision 8 — what changed (Task 3):** §5.3 records Task 3.
 
 > **Revision 7 — what changed (Tasks 1 and 2):** §5.1 and §5.2 record Tasks 1 and 2; the seam commit holds the stub
 > alone, and the tests land with Task 2 (§5.1). D3 treats a doubled closing quote as an escape in each quoting form.
@@ -470,6 +472,16 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   killed by the rows §4.3 names for it, with the NoColumn row's killer as rev 7 corrects it. They ran before the
   `x.Archived` and §6 rows were added, which add rows only. "The old substring list kept" also fails net48's three
   D8 rows.
+
+### 5.3 Task 3 (the commit that carries rev 8)
+
+- D7's documents: the Changelog's Fixed entry, its Changed entry for the three idioms (each proven by a harness row:
+  `orCapturedNullIsNull`, `orCapturedTrue`, `x.Archived`), the scoped missing-table entry, the New public API entry,
+  and the netstandard2.0/net48 entry and its Fixed pointer removed; `Usage.md`'s Delete section and troubleshooting
+  item 4; `README.md`; the architecture document; SQL Server's XML docs on Delete and DeleteAsync; the cold-cache
+  plan's D1 sentence. `FUNKYORM_AI_INSTRUCTIONS.md` stays true unchanged.
+- The provider-scoped caches plan's pointers (its §4.2 note and §4.4 net48 line) are added when `development/3.10`
+  is merged in (Task 4): that branch rewrapped the §4.2 note after `be8de82`, so an edit here would conflict.
 
 ## 6. Out of scope (recorded)
 

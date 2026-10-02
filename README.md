@@ -38,7 +38,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Performance**: Outperforms EF Core in single-row writes and matches it in reads. (See our [Usage Guide](Usage.md) for benchmarks).
 *   **Zero Configuration**: No `DbContext`, no mapping files. Just POCOs and a connection string.
 *   **Safe**: All queries are parameterized to prevent SQL injection.
-*   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., blocking `1=1`), though this does not guarantee prevention of all crafty circumventions.
+*   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., rejecting `x => true`, `x => x.Id == x.Id` and `x => x.Id == id || true`), though they don't catch every predicate that is true for every row.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
 *   **JSON & Computed Column Attributes**: Four attribute types that eliminate SQL views entirely in code — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]`. Works on SQL Server, PostgreSQL, and SQLite.

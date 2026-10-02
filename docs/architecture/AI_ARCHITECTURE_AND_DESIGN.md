@@ -30,7 +30,7 @@ We believe that deleting data is the most dangerous operation a developer can pe
 *   **Agent Instruction**: Always wrap generated delete code in `BeginTransaction()` / `CommitTransaction()` blocks.
 
 ### 2. The Predicate Guard
-*   **Rule**: `Delete(predicate)` analyzes the expression tree and blocks trivial clauses (`1=1`, `true`, `x.Id == x.Id`).
+*   **Rule**: `Delete(predicate)` analyzes the expression tree before translating it (`DeletePredicateGuard`) and rejects a predicate that reads no column (`x => true`), compares a column with itself (`x.Id == x.Id`), or is always true through literals or captured values (`x.Id == 2 || true`). It then rejects a WHERE clause that is true by its literals (`1=1`, or `OR NOT 1=0` from a negated `Contains` over an empty list). It doesn't catch every predicate that is true for every row.
 *   **Reason**: To prevent accidental table truncation.
 *   **Agent Instruction**: Do not try to bypass this with raw SQL. If a user asks to "delete all", explain the safety mechanism and suggest they use a raw SQL command on the `Connection` object if they truly mean it.
 

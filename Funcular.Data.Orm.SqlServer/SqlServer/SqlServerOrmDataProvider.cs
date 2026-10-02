@@ -259,17 +259,19 @@ namespace Funcular.Data.Orm.SqlServer
         /// predicate.
         /// </summary>
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
-        /// cref="InvalidOperationException"/> is thrown. Additionally, the predicate must produce a valid WHERE clause;
-        /// trivial or empty conditions (e.g., "1=1") are not allowed and will result in an exception.</remarks>
+        /// cref="InvalidOperationException"/> is thrown. <see cref="DeletePredicateGuard"/> checks the predicate before
+        /// it is translated, and its WHERE clause after: a predicate that reads no column, compares a column with itself,
+        /// or is always true through literals or captured values is rejected. The checks don't catch every predicate
+        /// that is true for every row.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
-        /// delete operation. The predicate must not be null and must result in a valid, non-trivial condition.
-        /// Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
+        /// delete operation. It must not be null, and must not plainly match every row: <c>x =&gt; true</c>,
+        /// <c>x =&gt; x.Id == x.Id</c> and <c>x =&gt; x.Id == id || true</c> are rejected to prevent accidental data loss.</param>
         /// <returns>The number of rows affected by the delete operation.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the predicate
-        /// results in an invalid or trivial WHERE clause; also if <typeparamref name="T"/>'s table doesn't exist when its
-        /// columns are first discovered (the <see cref="SqlException"/> is then the
-        /// <see cref="Exception.InnerException"/>).</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the
+        /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
+        /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
+        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -806,7 +808,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
-        /// The predicate must result in a non-trivial condition. Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
+        /// It must not plainly match every row: <c>x =&gt; true</c>, <c>x =&gt; x.Id == x.Id</c> and
+        /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="DeletePredicateGuard"/> to prevent accidental data
+        /// loss. The checks don't catch every predicate that is true for every row.</param>
         /// <returns>The number of rows deleted.</returns>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
