@@ -69,8 +69,9 @@ namespace Funcular.Data.Orm
         /// </list>
         /// Parameter-free <c>bool</c> parts built from constants, field and property reads, casts, the logical
         /// operators, comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c>, and <c>ToString()</c>
-        /// with no argument or a format string on an enum or a non-generic, sealed or value type of the core library (or
-        /// a nullable one) are evaluated, as C# evaluates them. A <c>Contains</c> whose search value is null, on a
+        /// with no argument or a format string on a receiver declared as an enum or a non-generic, sealed or value type of
+        /// the core library (or a nullable one) are evaluated, as C# evaluates them; a receiver declared as
+        /// <see cref="object"/> or an interface isn't, whatever it holds. A <c>Contains</c> whose search value is null, on a
         /// receiver that isn't, counts as true, as every provider sends it as <c>LIKE '%%'</c>. A part that calls any
         /// other method, a constructor, or an operator or conversion declared outside the core library is never
         /// evaluated, and counts as unknown, as does any other part whose evaluation throws. So no code outside the core

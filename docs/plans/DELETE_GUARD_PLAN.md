@@ -8,14 +8,19 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-02):** rev 11. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
+> **Status (2026-10-02):** rev 12. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
 > rev 4 (`fa06956`). Its re-review (§9.4) found 4 blocking, answered in rev 5 (`5845883`). Its re-review (§9.5) found
 > 4 blocking, answered in rev 6 (`58efaca`). Its re-review (§9.6) is CLEAN. Task 1 is `0167f63` (§5.1), Task 2
 > `bcd254f` (§5.2), and Task 3 `3ec5ba9` (§5.3). Task 4's review of `58efaca..3ec5ba9` (§9.7) found 5 blocking
 > findings, answered in rev 9 (`09033fa`, §5.4). Its fix-verification (§9.8) found 4 blocking, answered in rev 10
-> (`fcc560c`, §5.5). Its re-verification (§9.9) found 2 blocking, in prose; the commit that carries rev 11 answers
-> them (§5.6) and is re-verified next.
+> (`fcc560c`, §5.5). Its re-verification (§9.9) found 2 blocking, in prose, answered in rev 11 (`b4cce09`, §5.6).
+> Its re-verification (§9.10) found 2 blocking, in prose; the commit that carries rev 12 answers them (§5.7) and is
+> re-verified next.
+
+> **Revision 12 — what changed (fix-verification FV3-1, FV3-2):** D2's `ToString` rule judges the receiver's declared
+> type, and §6, the Changelog, Usage and `Classify`'s XML doc say so; Usage says when the first message comes after the
+> WHERE clause is built.
 
 > **Revision 11 — what changed (fix-verification FV2-1, FV2-2):** §6, the Changelog and Usage name the collation a
 > captured string's `Contains` compares under; `HasLiteralTautology`'s XML doc describes the large-stack parse.
@@ -191,8 +196,9 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
        constructor (T0-6; reworded in rev 3, T1-3). An evaluation that throws is Unknown.
      - **Rev 9 (I1-1; the owner's decision of 2026-10-02):** two kinds of call are evaluable too, because every
        provider translates them into SQL with only parameters when their operands are parameter-free: `string`'s
-       `Contains` (any overload), and a parameterless `ToString()` whose receiver is an enum or a non-generic, sealed
-       or value type of the core library, or a nullable one of those, so no override outside the core library runs.
+       `Contains` (any overload), and a parameterless `ToString()` whose receiver is declared as an enum or a
+       non-generic, sealed or value type of the core library, or a nullable one of those, so no override outside the
+       core library runs (the declared type, not the value's: rev 12, FV3-1).
        Any other method call stays
        Unknown, and no code outside the core library runs except property getters.
      - **Rev 10 (FV1-1, FV1-2):** `ToString` with a format string (every parameter a `string`) is evaluable too, on the
@@ -574,6 +580,11 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - FV2-1 and FV2-2 are answered as §9.9 records: prose in the Changelog, `Usage.md`, §6 and
   `HasLiteralTautology`'s XML doc. No code or test changed.
 
+### 5.7 Task 4, fix-verification 3 (the commit that carries rev 12)
+
+- FV3-1 and FV3-2 are answered as §9.10 records: prose in the Changelog, `Usage.md`, §6, D2 and `Classify`'s XML
+  doc. No code or test changed.
+
 ## 6. Out of scope (recorded)
 
 - **Always-true shapes D2 doesn't detect** (T0-9). These deleted every row at the seam on all four providers and still
@@ -628,6 +639,9 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   `x.Id == 2 || s.Contains("s")` with `s = "S"` on SQL Server, MySQL and SQLite; `x.Id == 2 || s.Contains("_")` on
   all four; `x.Id == 2 || capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL. Translator
   defects, pre-existing; filed as a separate task.
+- **`ToString()` on a value declared as `object` or an interface** (rev 12, FV3-1) isn't evaluated, as D2 judges the
+  declared type: `x.Id == 2 || o.ToString() == "s"` with `object o = "s"` (or an `IComparable`) deleted every row on
+  all four providers in the fix-verification; with `object o = 7`, `o.ToString() == "7"` did on SQL Server and MySQL.
 - **A clause nested too deeply for D3's parser** (rev 9, I1-4; rev 10, FV1-3) is parsed again on a 64 MB stack, so
   a 1,500-term nested `OR` ending in `|| !emptyIds.Contains(x.Id)` is rejected on all four providers; without the
   tautology it runs as at `be8de82` (PostgreSQL and MySQL delete the matching rows; SQL Server and SQLite reject the
@@ -762,3 +776,13 @@ partial (FV2-1). Blame: TEST-GAP 2.
 | FV2-1 | low | TEST-GAP | The Changelog, `Usage.md` and §6: the collation a captured string's `Contains` compares under | Named: the database's default (MySQL: the connection's), not a column's; SQLite's `LIKE` ignores ASCII case. |
 | FV2-2 | low | TEST-GAP | `HasLiteralTautology`'s XML doc on a clause too deep to parse | Describes the large-stack parse and the re-raise. |
 | FV2-NB1 | nit | — | §9.8's blame classes differ from the review's, without saying so | Carried. |
+
+### 9.10 Task 4 fix-verification of `fcc560c..b4cce09` (non-author)
+
+Verdict: NOT CLEAN; two blocking findings, in prose that earlier rounds hadn't flagged. FV2-1 and FV2-2 resolved;
+FV2-NB1 carried. Blame: TEST-GAP 2.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FV3-1 | medium | TEST-GAP | The Changelog's `ToString()` clause; `Usage.md`; §6; `Classify`'s XML doc | Disclosed: D2 judges the receiver's declared type, so a value declared as `object` or an interface isn't evaluated. |
+| FV3-2 | low | TEST-GAP | `Usage.md` item 4: when the first message comes | Usage says the provider's own check can also give it, once the WHERE clause is built. |

@@ -86,8 +86,9 @@ subclasses.
   - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`), their negations (`!(x.Id != x.Id)`), and
     disjunctions with an always-true operand (`x.Id == 2 || true`, a captured or static `true`, a `true` property of
     a captured object, a comparison of constants and captured values that holds, such as `filter == null` with
-    `filter` null, or a captured string's `Contains`, or a captured value's `ToString()` (with no argument or a
-    format string) in a comparison, that holds, such as `roles.Contains("admin")`, or a `Contains` with a null search
+    `filter` null, or a captured string's `Contains`, or the `ToString()` (with no argument or a format string) of a
+    captured value declared as a string, number, enum or other non-generic sealed or value type of .NET's core
+    library, in a comparison, that holds, such as `roles.Contains("admin")`, or a `Contains` with a null search
     value, which every provider sends as `LIKE '%%'`) could delete every row. They're now rejected before any SQL runs;
   - a disjunction with a negated `Contains` over an empty collection (`x.Id == 2 || !emptyIds.Contains(x.Id)`, its
     De Morgan form `!(emptyIds.Contains(x.Id) && x.Id == 2)`, and the same after `IS NOT NULL` or `IN (…)`) deleted
@@ -103,7 +104,9 @@ subclasses.
   escape `%` or `_` and compares under the database's default collation (on MySQL, the connection's), not a column's,
   while SQLite's `LIKE` ignores the case of ASCII letters; and `ToString()` isn't sent at all. So
   `x.Id == 2 || s.Contains("_")`, `x.Id == 2 || s.Contains("s")` with `s` "S" (on SQL Server, MySQL and SQLite), or
-  `capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL, still deletes every row.
+  `capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL, still deletes every row. A value declared
+  as `object` or an interface isn't evaluated, whatever it holds: `x.Id == 2 || o.ToString() == "s"` with
+  `object o = "s"` still deletes every row.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
