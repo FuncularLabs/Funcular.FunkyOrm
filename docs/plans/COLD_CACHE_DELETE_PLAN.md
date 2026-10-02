@@ -392,8 +392,8 @@ Local runs are recorded with their sha.
    - Hostile review §9.12: NOT CLEAN, no code defect. Its fix layer is `34dd5fc` (rev 13). Fix-verifications §9.14 and
      §9.15 found nits only, addressed in revs 14 and 15; §9.16–§9.18 found plan nits, addressed in revs 16–18.
 5. **Task 4 — Merge path (owner).** *(Recorded on `fix/provider-scoped-caches`: this branch was merged there at
-   `f73823c`, because that change makes the defect fire once per scope (its review HRA-1). The release choice below
-   is still the owner's: the same commits can also go to `master` as 3.9.1.)*
+   `f73823c`, because that change makes the defect fire once per scope (its review HRA-1). **Owner decision
+   2026-10-02: (b), fold into 3.10; no 3.9.1.**)*
    - Done in the merge: the D2 helper reads the instance's scope. The coldness observers read through the provider
      under test. The rev 44 warm-up and the rev 43 M1 comment are removed, as is the 3.10 plan's §8 follow-up text.
      The Changelog entries moved verbatim into `[3.10.0-beta1]`.

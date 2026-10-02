@@ -71,6 +71,8 @@ subclasses.
 - **Two entity types with the same simple name shared column-name cache entries.** The key was `TypeName.Property`.
   It now uses the declaring type's full name, and keys compare ordinally, so `Outer_X.Thing` and `OuterX.Thing` no
   longer collide.
+- **`GeneralExtensions.Contains(string, string, StringComparison)` ignored its `comparison` argument** and compared
+  case-sensitively in the current culture. It now uses the comparison it is given.
 - **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
   property whose column differs by underscores (`Label` → `la_bel`) is queryable.
 - **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** could run before

@@ -8,11 +8,14 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 14. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 15. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`; fix-verification is next. `GeneralExtensions.cs`
 > coverage is the owner's call (§4.2).
+
+> **Revision 15 — what changed:** owner decisions of 2026-10-02 recorded. The cold-cache fix folds into 3.10 (no
+> 3.9.1). `GeneralExtensions.cs` is exempt from the coverage floor, and `Contains` is fixed here (`21e5858`).
 
 > **Revision 14 — what changed:** the code lens's findings and dispositions (§9.11); Task 5's merge of the cold-cache
 > fix recorded.
@@ -406,8 +409,10 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   across the four suites' reports; a line counts as covered if any element gives it hits.
 - The baseline is recorded per touched file at base, and the result at HEAD. Floor: 85 % per touched file; a file
   below it is reported with its baseline.
-- `GeneralExtensions.Contains` ignores its `comparison` argument (pre-existing). Owner's call: fix it here, or exclude
-  it from the floor with that reason.
+- `GeneralExtensions.Contains` ignored its `comparison` argument (pre-existing). **Owner decision 2026-10-02:** fixed
+  here (`21e5858`, with `GeneralExtensionsContainsTests`, red before for the ignore-case and default-comparison rows),
+  and `GeneralExtensions.cs` is exempt from the 85 % floor. Its other uncovered members are pre-existing and
+  untouched by this change.
 
 ### 4.3 Mutations each key test must kill
 
