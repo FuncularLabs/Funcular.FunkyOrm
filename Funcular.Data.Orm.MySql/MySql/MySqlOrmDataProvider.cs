@@ -819,7 +819,7 @@ namespace Funcular.Data.Orm.MySql
 
             var visitor = new MySqlWhereClauseVisitor<T>(
                 ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                UnmappedPropertiesFor<T>(),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
 
@@ -848,7 +848,7 @@ namespace Funcular.Data.Orm.MySql
         {
             var visitor = new MySqlOrderByClauseVisitor<T>(
                 ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                UnmappedPropertiesFor<T>());
             visitor.Visit(expression);
             if (commandElements == null)
                 commandElements = new MySqlQueryComponents<T>(expression, string.Empty, string.Empty, string.Empty, visitor.OrderByClause, new List<MySqlParameter> { });
@@ -1225,7 +1225,7 @@ namespace Funcular.Data.Orm.MySql
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
+                UnmappedPropertiesFor<T>().Select(p => p.Name));
 
             var mappings = properties.Select(p =>
             {
@@ -1285,7 +1285,7 @@ namespace Funcular.Data.Orm.MySql
         protected internal CommandParameters BuildInsertCommandObject<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1322,7 +1322,7 @@ namespace Funcular.Data.Orm.MySql
         protected internal CommandParameters BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1494,12 +1494,21 @@ namespace Funcular.Data.Orm.MySql
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
 
+        /// <summary>
+        /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
+        /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
+        /// It currently returns the cached set, computing and caching it on first use
+        /// (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
+        /// </summary>
+        protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
+            => _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+
         protected internal object GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));

@@ -1437,7 +1437,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             var visitor = new WhereClauseVisitor<T>(
                 ColumnNames,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                UnmappedPropertiesFor<T>(),
                 paramGen,
                 trans,
                 tableName,
@@ -1478,7 +1478,7 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var visitor = new OrderByClauseVisitor<T>(
                 ColumnNames,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                UnmappedPropertiesFor<T>());
             visitor.Visit(expression);
             if (commandElements == null)
             {
@@ -1809,7 +1809,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name)
+                UnmappedPropertiesFor<T>().Select(p => p.Name)
             );
 
             // Precompute mapping array
@@ -1894,7 +1894,7 @@ namespace Funcular.Data.Orm.SqlServer
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1948,7 +1948,7 @@ namespace Funcular.Data.Orm.SqlServer
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -2231,7 +2231,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>(); // Ensure column mappings are discovered
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));
@@ -2363,6 +2363,15 @@ namespace Funcular.Data.Orm.SqlServer
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
+
+        /// <summary>
+        /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
+        /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
+        /// It currently returns the cached set, computing and caching it on first use
+        /// (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
+        /// </summary>
+        protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
+            => _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
 
         /// <summary>
         /// Creates an <see cref="IQueryable{T}"/> backed by a <see cref="SqlLinqQueryProvider{T}"/>.
