@@ -8,11 +8,16 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 9, the test plan after the eighth Task 0 review (§9.8). Nothing is implemented yet.
+> **Status (2026-10-01):** rev 10, the test plan after the ninth Task 0 review (§9.9). Nothing is implemented yet.
 > What each reviewer ran and found is recorded in §9.
 
+> **Revision 10 — what changed (R9-1…R9-3):** documents only. Task 3 also amends the 3.10 plan's AC12-2 for the
+> SQLite re-pin (R9-1). D11's idempotence wording takes the reviewer's precise form, with the insert/update path and
+> the namespace condition (R9-2). AC10's row cites its Guard (R9-3).
+
 > **Revision 9 — what changed (R8-1…R8-5):**
-> - D11 records that a custom SQLite dialect's `EncloseIdentifier` must leave an enclosed name unchanged after D5;
+> - D11 records that a custom SQLite dialect's `EncloseIdentifier` must leave an enclosed name unchanged after D5
+>   *(rev 10: stated precisely as `E(E(x)) = E(x)`, R9-2)*;
 >   the bracket Guard covers brackets and backticks (R8-2).
 > - One kill claim is corrected (R8-1).
 > - An existing SQLite pin that D5 changes is listed for Task 3, with a Changelog line (R8-3).
@@ -21,7 +26,7 @@
 > **Revision 8 — what changed (R7-1…R7-7).** Six rounds running, a fix caused the next finding. So rev 8
 > adopts rules the reviewer already executed instead of designing new ones.
 > - D11 strips any matching quote pair. That rule passed the default, reserved-only, always-bracket and
->   always-backtick dialects in the reviewer's run. A CI row covers a reserved-word column on the default
+>   always-backtick (idempotent) dialects in the reviewer's run. A CI row covers a reserved-word column on the default
 >   dialect (R7-1).
 > - A SQLite real-read mapper row (R7-2).
 > - An internal mapped-set accessor per provider for observers (R7-3).
@@ -233,15 +238,17 @@
     - The built-in dialects quote only reserved words (`ISqlDialect.EncloseIdentifier`), so a rule derived from
       the dialect's quoting of `x` finds nothing to strip, and loses reserved-word columns once D5 is in.
     - Executed by the rev 7 reviewer: `ReservedWordTable_InsertAndQuery_Works` read `0` where `42` was expected.
-    - The pair rule passed the default, reserved-only bracket, always-bracket and always-backtick dialects.
+    - The pair rule passed the default, reserved-only bracket, always-bracket and always-backtick (idempotent) dialects.
   - The server providers' mappers have the same limitation, pre-existing (§6).
   - **Idempotent enclosing** *(rev 9, R8-2)*.
     - After D5, SQLite's SQL builders still pass a cached, already enclosed name through
-      `Dialect.EncloseIdentifier` (`SqliteOrmDataProvider.cs:1239`, `:1245`). The server providers use the cached
-      name as is.
-    - The built-in dialects return an enclosed name unchanged. A custom SQLite dialect must do the same.
-    - One that wraps unconditionally works at 3.9.0 and breaks after D5. The rev 8 reviewer executed it:
-      `SELECT [[Id]] …`, SQLite Error 1.
+      `Dialect.EncloseIdentifier` (`SqliteOrmDataProvider.cs:1239`, `:1245`). So do the dialects' insert and update
+      builders, which every provider calls with cached names (SQLite `:1055`, `:1084`). The server providers' own SQL
+      uses the cached name as is.
+    - Each built-in dialect returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`). A custom SQLite dialect must do the same *(rev 10, R9-2)*.
+    - One that wraps unconditionally works at 3.9.0 for entity types in a namespace, and breaks after D5 in reads
+      and writes. Executed by the rev 8 and rev 9 reviewers: `SELECT [[Id]] …` and `INSERT … ([[FirstName]])`, SQLite
+      Error 1. For a type in the global namespace it already failed before D5, since the two keys coincide there.
     - Recorded in §6 and in the Changelog's "Changed", not fixed here.
 
 ## 3. Acceptance criteria
@@ -275,8 +282,8 @@
   by underscores, is queryable.
 - **AC9 — Procedure names are scoped** (SQL Server, MySQL).
 - **AC10 — No regressions.** All four suites, CI's SQL Server job, net48 and net9 are green. The cold-cache tests keep
-  their meaning. A custom SQLite dialect whose `EncloseIdentifier` leaves an enclosed name unchanged reads as at
-  3.9.0. One that doesn't is a recorded break (D11, §6, Changelog) *(rev 9, R8-2)*.
+  their meaning. A custom SQLite dialect whose `EncloseIdentifier` returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`) reads as at
+  3.9.0. One that doesn't is a recorded break (D11, §6, Changelog) *(rev 9, R8-2; rev 10, R9-2)*.
 
 ## 4. Test plan
 
@@ -308,7 +315,7 @@ Every row is run alone at the seam and its outcome recorded.
 | AC4 | `ExplicitConnection_SuppliesTheIdentity` [all four: empty constructor string; two explicit connections to different databases don't share] | none | Red at the seam |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareNames` | none | Red |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareMappers` (a double-quoting dialect reads `person` first, then the default provider must read the right `Id` and `FirstName`) | SQL Server (CI) | Red (E6/E17: `Id=0`, null) |
-| AC5 | `SqliteBracketDialect_ReadsItsOwnRows` [`[…]`, backtick]: a SQLite provider whose dialect encloses **every** identifier, idempotently (an enclosed name is returned unchanged), reads its own property-named table after D5 *(rev 7, R6-5; rev 9, R8-2)*. (Rev 7's "same with a bracket-quoting dialect" mapper-sharing row is dropped: with D11 its mutation is equivalent, R7-2.) | SQLite temp file (CI) | Guard: green at the seam; killed by "SQLite mapper strips only `"`" once D5 is in, and the backtick row by "the pair rule without backticks" |
+| AC5 | `SqliteBracketDialect_ReadsItsOwnRows` [`[…]`, backtick]: a SQLite provider whose dialect encloses **every** identifier, idempotently (its `EncloseIdentifier` returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`)), reads its own property-named table after D5 *(rev 7, R6-5; rev 9, R8-2)*. (Rev 7's "same with a bracket-quoting dialect" mapper-sharing row is dropped: with D11 its mutation is equivalent, R7-2.) | SQLite temp file (CI) | Guard: green at the seam; killed by "SQLite mapper strips only `"`" once D5 is in, and the backtick row by "the pair rule without backticks" |
 | AC5 | `SqliteDefaultDialect_ReadsAReservedWordColumn` (the default dialect, a column named `Order`, after D5) *(rev 8, R7-1)* | SQLite temp file (CI) | Guard: green at the seam; killed by "D11 derived from the dialect's quoting of `x`" and by "no unquoting at all" *(rev 9, R8-1)* |
 | AC5 | `MapperCache_IsScoped_ThroughARealRead` [PostgreSQL in PostgreSql.Tests, MySQL in MySql.Tests, SQLite in SqlServer.Tests/Caching on a temp file *(rev 8, R7-2)*]. P_A reads `person`, then A's mapper cache has an entry and B's has none. P_B reads, then B has its own. On SQLite, the test creates `person` in each temp file. | PostgreSQL, MySQL, SQLite temp files (CI) | Red at the seam (one shared cache) |
 | AC6 | `ComputeColumnName_IgnoresABareNameKey` | none | Red (planted bare key used) |
@@ -321,7 +328,7 @@ Every row is run alone at the seam and its outcome recorded.
 | AC7 | the three rows above | PostgreSql.Tests, MySql.Tests | as above |
 | AC8 | `SqliteEntity_DiscoveredUnderscoreColumn_IsQueryable` | SQLite temp file | Red (`no such column: Label`) |
 | AC9 | `ProcedureName_IsScopedPerDatabase` [SQL Server, MySQL]: plant distinct names in scope A and scope B, then call the resolver on each through an internal accessor (both cache hits, fake servers) | none | Red at the seam (the shared cache returns A's name for B) |
-| AC10 | the four full suites, CI's SQL Server job, net48 (`dotnet build FunkyORM.sln`, run the dll), net9 | — | — |
+| AC10 | the four full suites, CI's SQL Server job, net48 (`dotnet build FunkyORM.sln`, run the dll), net9; the custom-dialect clause: `SqliteBracketDialect_ReadsItsOwnRows` (AC5 row) *(rev 10, R9-3)* | — | — |
 
 **SQLite at the seam (R4-4).** Until D5, SQLite's SELECT list reads Core's base key (`$"{FullName}.{Name}"`), so
 the AC7 SQLite temp table also has `Id` and `FirstName` columns, alongside `last_name`, `middle_initial` and
@@ -420,8 +427,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–8 NOT CLEAN (§9.1–§9.8). Rev 9 is re-checked on its diff and the rows it
-   touches.
+1. **Task 0** — test-plan review: revs 1–9 NOT CLEAN (§9.1–§9.9). Rev 10 is re-checked on its diff.
 2. **Task 1a — Seam (no behaviour change, green on its own).**
    - The registry API, the protected properties and the identity members, all returning the existing shared
      statics.
@@ -455,6 +461,9 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - After D5, SQLite emits the discovered spelling `"country_0".name ASC` (executed by the rev 8 reviewer: the
        only failure in the fixed Sqlite.Tests).
      - Re-pinned to the discovered spelling, with its message updated.
+     - The 3.10 plan's AC12-2 (`QUERY_OPERATOR_CORRECTNESS_PLAN.md`, "unchanged from 3.9.0") and its §4.2 row are
+       amended: "unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after D5
+       (provider-scoped caches plan)" *(rev 10, R9-1)*.
 6. **Task 4 — Green and gauntlet.**
    - Suites, net48, net9; mutations (§4.3); coverage (§4.2).
    - Changelog: Fixed (AC1, AC2, AC5, AC8, AC9). Changed:
@@ -464,7 +473,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - coldness per scope;
      - the per-instance-scope cost;
      - SQLite's SQL uses the database's spelling of convention-mapped columns (D5);
-     - a custom SQLite dialect's `EncloseIdentifier` must leave an enclosed name unchanged (D11).
+     - a custom SQLite dialect's `EncloseIdentifier` must be idempotent: it returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`) (D11).
    - The 3.10 plan's §8 entry points here.
 7. **Task 5 — Hostile review and fix-verification** to CLEAN, then the merge into `development/3.10`.
    - **Ship dependency (R5):** per-scope coldness makes the cold-cache `Delete<T>(predicate)` defect fire on first use
@@ -503,7 +512,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 - **Principals:** Integrated Security with impersonation, and Entra/`AccessToken` principals, share the string's
   scope.
 - **Dialect state:** custom dialects of one type that carry state share a scope.
-- **A custom SQLite dialect that encloses unconditionally** breaks after D5: cached names are enclosed again (D11).
+- **A custom SQLite dialect that encloses unconditionally** breaks after D5 for entity types in a namespace, in reads
+  and writes: cached names are enclosed again (D11).
   Recorded, not fixed.
 - **Server providers' mappers** unquote only their default quote character, so a custom dialect that quotes
   differently maps nothing (pre-existing; D11 fixes SQLite only, because D5 would otherwise newly break it).
@@ -637,3 +647,19 @@ Verdict: NOT CLEAN.
 | R8-3 | minor | PLAN-GAP | D5 turns an existing SQLite pin red (`"country_0".Name` becomes `.name`), with no Changelog line. | Re-pinned in Task 3; Changelog "Changed". |
 | R8-4 | nit | HOUSE-RULE | §4.2 said four cache properties; R7-6 made it six. | Six, each mapped. |
 | R8-5 | nit | PLAN-GAP | (a) A stale paragraph rendered inside the rev 8 note. (b) The rev 7 note didn't mark what rev 8 replaced. (c) The mapper row's DB column omitted SQLite. (d) The accessor row said "discovered" with no database. | (a) Deleted. (b) Annotated. (c) and (d) Fixed. |
+
+### 9.9 Task 0 re-check of rev 9 (`8590ce7`; non-author; SQLite prototype with seam/D5/fixed modes and five mapper variants; full Sqlite.Tests per mode)
+
+Verdict: NOT CLEAN on one minor finding.
+- **Resolved:** R8-1, R8-2, R8-4 and R8-5.
+- **Partial:** R8-3 (R9-1).
+- **Executed:**
+  - the backtick Guard is killed only by "pair rule without backticks";
+  - three always-enclosing dialects fail after D5 in reads and writes, while idempotent ones pass a full round trip;
+  - the re-pinned test is the only Sqlite.Tests failure (1/785).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| R9-1 | minor | PLAN-GAP | R8-3's re-pin contradicts the 3.10 plan's AC12-2 ("unchanged from 3.9.0"). | Task 3 amends AC12-2 and its row, in the reviewer's wording. |
+| R9-2 | nit | PLAN-GAP | D11's new wording was too broad. (a) "Works at 3.9.0" is false for a global-namespace type. (b) Built-in dialects leave only their own enclosure unchanged. (c) The insert/update builders also re-enclose. (d) An older sentence omitted "idempotent". | The reviewer's wording throughout. |
+| R9-3 | nit | PLAN-GAP | AC10's custom-dialect clause named no test. | Its row cites the Guard. |
