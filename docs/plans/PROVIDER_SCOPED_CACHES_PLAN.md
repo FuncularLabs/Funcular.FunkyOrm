@@ -8,13 +8,21 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 5, the test plan after the fourth Task 0 review (§9.4). Nothing is implemented yet.
-> The rev 4 reviewer executed the AC7 own-scope sentinel on SQL Server: every LINQ site rendered the plant, ran,
-> and was logged before execution (E18).
+> **Status (2026-10-01):** rev 6, the test plan after the fifth Task 0 review (§9.5). Nothing is implemented yet.
+> The rev 5 reviewer prototyped the seam, the fixed state and per-site mutants on SQL Server and SQLite:
+> - every AC7 row is Red at the seam (or a Guard) and green after the fix;
+> - with P1 fully planted, every listed mutant dies, M1 included.
+
+> **Revision 6 — what changed (R5-1…R5-6):**
+> - AC7 `NeverReadAnotherScope`: P1 plants the same shape as P2 and its own fragments are asserted, so P1 provably
+>   runs every site (R5-2, closing R4-1).
+> - The default-`Last` unmapped row moves to the `Id` type (R5-1); the predicate site gets an unmapped row (R5-3).
+> - The cold-cache merge interaction covers that plan's coldness checks and AC8 observer (R5-5).
+> - Document fixes: the table break, D10, a Guard's killing mutation, the Changelog advice's scope (R5-4, R5-6).
 
 > **Revision 5 — what changed (R4-1…R4-8):**
-> - The AC7 rows are rebuilt so the aggregate-selector and every LINQ unmapped-set read are pinned per site, and
->   the predicate site is added.
+> - The AC7 rows are rebuilt to pin the aggregate selector and the LINQ unmapped-set reads per site, and the
+>   predicate site is added. *(Rev 6: three of these rows couldn't do so as written; R5-1–R5-3.)*
 > - The SQLite seam plant; mapper rows through real reads, with `_entityMappers` deleted.
 > - The registry-key row; the Changelog advice made safe; bookkeeping and the merge interaction with the cold-cache
 >   fix.
@@ -47,7 +55,7 @@
 > - **Gates and residuals.** The PostgreSQL and MySQL pins gate through local runs recorded with sha (N11). The stale
 >   prose list and D7 surface are completed (N15, N16). §6 additions (N17).
 
-## 1. Verified premises (author at `89383ff`; Task 0 reviewers executed E1–E24, §9.1–§9.4)
+## 1. Verified premises (author at `89383ff`; Task 0 reviewers executed E1–E24 and a seam/fixed prototype, §9.1–§9.5)
 
 - **Shared statics.** Four fields on `Funcular.Data.Orm.Core/OrmDataProvider.cs`:
   - `_tableNames`, `_columnNames` and `_mappedTypes` are `protected static readonly`;
@@ -168,10 +176,14 @@
   - The registry lives for the process, with no eviction: one scope per distinct password-less string.
   - An app that varies a connection-string option per request gets a scope, a discovery and a mapper set per
     variant. Examples: `Application Name`, PostgreSQL `Options=-c app.user=…`, timeouts. That costs memory and
-    time against 3.9.0's single shared cache. Stated in the Changelog, with the advice to vary per-request
-    settings through FunkyORM's session context (`AuditContext`, primed on each connection open on SQL Server,
-    PostgreSQL and MySQL; not available on SQLite), or through `SET` inside a FunkyORM transaction. A bare `SET`
-    outside one doesn't persist across FunkyORM's per-operation connections *(rev 5, R4-7)*.
+    time against 3.9.0's single shared cache. Stated in the Changelog *(rev 6, R5-6)*:
+    - **Session values** (a PostgreSQL `Options=-c` setting, a MySQL user variable, SQL Server `SESSION_CONTEXT`)
+      can vary per request without a new scope. Set them through FunkyORM's session context (`AuditContext`,
+      primed on each connection open on SQL Server, PostgreSQL and MySQL; not available on SQLite), or through
+      `SET` inside a FunkyORM transaction. A bare `SET` outside one doesn't persist across FunkyORM's per-operation
+      connections.
+    - **Connection attributes** (`Application Name`, connect and command timeouts) have no such substitute: each
+      distinct value costs one scope.
   - Per-instance scopes (D3) die with their instance. A provider re-created per request on such a database re-runs
     discovery, mapper builds and procedure lookups each time. Recorded in §6 and the Changelog.
   - On SQLite, non-transactional operations open a new connection from the string (`Sqlite:1173`), so a `:memory:`
@@ -179,7 +191,7 @@
 - **D10 — Where the tests run.**
   - Tests without a database, SQLite temp-file tests, the SQL Server LINQ pin and the SQL Server mapper row live in
     `Funcular.Data.Orm.SqlServer.Tests/Caching` (the PR-time CI job).
-  - The PostgreSQL and MySQL LINQ pins live in their own suites. Their workflows don't run on PRs into
+  - The PostgreSQL and MySQL LINQ pins and mapper rows (AC5) live in their own suites. Their workflows don't run on PRs into
     `development/**`, so their pre-merge gate is a local run recorded with its sha (§4.4).
 
 ## 3. Acceptance criteria
@@ -208,7 +220,7 @@
   - the predicate site (`Where`, and `First`/`Single`/`Last` with a predicate, through the provider's
     `GenerateWhereClause`) *(rev 5)*;
   - the LINQ unmapped-set reads at every site (ORDER BY, SELECT, default `Last`, `Count`/`Any`/`All` with a
-    predicate, and the aggregate).
+    predicate, the aggregate, and the predicate site *(rev 6)*).
 - **AC8 — SQLite uses discovered names.** A SQLite entity without `[Column]`, whose column differs from the property
   by underscores, is queryable.
 - **AC9 — Procedure names are scoped** (SQL Server, MySQL).
@@ -249,16 +261,16 @@ Every row is run alone at the seam and its outcome recorded.
 | AC5 | `MapperCache_IsScoped_ThroughARealRead` [PostgreSQL in PostgreSql.Tests, MySQL in MySql.Tests]. P_A reads `person`, then A's mapper cache has an entry and B's has none. P_B reads, then B has its own. | PostgreSQL, MySQL | Red at the seam (one shared cache) |
 | AC6 | `ComputeColumnName_IgnoresABareNameKey` | none | Red (planted bare key used) |
 | AC7 | `LinqSites_ReadTheirOwnScope`. Through the seam accessors, plant valid mappings in P2's scope: table `person`, `FirstName → last_name`, `Id → employer_id`, the type marked mapped. Then run `OrderBy`/`ThenBy`, both `Select` forms, `Last()` without `OrderBy`, `Where` and `First(pred)`, `Count`/`Any`/`All` with a predicate, and `Max`/`Sum`/`Average` on `Id`. Capture the SQL through `Log` (logged before execution) and assert each site's exact fragment (e.g. `MAX(person.employer_id)`). | SQL Server (CI), SQLite temp file (CI) | Guard |
-| AC7 | `LinqSites_NeverReadAnotherScope`. P2 plants first. P1 (same database, different identity: `Application Name` on SQL Server, `Default Timeout` on SQLite) then plants distinct values for **every** property P2's sites read (`FirstName → middle_initial`, `Id → id`) and **runs every site**. Only then does P2 run. P2's exact fragments must show its own plant at every site. | SQL Server (CI), SQLite temp file (CI) | Red at the seam (shared caches) |
-| AC7 | `LinqUnmappedRead_IsScoped` [per site]. A dedicated type has `FirstName` planted as unmapped in P2's scope; for the aggregate site a second type has `Id` planted unmapped and uses `Max(x => x.Id)`. At each site, P2 is rejected with that site's message and **no SQL is logged**: ORDER BY and `Last` `Only simple member access…`; SELECT `Unmapped properties cannot be selected directly.`; `Count` with a predicate `Expression type Parameter…`; aggregate `Only simple member access is supported in aggregate expressions.`. P1, in another scope, renders and executes the same shape. | SQL Server (CI), SQLite temp file (CI) | Red at the seam |
+| AC7 | `LinqSites_NeverReadAnotherScope`. P2 plants first. P1 (same database, different identity: `Application Name` on SQL Server, `Default Timeout` on SQLite) then plants **the same shape as P2** with distinct values: table `person`, the type marked mapped, `FirstName → middle_initial`, `Id → id`. P1 runs every site, and the row asserts **P1's own exact fragments** at each one, which proves P1 ran it. Only then does P2 run; P2's exact fragments must show its own plant at every site. *(rev 6, R5-2)* | SQL Server (CI), SQLite temp file (CI) | Red at the seam (shared caches) |
+| AC7 | `LinqUnmappedRead_IsScoped` [per site]. Two dedicated types, each `[Table("person")]` so P1 discovers its table: type A has `FirstName` planted as unmapped in P2's scope, type B has `Id`. Type A runs ORDER BY, SELECT, `Count` with a predicate, and the predicate site (`Where(x => x.FirstName == …)`) *(rev 6, R5-3)*. Type B runs default `Last()` (which orders by `Id`) *(rev 6, R5-1)* and `Max(x => x.Id)`. At each site, P2 is rejected with that site's message and **no SQL is logged**: ORDER BY and `Last` `Only simple member access…`; SELECT `Unmapped properties cannot be selected directly.`; `Count` with a predicate and the predicate site `Expression type Parameter…`; aggregate `Only simple member access is supported in aggregate expressions.`. P1, in another scope, renders and executes the same shape. | SQL Server (CI), SQLite temp file (CI) | Red at the seam |
 | AC7 | the three rows above | PostgreSql.Tests, MySql.Tests | as above |
+| AC8 | `SqliteEntity_DiscoveredUnderscoreColumn_IsQueryable` | SQLite temp file | Red (`no such column: Label`) |
+| AC9 | `ProcedureName_IsScopedPerDatabase` [SQL Server, MySQL]: plant distinct names in scope A and scope B, then call the resolver on each through an internal accessor (both cache hits, fake servers) | none | Red at the seam (the shared cache returns A's name for B) |
+| AC10 | the four full suites, CI's SQL Server job, net48 (`dotnet build FunkyORM.sln`, run the dll), net9 | — | — |
 
 **SQLite at the seam (R4-4).** Until D5, SQLite's SELECT list reads Core's base key (`$"{FullName}.{Name}"`), so
 the AC7 SQLite temp table also has `Id` and `FirstName` columns, alongside `last_name`, `middle_initial` and
 `employer_id`. Plants that the SELECT list misses then fall back to real columns, and the row stays executable.
-| AC8 | `SqliteEntity_DiscoveredUnderscoreColumn_IsQueryable` | SQLite temp file | Red (`no such column: Label`) |
-| AC9 | `ProcedureName_IsScopedPerDatabase` [SQL Server, MySQL]: plant distinct names in scope A and scope B, then call the resolver on each through an internal accessor (both cache hits, fake servers) | none | Red at the seam (the shared cache returns A's name for B) |
-| AC10 | the four full suites, CI's SQL Server job, net48 (`dotnet build FunkyORM.sln`, run the dll), net9 | — | — |
 
 **How the DB-free rows work.**
 - Probe subclasses reach the protected members.
@@ -310,8 +322,9 @@ Each new or changed member has a test that calls it on purpose:
 | A provider ignores the explicit connection's string when the constructor string is empty (per provider) | AC4 `ExplicitConnection_SuppliesTheIdentity` |
 | The registry keyed by the raw identity (no hash) | AC4 `RegistryKey_RetainsNoSecret` |
 | Procedure names left process-wide | AC9 |
-| A LINQ column read redirected to a fresh static or to another scope: per site (ORDER BY, SELECT, `Last`, `Count`/`Any`/`All` predicate, aggregate selector **M1**, predicate site), per provider | AC7 `LinqSites_NeverReadAnotherScope` (P1 runs every site first) |
-| A LINQ unmapped-set read redirected to a fresh static: per site (ORDER BY **M3**, SELECT, `Last`, `Count` predicate, aggregate **M4**), per provider | AC7 `LinqUnmappedRead_IsScoped` row of that site (rejected with no SQL logged) |
+| A LINQ column read redirected to a fresh static: per site (ORDER BY, SELECT, `Last`, `Count`/`Any`/`All` predicate, predicate site), per provider | AC7 `LinqSites_ReadTheirOwnScope` (the Guard's killing mutation) and `LinqSites_NeverReadAnotherScope` |
+| The aggregate-selector column read redirected to a fresh static or to another scope (**M1**), per provider | AC7 `LinqSites_NeverReadAnotherScope` only (P1 fully planted, its fragments asserted) |
+| A LINQ unmapped-set read redirected to a fresh static: per site (ORDER BY **M3**, SELECT, `Last` on type B, `Count` predicate, aggregate **M4**, predicate site), per provider | AC7 `LinqUnmappedRead_IsScoped` row of that site (rejected with no SQL logged) |
 | The `_entityMappers` static left in place, with reads redirected to it | compile failure (D7 deletes it); AC5 mapper rows |
 
 ### 4.4 Where each tier runs
@@ -327,7 +340,7 @@ Each new or changed member has a test that calls it on purpose:
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–4 NOT CLEAN (§9.1–§9.4). Rev 5 is re-reviewed.
+1. **Task 0** — test-plan review: revs 1–5 NOT CLEAN (§9.1–§9.5). Rev 6 is re-reviewed.
 2. **Task 1a — Seam (no behaviour change, green on its own).**
    - The registry API, the protected properties and the identity members, all returning the existing shared
      statics.
@@ -366,8 +379,14 @@ Each new or changed member has a test that calls it on purpose:
      with this change.
    - **Merge interaction (R4-8).** The cold-cache plan's D2 helper `UnmappedPropertiesFor<T>()` reads
      `_mappedTypes` and `_unmappedPropertiesCache`, which D7 removes. Whichever branch lands second moves the helper
-     onto the scope, using the same scope for the mapped check and the unmapped cache, and re-runs the cold-cache
-     AC6 helper rows.
+     onto the scope, using the same scope for the mapped check and the unmapped cache. It also rewrites that plan's
+     test observers *(rev 6, R5-5)*:
+     - its coldness preconditions build keys with `ToDictionaryKey()` against the provider's own scope (hand-built
+       `DeclaringType.Name + "." + Name` keys would match nothing after D5, so "no column key" would pass
+       vacuously);
+     - its AC8 observer reads the scope's mapped set instead of `_mappedTypes`.
+
+     It then re-runs the whole cold-cache class on every provider, not only the AC6 helper rows.
 
 ## 6. Out of scope (recorded)
 
@@ -456,3 +475,18 @@ Verdict: NOT CLEAN.
 | R4-6 | minor | TEST-GAP | `RegistryKey_RetainsNoSecret` couldn't kill "no hash" after `Remove("Password")`. | Rows with `SSL Password` / `Certificate Password`; SHA-256 shape on SQL Server and SQLite. |
 | R4-7 | minor | HOUSE-RULE | The Changelog advice ("`SET` commands") was unsafe with per-operation connections. | `AuditContext`, or `SET` inside a transaction; not on SQLite. |
 | R4-8 | nit | PLAN-GAP | Stale bookkeeping; the merge interaction with the cold-cache helper. | Task 0 line, §1, Task 5. |
+
+### 9.5 Task 0 re-review of rev 5 (`66e4b6d`; non-author; a seam/fixed/mutant prototype on SQL Server and SQLite)
+
+Verdict: NOT CLEAN.
+- **Resolved:** R4-3 (column read), R4-4, R4-5 (by design), R4-6 (executed), R4-7.
+- **Partial:** R4-1, R4-2, R4-8.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| R5-2 | major | TEST-GAP | Fix-introduced (R4-1 still open). P1 planted no table and didn't mark the type mapped, so after the fix it threw at `Query<T>()` before any site ran, and nothing asserted that it ran. M1 survived; it died once P1 was fully planted. | P1 plants P2's shape; P1's own fragments are asserted at every site; same in PostgreSQL and MySQL. |
+| R5-1 | minor | TEST-GAP | Default `Last()` orders by `Id`, so the `FirstName`-unmapped type was never rejected; its mutant had no working row. | `Last` runs on type B (`Id` unmapped); executed: red at the seam, green after, mutant killed. |
+| R5-3 | minor | AC-GAP | The predicate site's unmapped read was unpinned (MPredUnm survived). | Added to AC7's list, a row on type A, and §4.3. |
+| R5-5 | minor | PLAN-GAP | The merge interaction missed the cold-cache coldness preconditions (vacuous after D5) and its `_mappedTypes` observer (removed by D7). | Task 5 names both; the whole cold-cache class is re-run. |
+| R5-4 | nit | PLAN-GAP | Rev 5 document defects: (a) a paragraph inside the §4.1 table broke the rows below it; (b) D10 was stale; (c) the own-scope Guard had no named killing mutation; (d) the rev 5 note over-claimed. | (a) moved below the table; (b) D10 updated; (c) §4.3 row; (d) the note annotated. |
+| R5-6 | nit | HOUSE-RULE | D9's advice covers session values only; `Application Name` and timeouts have no substitute. | D9 splits session values from connection attributes. |
