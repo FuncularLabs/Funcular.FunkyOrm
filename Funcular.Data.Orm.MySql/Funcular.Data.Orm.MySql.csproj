@@ -26,6 +26,10 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>Funcular.Data.Orm.MySql.Tests</_Parameter1>
     </AssemblyAttribute>
+    <!-- The cross-provider cache-scope tests (SqlServer.Tests/Caching) plant and observe this provider's caches. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Funcular.Data.Orm.SqlServer.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>

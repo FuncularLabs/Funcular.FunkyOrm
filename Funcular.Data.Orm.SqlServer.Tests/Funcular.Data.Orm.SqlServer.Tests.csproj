@@ -24,10 +24,21 @@
   <ItemGroup>
     <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj" />
     <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj" />
+    <!-- The SQL Server provider bundles these privately (PrivateAssets=all); the cross-provider cache-scope tests
+         (Caching/) need them directly. -->
+    <ProjectReference Include="..\Funcular.Data.Orm.PostgreSql\Funcular.Data.Orm.PostgreSql.csproj" />
+    <ProjectReference Include="..\Funcular.Data.Orm.MySql\Funcular.Data.Orm.MySql.csproj" />
+    <ProjectReference Include="..\Funcular.Data.Orm.Sqlite\Funcular.Data.Orm.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The cross-provider repro (Caching/) resolves the PostgreSQL test database the same way the PostgreSQL suite
+         does. -->
+    <Compile Include="..\Funcular.Data.Orm.PostgreSql.Tests\PostgreSqlTestConnection.cs" Link="Caching\PostgreSqlTestConnection.cs" />
   </ItemGroup>
 
 </Project>

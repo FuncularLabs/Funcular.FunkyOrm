@@ -2469,6 +2469,41 @@ namespace Funcular.Data.Orm.SqlServer
 
         #endregion
 
+        #region Identifier Cache Scope (provider-scoped caches plan, Task 1a seam)
+
+        // SEAM (Task 1a): behaviour-neutral. The overrides keep returning this provider's 3.9.0 statics, and the
+        // accessors read this instance's scope, which is still the process-wide set. Task 3 removes the overrides and
+        // the statics and routes the LINQ provider and visitors through the accessors.
+
+        /// <inheritdoc />
+        protected override ConcurrentDictionary<string, Delegate> EntityMapperCache => _entityMappers;
+
+        /// <inheritdoc />
+        protected override ConcurrentDictionary<Type, string> ProcedureNameCache => _procedureNames;
+
+        /// <summary>This instance's table-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
+
+        /// <summary>This instance's column-name cache.</summary>
+        internal ConcurrentDictionary<string, string> ScopeColumnNames => ColumnNameCache;
+
+        /// <summary>This instance's unmapped-property cache.</summary>
+        internal ConcurrentDictionary<Type, ICollection<PropertyInfo>> ScopeUnmappedProperties => UnmappedPropertyCache;
+
+        /// <summary>This instance's mapped-type set (the types whose columns it has discovered).</summary>
+        internal ICollection<Type> ScopeMappedTypes => MappedTypes;
+
+        /// <summary>This instance's entity-mapper cache.</summary>
+        internal ConcurrentDictionary<string, Delegate> ScopeEntityMappers => EntityMapperCache;
+
+        /// <summary>This instance's procedure-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeProcedureNames => ProcedureNameCache;
+
+        /// <summary>Resolves the stored procedure name for <typeparamref name="T"/> as the Exec* methods do.</summary>
+        internal string ResolveProcedureNameInternal<T>(string procedureName) => ResolveProcedureName<T>(procedureName);
+
+        #endregion
+
         #endregion
     }
 }

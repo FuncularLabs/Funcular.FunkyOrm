@@ -1132,6 +1132,29 @@ namespace Funcular.Data.Orm.Sqlite
 
         internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
 
+        // Identifier cache scope (provider-scoped caches plan). SEAM (Task 1a): behaviour-neutral. The override keeps
+        // returning this provider's 3.9.0 mapper static, and the accessors read this instance's scope, which is still
+        // the process-wide set. Task 3 removes the override and the static and routes the LINQ provider and visitors
+        // through the accessors.
+
+        /// <inheritdoc />
+        protected override ConcurrentDictionary<string, Delegate> EntityMapperCache => _entityMappers;
+
+        /// <summary>This instance's table-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
+
+        /// <summary>This instance's column-name cache.</summary>
+        internal ConcurrentDictionary<string, string> ScopeColumnNames => ColumnNameCache;
+
+        /// <summary>This instance's unmapped-property cache.</summary>
+        internal ConcurrentDictionary<Type, ICollection<PropertyInfo>> ScopeUnmappedProperties => UnmappedPropertyCache;
+
+        /// <summary>This instance's mapped-type set (the types whose columns it has discovered).</summary>
+        internal ICollection<Type> ScopeMappedTypes => MappedTypes;
+
+        /// <summary>This instance's entity-mapper cache.</summary>
+        internal ConcurrentDictionary<string, Delegate> ScopeEntityMappers => EntityMapperCache;
+
         #endregion
 
         #region Nested Types

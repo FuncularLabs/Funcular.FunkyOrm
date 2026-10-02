@@ -23,13 +23,15 @@ namespace Funcular.Data.Orm
         /// <summary>
         /// Cache mapping entity types to their resolved database table names.
         /// </summary>
-        protected static readonly ConcurrentDictionary<Type, string> _tableNames = new ConcurrentDictionary<Type, string>();
+        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
+        protected static readonly ConcurrentDictionary<Type, string> _tableNames = CacheScopeRegistry.ProcessWide.TableNames;
 
         /// <summary>
         /// Cache mapping property dictionary keys (type + property) to actual database column names.
         /// Uses a comparer that ignores underscores and case.
         /// </summary>
-        protected static readonly ConcurrentDictionary<string, string> _columnNames = new ConcurrentDictionary<string, string>(new IgnoreUnderscoreAndCaseStringComparer());
+        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
+        protected static readonly ConcurrentDictionary<string, string> _columnNames = CacheScopeRegistry.ProcessWide.ColumnNames;
 
         /// <summary>
         /// Cache mapping entity types to their primary key <see cref="PropertyInfo"/>.
@@ -44,17 +46,77 @@ namespace Funcular.Data.Orm
         /// <summary>
         /// Cache mapping entity types to properties marked with <see cref="NotMappedAttribute"/>.
         /// </summary>
-        protected internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _unmappedPropertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
+        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
+        protected internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _unmappedPropertiesCache = CacheScopeRegistry.ProcessWide.UnmappedProperties;
 
         /// <summary>
         /// Tracks which types have had their mappings discovered (to avoid repeated database schema calls).
         /// </summary>
-        protected static readonly HashSet<Type> _mappedTypes = new HashSet<Type> { };
+        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
+        protected static readonly HashSet<Type> _mappedTypes = CacheScopeRegistry.ProcessWideMappedTypes;
 
         /// <summary>
         /// Cache mapping property types to their corresponding value setters.
         /// </summary>
         protected static readonly ConcurrentDictionary<PropertyInfo, Action<object, object>> _propertySetters = new ConcurrentDictionary<PropertyInfo, Action<object, object>>();
+
+        /// <summary>This instance's identifier-cache scope, resolved on first use (<see cref="CacheScope"/>).</summary>
+        private CacheScope? _cacheScope;
+
+        #endregion
+
+        #region Identifier Cache Scope
+
+        // docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md (D1, D4, D7, D8). SEAM (Task 1a): every member below resolves to the
+        // process-wide set that the 3.9.0 statics above alias, so behaviour is unchanged. Task 2 scopes the registry;
+        // Task 3 moves the providers onto these members and removes the statics.
+
+        /// <summary>
+        /// The connection identity of this instance's cache scope (D2, D3): null means a per-instance scope that the
+        /// registry never holds; empty means one scope per (provider type, dialect type). The default is empty, so a
+        /// direct <see cref="OrmDataProvider"/> subclass that doesn't override this gets one scope per provider type.
+        /// </summary>
+        protected virtual string? CacheScopeIdentity => string.Empty;
+
+        /// <summary>
+        /// The runtime type of the dialect that quotes this instance's identifiers (D1). The default is null.
+        /// </summary>
+        protected virtual Type? CacheScopeDialectType => null;
+
+        /// <summary>
+        /// This instance's cache scope. Resolved on first use, after the constructor has set the dialect, and once
+        /// per instance (D8).
+        /// </summary>
+        internal CacheScope CacheScope =>
+            LazyInitializer.EnsureInitialized(ref _cacheScope,
+                () => CacheScopeRegistry.GetOrAdd(GetType(), CacheScopeDialectType, CacheScopeIdentity))!;
+
+        /// <summary>The registry key of this instance's scope, or null when the registry doesn't hold it.</summary>
+        internal CacheScopeKey? CacheScopeKey => CacheScope.Key;
+
+        /// <summary>Entity type → resolved table name, in this instance's scope.</summary>
+        protected ConcurrentDictionary<Type, string> TableNameCache => CacheScope.TableNames;
+
+        /// <summary>Property key → column name, in this instance's scope.</summary>
+        protected ConcurrentDictionary<string, string> ColumnNameCache => CacheScope.ColumnNames;
+
+        /// <summary>Entity type → unmapped properties, in this instance's scope.</summary>
+        protected ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertyCache => CacheScope.UnmappedProperties;
+
+        /// <summary>The types whose columns have been discovered in this instance's scope.</summary>
+        protected ICollection<Type> MappedTypes => CacheScope.MappedTypes;
+
+        /// <summary>
+        /// Compiled entity mappers in this instance's scope. SEAM (Task 1a): virtual so each provider can keep returning
+        /// its own 3.9.0 mapper static; Task 3 removes those overrides.
+        /// </summary>
+        protected virtual ConcurrentDictionary<string, Delegate> EntityMapperCache => CacheScope.EntityMappers;
+
+        /// <summary>
+        /// Resolved stored procedure names in this instance's scope. SEAM (Task 1a): virtual so SQL Server and MySQL can
+        /// keep returning their own 3.9.0 procedure-name statics; Task 3 removes those overrides.
+        /// </summary>
+        protected virtual ConcurrentDictionary<Type, string> ProcedureNameCache => CacheScope.ProcedureNames;
 
         #endregion
 
