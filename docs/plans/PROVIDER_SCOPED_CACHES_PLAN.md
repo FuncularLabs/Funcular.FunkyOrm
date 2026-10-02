@@ -8,7 +8,7 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 21. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 22. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
@@ -16,14 +16,18 @@
 > fix changes the delete guard on the netstandard2.0 and net48 builds, documented and pinned in `69ba3bb`. Its
 > verification (§9.14) found the table-name reach, a vacuous count and two wrong citations, fixed in `36bb4b5`. Its
 > verification (§9.15) found two prose nits, fixed in `8d20875`. Its verification (§9.16) found that the date-part
-> exception is narrower than written and recorded a pre-existing defect in §6; that layer is `be8de82`. Its
-> verification (§9.17) found a wrong citation in that commit's message and a §6 entry broader than the defect;
-> this revision's layer fixes them and is verified next.
+> exception is narrower than written, and a pre-existing defect, which `be8de82` recorded in §6. Its verification
+> (§9.17) found a wrong citation and an over-broad §6 entry, fixed in `0983f79`. Its verification (§9.18) found a §6
+> claim false in one case and three layout nits; this revision's layer fixes them and is verified next.
+> `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 22 — what changed:** the fix-verification of `be8de82..0983f79` (§9.18). §6's date-part entry keeps
+> only the mechanism and points to the records for each engine's outcome (FVH-1). The Status block's last line is
+> back in it (FVH-2). §9.17's heading is one line (FVH-3). §4.2's FVC-1 sub-bullet is rewrapped (FVH-4).
 
 > **Revision 21 — what changed:** the fix-verification of `8d20875..be8de82` (§9.17). §6's date-part entry is
 > scoped to comparisons, with the `Contains` failure and the engines' different outcomes (FVG-2). §9.17 corrects
 > `be8de82`'s message (FVG-1). The rev 19 note, §4.2's FVC-1 sub-bullet and the net48 test comment are rewrapped.
-> `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
 
 > **Revision 20 — what changed:** the fix-verification of `36bb4b5..8d20875` (§9.16). The date-part exception is a
 > nullable member's `.Value.Year`, `.Month` or `.Day`, not every `.Year` (FVF-1), in the Changelog, §4.2, §9.14 and
@@ -464,17 +468,18 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   here (`21e5858`, with `GeneralExtensionsContainsTests`, red before for the ignore-case and default-comparison rows),
   and `GeneralExtensions.cs` is exempt from the 85 % floor. Its other uncovered members are pre-existing and
   untouched by this change.
-  - *(Rev 17, §9.13 FVC-1.)* The fix reaches FunkyORM's own code on the netstandard2.0 and net48 builds, where
-    `string` has no `Contains(string, StringComparison)` overload: each provider's delete guard calls it with
-    `OrdinalIgnoreCase` to look for trivial patterns (`1=1`, `true`, …) in the WHERE clause. There the check is now
-    case-insensitive, as on net8.0, so a predicate on a column such as `TrueUpAmount` is rejected as trivial. The
-    WHERE clause also names the table for most members, though not inside a nullable member's date part such as
-    `.Value.Year` *(wording rev 20, FVF-1)*, so most predicate deletes on a table whose name contains `True` are
-    rejected too *(table: rev 18, FVD-2; the date-part exception: rev 19, FVE-1)*. Pinned by `DeleteGuardCaseTests`
-    in the net48 project: a column row, sync and async, and a table-name row. All three are red with the old body ("No exception thrown") and green with the fix. Each counts
-    the rows through the provider inside its transaction, before the rollback, so "the delete runs, then the guard
-    throws" fails all three ("Expected:<2>. Actual:<1>") *(rev 18, FVD-3)*. The Changelog states it under Changed. The guard's substring patterns also
-    reject legitimate predicates on every build (pre-existing); tightening them is the owner's call.
+  - *(Rev 17, §9.13 FVC-1.)* The fix reaches FunkyORM's own code on the netstandard2.0 and net48 builds, where `string`
+    has no `Contains(string, StringComparison)` overload: each provider's delete guard calls it with `OrdinalIgnoreCase`
+    to look for trivial patterns (`1=1`, `true`, …) in the WHERE clause. There the check is now case-insensitive, as on
+    net8.0, so a predicate on a column such as `TrueUpAmount` is rejected as trivial. The WHERE clause also names the
+    table for most members, though not inside a nullable member's date part such as `.Value.Year` *(wording rev 20,
+    FVF-1)*, so most predicate deletes on a table whose name contains `True` are rejected too *(table: rev 18, FVD-2;
+    the date-part exception: rev 19, FVE-1)*. Pinned by `DeleteGuardCaseTests` in the net48 project: a column row, sync
+    and async, and a table-name row. All three are red with the old body ("No exception thrown") and green with the fix.
+    Each counts the rows through the provider inside its transaction, before the rollback, so "the delete runs, then the
+    guard throws" fails all three ("Expected:<2>. Actual:<1>") *(rev 18, FVD-3)*. The Changelog states it under Changed.
+    The guard's substring patterns also reject legitimate predicates on every build (pre-existing); tightening them is
+    the owner's call.
 
 ### 4.3 Mutations each key test must kill
 
@@ -664,16 +669,12 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 - **Per-instance scopes (D3)** re-run discovery for each new provider instance.
 - **SQLite URI memory names and `file::memory:`** are turned into rooted paths by the existing
   `ResolveConnectionString` (E15). Pre-existing.
-- **A non-nullable date member's `.Year`, `.Month` or `.Day` in a WHERE comparison is dropped** (pre-existing, all
-  four providers; found by the §9.16 verifier, OBS-1). Only a nullable member's `.Value.Year/.Month/.Day` reaches
-  the date-part translation; `x.PostedAt.Year` falls through to the member itself and compares the whole column
-  with the integer. On SQLite, `Delete(x => x.PostedAt.Year > 2020)` deleted 2 rows where 1 matched. Queries take
-  the same path. Inside `Contains`, a date part of either kind becomes a column named after the part
-  (`<table>.year`), and the statement fails with a missing-column error (SQLite probe, §9.17). The outcome of the
-  dropped comparison depends on the engine; the §9.17 verifier, reasoning from the types and not running them:
-  wrong rows on SQL Server `datetime` and probably MySQL, an error on SQL Server `datetime2`/`date` and on
-  PostgreSQL. Not this change's defect. The owner placed its fix in 3.10.0, before the beta, with its own plan.
-  *(rev 20; scoped in rev 21, FVG-2)*
+- **A non-nullable date member's `.Year`, `.Month` or `.Day` in a WHERE predicate is mistranslated** (pre-existing,
+  all four providers; found by the §9.16 verifier, OBS-1). In a comparison the date part is dropped and the whole
+  column is compared with the integer. Inside `Contains`, the outcome depends on the item's type and on the
+  table's columns. What each engine then does is in the review records (§9.16, §9.17, §9.18). Not this change's
+  defect. The owner placed its fix in 3.10.0, before the beta (decision 2026-10-02, given in chat); its plan isn't
+  written yet. *(rev 20; scoped in rev 21, FVG-2; cut back to the mechanism in rev 22, FVH-1)*
 
 ## 9. Review dispositions
 
@@ -945,8 +946,7 @@ HOUSE-RULE 1.
 | FVF-2 | nit | HOUSE-RULE | The net48 test comment said without condition that the WHERE clause names the table. | Scoped to its plain-member predicates. |
 | OBS-1 | — | — | Out of this change's scope, pre-existing: a non-nullable date member's `.Year/.Month/.Day` in a WHERE comparison *(rev 21: was "predicate"; §9.17 FVG-2)* is dropped, so the whole column is compared with the integer (SQLite: `Delete(x => x.PostedAt.Year > 2020)` deleted 2 rows where 1 matched). | Recorded in §6; surfaced to the owner with a follow-up task. |
 
-### 9.17 Fix-verification of `8d20875..be8de82` (non-author; the four visitors' `VisitMember` compared; SQLite
-netstandard2.0 probes of the date-part shapes, `Contains` and `Query`; line endings by byte count; a net48 build)
+### 9.17 Fix-verification of `8d20875..be8de82` (non-author; the four visitors' `VisitMember` compared; SQLite netstandard2.0 probes of the date-part shapes, `Contains` and `Query`; line endings by byte count; a net48 build)
 
 FVF-1 and FVF-2 hold; OBS-1's example reproduces (`deleted 2`, and `Query<T>().Where` returns the same rows). The
 line endings are consistent: LF blobs, CRLF in a fresh checkout and in the author's worktree. Verdict: NOT CLEAN on
@@ -955,4 +955,19 @@ two text nits. Blame: PLAN-GAP 2.
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
 | FVG-1 | nit | PLAN-GAP | `be8de82`'s message says that 32674c7 and 69ba3bb said 'CRLF in the working tree'. Neither did; the only commit that said it is `8d20875`. | Corrected here: that sentence should name `8d20875`. The message isn't amended, because `be8de82` is the base of `fix/delete-guard-trivial-predicates`, which is under review. |
-| FVG-2 | nit | PLAN-GAP | §6 said a non-nullable date part "in a WHERE predicate is dropped". Inside `Contains`, a date part of either kind (nullable included) becomes a column named after the part and fails loudly (`no such column: …year`). | §6 and the OBS-1 row say "comparison"; §6 adds the `Contains` failure and the engines' different outcomes, as the verifier's inference. |
+| FVG-2 | nit | PLAN-GAP | §6 said a non-nullable date part "in a WHERE predicate is dropped". Inside `Contains`, a date part of either kind (nullable included) becomes a column named after the part and fails loudly (`no such column: …year`). *(Rev 22: not when the table has a column of that name; §9.18 FVH-1.)* | §6 and the OBS-1 row say "comparison"; §6 adds the `Contains` failure and the engines' different outcomes, as the verifier's inference. |
+
+### 9.18 Fix-verification of `be8de82..0983f79` (non-author; git show of each cited commit; SQLite probes of `Contains` over a date part, with and without a column of that name; rewraps diffed word by word; byte counts; a net48 build)
+
+FVG-1 holds. FVG-2 is partial (FVH-1). The rewraps changed no words; the byte counts and `git diff --check` are
+clean. Verdict: NOT CLEAN. Blame: PLAN-GAP 4, all introduced by `0983f79`. This is the third documents-only round
+whose fix introduced the next findings, so rev 22 cuts claims back instead of rewording them, and the author lints
+each documents layer before committing it: headings on one line, the Status block's last line, changed lines
+within the file's width.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVH-1 | low | PLAN-GAP | §6 said a date part inside `Contains` always fails with a missing-column error. With a column of that name (`year`) the statement silently filters or deletes by that column (SQLite probe: `years.Contains(x.PostedAt.Year)` deleted the wrong row); a converted item is rejected as unsupported. | §6 keeps the mechanism and points to the records for each outcome. |
+| FVH-2 | nit | PLAN-GAP | Rev 21's note was inserted above the Status block's last line, so that line read as part of the note. | The line is back in the Status block; the §6 entry is credited to `be8de82`. |
+| FVH-3 | nit | PLAN-GAP | §9.17's heading ran onto a second line, which renders as a paragraph. | One line. |
+| FVH-4 | nit | PLAN-GAP | Rev 21's rewrap left a 173-character line in §4.2's FVC-1 sub-bullet. | Rewrapped to 120, word for word. |
