@@ -183,8 +183,8 @@ namespace Funcular.Data.Orm.Tests.Caching
         }
 
         /// <summary>
-        /// Review HRA-1: scope A warms the type; scope B's first operation is a delete by predicate inside a
-        /// transaction, which must succeed; B's <c>GetList</c> must then return the surviving rows.
+        /// Review HRA-1: scope A warms the type; scope B, checked cold for it, has as its first operation a delete by
+        /// predicate inside a transaction, which must succeed; B's <c>GetList</c> must then return the surviving rows.
         /// </summary>
         [TestMethod]
         public void CrossScopeReplay_FirstDeleteInANewScope_ThenGetListReturnsTheRows()
@@ -197,6 +197,12 @@ namespace Funcular.Data.Orm.Tests.Caching
                     Assert.AreEqual(3, a.GetList<ReplayRow>().Count, "scope A warms the type");
 
                 using var b = CreateUniqueScopeProvider();
+                var bCaches = CachesOf(b);
+                var columnPrefix = typeof(ReplayRow).FullName + ".";
+                Assert.IsFalse(bCaches.Mapped.Contains(typeof(ReplayRow)), "scope B starts with ReplayRow already discovered");
+                Assert.IsFalse(bCaches.Columns.Keys.Any(k => k.StartsWith(columnPrefix, StringComparison.Ordinal)),
+                    "scope B starts with ReplayRow column names cached");
+
                 var transactional = (ISqlOrmProvider)b;
                 transactional.BeginTransaction();
                 int deleted;

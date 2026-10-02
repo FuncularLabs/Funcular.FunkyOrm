@@ -836,7 +836,7 @@ providers** unless stated.
   Ordering *after* a subset `Select` is the §8 divergence, and is never used as a passing shape.
 - **AC12-2** Ordering by a remote/computed member emits exactly its resolved fragment, with no base-table
   prefix, unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after the
-  provider-scoped caches plan's D5.
+  provider-scoped caches plan's D5. *(Amended by that plan: Task 3, rev 10; wording rev 13.)*
 - **AC12-3** For an entity without remote joins, the **ORDER BY translation** of
   `OrderBy*`/`ThenBy*` chains consumed by enumeration or `First*` is byte-identical to 3.9.0. Other ACs change
   ordering SQL on purpose, and are excluded:
@@ -1185,7 +1185,7 @@ providers** unless stated.
 | AC | Test(s) | Project(s) |
 |---|---|---|
 | AC12-1 | `[DataTestMethod] OwnColumnOrdering_OnJoinEntity_QualifiedSql_ExecutesInOrder` — {OrderBy, OrderByDesc, ThenBy-after-remote, ThenByDesc-after-remote} × {full, subset-without-key, scalar-of-FirstName} × {paged, unpaged} (24 rows); every row is `OrderBy…[Skip/Take].Select(…)`, with ordering and paging before the projection | all 4 |
-| AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix` (SQLite re-pinned after D5), `ComputedMemberOrderBy_EmitsExpression_Unchanged`; direct, with the qualifier set: `MapHit_ComputedFragment_NeverPrefixed` | all 4 |
+| AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix` (SQLite re-pinned after the provider-scoped caches plan's D5; that plan's rev 11, wording rev 16), `ComputedMemberOrderBy_EmitsExpression_Unchanged`; direct, with the qualifier set: `MapHit_ComputedFragment_NeverPrefixed` | all 4 |
 | AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390`; *(rev 24)* `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` (all 4; MySQL's uses `ProjectScorecard`, rev 25) | all 4 |
 | AC12-4 | `TernaryOrderBy_OwnColumns_OnJoinEntity_QualifiedInsideCase` | all 4 |
 | AC12-5 | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (asserts `{table}.id DESC` and the returned `FirstName`) | all 4 |
@@ -2030,9 +2030,10 @@ Each task lists the tests it turns green. Every implementation task starts with 
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
   pass with their class. *(Fixed: `fix/mysql-delete-cold-cache`, `docs/plans/COLD_CACHE_DELETE_PLAN.md`, merged into
-  `fix/provider-scoped-caches` at `f73823c`.)*
-  - *(Rev 44, N1)* A MySQL harness warm-up of `Person` was added as a workaround. The merge removed it, so the three
-    tests it was added for again exercise the fix: each passes alone, and fails alone with the fix's D1 removed.
+  `fix/provider-scoped-caches` at `f73823c`; provider-scoped caches plan rev 14.)*
+  - *(Rev 44, N1; rewritten after the merge in provider-scoped caches plan rev 14)* A MySQL harness warm-up of
+    `Person` was added as a workaround. The merge removed it, so the three tests it was added for again exercise the
+    fix: each passes alone, and fails alone with the fix's D1 removed.
 - SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
 - Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
   `Single*` without user `Skip`/`Take` no longer routes through it (row limit). With user paging it still
@@ -2085,7 +2086,7 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **Static identifier caches are shared across providers (pre-existing; r8 incidental).** `_tableNames`,
   `_columnNames` and `_mappedTypes` are `static` on the Core `OrmDataProvider`. Using the same entity type
   with two providers in one process makes the second emit the first provider's quoting (PostgreSQL emitted
-  `FROM [User]`). It matters for multi-provider apps. *(Fixed in 3.10.0: `docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md`.)*
+  `FROM [User]`). It matters for multi-provider apps. *(Fixed in 3.10.0: `docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md`; that plan's rev 13.)*
 - **`is IOrderedQueryable` sort helpers crash on composed queries** (pre-existing; §1.5 P4b). Tracked as
   [#16](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/16) (owner: follow-up, not 3.10.0).
   Candidate fix: `CreateQuery` returns an ordered queryable only when `expression.Type` is
@@ -2365,7 +2366,7 @@ works over a base-class source (S1–S7 executed), so the narrowing has no over-
 
 **Recorded follow-ups from r8** (§8): interface-member column resolution; static identifier caches shared
 across providers (the reviewer filed a suggested-task chip for this one; fixed in 3.10.0 by the provider-scoped caches
-plan).
+plan, recorded in its rev 13).
 
 ### 9.9 Task 0 fix-verification r9 of `8d5ac7a`
 

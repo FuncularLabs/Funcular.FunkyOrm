@@ -8,12 +8,20 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 18. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2 are done. Task 3's hostile review
+> **Status (2026-10-02):** rev 19. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–3 are done. Task 3's hostile review
 > (§9.12) found no code defect; its fix layer is `34dd5fc`.
 > - Task 1: the seam `dd121c5`. Task 2: D1–D3 with the tests, `2727e4a` (message corrected from `c07693e`, HR1-7).
 > - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer `34dd5fc`, with one new test row per server
 >   provider. Its fix-verifications found nits only: §9.14 (addressed in rev 14, `982acb2`) and §9.15 (addressed in
->   rev 15); §9.16–§9.18 found plan nits, addressed in revs 16–18; rev 18 is re-verified next.
+>   rev 15); §9.16–§9.18 found plan nits, addressed in revs 16–18. Rev 18 (`150078d`) was verified CLEAN and pushed.
+> - Task 4: owner decision (b), no 3.9.1. This branch is merged into `fix/provider-scoped-caches` at `f73823c`, which
+>   carries it into `development/3.10`. Rev 19 is written there.
+
+> **Revision 19 — what changed (provider-scoped caches fix-verification FVB-6):** plan only, on
+> `fix/provider-scoped-caches`. AC8, AC9 and their matrix rows include SQLite (`d3a9b2d`). The rows and the
+> coldness precondition that read `_mappedTypes` through a derived provider now say they read the instance's scope.
+> AC4 and its rows name the branch they ran on. Task 4 attributes the 3.10 plan's §8 rewrite to `854ef80`. The
+> items that the provider-scoped caches change was to fix are marked done.
 
 > **Revision 18 — what changed (fix-verification FV5-1):** plan only. A summary sentence in §9.16 is deleted, not
 > reworded (§9.18).
@@ -116,7 +124,8 @@
   - The base `GetCachedColumnName` keys on `DeclaringType.FullName` (`OrmDataProvider.cs:381-389`), while discovery
     writes `ToDictionaryKey()` keys (`Sqlite:920-921`).
   - So on SQLite, snake_case convention columns fail cold or warm, and `[SqlExpression]` tokens render naive names.
-  - A fix is *planned* on `development/3.10` (`PROVIDER_SCOPED_CACHES_PLAN.md` D5; plan only so far).
+  - A fix is *planned* on `development/3.10` (`PROVIDER_SCOPED_CACHES_PLAN.md` D5; plan only so far). *(Rev 19:
+    done by that change's D5; the SQLite AC8/AC9 rows are `d3a9b2d`.)*
 - **Coldness.**
   - Column keys use the declaring type's simple name and an ignore-underscore-and-case comparer.
   - No test project parallelises. `SqlServer.Tests.NetFramework/test.runsettings` sets only the adapter path.
@@ -163,7 +172,8 @@
 - **AC2:** The same for `DeleteAsync<T>(predicate)`.
 - **AC3:** A cold delete leaves the type usable: a following `Query<T>()` returns the surviving row with `Id`,
   `LastName` and `FirstName` populated.
-- **AC4** *(restated in rev 13, HR1-4)*: on `development/3.10` after the merge (Task 4):
+- **AC4** *(restated in rev 13, HR1-4)*: on `development/3.10` after the merge (Task 4; rev 19: executed on
+  `fix/provider-scoped-caches` after its merge of this branch at `f73823c`, which carries it into `development/3.10`):
   - the four `ColdCacheDeleteTests` classes pass, and "No D1" fails them;
   - the merge removes the 3.10 plan's rev 44 harness warm-up (`MySqlQueryOperatorTestBase.InitQueryOperatorProvider`)
     and its comment, which hide the defect and would be stale;
@@ -183,12 +193,14 @@
     method call on a member) also reports the discovery error, caches no unmapped set and no column names, and leaves
     the type undiscovered *(rev 14, FV1-1; scoped in rev 15,
     FV2-4, FV2-5; wording scoped in rev 16, FV3-1)*.
-- **AC8:** A cold `GenerateWhereClause<T>` discovers `T` before translating. On SQL Server, MySQL and PostgreSQL it
-  renders `T`'s own snake_case columns, including inside a `[SqlExpression]` token.
-- **AC9:** A cold `Delete<T>(id)` and, separately, a cold `DeleteAsync<T>(id)` delete the row on SQL Server, MySQL and
-  PostgreSQL. The key is a `[Key]` whose snake_case column (`zz_probe_pk_id`) is convention-mapped.
-  - On a missing table, sync and async, the error has D3's shape, no unmapped set and no column names are cached for
-    the type, and it stays undiscovered *(wording scoped in rev 16, FV3-1)*.
+- **AC8:** A cold `GenerateWhereClause<T>` discovers `T` before translating. On all four providers it renders `T`'s
+  own snake_case columns, including inside a `[SqlExpression]` token *(SQLite since `d3a9b2d`, rev 19)*.
+- **AC9:** A cold `Delete<T>(id)` and, separately, a cold `DeleteAsync<T>(id)` delete the row on all four providers
+  *(SQLite since `d3a9b2d`, rev 19)*. The key is a `[Key]` whose snake_case column (`zz_probe_pk_id`) is
+  convention-mapped.
+  - On a missing table, sync and async, on SQL Server, MySQL and PostgreSQL *(scoped in rev 19)*, the error has D3's
+    shape, no unmapped set and no column names are cached for the type, and it stays undiscovered *(wording scoped
+    in rev 16, FV3-1)*.
   - Without a transaction, a cold delete by id (sync and async, all four providers) throws the transaction guard's
     error and doesn't discover the type *(rev 5, F3)*.
 
@@ -204,19 +216,19 @@
 | AC6 | `ExecProcedureFirst_ThenQueryAndDelete_Work` (`sp_get_person_by_id`; SQL Server `@person_id`, MySQL `p_person_id`) | ✓ | ✓ | — (throws) | — (throws) |
 | AC6 | `UnmappedHelper_UndiscoveredType_IsComputedNotCached_ThenCachedAfterDiscovery` (direct, type `ColdHelperPerson`) | ✓ | ✓ | ✓ | ✓ |
 | AC7 | `ColdDelete_WhenDiscoveryFails_ReportsIt_CachesNothing_AndTheNextCallWorks` | ✓ (inner `SqlException.Number == 208`) | ✓ (inner `MySqlException.Number == 1146`) | ✓ (inner `PostgresException.SqlState == 42P01`) | ✓ (`no such table`) |
-| AC8 | `GenerateWhereClause_Cold_DiscoversFirst` (direct; **member-access** predicate `p.LastName == x`; asserts no `NotSupportedException`, and that `T` is in `_mappedTypes` afterwards, observed through a test-only derived provider) | ✓ | ✓ | ✓ | ✓ |
-| AC8 | `GenerateWhereClause_Cold_RendersSnakeCaseColumns` (incl. `[SqlExpression("COALESCE({LastName}, '')")]` on `person`) | ✓ | ✓ | ✓ | — (§1 key mismatch) |
-| AC9 | `DeleteById_Cold_WithASnakeCaseKey_DeletesTheRow` (type `ColdPkRow`) | ✓ | ✓ | ✓ | — (§1 key mismatch) |
-| AC9 | `DeleteByIdAsync_Cold_WithASnakeCaseKey_DeletesTheRow` (type `ColdPkAsyncRow`) | ✓ | ✓ | ✓ | — (§1 key mismatch) |
+| AC8 | `GenerateWhereClause_Cold_DiscoversFirst` (direct; **member-access** predicate `p.LastName == x`; asserts no `NotSupportedException`, and that `T` is in the mapped-type set afterwards, read through the provider instance's own scope; rev 19: `_mappedTypes` through a test-only derived provider before the merge) | ✓ | ✓ | ✓ | ✓ |
+| AC8 | `GenerateWhereClause_Cold_RendersSnakeCaseColumns` (incl. `[SqlExpression("COALESCE({LastName}, '')")]`; on `person`, and on SQLite on `zz_cold_snake_where`) | ✓ | ✓ | ✓ | ✓ (`d3a9b2d`, rev 19) |
+| AC9 | `DeleteById_Cold_WithASnakeCaseKey_DeletesTheRow` (type `ColdPkRow`) | ✓ | ✓ | ✓ | ✓ (`d3a9b2d`, rev 19) |
+| AC9 | `DeleteByIdAsync_Cold_WithASnakeCaseKey_DeletesTheRow` (type `ColdPkAsyncRow`) | ✓ | ✓ | ✓ | ✓ (`d3a9b2d`, rev 19) |
 | AC9 | `DeleteById_Cold_MissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPkRow`; D3's shape; coldness re-checked after the rollback) | ✓ | ✓ | ✓ | — |
 | AC9 | `DeleteByIdAsync_Cold_MissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPkAsyncRow`; as above) *(rev 5, F1)* | ✓ | ✓ | ✓ | — |
-| AC9 | `DeleteById_Cold_WithoutTransaction_ThrowsTheGuard_AndDoesNotDiscover` (type `ColdPkNoTxRow` on an **existing** table; asserts the exact guard message, that the type is still cold including `_mappedTypes`, and that ids 1 and 2 survive) *(rev 5, F3; rev 6, G1)* | ✓ | ✓ | ✓ | ✓ |
+| AC9 | `DeleteById_Cold_WithoutTransaction_ThrowsTheGuard_AndDoesNotDiscover` (type `ColdPkNoTxRow` on an **existing** table; asserts the exact guard message, that the type is still cold including the mapped-type set (`_mappedTypes` before the merge, rev 19), and that ids 1 and 2 survive) *(rev 5, F3; rev 6, G1)* | ✓ | ✓ | ✓ | ✓ |
 | AC9 | `DeleteByIdAsync_Cold_WithoutTransaction_ThrowsTheGuard_AndDoesNotDiscover` (type `ColdPkNoTxAsyncRow`; as above) | ✓ | ✓ | ✓ | ✓ |
 | coverage | `DeleteByIdAsync_Cold_NoMatchingRow_ReturnsFalse` (type `ColdPkNoMatchAsyncRow`, key `Id` on column `id`; green at `fae4472`; covers a line, kills no mutant) *(rev 5, F2; rev 6, G2)* | ✓ | — | — | — |
 | D3 (SQLite) | `DeleteById_Cold_SqliteSyncAndAsync_Execute` (property-named key; equivalent change at `fae4472`, coverage only) | — | — | — | ✓ |
 | AC7 | `DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPredicateRow` on the never-created missing table; `LastName.StartsWith(…)`; discovery's error, then coldness) *(rev 13, HR1-1)* | ✓ | ✓ | ✓ | — |
-| AC4 | as restated: the four cold classes (each with the D1-removed mutant), on `development/3.10` (Task 4) | ✓ | ✓ | ✓ | ✓ |
-| AC4 | as restated: the three named tests alone after the warm-up's removal, with the D1-removed mutant, on `development/3.10` (Task 4) | — | ✓ | — | — |
+| AC4 | as restated: the four cold classes (each with the D1-removed mutant), on `fix/provider-scoped-caches` after `f73823c` (Task 4; rev 19) | ✓ | ✓ | ✓ | ✓ |
+| AC4 | as restated: the three named tests alone after the warm-up's removal, with the D1-removed mutant, on `fix/provider-scoped-caches` after `f73823c` (Task 4; rev 19) | — | ✓ | — | — |
 
 **Construction.**
 - **Entity types**, all with `[Table]`, used only here:
@@ -259,6 +271,9 @@
   its test project `InternalsVisibleTo`), that its type isn't in the unmapped cache, and that no column key for its
   types exists. The keys are built as `DeclaringType.Name + "." + Name`, i.e. `ToDictionaryKey()`.
   `_mappedTypes` is `protected static`, so it is reached through a test-only derived provider.
+  *(Rev 19: after the merge the keys are `ToDictionaryKey()`, `FullName`-based after the provider-scoped caches
+  plan's D5, and every observer, the mapped-type set included, reads through the provider under test's scope
+  accessors.)*
 - **Assertions:**
   - the delete returns 1;
   - the survivors are exactly `kept`;
@@ -395,7 +410,8 @@ Local runs are recorded with their sha.
    `f73823c`, because that change makes the defect fire once per scope (its review HRA-1). **Owner decision
    2026-10-02: (b), fold into 3.10; no 3.9.1.**)*
    - Done in the merge: the D2 helper reads the instance's scope. The coldness observers read through the provider
-     under test. The rev 44 warm-up and the rev 43 M1 comment are removed, as is the 3.10 plan's §8 follow-up text.
+     under test. The rev 44 warm-up and the rev 43 M1 comment are removed. The 3.10 plan's §8 follow-up text is
+     rewritten, not removed, to record the fix and the merge, in `854ef80` *(corrected in rev 19)*.
      The Changelog entries moved verbatim into `[3.10.0-beta1]`.
    - AC4 as restated, executed: the four cold classes pass and fail with "No D1". The three MySQL tests pass alone
      and fail alone with D1 removed.
@@ -424,7 +440,8 @@ Local runs are recorded with their sha.
 
 ## 6. Out of scope (recorded)
 
-- **SQLite key mismatch (§1).** A fix is planned on `development/3.10`, not on the 3.9.x line.
+- **SQLite key mismatch (§1).** A fix is planned on `development/3.10`, not on the 3.9.x line. *(Rev 19: fixed by
+  the provider-scoped caches change, D5.)*
 - **The LINQ providers' `[NotMapped]`-only lambdas** (5 per provider; e.g. `SqliteLinqQueryProvider.cs:246`).
   - Through `Query<T>()` they run after discovery.
   - Through a LINQ provider's public constructor on a cold type they cache an empty set first, and that type then
@@ -436,7 +453,7 @@ Local runs are recorded with their sha.
 - **`_mappedTypes` is a plain `HashSet`** read and written concurrently, and D2 adds readers.
   - A false "not discovered" is harmless: the set is computed without caching.
   - A corrupted set would mean recomputing on every call, and a `HashSet` modified concurrently can also throw.
-  - Pre-existing; a concurrent set is planned in `fix/provider-scoped-caches`.
+  - Pre-existing; a concurrent set is planned in `fix/provider-scoped-caches`. *(Rev 19: done, `ConcurrentTypeSet`.)*
 - **`[SubqueryAggregate]`/`[JsonCollection]` source-type columns** are still resolved without discovering the source
   type (MySQL `661-665`, `696-700`). AC8 covers `T`'s own columns only.
 - **`GenerateOrderByClause<T>`** is dead code. D2 rewrites its unmapped reads to the helper (MySQL 851,

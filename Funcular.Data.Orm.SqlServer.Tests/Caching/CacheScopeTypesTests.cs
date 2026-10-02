@@ -11,8 +11,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 {
     /// <summary>
     /// The scope's own types, each member called on purpose (provider-scoped caches plan, §4.2; review HRB-8): the
-    /// mapped-type set's collection members and the registry key's equality; and, from review HRA-4 and HRA-5, copying
-    /// the set while it grows and reading a resolved scope. DB-free.
+    /// mapped-type set's collection members and the registry key's equality; from review HRA-4 and HRA-5, copying the
+    /// set while it grows and reading a resolved scope; and, from review FVA-2, racing first reads of a scope. DB-free.
     /// </summary>
     [TestClass]
     public class CacheScopeTypesTests
@@ -108,6 +108,50 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 
             Assert.AreEqual(1000, same, "every read returns the resolved scope");
             Assert.AreEqual(0L, allocated, "1000 reads of the resolved scope allocated this many bytes");
+        }
+
+        /// <summary>
+        /// D8 (review FVA-2): threads racing to make an instance's first scope read all get the one scope that is
+        /// published. A per-instance (null-identity) scope is the shape where two runs of the factory yield different
+        /// objects, so a publication that isn't atomic shows here.
+        /// </summary>
+        [TestMethod]
+        public void CacheScope_RacingFirstReads_AllGetThePublishedScope()
+        {
+            const int threads = 8, rounds = 500;
+            var providers = Enumerable.Range(0, rounds).Select(_ => new DirectProviderWithIdentity(null)).ToArray();
+            try
+            {
+                var seen = new CacheScope[rounds, threads];
+                var failures = new ConcurrentQueue<Exception>();
+                using (var barrier = new Barrier(threads))
+                {
+                    var workers = Enumerable.Range(0, threads).Select(t => new Thread(() =>
+                    {
+                        for (var r = 0; r < rounds; r++)
+                        {
+                            barrier.SignalAndWait();
+                            try { seen[r, t] = providers[r].CacheScope; }
+                            catch (Exception ex) { failures.Enqueue(ex); }
+                        }
+                    })).ToList();
+                    workers.ForEach(w => w.Start());
+                    workers.ForEach(w => w.Join());
+                }
+
+                Assert.IsTrue(failures.IsEmpty, failures.IsEmpty ? null :
+                    $"a racing first read threw: {failures.First().GetType().Name}: {failures.First().Message}");
+                var mismatches = 0;
+                for (var r = 0; r < rounds; r++)
+                    for (var t = 0; t < threads; t++)
+                        if (!ReferenceEquals(seen[r, t], providers[r].CacheScope)) mismatches++;
+                Assert.AreEqual(0, mismatches,
+                    $"of {rounds * threads} racing first reads, this many got a scope other than the one published");
+            }
+            finally
+            {
+                foreach (var provider in providers) provider.Dispose();
+            }
         }
 
         [TestMethod]

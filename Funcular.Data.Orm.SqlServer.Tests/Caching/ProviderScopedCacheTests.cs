@@ -307,10 +307,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
         /// <summary>Review HRA-3: a value SQL Server's builder overflows on (<see cref="OverflowException"/>).</summary>
         private const string OverflowingSqlServer = "SqlServer with an overflowing Connect Timeout and an explicit connection";
 
+        /// <summary>
+        /// A SQLite provider with an empty constructor string and an explicit connection whose string the builder
+        /// rejects: both SQLite catch filters, the source resolver's and the identity getter's, take it as given.
+        /// </summary>
+        private const string UnparseableSqliteConnection = "Sqlite with an explicit connection the builder rejects";
+
         public static IEnumerable<object[]> UnparseableProviders => new[]
         {
             new object[] { PostgreSqlKind }, new object[] { MySqlKind }, new object[] { "SqlServer with an explicit connection" },
-            new object[] { OverflowingSqlServer },
+            new object[] { OverflowingSqlServer }, new object[] { UnparseableSqliteConnection },
         };
 
         [DataTestMethod]
@@ -322,6 +328,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
                 : $"zz-psc-unparseable {Unique()}";
             using var instance = provider == PostgreSqlKind ? new PostgreSqlOrmDataProvider(garbage)
                 : provider == MySqlKind ? (OrmDataProvider)new MySqlOrmDataProvider(garbage)
+                : provider == UnparseableSqliteConnection ? new SqliteOrmDataProvider(string.Empty, new OpaqueConnection(garbage))
                 : new SqlServerOrmDataProvider(garbage, Track(new SqlConnection()));
 
             var key = instance.CacheScopeKey;
@@ -329,6 +336,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
             Assert.AreEqual(Sha256Hex(garbage), key.Value.IdentityHash, ignoreCase: true,
                 $"{provider}: a string the builder rejects is hashed as given");
             Assert.IsFalse(key.Value.ToString().Contains(garbage), $"{provider}: the registry key keeps the raw string");
+        }
+
+        /// <summary>
+        /// A connection that only carries its string, which may be one no connection-string builder accepts. Never
+        /// opened.
+        /// </summary>
+        private sealed class OpaqueConnection : IDbConnection
+        {
+            public OpaqueConnection(string connectionString) => ConnectionString = connectionString;
+
+            public string ConnectionString { get; set; }
+            public int ConnectionTimeout => 0;
+            public string Database => string.Empty;
+            public ConnectionState State => ConnectionState.Closed;
+            public IDbTransaction BeginTransaction() => throw new NotSupportedException();
+            public IDbTransaction BeginTransaction(IsolationLevel il) => throw new NotSupportedException();
+            public void ChangeDatabase(string databaseName) => throw new NotSupportedException();
+            public void Close() { }
+            public IDbCommand CreateCommand() => throw new NotSupportedException();
+            public void Open() => throw new NotSupportedException();
+            public void Dispose() { }
         }
 
         [DataTestMethod]
@@ -443,11 +471,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 
         /// <summary>
         /// Review HRA-6 (Guard): a constructor string of whitespace counts as empty, so the explicit connection supplies
-        /// the identity and connections to two databases don't share a scope.
+        /// the identity: connections to two databases don't share a scope, and two connections to one database do.
         /// </summary>
         [DataTestMethod]
         [DynamicData(nameof(AllProviders))]
-        public void WhitespaceConstructorString_ExplicitConnectionsToTwoDatabases_DoNotShare(string provider)
+        public void WhitespaceConstructorString_ExplicitConnection_SuppliesTheIdentity(string provider)
         {
             var server = Server(provider);
             var databaseB = provider == SqliteKind ? Server(provider) : server;
@@ -456,8 +484,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 
             using var toA = Create(provider, "   ", Track(Connection(provider, stringA)));
             using var toB = Create(provider, "   ", Track(Connection(provider, stringB)));
+            using var alsoToA = Create(provider, "   ", Track(Connection(provider, stringA)));
 
             AssertOtherScope(toA, toB, $"{provider}: explicit connections to different databases, whitespace constructor string");
+            AssertSameScope(toA, alsoToA, $"{provider}: explicit connections to one database, whitespace constructor string");
         }
 
         /// <summary>

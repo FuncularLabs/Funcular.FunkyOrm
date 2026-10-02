@@ -8,11 +8,21 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 15. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 16. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
-> `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`; fix-verification is next. `GeneralExtensions.cs`
-> coverage is the owner's call (§4.2).
+> `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
+> gaps and plan nits, no product defect; this revision's layer fixes them. That layer, `21e5858` and `7df6843` are
+> verified next. `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 16 — what changed:** the fix-verification of `35c6477..854ef80` (§9.12).
+> - Rows: the whitespace-string row also asserts that two connections to one database share a scope, which kills
+>   the SQLite mutant that rev 14 wrongly called equivalent (FVA-1/FVB-1). A race row pins one published scope
+>   (FVA-2). The cross-scope replay row checks that scope B starts cold (FVB-2). A SQLite row reaches both SQLite
+>   identity catch filters.
+> - Documents: the HRA layer's rows and members are listed in §4.1 and §4.2 (FVB-5). §5's class for the Core rows
+>   and the AC12-2 wording are corrected (FVB-3, FVB-4). This branch's edits to the 3.10 and cold-cache plans are
+>   marked and brought up to date (FVB-6, FVB-7).
 
 > **Revision 15 — what changed:** owner decisions of 2026-10-02 recorded. The cold-cache fix folds into 3.10 (no
 > 3.9.1). `GeneralExtensions.cs` is exempt from the coverage floor, and `Contains` is fixed here (`21e5858`).
@@ -350,6 +360,15 @@ Every row is run alone at the seam and its outcome recorded.
 | AC2 | `CoreGetTableName_ReadsTheInstanceScope` (direct-subclass probe; two identities) *(Task 4, `3f16bed`)* | none | Red at the seam ("B's scope holds the name A resolved"); killed by "Core's base `GetTableName` reads a static" *(class corrected in rev 13, HRB-6)* |
 | AC2 | `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` (computed set is exactly the `[NotMapped]` property, cached in A's scope only) *(Task 4, `3f16bed`)* | none | Red at the seam ("the set A computed is cached in B's scope"); killed by "the computing lambda writes to a static" and "computes without caching" *(class corrected in rev 13, HRB-6)* |
 | — | `CacheScopeTypesTests` (the mapped-type set's collection members; the registry key's equality) *(rev 13, HRB-8)* | none | Guard; killed by "Count is 0", "Clear is a no-op", "CopyTo ignores the index", "Equals(object) is false", "key equality ignores the dialect" (executed) |
+| — | `MappedTypeSet_CopiedWhileAnotherThreadAdds_NeverThrows` (in `CacheScopeTypesTests`) *(HRA-4; listed in rev 16, FVB-5)* | none | Red before HRA-4 (`ArgumentException`); killed by the HRA-4 revert (`CopyTo` without the snapshot) |
+| — | `CacheScope_AfterTheFirstAccess_AllocatesNothing` (in `CacheScopeTypesTests`) *(HRA-5; listed in rev 16, FVB-5)* | none | Red before HRA-5 (64000 bytes allocated); killed by the HRA-5 revert (every read goes through `LazyInitializer` with a new delegate) |
+| — | `CacheScope_RacingFirstReads_AllGetThePublishedScope` (in `CacheScopeTypesTests`; 8 threads, 500 per-instance-scope providers) *(rev 16, FVA-2)* | none | Guard; killed by "`GetOrAdd`, then a plain write to the field" (3 of 3 runs; the row passed 5 of 5 at HEAD) |
+| AC4 | `UnparseableConnectionString_IsHashed`, the SQL Server overflow DataRow (`Connect Timeout=99999999999`) *(HRA-3; listed in rev 16, FVB-5)* | none | Red before HRA-3 (`OverflowException`); killed by the HRA-3 revert (SQL Server's narrower filter) |
+| AC4 | `UnparseableConnectionString_IsHashed`, the SQLite DataRow: an empty constructor string and an explicit connection whose string the builder rejects *(rev 16)* | none | Guard; killed by "the source resolver without its catch", "the identity getter without its catch" and "SQLite's `IsFatal` is always true" |
+| AC4 | `WhitespaceConstructorString_ExplicitConnection_SuppliesTheIdentity` [all four: a whitespace constructor string; two explicit connections to different databases don't share, and two to one database do] *(HRA-6; the same-database half added and the row renamed in rev 16, FVA-1/FVB-1)* | none | Guard; killed by "`IsNullOrWhiteSpace`→`IsNullOrEmpty`" on all four |
+| AC4 | `SqliteExplicitConnection_RelativeDataSource_SharesTheConstructorStringsScope` *(HRA-6; listed in rev 16, FVB-5)* | none | Guard; killed by "the explicit connection's string is used unresolved" |
+| — | `DroppedProvider_AfterMappingRows_IsCollected_WhileItsScopeLives` [all four, in the AC7 harness] *(HRA-2; listed in rev 16, FVB-5)* | SQL Server (CI), SQLite temp file (CI), PostgreSql.Tests, MySql.Tests | Red before HRA-2 (the scope's mapper keeps the provider reachable); killed by the HRA-2 revert |
+| — | `CrossScopeReplay_FirstDeleteInANewScope_ThenGetListReturnsTheRows` [all four, in the AC7 harness; scope B is checked cold before its delete *(rev 16, FVB-2)*] *(HRA-1; listed in rev 16, FVB-5)* | as above | Red before the cold-cache merge; killed by the cold-cache plan's "No D1". The coldness check is killed by "SQLite's unique-scope provider returns P2's scope" |
 | AC4 | `MappedSetAccessor_ReadsTheInstanceScope` [per provider]: the internal accessor (Task 1a) of instance A shows a type marked mapped in A's scope (planted), and instance B in another scope doesn't *(rev 8, R7-3)* | none | Red at the seam (one shared set) |
 | AC7 | `LinqSites_ReadTheirOwnScope`. Through the seam accessors, plant valid mappings for the dedicated type `LinqProbe { Id, FirstName }` (`[Table("zz_psc_linq")]`, below) in P2's scope: table `zz_psc_linq`, `FirstName → last_name`, `Id → employer_id`, the type marked mapped. Then run `OrderBy`/`ThenBy`, both `Select` forms, `Last()` without `OrderBy`, `Where` and `First(pred)` (on `"x"`), `Count`/`Any`/`All` with a predicate, and `Max`/`Sum`/`Average` on `Id`. Capture the SQL through `Log` (logged before execution) and assert each site's exact fragment, e.g. `MAX(zz_psc_linq.employer_id)` (SQLite renders `Average` as `ROUND(AVG(…), 10)`) *(rev 8, R7-5)*. | SQL Server (CI), SQLite temp file (CI) | Guard |
 | AC7 | `LinqSites_NeverReadAnotherScope`. P2 plants first. P1 (same database, different identity: `Application Name` on SQL Server and PostgreSQL, `Connection Timeout` on MySQL, `Default Timeout` on SQLite) then plants **the same shape as P2** with distinct values: table `zz_psc_linq`, the type marked mapped, `FirstName → middle_initial`, `Id → id`. P1 runs every site, and the row asserts **P1's own exact fragments** at each one, which proves P1 ran it. Only then does P2 run; P2's exact fragments must show its own plant at every site. *(rev 6, R5-2)* | SQL Server (CI), SQLite temp file (CI) | Red at the seam (shared caches) |
@@ -398,7 +417,10 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 | The providers' internal mapped-set accessor (Task 1a) | `MappedSetAccessor_ReadsTheInstanceScope`; the cold-cache observers (Task 5) |
 | Core's `protected GetUnmappedProperties<T>()` (uncalled; D7 makes it read the instance scope) | `CoreGetUnmappedProperties_ReadsTheInstanceScope` (probe subclass of a direct `OrmDataProvider` subclass); `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` |
 | Core's base `GetTableName<T>()` (reads the instance scope) | `CoreGetTableName_ReadsTheInstanceScope` *(rev 13, HRB-6)* |
-| `ConcurrentTypeSet` (the mapped-type set) and `CacheScopeKey` equality | `CacheScopeTypesTests` *(rev 13, HRB-8)* |
+| `ConcurrentTypeSet` (the mapped-type set) and `CacheScopeKey` equality | `CacheScopeTypesTests` *(rev 13, HRB-8)*; `CopyTo` while the set grows: `MappedTypeSet_CopiedWhileAnotherThreadAdds_NeverThrows` *(rev 16, FVB-5)* |
+| Core's `CacheScope` read and `ResolveCacheScope` (review HRA-5) | `CacheScope_AfterTheFirstAccess_AllocatesNothing`; `CacheScope_RacingFirstReads_AllGetThePublishedScope` *(rev 16, FVB-5, FVA-2)* |
+| The providers' `ReaderColumnMapping` and static `ComposeReaderMapper<T>` (four providers; review HRA-2) | `DroppedProvider_AfterMappingRows_IsCollected_WhileItsScopeLives`; every row that reads entities, e.g. `MapperCache_IsScoped_ThroughARealRead` *(rev 16, FVB-5)* |
+| The providers' `IsFatal` (four providers; review HRA-3) | `UnparseableConnectionString_IsHashed`: its PostgreSQL, MySQL and SQL Server rows reach those identity getters' filters, and its SQLite row reaches both SQLite filters *(rev 16, FVB-5)* |
 | `ComputeColumnName` | AC6 |
 | The procedure-name resolver | AC9 |
 | The mapper cache, and SQLite's quote-pair stripping (D11) | AC5 mapper rows; `SqliteBracketDialect_ReadsItsOwnRows`; `SqliteDefaultDialect_ReadsAReservedWordColumn` |
@@ -512,7 +534,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - Re-pinned to the discovered spelling, with its message updated.
      - The 3.10 plan's AC12-2 (`QUERY_OPERATOR_CORRECTNESS_PLAN.md`, "unchanged from 3.9.0") and its §4.2 row are
        amended: "unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after D5
-       (provider-scoped caches plan)" *(rev 10, R9-1)*. The §4.2 row gains "(SQLite re-pinned after D5)". AC12-2
+       (provider-scoped caches plan)" *(rev 10, R9-1)*. The §4.2 row gains "(SQLite re-pinned after the
+       provider-scoped caches plan's D5)" *(wording rev 16, FVB-4)*. AC12-2
        is also posted on issue #12; posting the amendment there is the owner's call *(rev 11, R10-1)*.
 6. **Task 4 — Green and gauntlet.**
    - Suites, net48, net9; mutations (§4.3); coverage (§4.2).
@@ -534,7 +557,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
        M1 (aggregate selector) dies only to `NeverReadAnotherScope`, and each per-site unmapped mutant only to its own
        row.
      - Coverage: the two Core rows `CoreGetTableName_ReadsTheInstanceScope` and
-       `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` (`3f16bed`, Guards, each with a killed mutant) cover
+       `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` (`3f16bed`, Red at the seam, each with a killed mutant;
+       class corrected in rev 16, FVB-3) cover
        Core members this change touched that no row called. Per file, distinct lines across every cobertura class
        element, unioned across the four suites (base `7d98e3d` → HEAD):
        - `OrmDataProvider.cs` 81.32 % → 89.95 %;
@@ -542,7 +566,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
        - provider / LINQ provider, base → HEAD *(baselines added in rev 13, HRB-6)*: SQL Server 84.99 % → 87.09 % /
          90.96 % → 91.24 %; PostgreSQL 86.64 % → 86.94 % / 93.16 % → 93.33 %; MySQL 84.57 % → 85.28 % / 93.18 % →
          93.36 %; SQLite 89.25 % → 89.77 % / 94.24 % → 94.42 %;
-       - `GeneralExtensions.cs` 19.05 %, unchanged from base. Its one touched line is covered; owner's call (§4.2).
+       - `GeneralExtensions.cs` 19.05 %, unchanged from base. Its one touched line is covered; exempt from the floor
+         (owner decision 2026-10-02, §4.2).
      - Suites at `d781e63`: SqlServer.Tests 980, PostgreSql.Tests 769, MySql.Tests 721, Sqlite.Tests 788, DotNet9 5,
        all passing. net48 76/76 at `019636a`; later commits touch no product file.
      - Changelog `d781e63`.
@@ -570,7 +595,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      deferred are added (`d3a9b2d`).
    - Suites at `cd40661`: SqlServer.Tests 1010, PostgreSql.Tests 785, MySql.Tests 738, Sqlite.Tests 797, DotNet9 5,
      net48 76; Sqlite.Tests 800 at `d3a9b2d`. Coverage after the fix layer: `CacheScope.cs` 100 %, `OrmDataProvider.cs`
-     90 %, the four providers 87.47–91.41 %; `GeneralExtensions.cs` unchanged (owner's call).
+     90 %, the four providers 87.47–91.41 %; `GeneralExtensions.cs` unchanged (exempt, owner decision).
 
 ## 6. Out of scope (recorded)
 
@@ -792,4 +817,30 @@ identity and synonym behaviour, resolution timing, and stress tests of concurren
 | HRA-3 | low | TEST-GAP | SQL Server's identity catch filter let `OverflowException` escape (`Connect Timeout=99999999999`), unlike 3.9.0. | Any non-fatal exception hashes the string as given, in all four getters and SQLite's source resolver; a DataRow, red before. |
 | HRA-4 | low | HOUSE-RULE | `ConcurrentTypeSet`: a caller's `Count` then `CopyTo` raced with a concurrent `Add`. | `CopyTo` copies a snapshot truncated to the space available; a stress row, red before. |
 | HRA-5 | low | OTHER | Every scope access allocated a delegate (once per materialized row). | A `Volatile.Read` fast path; a zero-allocation row, red before. |
-| HRA-6 | low | TEST-GAP | Two identity-source branches had no killing row. | Rows added; "unresolved" killed. "`IsNullOrWhiteSpace`→`IsNullOrEmpty`" killed on three providers, equivalent on SQLite (a whitespace string there is a per-instance scope either way). |
+| HRA-6 | low | TEST-GAP | Two identity-source branches had no killing row. | Rows added; "unresolved" killed. "`IsNullOrWhiteSpace`→`IsNullOrEmpty`" killed on three providers. *(Rev 16: a claim that it was equivalent on SQLite was false and is deleted; §9.12 FVA-1/FVB-1.)* |
+
+### 9.12 Task 5 fix-verification of `35c6477..854ef80` (fix layers `2bbb7d9..854ef80`; two non-author lenses)
+
+- **Code lens** (detached exports at `854ef80` and `fae4472`; suites, net48, probes on all four providers):
+  - suites at `854ef80`: SqlServer.Tests 1010, PostgreSql.Tests 785, MySql.Tests 738, Sqlite.Tests 800, DotNet9 5,
+    net48 76, all passing;
+  - HRA-1…HRA-5 resolved, each red-before reproduced; HRA-6 partial (FVA-1);
+  - the merge kept both sides on all four providers; "No D1", "No D2" and "No D3" are killed on all four;
+  - 24 malformed connection strings behave as in 3.9.0, with and without an explicit connection.
+- **Tests/prose lens** (detached exports; SQLite temp files only; its own and the named mutants):
+  - HRB-1…HRB-5, HRB-8 and HRB-9 resolved; HRB-6 and HRB-7 partial (FVB-3, FVB-4); HRB-10 not annotated, as
+    declared;
+  - every named mutant re-run and killed; the red-before runs reproduced; `CacheScope.cs` at 100 %.
+
+Verdict: NOT CLEAN on both lenses. Neither found a product defect. Blame: TEST-GAP 3, PLAN-GAP 5.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVA-1 / FVB-1 | low | TEST-GAP | HRA-6's disposition called the SQLite `IsNullOrWhiteSpace`→`IsNullOrEmpty` mutant equivalent. It isn't: at HEAD a whitespace constructor string with an explicit connection to a file gets that file's registered scope; under the mutant, a per-instance one. The row asserted only that two databases don't share, which per-instance scopes also satisfy. | The row also asserts that two connections to one database share a scope, and is renamed `WhitespaceConstructorString_ExplicitConnection_SuppliesTheIdentity`. The mutant is killed on all four. The false clause in §9.11 is deleted. |
+| FVA-2 | low | TEST-GAP | D8's "one scope is published" had no row. With a plain write after `GetOrAdd`, racing first reads got different scopes in 1845 of 2000 rounds, and every suite passed. | `CacheScope_RacingFirstReads_AllGetThePublishedScope`; that mutant is killed in 3 of 3 runs. |
+| FVB-2 | nit | TEST-GAP | The cross-scope replay row relied on scope B starting cold but never checked it. | B's mapped set and its column keys for the type are checked first; killed by "SQLite's unique-scope provider returns P2's scope". |
+| FVB-3 | nit | PLAN-GAP | §5 still called the two Core rows Guards. | "Red at the seam". |
+| FVB-4 | nit | PLAN-GAP | The 3.10 plan's AC12-2 matrix row, and §5's text that prescribes it, still said "after D5". | "After the provider-scoped caches plan's D5", in both. |
+| FVB-5 | nit | PLAN-GAP | The HRA layer's rows and members weren't in §4.1 or §4.2. | Listed, each with its killing mutant. A SQLite row is added so that every `IsFatal` is reached on purpose. |
+| FVB-6 | nit | PLAN-GAP | The cold-cache plan was stale after the merge and `d3a9b2d`: AC8/AC9 and their matrix rows, the `_mappedTypes` observers, its Status, Task 4's §8 attribution, and the AC4 rows' branch. | That plan's rev 19. |
+| FVB-7 | nit | PLAN-GAP | This branch's edits to the 3.10 plan had no revision marker, and its rev 44 N1 sub-bullet was rewritten under that tag. | Each edit is marked with this plan's revision, and the sub-bullet is retagged. |
