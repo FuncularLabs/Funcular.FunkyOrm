@@ -72,7 +72,8 @@ subclasses.
   It now uses the declaring type's full name, and keys compare ordinally, so `Outer_X.Thing` and `OuterX.Thing` no
   longer collide.
 - **`GeneralExtensions.Contains(string, string, StringComparison)` ignored its `comparison` argument** and compared
-  case-sensitively in the current culture. It now uses the comparison it is given.
+  case-sensitively in the current culture. It now uses the comparison it is given. Its effect on deletes is under
+  Changed.
 - **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
   property whose column differs by underscores (`Label` → `la_bel`) is queryable.
 - **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** could run before
@@ -178,6 +179,11 @@ Other changes:
   doesn't exist, the provider's missing-table error (SQL Server 208, MySQL 1146, PostgreSQL 42P01) is now the
   `InnerException` of an `InvalidOperationException`. Some of these calls threw the provider's exception directly
   before.
+- **On the netstandard2.0 and .NET Framework 4.8 builds, `Delete`/`DeleteAsync` by predicate check the WHERE clause
+  for trivial conditions case-insensitively**, as the .NET 8 build already did. This follows from the
+  `GeneralExtensions.Contains` fix. A WHERE clause containing `true` in any letter case, for example through a column
+  named `TrueUpAmount`, is rejected with "Delete operation requires a non-trivial WHERE clause."; on those builds it
+  was rejected before only in lower case.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

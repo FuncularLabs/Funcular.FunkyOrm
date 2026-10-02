@@ -8,12 +8,17 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 16. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 17. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
-> gaps and plan nits, no product defect; this revision's layer fixes them. That layer, `21e5858` and `7df6843` are
-> verified next. `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+> gaps and plan nits, fixed in `32674c7`. The verification of `854ef80..32674c7` (§9.13) found that the `Contains`
+> fix changes the delete guard on the netstandard2.0 and net48 builds; this revision's layer documents and pins it,
+> and is verified next. `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 17 — what changed:** the fix-verification of `854ef80..32674c7` (§9.13). The `Contains` fix's effect
+> on the delete guard of the netstandard2.0 and net48 builds is recorded in §4.2, pinned by `DeleteGuardCaseTests`
+> (net48) and described in the Changelog (FVC-1). The cold-cache plan's §4.2–§4.3 scopes are updated (FVC-2).
 
 > **Revision 16 — what changed:** the fix-verification of `35c6477..854ef80` (§9.12).
 > - Rows: the whitespace-string row also asserts that two connections to one database share a scope, which kills
@@ -435,6 +440,13 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   here (`21e5858`, with `GeneralExtensionsContainsTests`, red before for the ignore-case and default-comparison rows),
   and `GeneralExtensions.cs` is exempt from the 85 % floor. Its other uncovered members are pre-existing and
   untouched by this change.
+  - *(Rev 17, §9.13 FVC-1.)* The fix reaches FunkyORM's own code on the netstandard2.0 and net48 builds, where
+    `string` has no `Contains(string, StringComparison)` overload: each provider's delete guard calls it with
+    `OrdinalIgnoreCase` to look for trivial patterns (`1=1`, `true`, …) in the WHERE clause. There the check is now
+    case-insensitive, as on net8.0, so a WHERE clause naming `TrueUpAmount` is rejected as trivial. Pinned by
+    `DeleteGuardCaseTests` (sync and async) in the net48 project; both rows are red with the old body ("No exception
+    thrown") and green with the fix. The Changelog states it under Changed. The guard's substring patterns also
+    reject legitimate predicates on every build (pre-existing); tightening them is the owner's call.
 
 ### 4.3 Mutations each key test must kill
 
@@ -478,7 +490,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   - the PostgreSQL and MySQL suites, with their AC7 pins;
   - the SQLite suite;
   - the PostgreSQL repro row;
-  - net48 and net9.
+  - net48 (MSBuild, then vstest; it holds `DeleteGuardCaseTests`, and CI doesn't run it) and net9 *(rev 17)*.
 - **After the merge:** the PostgreSQL and MySQL workflows run on their own triggers.
 
 ## 5. Tasks
@@ -844,3 +856,14 @@ Verdict: NOT CLEAN on both lenses. Neither found a product defect. Blame: TEST-G
 | FVB-5 | nit | PLAN-GAP | The HRA layer's rows and members weren't in §4.1 or §4.2. | Listed, each with its killing mutant. A SQLite row is added so that every `IsFatal` is reached on purpose. |
 | FVB-6 | nit | PLAN-GAP | The cold-cache plan was stale after the merge and `d3a9b2d`: AC8/AC9 and their matrix rows, the `_mappedTypes` observers, its Status, Task 4's §8 attribution, and the AC4 rows' branch. | That plan's rev 19. |
 | FVB-7 | nit | PLAN-GAP | This branch's edits to the 3.10 plan had no revision marker, and its rev 44 N1 sub-bullet was rewritten under that tag. | Each edit is marked with this plan's revision, and the sub-bullet is retagged. |
+
+### 9.13 Fix-verification of `854ef80..32674c7` (`21e5858`, `7df6843`, `32674c7`; non-author; 30 mutants; suites and net48; IL binding scan and a net48 runtime probe)
+
+FVA-1/FVB-1, FVA-2, FVB-2…FVB-5 and FVB-7 resolved, each kill re-executed; FVB-6 partial (FVC-2). Suites at
+`32674c7`: SqlServer.Tests 1016, PostgreSql.Tests 785, MySql.Tests 738, Sqlite.Tests 800, DotNet9 5, net48 76, all
+passing. `21e5858`'s tests are red for two rows with the old body. Verdict: NOT CLEAN. Blame: AC-GAP 1, PLAN-GAP 1.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVC-1 | low | AC-GAP | The `Contains` fix changes `Delete`/`DeleteAsync` by predicate on the netstandard2.0 (all four providers) and net48 (SQL Server) builds, where the delete guard's `Contains(…, OrdinalIgnoreCase)` binds to the extension. The trivial-pattern check became case-insensitive there: a net48 probe deleted a `TrueUpAmount == 5` row before and throws "Delete operation requires a non-trivial WHERE clause." after. It fails closed and matches net8.0, but nothing documented or tested it, and the author's check of call sites missed these. | §4.2 records the reach. `DeleteGuardCaseTests` (net48, sync and async), red with the old body and green with the fix. A Changelog Changed entry. The guard's over-broad substring patterns are pre-existing on every build; tightening them is the owner's call. |
+| FVC-2 | nit | PLAN-GAP | Rev 19 of the cold-cache plan widened AC8/AC9 to all four providers, but its §4.2 and §4.3 still scoped "No D3", "D3 in only one method", "D1 after `ResolveRemoteJoins`" and the AC9 member rows to the server providers. | That plan's rev 20, citing the non-author SQLite runs (§9.12's lenses and this one). |
