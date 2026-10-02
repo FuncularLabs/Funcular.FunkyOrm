@@ -131,6 +131,43 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
         public override void Dispose() { }
     }
 
+    /// <summary>
+    /// A direct <see cref="OrmDataProvider"/> subclass whose identity is set per instance, so two instances can be in
+    /// different scopes. It reaches Core's own base <c>GetTableName&lt;T&gt;()</c> and <c>GetUnmappedProperties&lt;T&gt;()</c>,
+    /// which no built-in provider calls. No operation is implemented.
+    /// </summary>
+    internal sealed class DirectProviderWithIdentity : OrmDataProvider
+    {
+        private readonly string _identity;
+
+        public DirectProviderWithIdentity(string identity) => _identity = identity;
+
+        protected override string CacheScopeIdentity => _identity;
+
+        public ConcurrentDictionary<Type, string> Tables => TableNameCache;
+        public ConcurrentDictionary<Type, ICollection<PropertyInfo>> Unmapped => UnmappedPropertyCache;
+        public string TableNameOf<T>() => GetTableName<T>();
+        public ICollection<PropertyInfo> CoreUnmappedOf<T>() => GetUnmappedProperties<T>();
+
+        public override T Get<T>(dynamic key = null) => throw new NotSupportedException();
+        public override IQueryable<T> Query<T>() => throw new NotSupportedException();
+        public override ICollection<T> Query<T>(Expression<Func<T, bool>> expression) => throw new NotSupportedException();
+        public override ICollection<T> GetList<T>() => throw new NotSupportedException();
+        public override object Insert<T>(T entity) => throw new NotSupportedException();
+        public override TKey Insert<T, TKey>(T entity) => throw new NotSupportedException();
+        public override T Update<T>(T entity) => throw new NotSupportedException();
+        public override Task<T> GetAsync<T>(dynamic key = null) => throw new NotSupportedException();
+        public override Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression) => throw new NotSupportedException();
+        public override Task<ICollection<T>> GetListAsync<T>() => throw new NotSupportedException();
+        public override Task<object> InsertAsync<T>(T entity) => throw new NotSupportedException();
+        public override Task<TKey> InsertAsync<T, TKey>(T entity) => throw new NotSupportedException();
+        public override Task<T> UpdateAsync<T>(T entity) => throw new NotSupportedException();
+        public override Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate) => throw new NotSupportedException();
+        public override int Delete<T>(Expression<Func<T, bool>> predicate) => throw new NotSupportedException();
+        public override bool Delete<T>(long id) => throw new NotSupportedException();
+        public override void Dispose() { }
+    }
+
     /// <summary>A probe subclass of a direct <see cref="OrmDataProvider"/> subclass, reaching Core's own
     /// <c>GetUnmappedProperties&lt;T&gt;()</c>.</summary>
     internal sealed class CoreUnmappedProbe : DirectProviderA

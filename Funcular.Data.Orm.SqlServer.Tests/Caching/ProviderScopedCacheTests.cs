@@ -578,6 +578,62 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
             }
         }
 
+        [Table("zz_psc_core_table")]
+        public class PscCoreTable
+        {
+            [Key] public int Id { get; set; }
+        }
+
+        [Table("zz_psc_core_planted")]
+        public class PscCorePlanted
+        {
+            [Key] public int Id { get; set; }
+        }
+
+        [TestMethod]
+        public void CoreGetTableName_ReadsTheInstanceScope()
+        {
+            // Core's base GetTableName<T>(), which every built-in provider overrides: a direct subclass reaches it.
+            using var a = new DirectProviderWithIdentity($"zz-psc-core-a-{Unique()}");
+            using var b = new DirectProviderWithIdentity($"zz-psc-core-b-{Unique()}");
+
+            Assert.AreEqual("zz_psc_core_table", a.TableNameOf<PscCoreTable>(), "A resolves from [Table]");
+            Assert.IsTrue(a.Tables.TryGetValue(typeof(PscCoreTable), out var cachedA) && cachedA == "zz_psc_core_table",
+                "A's scope holds the name A resolved");
+            Assert.IsFalse(b.Tables.ContainsKey(typeof(PscCoreTable)), "B's scope holds the name A resolved");
+            Assert.AreEqual("zz_psc_core_table", b.TableNameOf<PscCoreTable>(), "B resolves from [Table]");
+            Assert.IsTrue(b.Tables.ContainsKey(typeof(PscCoreTable)), "B's scope holds the name B resolved");
+
+            a.Tables[typeof(PscCorePlanted)] = "zz_psc_planted_in_a";
+            Assert.AreEqual("zz_psc_planted_in_a", a.TableNameOf<PscCorePlanted>(), "A reads its own scope's plant");
+            Assert.AreEqual("zz_psc_core_planted", b.TableNameOf<PscCorePlanted>(), "B read the name planted in A's scope");
+        }
+
+        [Table("zz_psc_core_computed")]
+        public class PscCoreComputed
+        {
+            [Key] public int Id { get; set; }
+            public string Shown { get; set; }
+            [NotMapped] public string Hidden { get; set; }
+        }
+
+        [TestMethod]
+        public void CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted()
+        {
+            // Core's base GetUnmappedProperties<T>() computes the [NotMapped] properties (OrmDataProvider.cs, the
+            // GetOrAdd lambda) and caches them in the instance's scope.
+            using var a = new DirectProviderWithIdentity($"zz-psc-core-a-{Unique()}");
+            using var b = new DirectProviderWithIdentity($"zz-psc-core-b-{Unique()}");
+
+            var computed = a.CoreUnmappedOf<PscCoreComputed>();
+
+            CollectionAssert.AreEqual(new[] { nameof(PscCoreComputed.Hidden) }, computed.Select(p => p.Name).ToArray(),
+                "the computed set is the [NotMapped] property");
+            Assert.IsTrue(a.Unmapped.TryGetValue(typeof(PscCoreComputed), out var cached) && ReferenceEquals(cached, computed),
+                "the computed set is cached in A's scope");
+            Assert.IsFalse(b.Unmapped.ContainsKey(typeof(PscCoreComputed)), "the set A computed is cached in B's scope");
+        }
+
         #endregion
 
         #region AC9 — procedure names
