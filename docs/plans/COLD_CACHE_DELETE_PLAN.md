@@ -8,7 +8,7 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-02):** rev 21. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–3 are done. Task 3's hostile review
+> **Status (2026-10-02):** rev 22. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–3 are done. Task 3's hostile review
 > (§9.12) found no code defect; its fix layer is `34dd5fc`.
 > - Task 1: the seam `dd121c5`. Task 2: D1–D3 with the tests, `2727e4a` (message corrected from `c07693e`, HR1-7).
 > - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer `34dd5fc`, with one new test row per server
@@ -17,8 +17,12 @@
 > - Task 4: owner decision (b), no 3.9.1. This branch is merged into `fix/provider-scoped-caches` at `f73823c`, which
 >   carries it into `development/3.10`. Rev 19 is written there.
 
-> **Revision 21 — what changed (provider-scoped caches fix-verification FVD-1):** plan only. Two §4.2 rows cited
-> SQLite runs that left no record; they cite the provider-scoped caches plan's §9.14 runs instead.
+> **Revision 22 — what changed (provider-scoped caches fix-verification FVE-2):** plan only. Rev 21's third §4.2 edit
+> is tagged, and the rev 21 note says what it changed.
+
+> **Revision 21 — what changed (provider-scoped caches fix-verification FVD-1):** plan only. Two §4.2 rows' citations
+> named SQLite runs that left no record; they now cite recorded runs, including the provider-scoped caches plan's
+> §9.14. A third row also gains the §9.14 run *(note corrected in rev 22)*.
 
 > **Revision 20 — what changed (provider-scoped caches fix-verification FVC-2):** plan only, on
 > `fix/provider-scoped-caches`. §4.2's SQLite kills and §4.3's AC9 rows follow rev 19's widening of AC8/AC9.
@@ -314,7 +318,7 @@
 | Discovery wrapped in a swallowing try/catch | AC7 (attempt 1 must report the discovery error) | all 4 |
 | No D2 guard | AC6 (`ExecProcedure`-first: SQL Server, MySQL; direct helper: all 4) | all 4 |
 | No D3 | AC9 rows | all 4 (SQLite since `d3a9b2d`; executed on SQLite by the provider-scoped caches plan's §9.12 code lens and §9.14 verification) *(rev 20; citation rev 21)* |
-| D3 in only one of `Delete`/`DeleteAsync(long)` | the AC9 row of the other | all 4 (SQLite since `d3a9b2d`; executed on SQLite by the provider-scoped caches plan's §9.12 tests/prose lens and §9.14 verification) *(rev 20)* |
+| D3 in only one of `Delete`/`DeleteAsync(long)` | the AC9 row of the other | all 4 (SQLite since `d3a9b2d`; executed on SQLite by the provider-scoped caches plan's §9.12 tests/prose lens and §9.14 verification) *(rev 20; citation rev 21)* |
 | D3 wrapped in a swallowing try/catch (each method) | that method's missing-table row *(rev 5, F1)* | SQL Server, MySQL, PostgreSQL |
 | D3 before the transaction guard (each method) | that method's guard row *(rev 5, F3)* | all 4 |
 

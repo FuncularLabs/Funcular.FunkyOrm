@@ -8,14 +8,19 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 18. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 19. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
 > gaps and plan nits, fixed in `32674c7`. The verification of `854ef80..32674c7` (§9.13) found that the `Contains`
 > fix changes the delete guard on the netstandard2.0 and net48 builds, documented and pinned in `69ba3bb`. Its
-> verification (§9.14) found the table-name reach, a vacuous count and two wrong citations; this revision's layer
-> fixes them and is verified next. `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+> verification (§9.14) found the table-name reach, a vacuous count and two wrong citations, fixed in `36bb4b5`. Its
+> verification (§9.15) found two prose nits; this revision's layer fixes them and is verified next.
+> `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 19 — what changed:** the fix-verification of `69ba3bb..36bb4b5` (§9.15). The Changelog and §4.2 no
+> longer say the WHERE clause always names the table: a date part such as `.Year` doesn't (FVE-1). The cold-cache
+> plan's rev 21 edits are all tagged (FVE-2). Documents only.
 
 > **Revision 18 — what changed:** the fix-verification of `32674c7..69ba3bb` (§9.14). §4.2 and the Changelog say a
 > table whose name contains `True` is affected too, and `DeleteGuardCaseTests` gains a table-name row (FVD-2). Its
@@ -449,9 +454,10 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   - *(Rev 17, §9.13 FVC-1.)* The fix reaches FunkyORM's own code on the netstandard2.0 and net48 builds, where
     `string` has no `Contains(string, StringComparison)` overload: each provider's delete guard calls it with
     `OrdinalIgnoreCase` to look for trivial patterns (`1=1`, `true`, …) in the WHERE clause. There the check is now
-    case-insensitive, as on net8.0. The WHERE clause qualifies columns with the table name, so a column such as
-    `TrueUpAmount`, or a table whose name contains `True`, makes a predicate delete be rejected as trivial *(table:
-    rev 18, FVD-2)*. Pinned by `DeleteGuardCaseTests` in the net48 project: a column row, sync and async, and a
+    case-insensitive, as on net8.0, so a predicate on a column such as `TrueUpAmount` is rejected as trivial. The
+    WHERE clause also names the table for most members, though not inside a date part such as `.Year`, so most
+    predicate deletes on a table whose name contains `True` are rejected too *(table: rev 18, FVD-2; the date-part
+    exception: rev 19, FVE-1)*. Pinned by `DeleteGuardCaseTests` in the net48 project: a column row, sync and async, and a
     table-name row. All three are red with the old body ("No exception thrown") and green with the fix. Each counts
     the rows through the provider inside its transaction, before the rollback, so "the delete runs, then the guard
     throws" fails all three ("Expected:<2>. Actual:<1>") *(rev 18, FVD-3)*. The Changelog states it under Changed. The guard's substring patterns also
@@ -887,6 +893,18 @@ re-ran, with outputs recorded: "No D3" kills both AC9 rows ("no such column: ZzP
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
-| FVD-2 | low | AC-GAP | The Changelog and §4.2 described the guard change only through a column. The WHERE clause is table-qualified, so on netstandard2.0 and net48 a table whose name contains `True` now rejects predicate deletes whatever the column (net48 SQL Server and a SQLite netstandard2.0 probe on `zz_psfd_TrueUpLedger`, `Amount == 5`: deleted before, rejected after). | The Changelog and §4.2 say so; `Delete_OnATableNamedWithTrue_IsRejectedAsTrivial` (net48), red with the old body. |
+| FVD-2 | low | AC-GAP | The Changelog and §4.2 described the guard change only through a column. The WHERE clause is table-qualified, so on netstandard2.0 and net48 a table whose name contains `True` now rejects predicate deletes whatever the column *(rev 19: except a date part such as `.Year`, §9.15 FVE-1)* (net48 SQL Server and a SQLite netstandard2.0 probe on `zz_psfd_TrueUpLedger`, `Amount == 5`: deleted before, rejected after). | The Changelog and §4.2 say so; `Delete_OnATableNamedWithTrue_IsRejectedAsTrivial` (net48), red with the old body. |
 | FVD-3 | nit | TEST-GAP | `DeleteGuardCaseTests` counted rows after `RollbackTransaction()`, which undoes any delete, so "the delete runs, then the guard throws" passed. | Each row counts through the provider inside its transaction, before the rollback; that mutant fails all three rows. |
 | FVD-1 | nit | PLAN-GAP | Two of the cold-cache plan's rev 20 SQLite citations had no recorded run behind them: "No D3" cited the §9.12 tests/prose lens and §9.13, and "D1 after `ResolveRemoteJoins`" cited the §9.12 code lens. The saved artifacts hold no such runs; the run that killed "No D3" on SQLite was the §9.12 code lens. | Its rev 21 cites this verification's recorded runs for those two rows. The §9.13 FVC-2 disposition no longer names the runs. |
+
+### 9.15 Fix-verification of `69ba3bb..36bb4b5` (non-author; net48 red/green, a delete-then-throw mutant and the suite; a table-qualification mutant; date-part probes on net48 SQL Server and SQLite netstandard2.0; the cold-cache SQLite mutants re-run)
+
+FVD-1, FVD-2 and FVD-3 hold: the table-name row fails with the old body and under "the SQL Server visitor stops
+qualifying", which the column rows survive; "the DELETE runs, then the guard throws" fails all three rows; net48
+79/79; every cited SQLite kill reproduced at `36bb4b5`. Verdict: NOT CLEAN on two prose nits. Blame: AC-GAP 1,
+PLAN-GAP 1.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVE-1 | nit | AC-GAP | "The WHERE clause qualifies columns with the table name" is false for date parts: every visitor passes the unqualified column to its date-part translation, so on `TrueUpLedger` a `PostedOn.Value.Year == 2020` delete is still accepted (net48 SQL Server and SQLite netstandard2.0 probes). The sentence's "so" also made the column case depend on qualification, which it doesn't. | The Changelog and §4.2 state the column case on its own, then say the table is named for most members, not inside a date part. §9.14's FVD-2 row points here. |
+| FVE-2 | nit | PLAN-GAP | The cold-cache plan's rev 21 changed a third §4.2 row ("D3 in only one …") without a rev 21 tag, and its rev 21 note said two rows. | Tagged; the rev 21 note corrected (that plan's rev 22). |

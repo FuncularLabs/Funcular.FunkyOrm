@@ -182,9 +182,10 @@ Other changes:
 - **On the netstandard2.0 and .NET Framework 4.8 builds, `Delete`/`DeleteAsync` by predicate check the WHERE clause
   for trivial conditions case-insensitively**, as the .NET 8 build already did. This follows from the
   `GeneralExtensions.Contains` fix. A WHERE clause containing `true` in any letter case is rejected with "Delete
-  operation requires a non-trivial WHERE clause."; on those builds it was rejected before only in lower case. The
-  WHERE clause qualifies columns with the table name, so this affects a column such as `TrueUpAmount`, and predicate
-  deletes on a table whose name contains `True`, such as `TrueUpLedger`.
+  operation requires a non-trivial WHERE clause."; on those builds it was rejected before only in lower case. That
+  includes a predicate on a column such as `TrueUpAmount`. The WHERE clause also names the table for most members
+  (not inside a date part such as `.Year`), so most predicate deletes on a table such as `TrueUpLedger` are rejected
+  too.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
