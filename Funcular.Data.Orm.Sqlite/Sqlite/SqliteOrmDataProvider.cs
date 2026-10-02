@@ -779,8 +779,8 @@ namespace Funcular.Data.Orm.Sqlite
             SqliteParameterGenerator parameterGenerator = null,
             SqliteExpressionTranslator translator = null) where T : class, new()
         {
-            // Discover T before anything reads its columns: until discovery a convention-mapped member of T counts
-            // as unmapped unless another type's discovery already wrote its column-cache key.
+            // Discover T before anything reads its columns: a convention-mapped member of T counts as unmapped
+            // while its column-cache key is absent.
             DiscoverColumns<T>();
 
             var paramGen = parameterGenerator ?? new SqliteParameterGenerator();
@@ -1242,10 +1242,10 @@ namespace Funcular.Data.Orm.Sqlite
         /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
         /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
         /// Once <typeparamref name="T"/> is discovered (in <c>_mappedTypes</c>) it returns the cached set, computing and
-        /// caching it on first use. Before that it returns the set computed without caching: until discovery, a
-        /// convention-mapped property counts as unmapped unless its column-name cache key
-        /// (<c>DeclaringType.Name + "." + Name</c>) was already written by another type's discovery, and a cached set
-        /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
+        /// caching it on first use. Before that it returns the set computed without caching: a convention-mapped
+        /// property counts as unmapped while its column-name cache key (<c>DeclaringType.Name + "." + Name</c>) is
+        /// absent, and a cached set would outlive the discovery that corrects it
+        /// (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
         /// </summary>
         protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
         {

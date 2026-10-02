@@ -8,14 +8,21 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 14. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2
-> are done. Task 3's hostile review (§9.12) found no code defect; its fix layer is this revision's commit.
+> **Status (2026-10-01):** rev 15. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2 are done. Task 3's hostile review
+> (§9.12) found no code defect; its fix layer is `34dd5fc`.
 > - Task 1: the seam `dd121c5`. Task 2: D1–D3 with the tests, `2727e4a` (message corrected from `c07693e`, HR1-7).
 > - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer `34dd5fc`, with one new test row per server
->   provider; its fix-verification (§9.14) found nits only, fixed in rev 14.
+>   provider. Its fix-verifications found nits only: §9.14 (addressed in rev 14, `982acb2`) and §9.15 (addressed in
+>   rev 15). Rev 15 is re-verified next.
+
+> **Revision 15 — what changed (fix-verification FV2-1…FV2-6):** documents and comments only, in the reviewer's
+> wording. The Changelog's "Changed" bullet is tied to the missing-table error; "ran" becomes "could run". The
+> comments state the code's condition (the key is absent) rather than who writes it. The AC7 sub-bullet and D1's
+> list are scoped. The stale status is corrected.
 
 > **Revision 14 — what changed (fix-verification FV1-1…FV1-7):**
-> - The Changelog keeps only claims that hold for every case; its examples of symptoms are cut (FV1-2…FV1-4).
+> - The Changelog's examples of symptoms are cut (FV1-2…FV1-4). *(Rev 15: two remaining sentences still had
+>   counter-examples, FV2-1 and FV2-2.)*
 > - The doc and D1 comments state the cache-key mechanism, not a quantity (FV1-5).
 > - The new row is traced to AC7. The rev 12 re-check is recorded (§9.13), along with stale references and the
 >   Task 4 sweep list (FV1-1, FV1-6, FV1-7).
@@ -117,8 +124,8 @@
   `GenerateWhereClause<T>` in all four providers, before `ResolveRemoteJoins` and the unmapped cache.
   - **Changed error shape (HR1-1), on SQL Server, MySQL and PostgreSQL:** a cold predicate delete on a missing table
     throws discovery's `InvalidOperationException` (provider exception inner). This includes predicates that 3.9.0
-    sent to the database: a method call on a member, or only `[Column]` members. Before, the provider's exception
-    was thrown directly. Pinned by `DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError`;
+    sent to the database, such as a lone method call on a member, or `[Column]` members only *(rev 15, FV2-5)*.
+    Before, the provider's exception was thrown directly. Pinned by `DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError`;
     Changelog "Changed".
 - **D2 — No provider-class path caches an unmapped set for an undiscovered type.**
   - One helper per provider, `UnmappedPropertiesFor<T>()`: the cached set when `T` is in `_mappedTypes`, otherwise
@@ -164,8 +171,9 @@
 - **AC7:** On all four providers, a cold delete whose discovery fails reports the discovery error, caches no
   unmapped set and no column names, and the next call succeeds once the table exists. (`[Table]` types; an
   unattributed type's table-name fallback is §6.)
-  - On SQL Server, MySQL and PostgreSQL that holds also for a predicate 3.9.0 sent to the database, such as a
-    method call on a member *(rev 14, FV1-1)*.
+  - On SQL Server, MySQL and PostgreSQL, a cold predicate delete that 3.9.0 sent to the database (such as a lone
+    method call on a member) also reports the discovery error and caches nothing *(rev 14, FV1-1; scoped in rev 15,
+    FV2-4, FV2-5)*.
 - **AC8:** A cold `GenerateWhereClause<T>` discovers `T` before translating. On SQL Server, MySQL and PostgreSQL it
   renders `T`'s own snake_case columns, including inside a `[SqlExpression]` token.
 - **AC9:** A cold `Delete<T>(id)` and, separately, a cold `DeleteAsync<T>(id)` delete the row on SQL Server, MySQL and
@@ -371,7 +379,8 @@ Local runs are recorded with their sha.
    comment reworded (§9.6) *(rev 8, I3)*. **Done:** `2727e4a`, numbers in §4.3 and §4.4.
 4. **Task 3** — Changelog "Fixed"; hostile review and fix-verification to CLEAN.
    - Changelog `8c855a7` and `2d2e439` (under `[Unreleased]` until the owner's Task 4 choice).
-   - Hostile review §9.12: NOT CLEAN, no code defect. Its fix layer is rev 13's commit, and fix-verification is next.
+   - Hostile review §9.12: NOT CLEAN, no code defect. Its fix layer is `34dd5fc` (rev 13). Fix-verifications §9.14 and
+     §9.15 found nits only, addressed in revs 14 and 15.
 5. **Task 4 — Merge path (owner).** A merge to `master` runs `ci.yml`'s `publish` (NuGet push), so nothing lands on
    `master` without a release decision:
    - **(a)** 3.9.1: version bump, PR into `master`, publish; or
@@ -585,3 +594,18 @@ Verdict: NOT CLEAN on seven nits; no code defect.
 | FV1-5 | nit | HOUSE-RULE | The D1 comments kept HR1-5's overstatement, and the new parenthetical named one of three causes (base type, sibling, same-named type). | Every comment states the key mechanism, not a quantity. |
 | FV1-6 | nit | PLAN-GAP | "Task 0 CLEAN" had no record; a future-tense sentence remained; the §9.12 sha was replaced by the rebuild. | §9.13 recorded; past tense; the sha mapped. |
 | FV1-7 | nit | PLAN-GAP | Task 4 named only the warm-up; two more workaround texts go stale at the merge. | Listed. |
+
+### 9.15 Fix-verification of `fae4472..982acb2` (non-author; probes at `fae4472` and `982acb2` on three providers; the cold classes at `982acb2`)
+
+Verdict: NOT CLEAN on six nits; no code defect.
+- **Resolved:** FV1-1 (its four items), FV1-2 (in the Changelog), FV1-3, FV1-4, FV1-6 (its three items), FV1-7.
+- **Partial:** FV1-5.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FV2-1 | nit | HOUSE-RULE | Fix-introduced: "a delete … on a table that doesn't exist throws … with the provider's exception as `InnerException`" has counter-examples (null predicate; MySQL 1049; SQL Server 5313; PostgreSQL 25P02 in an aborted transaction). | Tied to the missing-table error (208, 1146, 42P01), in the reviewer's wording. |
+| FV2-2 | nit | HOUSE-RULE | Fix-introduced: "ran before the type's columns were discovered" is false for a `[RemoteProperty]` type, whose join resolution discovered it. | "Could run". |
+| FV2-3 | nit | HOUSE-RULE | The comments named "another type's discovery" as the key's writer; `GetCachedColumnName`, the visitors and the LINQ providers write it too. | The comments state the condition: the key is absent. |
+| FV2-4 | nit | TEST-GAP | Fix-introduced: the AC7 sub-bullet carried all of AC7, including "the next call succeeds", which its row doesn't test. | Scoped to "reports the discovery error and caches nothing". |
+| FV2-5 | nit | PLAN-GAP | D1 and AC7 said "a method call on a member"; one mixed with a convention comparison wasn't sent. | "A lone method call". |
+| FV2-6 | nit | PLAN-GAP | Fix-introduced: stale status ("this revision's commit", "fix-verification is next"), and results claimed before verification. | Corrected. |

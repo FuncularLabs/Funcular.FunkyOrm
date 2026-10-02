@@ -7,17 +7,18 @@ All notable changes to this project will be documented in this file.
 Not yet assigned to a release: a 3.9.1 patch, or folded into 3.10.0 (`docs/plans/COLD_CACHE_DELETE_PLAN.md`, Task 4).
 
 ### Fixed
-- **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** ran before the
-  type's columns were discovered. For example, `x => x.LastName == value` on a member mapped by convention could throw
+- **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** could run before
+  the type's columns were discovered. For example, `x => x.LastName == value` on a member mapped by convention could throw
   `NotSupportedException: Expression type Parameter is not supported`. They now discover the type's columns first.
   All four providers.
 - **`ExecProcedure<T>` as a type's first use** no longer leaves `Query<T>()` and `Delete<T>(predicate)` failing for
   that type afterwards. SQL Server and MySQL.
 
 ### Changed
-- On SQL Server, MySQL and PostgreSQL, a delete inside a transaction, as a type's first use, on a table that doesn't
-  exist, throws `InvalidOperationException` with the provider's exception as `InnerException`. Some of these calls
-  threw the provider's exception directly before.
+- On SQL Server, MySQL and PostgreSQL, when a delete inside a transaction is a type's first use and the type's table
+  doesn't exist, the provider's missing-table error (SQL Server 208, MySQL 1146, PostgreSQL 42P01) is now the
+  `InnerException` of an `InvalidOperationException`. Some of these calls threw the provider's exception directly
+  before.
 
 ## [3.9.0] - 2026-07-06
 
