@@ -1,7 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Funcular.Data.Orm
 {
@@ -10,40 +14,62 @@ namespace Funcular.Data.Orm
     /// unmapped-property set, the mapped-type set, procedure names and entity mappers. A provider instance reads the
     /// set of its scope (D1): its provider runtime type, its dialect runtime type and its connection identity.
     /// </summary>
-    /// <remarks>
-    /// SEAM (Task 1a): every provider instance still resolves to <see cref="CacheScopeRegistry.ProcessWide"/>, the one
-    /// set that 3.9.0's statics are, so nothing is scoped yet. Task 2 makes the registry hand out real scopes.
-    /// </remarks>
     internal sealed class CacheScope
     {
-        internal CacheScope(CacheScopeKey? key, ICollection<Type> mappedTypes)
+        internal CacheScope(CacheScopeKey? key)
         {
             Key = key;
-            MappedTypes = mappedTypes ?? throw new ArgumentNullException(nameof(mappedTypes));
         }
 
-        /// <summary>The registry key of this scope, or null for a scope the registry doesn't hold.</summary>
+        /// <summary>The registry key of this scope, or null for a per-instance scope the registry never holds (D3).</summary>
         internal CacheScopeKey? Key { get; }
 
         /// <summary>Entity type → resolved, dialect-enclosed table name.</summary>
         internal ConcurrentDictionary<Type, string> TableNames { get; } = new ConcurrentDictionary<Type, string>();
 
-        /// <summary>Property key → column name. The comparer ignores underscores and case (3.9.0 behaviour).</summary>
+        /// <summary>
+        /// Property key (<see cref="GeneralExtensions.ToDictionaryKey"/>, the declaring type's full name and the property
+        /// name) → column name. Ordinal (D5).
+        /// </summary>
         internal ConcurrentDictionary<string, string> ColumnNames { get; } =
-            new ConcurrentDictionary<string, string>(new IgnoreUnderscoreAndCaseStringComparer());
+            new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>Entity type → the properties that have no column.</summary>
         internal ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedProperties { get; } =
             new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
 
-        /// <summary>The types whose columns have been discovered.</summary>
-        internal ICollection<Type> MappedTypes { get; }
+        /// <summary>The types whose columns have been discovered. A concurrent set (D4).</summary>
+        internal ICollection<Type> MappedTypes { get; } = new ConcurrentTypeSet();
 
         /// <summary>Entity type → resolved stored procedure name (SQL Server, MySQL).</summary>
         internal ConcurrentDictionary<Type, string> ProcedureNames { get; } = new ConcurrentDictionary<Type, string>();
 
         /// <summary>Entity type and result-set signature → compiled reader-to-entity mapper.</summary>
         internal ConcurrentDictionary<string, Delegate> EntityMappers { get; } = new ConcurrentDictionary<string, Delegate>();
+    }
+
+    /// <summary>A thread-safe set of types, for <see cref="CacheScope.MappedTypes"/>.</summary>
+    internal sealed class ConcurrentTypeSet : ICollection<Type>
+    {
+        private readonly ConcurrentDictionary<Type, byte> _types = new ConcurrentDictionary<Type, byte>();
+
+        public int Count => _types.Count;
+
+        public bool IsReadOnly => false;
+
+        public void Add(Type item) => _types.TryAdd(item, 0);
+
+        public void Clear() => _types.Clear();
+
+        public bool Contains(Type item) => item != null && _types.ContainsKey(item);
+
+        public void CopyTo(Type[] array, int arrayIndex) => _types.Keys.ToArray().CopyTo(array, arrayIndex);
+
+        public bool Remove(Type item) => item != null && _types.TryRemove(item, out _);
+
+        public IEnumerator<Type> GetEnumerator() => _types.Keys.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>
@@ -63,7 +89,7 @@ namespace Funcular.Data.Orm
 
         internal Type? DialectType { get; }
 
-        /// <summary>The SHA-256 of the connection identity, as hexadecimal.</summary>
+        /// <summary>The SHA-256 of the connection identity's UTF-8 bytes, as lowercase hexadecimal.</summary>
         internal string IdentityHash { get; }
 
         public bool Equals(CacheScopeKey other) =>
@@ -86,37 +112,46 @@ namespace Funcular.Data.Orm
     }
 
     /// <summary>
-    /// Maps a scope key to its cache set for the life of the process (D1, D9).
+    /// Maps a scope key to its cache set for the life of the process, with no eviction (D1, D9): one scope per
+    /// (provider runtime type, dialect runtime type, connection identity).
     /// </summary>
     internal static class CacheScopeRegistry
     {
-        /// <summary>
-        /// SEAM (Task 1a): the mapped-type set of <see cref="ProcessWide"/>, typed as the 3.9.0
-        /// <c>OrmDataProvider._mappedTypes</c> static that aliases it. Removed with that static in Task 3.
-        /// </summary>
-        internal static readonly HashSet<Type> ProcessWideMappedTypes = new HashSet<Type>();
+        private static readonly ConcurrentDictionary<CacheScopeKey, CacheScope> _scopes =
+            new ConcurrentDictionary<CacheScopeKey, CacheScope>();
 
         /// <summary>
-        /// SEAM (Task 1a): the one process-wide set that <see cref="OrmDataProvider"/>'s 3.9.0 statics alias.
-        /// Removed with those statics in Task 3.
-        /// </summary>
-        internal static readonly CacheScope ProcessWide = new CacheScope(null, ProcessWideMappedTypes);
-
-        /// <summary>
-        /// Returns the cache set for a provider instance's scope (D1, D3, D8).
+        /// Returns the cache set for a provider instance's scope (D1, D3, D8). A null identity gets a new per-instance set
+        /// that is never registered; any other identity, empty included, gets the registered set for its key, so
+        /// resolution is idempotent and thread-safe.
         /// </summary>
         /// <param name="providerType">The provider's runtime type.</param>
         /// <param name="dialectType">The runtime type of the provider's dialect.</param>
         /// <param name="identity">The connection identity: null for a per-instance scope, empty for one scope per
-        /// (provider type, dialect type).</param>
-        /// <remarks>SEAM (Task 1a): always <see cref="ProcessWide"/>; nothing is registered yet.</remarks>
+        /// (provider type, dialect type). Only its SHA-256 is kept (D2).</param>
         internal static CacheScope GetOrAdd(Type providerType, Type? dialectType, string? identity)
         {
             if (providerType == null) throw new ArgumentNullException(nameof(providerType));
-            return ProcessWide;
+            if (identity == null)
+                return new CacheScope(null);
+            var key = new CacheScopeKey(providerType, dialectType, HashIdentity(identity));
+            return _scopes.GetOrAdd(key, k => new CacheScope(k));
         }
 
-        /// <summary>The keys of the registered scopes. SEAM (Task 1a): none.</summary>
-        internal static IReadOnlyCollection<CacheScopeKey> Keys => Array.Empty<CacheScopeKey>();
+        /// <summary>The keys of the registered scopes.</summary>
+        internal static IReadOnlyCollection<CacheScopeKey> Keys => _scopes.Keys.ToArray();
+
+        /// <summary>The SHA-256 of <paramref name="identity"/>'s UTF-8 bytes, as lowercase hexadecimal (D2).</summary>
+        internal static string HashIdentity(string identity)
+        {
+            using (var sha = SHA256.Create())
+            {
+                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(identity ?? string.Empty));
+                var hex = new StringBuilder(bytes.Length * 2);
+                foreach (var b in bytes)
+                    hex.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                return hex.ToString();
+            }
+        }
     }
 }

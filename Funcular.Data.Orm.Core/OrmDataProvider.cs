@@ -21,19 +21,6 @@ namespace Funcular.Data.Orm
         #region Fields
 
         /// <summary>
-        /// Cache mapping entity types to their resolved database table names.
-        /// </summary>
-        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
-        protected static readonly ConcurrentDictionary<Type, string> _tableNames = CacheScopeRegistry.ProcessWide.TableNames;
-
-        /// <summary>
-        /// Cache mapping property dictionary keys (type + property) to actual database column names.
-        /// Uses a comparer that ignores underscores and case.
-        /// </summary>
-        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
-        protected static readonly ConcurrentDictionary<string, string> _columnNames = CacheScopeRegistry.ProcessWide.ColumnNames;
-
-        /// <summary>
         /// Cache mapping entity types to their primary key <see cref="PropertyInfo"/>.
         /// </summary>
         protected static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new ConcurrentDictionary<Type, PropertyInfo>();
@@ -42,18 +29,6 @@ namespace Funcular.Data.Orm
         /// Cache mapping entity types to the reflection <see cref="PropertyInfo"/> collection representing properties.
         /// </summary>
         protected static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _propertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
-
-        /// <summary>
-        /// Cache mapping entity types to properties marked with <see cref="NotMappedAttribute"/>.
-        /// </summary>
-        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
-        protected internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _unmappedPropertiesCache = CacheScopeRegistry.ProcessWide.UnmappedProperties;
-
-        /// <summary>
-        /// Tracks which types have had their mappings discovered (to avoid repeated database schema calls).
-        /// </summary>
-        /// <remarks>SEAM (provider-scoped caches, Task 1a): the process-wide scope's set; removed in Task 3.</remarks>
-        protected static readonly HashSet<Type> _mappedTypes = CacheScopeRegistry.ProcessWideMappedTypes;
 
         /// <summary>
         /// Cache mapping property types to their corresponding value setters.
@@ -67,14 +42,17 @@ namespace Funcular.Data.Orm
 
         #region Identifier Cache Scope
 
-        // docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md (D1, D4, D7, D8). SEAM (Task 1a): every member below resolves to the
-        // process-wide set that the 3.9.0 statics above alias, so behaviour is unchanged. Task 2 scopes the registry;
-        // Task 3 moves the providers onto these members and removes the statics.
+        // Identifier caches are scoped per (provider runtime type, dialect runtime type, connection identity)
+        // (docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md, D1, D4, D7, D8): providers of different types, dialects or
+        // databases never read each other's table names, column names, unmapped and mapped sets, procedure names or
+        // entity mappers.
 
         /// <summary>
         /// The connection identity of this instance's cache scope (D2, D3): null means a per-instance scope that the
         /// registry never holds; empty means one scope per (provider type, dialect type). The default is empty, so a
         /// direct <see cref="OrmDataProvider"/> subclass that doesn't override this gets one scope per provider type.
+        /// Each built-in provider overrides it with its connection string, parsed by its typed builder with the
+        /// password removed. Never logged.
         /// </summary>
         protected virtual string? CacheScopeIdentity => string.Empty;
 
@@ -84,39 +62,37 @@ namespace Funcular.Data.Orm
         protected virtual Type? CacheScopeDialectType => null;
 
         /// <summary>
-        /// This instance's cache scope. Resolved on first use, after the constructor has set the dialect, and once
-        /// per instance (D8).
+        /// This instance's cache scope. Resolved on first cache use, after the constructor has set the dialect, and
+        /// once per instance; registered scopes come from the registry's <c>GetOrAdd</c>, so resolution is idempotent
+        /// and thread-safe (D8).
         /// </summary>
         internal CacheScope CacheScope =>
             LazyInitializer.EnsureInitialized(ref _cacheScope,
                 () => CacheScopeRegistry.GetOrAdd(GetType(), CacheScopeDialectType, CacheScopeIdentity))!;
 
-        /// <summary>The registry key of this instance's scope, or null when the registry doesn't hold it.</summary>
+        /// <summary>The registry key of this instance's scope, or null for a per-instance scope.</summary>
         internal CacheScopeKey? CacheScopeKey => CacheScope.Key;
 
         /// <summary>Entity type → resolved table name, in this instance's scope.</summary>
         protected ConcurrentDictionary<Type, string> TableNameCache => CacheScope.TableNames;
 
-        /// <summary>Property key → column name, in this instance's scope.</summary>
+        /// <summary>
+        /// Property key (<see cref="GeneralExtensions.ToDictionaryKey"/>) → column name, in this instance's scope. The
+        /// keys compare ordinally.
+        /// </summary>
         protected ConcurrentDictionary<string, string> ColumnNameCache => CacheScope.ColumnNames;
 
         /// <summary>Entity type → unmapped properties, in this instance's scope.</summary>
         protected ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertyCache => CacheScope.UnmappedProperties;
 
-        /// <summary>The types whose columns have been discovered in this instance's scope.</summary>
+        /// <summary>The types whose columns have been discovered in this instance's scope (a concurrent set).</summary>
         protected ICollection<Type> MappedTypes => CacheScope.MappedTypes;
 
-        /// <summary>
-        /// Compiled entity mappers in this instance's scope. SEAM (Task 1a): virtual so each provider can keep returning
-        /// its own 3.9.0 mapper static; Task 3 removes those overrides.
-        /// </summary>
-        protected virtual ConcurrentDictionary<string, Delegate> EntityMapperCache => CacheScope.EntityMappers;
+        /// <summary>Compiled entity mappers in this instance's scope.</summary>
+        protected ConcurrentDictionary<string, Delegate> EntityMapperCache => CacheScope.EntityMappers;
 
-        /// <summary>
-        /// Resolved stored procedure names in this instance's scope. SEAM (Task 1a): virtual so SQL Server and MySQL can
-        /// keep returning their own 3.9.0 procedure-name statics; Task 3 removes those overrides.
-        /// </summary>
-        protected virtual ConcurrentDictionary<Type, string> ProcedureNameCache => CacheScope.ProcedureNames;
+        /// <summary>Resolved stored procedure names in this instance's scope (SQL Server, MySQL).</summary>
+        protected ConcurrentDictionary<Type, string> ProcedureNameCache => CacheScope.ProcedureNames;
 
         #endregion
 
@@ -404,7 +380,7 @@ namespace Funcular.Data.Orm
         /// <returns>System.String.</returns>
         protected internal virtual string GetTableName<T>()
         {
-            return _tableNames.GetOrAdd(typeof(T), t =>
+            return TableNameCache.GetOrAdd(typeof(T), t =>
             {
                 var tableAttribute = t.GetCustomAttribute<TableAttribute>();
                 return tableAttribute != null ? tableAttribute.Name : t.Name;
@@ -436,14 +412,15 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Gets the cached column name for the specified property.
+        /// Gets the cached column name for the specified property, keyed by <see cref="GeneralExtensions.ToDictionaryKey"/>
+        /// as discovery keys it, so a discovered name is used (D5).
         /// </summary>
         /// <param name="property">The property.</param>
         /// <returns>System.String.</returns>
         protected internal virtual string GetCachedColumnName(PropertyInfo property)
         {
-            var key = $"{property.DeclaringType?.FullName}.{property.Name}";
-            return _columnNames.GetOrAdd(key, k =>
+            var key = property.ToDictionaryKey();
+            return ColumnNameCache.GetOrAdd(key, k =>
             {
                 var columnAttribute = property.GetCustomAttribute<ColumnAttribute>();
                 return columnAttribute != null ? columnAttribute.Name : property.Name;
@@ -470,13 +447,13 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Gets the unmapped properties for the specified type.
+        /// Gets the unmapped properties for the specified type, from this instance's scope.
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns>ICollection&lt;PropertyInfo&gt;.</returns>
         protected ICollection<PropertyInfo> GetUnmappedProperties<T>()
         {
-            return _unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+            return UnmappedPropertyCache.GetOrAdd(typeof(T), t =>
             {
                 return t.GetProperties()
                     .Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)

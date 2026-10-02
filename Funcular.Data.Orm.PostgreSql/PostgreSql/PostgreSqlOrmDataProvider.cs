@@ -48,14 +48,17 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private int _activeTransactionalScopes;
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
-        internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
+
+        /// <summary>
+        /// The string the identity of this instance's cache scope comes from (provider-scoped caches plan, D3): the
+        /// constructor string or, when that is empty, the supplied connection's string. Captured at construction, so a
+        /// connection replaced later doesn't change the scope. Never logged.
+        /// </summary>
+        private readonly string _cacheScopeIdentitySource;
 
         #endregion
 
         #region Properties
-
-        internal static ConcurrentDictionary<string, string> ColumnNamesCache => _columnNames;
-        internal static ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertiesCache => _unmappedPropertiesCache;
 
         public IDbConnection Connection { get; set; }
 
@@ -76,6 +79,9 @@ namespace Funcular.Data.Orm.PostgreSql
             IDbTransaction transaction = null, ISqlDialect dialect = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _cacheScopeIdentitySource = string.IsNullOrWhiteSpace(_connectionString) && connection != null
+                ? connection.ConnectionString
+                : _connectionString;
             Connection = connection;
             Transaction = transaction;
             Dialect = dialect ?? new PostgreSqlDialect();
@@ -575,7 +581,7 @@ namespace Funcular.Data.Orm.PostgreSql
             var existingJoins = new Dictionary<string, string>();
             var aliasCounts = new Dictionary<string, int>();
 
-            string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
+            string GetTableNameByType(Type t) => TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
 
             foreach (var prop in remoteProperties)
@@ -590,7 +596,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 // keys and the final column map to real DB names (snake_case-aware) instead of the naive
                 // property-name fallback. Deterministic regardless of whether the target type was materialized
                 // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
-                // guarded (_mappedTypes) schema-only read per type.
+                // guarded (MappedTypes, this instance's scope) schema-only read per type.
                 foreach (var step in resolvedPath.Joins)
                 {
                     DiscoverColumns(step.SourceTableType);
@@ -782,7 +788,7 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private string GetTableNameForType(Type t)
         {
-            return _tableNames.GetOrAdd(t, type =>
+            return TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
         }
 
@@ -840,8 +846,8 @@ namespace Funcular.Data.Orm.PostgreSql
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
 
             var visitor = new PostgreSqlWhereClauseVisitor<T>(
-                ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                ColumnNameCache,
+                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
 
@@ -869,8 +875,8 @@ namespace Funcular.Data.Orm.PostgreSql
             PostgreSqlQueryComponents<T> commandElements = null) where T : class, new()
         {
             var visitor = new PostgreSqlOrderByClauseVisitor<T>(
-                ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                ColumnNameCache,
+                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
             visitor.Visit(expression);
             if (commandElements == null)
                 commandElements = new PostgreSqlQueryComponents<T>(expression, string.Empty, string.Empty, string.Empty, visitor.OrderByClause, new List<NpgsqlParameter> { });
@@ -1104,7 +1110,7 @@ namespace Funcular.Data.Orm.PostgreSql
 
         protected void DiscoverColumns(Type type)
         {
-            if (_mappedTypes.Contains(type)) return;
+            if (MappedTypes.Contains(type)) return;
             var table = GetTableNameByType(type);
             // PostgreSQL: Use LIMIT 0 instead of TOP 0
             var commandText = $"SELECT * FROM {table} LIMIT 0";
@@ -1163,10 +1169,10 @@ namespace Funcular.Data.Orm.PostgreSql
                             if (actualColumnName != null)
                             {
                                 var key = property.ToDictionaryKey();
-                                ColumnNamesCache[key] = Dialect.EncloseIdentifier(actualColumnName);
+                                ColumnNameCache[key] = Dialect.EncloseIdentifier(actualColumnName);
                             }
                         }
-                        _mappedTypes.Add(type);
+                        MappedTypes.Add(type);
                     }
                 }
                 catch (Npgsql.PostgresException ex) { HandlePostgresException(type, ex); throw; }
@@ -1184,7 +1190,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected T MapEntity<T>(NpgsqlDataReader reader) where T : class, new()
         {
             string schemaKey = typeof(T).FullName + "|" + GetSchemaSignature(reader);
-            var mapper = (Func<NpgsqlDataReader, T>)_entityMappers.GetOrAdd(schemaKey, _ => BuildDataReaderMapper<T>(reader));
+            var mapper = (Func<NpgsqlDataReader, T>)EntityMapperCache.GetOrAdd(schemaKey, _ => BuildDataReaderMapper<T>(reader));
             return mapper(reader);
         }
 
@@ -1203,7 +1209,7 @@ namespace Funcular.Data.Orm.PostgreSql
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
+                UnmappedPropertyCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
 
             var mappings = properties.Select(p =>
             {
@@ -1263,7 +1269,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected internal CommandParameters BuildInsertCommandObject<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1288,7 +1294,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected internal CommandParameters BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1353,13 +1359,37 @@ namespace Funcular.Data.Orm.PostgreSql
 
         internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
 
-        // Identifier cache scope (provider-scoped caches plan). SEAM (Task 1a): behaviour-neutral. The override keeps
-        // returning this provider's 3.9.0 mapper static, and the accessors read this instance's scope, which is still
-        // the process-wide set. Task 3 removes the override and the static and routes the LINQ provider and visitors
-        // through the accessors.
+        // Identifier cache scope (provider-scoped caches plan, D1-D3, D7, D8).
 
-        /// <inheritdoc />
-        protected override ConcurrentDictionary<string, Delegate> EntityMapperCache => _entityMappers;
+        /// <summary>
+        /// The identity of this instance's cache scope (D2, D3): the constructor string, or the supplied connection's
+        /// string when that is empty, parsed by <see cref="NpgsqlConnectionStringBuilder"/> with the password removed
+        /// (every synonym) and taken as the builder's canonical string. A string the builder rejects is used as given;
+        /// the registry keeps only its SHA-256. Never logged.
+        /// </summary>
+        protected override string CacheScopeIdentity
+        {
+            get
+            {
+                var source = _cacheScopeIdentitySource ?? string.Empty;
+                try
+                {
+                    var builder = new NpgsqlConnectionStringBuilder(source);
+                    builder.Remove("Password");
+                    return builder.ConnectionString;
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is FormatException ||
+                                           ex is KeyNotFoundException || ex is InvalidOperationException)
+                {
+                    return source;
+                }
+            }
+        }
+
+        /// <summary>The runtime type of <see cref="Dialect"/> (D1).</summary>
+        protected override Type CacheScopeDialectType => Dialect.GetType();
+
+        // Internal accessors: the LINQ provider, the visitors and the tests read this instance's scope through these.
 
         /// <summary>This instance's table-name cache.</summary>
         internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
@@ -1464,7 +1494,11 @@ namespace Funcular.Data.Orm.PostgreSql
 
         #region Original Protected Helpers
 
-        protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
+        /// <summary>
+        /// The properties of <typeparamref name="T"/> that have no column in this instance's scope: [NotMapped], remote,
+        /// and those with neither [Column] nor a discovered column.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new()
         {
             var properties = typeof(T).GetProperties();
@@ -1477,7 +1511,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
                 if (columnAttr != null) return false;
                 var key = p.ToDictionaryKey();
-                return !_columnNames.ContainsKey(key);
+                return !ColumnNameCache.ContainsKey(key);
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
@@ -1487,7 +1521,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));
@@ -1509,9 +1543,9 @@ namespace Funcular.Data.Orm.PostgreSql
             p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
             p.Name.Equals($"{typeof(T).Name}Id", StringComparison.OrdinalIgnoreCase));
 
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
+        protected override string GetTableName<T>() => TableNameCache.GetOrAdd(typeof(T), ResolveTableName);
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
+        private string GetTableNameByType(Type type) => TableNameCache.GetOrAdd(type, ResolveTableName);
 
         /// <summary>
         /// Resolves the table name for a CLR type. Resolution order:
@@ -1578,7 +1612,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected override string GetCachedColumnName(PropertyInfo property)
         {
             var key = property.ToDictionaryKey();
-            return ColumnNamesCache.GetOrAdd(key, _ =>
+            return ColumnNameCache.GetOrAdd(key, _ =>
             {
                 var columnAttribute = property.GetCustomAttribute<ColumnAttribute>();
                 var rawName = columnAttribute != null ? columnAttribute.Name : property.Name;

@@ -38,8 +38,8 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Converts to a dictionary key, using the type name of the object, a dot,
-        /// and the name of the property.
+        /// Converts to a column-cache key: the full name of the property's declaring type, a dot, and the name of the
+        /// property. Two types with the same simple name never share a key.
         /// </summary>
         /// <param name="propertyInfo">The property information.</param>
         /// <returns>System.String.</returns>
@@ -52,8 +52,8 @@ namespace Funcular.Data.Orm
         public static string ToDictionaryKey(this PropertyInfo propertyInfo)
         {
             if(propertyInfo == null)
-                throw new ArgumentNullException(nameof(propertyInfo)); 
-            return $"{propertyInfo.DeclaringType?.Name}.{propertyInfo.Name}";
+                throw new ArgumentNullException(nameof(propertyInfo));
+            return $"{propertyInfo.DeclaringType?.FullName}.{propertyInfo.Name}";
         }
 
 

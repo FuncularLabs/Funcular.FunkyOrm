@@ -32,14 +32,17 @@ namespace Funcular.Data.Orm.Sqlite
         private readonly SqliteStringComparison _stringComparison;
 
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
-        internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
+
+        /// <summary>
+        /// The resolved string the identity of this instance's cache scope comes from (provider-scoped caches plan, D3):
+        /// the constructor string or, when that is empty, the supplied connection's string. Captured at construction, so
+        /// a connection replaced later doesn't change the scope. Never logged.
+        /// </summary>
+        private readonly string _cacheScopeIdentitySource;
 
         #endregion
 
         #region Properties
-
-        internal static ConcurrentDictionary<string, string> ColumnNamesCache => _columnNames;
-        internal static ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertiesCache => _unmappedPropertiesCache;
 
         public IDbConnection Connection { get; set; }
 
@@ -72,6 +75,9 @@ namespace Funcular.Data.Orm.Sqlite
             SqliteStringComparison stringComparison = SqliteStringComparison.CaseInsensitive)
         {
             _connectionString = ResolveConnectionString(connectionString) ?? throw new ArgumentNullException(nameof(connectionString));
+            _cacheScopeIdentitySource = string.IsNullOrWhiteSpace(_connectionString) && connection != null
+                ? ResolveIdentitySource(connection.ConnectionString)
+                : _connectionString;
             Connection = connection;
             Transaction = transaction;
             Dialect = dialect ?? new SqliteDialect();
@@ -98,6 +104,25 @@ namespace Funcular.Data.Orm.Sqlite
                 builder.DataSource = dataSource;
             }
             return builder.ConnectionString;
+        }
+
+        /// <summary>
+        /// Resolves a supplied connection's string as the constructor string is resolved, so both name a database the
+        /// same way in the cache-scope identity. A string that can't be resolved is used as given: the identity must
+        /// never make construction fail.
+        /// </summary>
+        private static string ResolveIdentitySource(string connectionString)
+        {
+            try
+            {
+                return ResolveConnectionString(connectionString);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is FormatException || ex is NotSupportedException ||
+                                       ex is System.IO.PathTooLongException || ex is System.Security.SecurityException ||
+                                       ex is KeyNotFoundException || ex is InvalidOperationException)
+            {
+                return connectionString;
+            }
         }
 
         #endregion
@@ -527,7 +552,7 @@ namespace Funcular.Data.Orm.Sqlite
             var existingJoins = new Dictionary<string, string>();
             var aliasCounts = new Dictionary<string, int>();
 
-            string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
+            string GetTableNameByType(Type t) => TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
 
             foreach (var prop in remoteProperties)
@@ -542,7 +567,7 @@ namespace Funcular.Data.Orm.Sqlite
                 // keys and the final column map to real DB names (snake_case-aware) instead of the naive
                 // property-name fallback. Deterministic regardless of whether the target type was materialized
                 // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
-                // guarded (_mappedTypes) schema-only read per type.
+                // guarded (MappedTypes, this instance's scope) schema-only read per type.
                 foreach (var step in resolvedPath.Joins)
                 {
                     DiscoverColumns(step.SourceTableType);
@@ -723,7 +748,7 @@ namespace Funcular.Data.Orm.Sqlite
 
         private string GetTableNameForType(Type t)
         {
-            return _tableNames.GetOrAdd(t, type =>
+            return TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
         }
 
@@ -780,8 +805,8 @@ namespace Funcular.Data.Orm.Sqlite
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
 
             var visitor = new SqliteWhereClauseVisitor<T>(
-                ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                ColumnNameCache,
+                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
 
@@ -867,7 +892,7 @@ namespace Funcular.Data.Orm.Sqlite
 
         protected void DiscoverColumns(Type type)
         {
-            if (_mappedTypes.Contains(type)) return;
+            if (MappedTypes.Contains(type)) return;
             var table = GetTableNameByType(type);
             var commandText = $"SELECT * FROM {table} LIMIT 0";
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray());
@@ -918,10 +943,10 @@ namespace Funcular.Data.Orm.Sqlite
                         if (actualColumnName != null)
                         {
                             var key = property.ToDictionaryKey();
-                            ColumnNamesCache[key] = Dialect.EncloseIdentifier(actualColumnName);
+                            ColumnNameCache[key] = Dialect.EncloseIdentifier(actualColumnName);
                         }
                     }
-                    _mappedTypes.Add(type);
+                    MappedTypes.Add(type);
                 }
             }
         }
@@ -937,8 +962,22 @@ namespace Funcular.Data.Orm.Sqlite
         protected T MapEntity<T>(SqliteDataReader reader) where T : class, new()
         {
             string schemaKey = typeof(T).FullName + "|" + GetSchemaSignature(reader);
-            var mapper = (Func<SqliteDataReader, T>)_entityMappers.GetOrAdd(schemaKey, _ => BuildDataReaderMapper<T>(reader));
+            var mapper = (Func<SqliteDataReader, T>)EntityMapperCache.GetOrAdd(schemaKey, _ => BuildDataReaderMapper<T>(reader));
             return mapper(reader);
+        }
+
+        /// <summary>
+        /// Returns <paramref name="name"/> without its enclosing pair when it is wrapped in a matching <c>"…"</c>,
+        /// <c>[…]</c> or backtick pair; otherwise returns <paramref name="name"/> itself (provider-scoped caches plan,
+        /// D11).
+        /// </summary>
+        internal static string StripMatchingQuotePair(string name)
+        {
+            if (name == null || name.Length < 2) return name;
+            var first = name[0];
+            var last = name[name.Length - 1];
+            var matched = (first == '"' && last == '"') || (first == '[' && last == ']') || (first == '`' && last == '`');
+            return matched ? name.Substring(1, name.Length - 2) : name;
         }
 
         private Func<SqliteDataReader, T> BuildDataReaderMapper<T>(SqliteDataReader reader) where T : class, new()
@@ -956,7 +995,7 @@ namespace Funcular.Data.Orm.Sqlite
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
+                UnmappedPropertyCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
 
             var mappings = properties.Select(p =>
             {
@@ -970,13 +1009,11 @@ namespace Funcular.Data.Orm.Sqlite
 
                 if (!schemaOrdinals.TryGetValue(columnName, out int ordinal))
                 {
-                    if (columnName.StartsWith("\"") && columnName.EndsWith("\""))
-                    {
-                        var unquoted = columnName.Substring(1, columnName.Length - 2);
-                        if (!schemaOrdinals.TryGetValue(unquoted, out ordinal))
-                            return null;
-                    }
-                    else return null;
+                    // A discovered name is cached as the dialect encloses it. Strip any matching quote pair, whichever
+                    // the dialect uses, so the name matches the reader's column (provider-scoped caches plan, D11).
+                    var unquoted = StripMatchingQuotePair(columnName);
+                    if (ReferenceEquals(unquoted, columnName) || !schemaOrdinals.TryGetValue(unquoted, out ordinal))
+                        return null;
                 }
 
                 var setter = GetOrCreateSetter(p);
@@ -1048,7 +1085,7 @@ namespace Funcular.Data.Orm.Sqlite
         protected internal CommandParameters BuildInsertCommandObject<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1077,7 +1114,7 @@ namespace Funcular.Data.Orm.Sqlite
         protected internal CommandParameters BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1132,13 +1169,46 @@ namespace Funcular.Data.Orm.Sqlite
 
         internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
 
-        // Identifier cache scope (provider-scoped caches plan). SEAM (Task 1a): behaviour-neutral. The override keeps
-        // returning this provider's 3.9.0 mapper static, and the accessors read this instance's scope, which is still
-        // the process-wide set. Task 3 removes the override and the static and routes the LINQ provider and visitors
-        // through the accessors.
+        // Identifier cache scope (provider-scoped caches plan, D1-D3, D7, D8).
 
-        /// <inheritdoc />
-        protected override ConcurrentDictionary<string, Delegate> EntityMapperCache => _entityMappers;
+        /// <summary>
+        /// The identity of this instance's cache scope (D2, D3): the resolved constructor string, or the supplied
+        /// connection's resolved string when that is empty, parsed by <see cref="SqliteConnectionStringBuilder"/> with
+        /// the password removed and taken as the builder's canonical string. Null, a per-instance scope, for a database
+        /// no other connection can see: <c>:memory:</c>, <c>Mode=Memory</c> (shared or not), and an empty data source
+        /// (a private temporary database per connection). Never logged.
+        /// </summary>
+        protected override string CacheScopeIdentity
+        {
+            get
+            {
+                var source = _cacheScopeIdentitySource ?? string.Empty;
+                SqliteConnectionStringBuilder builder;
+                try
+                {
+                    builder = new SqliteConnectionStringBuilder(source);
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is FormatException ||
+                                           ex is KeyNotFoundException || ex is InvalidOperationException)
+                {
+                    return source;
+                }
+
+                var dataSource = builder.DataSource;
+                if (string.IsNullOrWhiteSpace(dataSource)
+                    || string.Equals(dataSource.Trim(), ":memory:", System.StringComparison.OrdinalIgnoreCase)
+                    || builder.Mode == SqliteOpenMode.Memory)
+                    return null;
+
+                builder.Remove("Password");
+                return builder.ConnectionString;
+            }
+        }
+
+        /// <summary>The runtime type of <see cref="Dialect"/> (D1).</summary>
+        protected override Type CacheScopeDialectType => Dialect.GetType();
+
+        // Internal accessors: the LINQ provider, the visitors and the tests read this instance's scope through these.
 
         /// <summary>This instance's table-name cache.</summary>
         internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
@@ -1233,7 +1303,11 @@ namespace Funcular.Data.Orm.Sqlite
 
         #region Original Protected Helpers
 
-        protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
+        /// <summary>
+        /// The properties of <typeparamref name="T"/> that have no column in this instance's scope: [NotMapped], remote,
+        /// and those with neither [Column] nor a discovered column.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new()
         {
             var properties = typeof(T).GetProperties();
@@ -1246,7 +1320,7 @@ namespace Funcular.Data.Orm.Sqlite
                 var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
                 if (columnAttr != null) return false;
                 var key = p.ToDictionaryKey();
-                return !_columnNames.ContainsKey(key);
+                return !ColumnNameCache.ContainsKey(key);
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
@@ -1256,7 +1330,7 @@ namespace Funcular.Data.Orm.Sqlite
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => Dialect.EncloseIdentifier(GetCachedColumnName(p))));
@@ -1277,9 +1351,9 @@ namespace Funcular.Data.Orm.Sqlite
             p.Name.Equals("Id", System.StringComparison.OrdinalIgnoreCase) ||
             p.Name.Equals($"{typeof(T).Name}Id", System.StringComparison.OrdinalIgnoreCase));
 
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
+        protected override string GetTableName<T>() => TableNameCache.GetOrAdd(typeof(T), ResolveTableName);
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
+        private string GetTableNameByType(Type type) => TableNameCache.GetOrAdd(type, ResolveTableName);
 
         private string ResolveTableName(Type t)
         {

@@ -346,8 +346,8 @@ namespace Funcular.Data.Orm.SqlServer
                     var orderByTable = _dataProvider.GetTableNameInternal<T>();
                     var orderByRemote = _dataProvider.ResolveRemoteJoins<T>(orderByTable);
                     var orderByVisitor = new OrderByClauseVisitor<T>(
-                        SqlServerOrmDataProvider.ColumnNamesCache,
-                        SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         orderByRemote.PropertyToColumnMap,
                         orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null,
@@ -407,8 +407,8 @@ namespace Funcular.Data.Orm.SqlServer
                     var selectTable = _dataProvider.GetTableNameInternal<T>();
                     var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new SelectClauseVisitor<T>(
-                        SqlServerOrmDataProvider.ColumnNamesCache,
-                        SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
@@ -479,8 +479,8 @@ namespace Funcular.Data.Orm.SqlServer
             var table = _dataProvider.GetTableNameInternal<T>();
             var remote = _dataProvider.ResolveRemoteJoins<T>(table);
             var orderByVisitor = new OrderByClauseVisitor<T>(
-                SqlServerOrmDataProvider.ColumnNamesCache,
-                SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                _dataProvider.ScopeColumnNames,
+                _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                     t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                 remote.PropertyToColumnMap,
                 remote.IndividualJoinClauses?.Count > 0 ? table : null);
@@ -552,8 +552,8 @@ namespace Funcular.Data.Orm.SqlServer
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
                     var whereVisitor = new WhereClauseVisitor<T>(
-                        SqlServerOrmDataProvider.ColumnNamesCache,
-                        SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
@@ -669,13 +669,13 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 var property = memberExpression?.Member as PropertyInfo;
                 if (property != null &&
-                    SqlServerOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T),
+                    _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T),
                             t => t.GetProperties()
                                 .Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)
                                 .ToArray())
                         .All(p => p.Name != property.Name))
                 {
-                    columnExpression = SqlServerOrmDataProvider.ColumnNamesCache.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
+                    columnExpression = _dataProvider.ScopeColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
                 }
                 else
                 {

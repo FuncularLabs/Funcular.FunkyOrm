@@ -835,7 +835,8 @@ providers** unless stated.
   Ordering and paging always come **before** the projection: `OrderBy…[ThenBy…][Skip/Take].Select(…)`.
   Ordering *after* a subset `Select` is the §8 divergence, and is never used as a passing shape.
 - **AC12-2** Ordering by a remote/computed member emits exactly its resolved fragment, with no base-table
-  prefix, unchanged from 3.9.0.
+  prefix, unchanged from 3.9.0, except SQLite's discovered spelling of convention-mapped columns after D5
+  (provider-scoped caches plan).
 - **AC12-3** For an entity without remote joins, the **ORDER BY translation** of
   `OrderBy*`/`ThenBy*` chains consumed by enumeration or `First*` is byte-identical to 3.9.0. Other ACs change
   ordering SQL on purpose, and are excluded:
@@ -1184,7 +1185,7 @@ providers** unless stated.
 | AC | Test(s) | Project(s) |
 |---|---|---|
 | AC12-1 | `[DataTestMethod] OwnColumnOrdering_OnJoinEntity_QualifiedSql_ExecutesInOrder` — {OrderBy, OrderByDesc, ThenBy-after-remote, ThenByDesc-after-remote} × {full, subset-without-key, scalar-of-FirstName} × {paged, unpaged} (24 rows); every row is `OrderBy…[Skip/Take].Select(…)`, with ordering and paging before the projection | all 4 |
-| AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix`, `ComputedMemberOrderBy_EmitsExpression_Unchanged`; direct, with the qualifier set: `MapHit_ComputedFragment_NeverPrefixed` | all 4 |
+| AC12-2 | `RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix` (SQLite re-pinned after D5), `ComputedMemberOrderBy_EmitsExpression_Unchanged`; direct, with the qualifier set: `MapHit_ComputedFragment_NeverPrefixed` | all 4 |
 | AC12-3 | `SingleTableEntity_OrderBy_SqlByteIdenticalTo390`; *(rev 24)* `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` (all 4; MySQL's uses `ProjectScorecard`, rev 25) | all 4 |
 | AC12-4 | `TernaryOrderBy_OwnColumns_OnJoinEntity_QualifiedInsideCase` | all 4 |
 | AC12-5 | `Last_OnJoinEntity_ProjectionWithoutKey_SynthesizedOrderQualified` (asserts `{table}.id DESC` and the returned `FirstName`) | all 4 |

@@ -25,4 +25,9 @@
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The AC7 rows of the provider-scoped caches plan, shared by the four providers' suites. -->
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Caching\LinqScopeHarness.cs" Link="Caching\LinqScopeHarness.cs" />
+  </ItemGroup>
+
 </Project>

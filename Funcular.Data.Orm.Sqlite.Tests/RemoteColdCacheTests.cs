@@ -28,11 +28,11 @@ namespace Funcular.Data.Orm.Sqlite.Tests
         private SqliteOrmDataProvider _provider;
         private readonly StringBuilder _sb = new();
 
-        // Remote target with a SNAKE_CASE column. Unlike the SQL Server provider (which infers snake_case from
-        // the DB schema), the SQLite provider resolves columns from explicit [Column] attributes, so the target
-        // carries [Column("cold_value")]. The bug this guards is that the remote target's schema must be
-        // discovered (ColumnNamesCache warmed) BEFORE its columns are resolved into the JOIN/WHERE, even when
-        // the target type has never been materialized in the process.
+        // Remote target with a SNAKE_CASE column, carrying [Column("cold_value")] (before 3.10.0 the SQLite provider
+        // resolved columns from explicit [Column] attributes only; since the provider-scoped caches change it also uses
+        // discovered names). The bug this guards is that the remote target's schema must be discovered (the provider's
+        // column-name cache warmed) BEFORE its columns are resolved into the JOIN/WHERE, even when the target type has
+        // never been materialized in the process.
         [Table("funky_cold_target")]
         public class ColdTarget
         {

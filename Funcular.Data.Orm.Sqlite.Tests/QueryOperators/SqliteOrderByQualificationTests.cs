@@ -92,7 +92,9 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             var rows = People(marker).OrderBy(p => p.EmployerHeadquartersCountryName).ToList();
 
             Assert.AreEqual(3, rows.Count);
-            Assert.AreEqual("\"country_0\".Name ASC", OrderByList(), "the resolved remote fragment, unchanged from 3.9.0, never prefixed");
+            Assert.AreEqual("\"country_0\".name ASC", OrderByList(),
+                "the resolved remote fragment, never prefixed; unchanged from 3.9.0 except SQLite's discovered spelling " +
+                "of the convention-mapped column (provider-scoped caches plan, D5)");
         }
 
         [TestMethod]

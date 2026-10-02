@@ -275,8 +275,8 @@ namespace Funcular.Data.Orm.MySql
                     var orderByTable = _dataProvider.GetTableNameInternal<T>();
                     var orderByRemote = _dataProvider.ResolveRemoteJoins<T>(orderByTable);
                     var orderByVisitor = new MySqlOrderByClauseVisitor<T>(
-                        MySqlOrmDataProvider.ColumnNamesCache,
-                        MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         orderByRemote.PropertyToColumnMap,
                         orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null,
@@ -336,8 +336,8 @@ namespace Funcular.Data.Orm.MySql
                     var selectTable = _dataProvider.GetTableNameInternal<T>();
                     var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new MySqlSelectClauseVisitor<T>(
-                        MySqlOrmDataProvider.ColumnNamesCache,
-                        MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
@@ -408,8 +408,8 @@ namespace Funcular.Data.Orm.MySql
             var table = _dataProvider.GetTableNameInternal<T>();
             var remote = _dataProvider.ResolveRemoteJoins<T>(table);
             var orderByVisitor = new MySqlOrderByClauseVisitor<T>(
-                MySqlOrmDataProvider.ColumnNamesCache,
-                MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                _dataProvider.ScopeColumnNames,
+                _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                     t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                 remote.PropertyToColumnMap,
                 remote.IndividualJoinClauses?.Count > 0 ? table : null);
@@ -447,8 +447,8 @@ namespace Funcular.Data.Orm.MySql
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
                     var whereVisitor = new MySqlWhereClauseVisitor<T>(
-                        MySqlOrmDataProvider.ColumnNamesCache,
-                        MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
@@ -515,10 +515,10 @@ namespace Funcular.Data.Orm.MySql
                 var property = memberExpression?.Member as PropertyInfo;
                 string columnExpression;
                 if (property != null &&
-                    MySqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray())
+                    _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t => t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray())
                         .All(p => p.Name != property.Name))
                 {
-                    columnExpression = MySqlOrmDataProvider.ColumnNamesCache.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
+                    columnExpression = _dataProvider.ScopeColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
                 }
                 else throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
 

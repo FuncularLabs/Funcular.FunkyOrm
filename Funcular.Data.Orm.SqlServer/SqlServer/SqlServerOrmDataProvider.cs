@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -62,21 +62,15 @@ namespace Funcular.Data.Orm.SqlServer
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
 
         /// <summary>
-        /// Represents a thread-safe collection of entity mappers, where each mapper is identified by a unique string key.    
+        /// The string the identity of this instance's cache scope comes from (provider-scoped caches plan, D3): the
+        /// constructor string or, when that is empty, the supplied connection's string. Captured at construction, so a
+        /// connection replaced later doesn't change the scope. Never logged.
         /// </summary>
-        /// <remarks>This dictionary is used to store and retrieve delegates that map entities to specific
-        /// types or formats. It ensures thread-safe access and updates, making it suitable for concurrent
-        /// operations.</remarks>
-        internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
+        private readonly string _cacheScopeIdentitySource;
 
         #endregion
 
         #region Properties
-
-        /// <summary>
-        /// Exposes the internal column name cache to other components (used by visitor classes).
-        /// </summary>
-        internal static ConcurrentDictionary<string, string> ColumnNames => _columnNames;
 
         /// <summary>
         /// The current <see cref="IDbConnection"/> used by the provider. May be null until required.
@@ -120,6 +114,9 @@ namespace Funcular.Data.Orm.SqlServer
             IDbTransaction transaction = null, ISqlDialect dialect = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _cacheScopeIdentitySource = string.IsNullOrWhiteSpace(_connectionString) && connection != null
+                ? connection.ConnectionString
+                : _connectionString;
             Connection = connection ?? new SqlConnection(_connectionString);
             Transaction = transaction;
             Dialect = dialect ?? new SqlServerDialect();
@@ -443,8 +440,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Stored Procedure Execution
 
-        /// <summary>Per-type cache of resolved stored procedure names (mirrors the table-name cache).</summary>
-        private static readonly ConcurrentDictionary<Type, string> _procedureNames = new ConcurrentDictionary<Type, string>();
+        // Resolved procedure names are cached per type in this instance's scope (ProcedureNameCache), like table names.
 
         /// <inheritdoc />
         public override ICollection<T> ExecProcedure<T>(object parameters = null)
@@ -574,14 +570,15 @@ namespace Funcular.Data.Orm.SqlServer
 
         /// <summary>
         /// Resolves the stored procedure name for <typeparamref name="T"/>: an explicit name wins, then a
-        /// <c>[Procedure]</c> attribute, then convention inference against <c>sys.procedures</c> (cached per type).
-        /// Catalog lookup runs on its own connection scope and completes before the execution scope opens, so it
-        /// does not nest scopes inside a transaction.
+        /// <c>[Procedure]</c> attribute, then convention inference against <c>sys.procedures</c> (cached per type in
+        /// this instance's scope, so one database's name never answers for another's). Catalog lookup runs on its own
+        /// connection scope and completes before the execution scope opens, so it does not nest scopes inside a
+        /// transaction.
         /// </summary>
         private string ResolveProcedureName<T>(string procedureName)
         {
             if (!string.IsNullOrEmpty(procedureName)) return procedureName;
-            return _procedureNames.GetOrAdd(typeof(T), t =>
+            return ProcedureNameCache.GetOrAdd(typeof(T), t =>
             {
                 var attributeName = GetProcedureNameFromAttribute<T>();
                 if (!string.IsNullOrEmpty(attributeName)) return attributeName;
@@ -1123,7 +1120,7 @@ namespace Funcular.Data.Orm.SqlServer
             var aliasCounts = new Dictionary<string, int>();
 
             // Helper to get table name for non-generic types
-            string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
+            string GetTableNameByType(Type t) => TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
 
             foreach (var prop in remoteProperties)
@@ -1138,7 +1135,7 @@ namespace Funcular.Data.Orm.SqlServer
                 // keys and the final column map to real DB names (snake_case-aware) instead of the naive
                 // property-name fallback. Deterministic regardless of whether the target type was materialized
                 // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
-                // guarded (_mappedTypes) schema-only read per type.
+                // guarded (MappedTypes, this instance's scope) schema-only read per type.
                 foreach (var step in resolvedPath.Joins)
                 {
                     DiscoverColumns(step.SourceTableType);
@@ -1343,7 +1340,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private string GetTableNameForType(Type t)
         {
-            return _tableNames.GetOrAdd(t, type =>
+            return TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
         }
 
@@ -1436,8 +1433,8 @@ namespace Funcular.Data.Orm.SqlServer
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
 
             var visitor = new WhereClauseVisitor<T>(
-                ColumnNames,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                ColumnNameCache,
+                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
                 paramGen,
                 trans,
                 tableName,
@@ -1477,8 +1474,8 @@ namespace Funcular.Data.Orm.SqlServer
             SqlQueryComponents<T> commandElements = null) where T : class, new()
         {
             var visitor = new OrderByClauseVisitor<T>(
-                ColumnNames,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                ColumnNameCache,
+                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
             visitor.Visit(expression);
             if (commandElements == null)
             {
@@ -1645,7 +1642,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected void DiscoverColumns(Type type)
         {
-            if (_mappedTypes.Contains(type)) return;
+            if (MappedTypes.Contains(type)) return;
 
             var table = GetTableNameByType(type);
             var commandText = $"SELECT * FROM {table}";
@@ -1712,11 +1709,11 @@ namespace Funcular.Data.Orm.SqlServer
                             if (actualColumnName != null)
                             {
                                 var key = property.ToDictionaryKey();
-                                ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
+                                ColumnNameCache[key] = Dialect.EncloseIdentifier(actualColumnName);
                             }
                         }
 
-                        _mappedTypes.Add(type);
+                        MappedTypes.Add(type);
                     }
                 }
                 catch (SqlException ex)
@@ -1766,7 +1763,7 @@ namespace Funcular.Data.Orm.SqlServer
             // Use both type and schema signature as cache key
             string schemaKey = typeof(T).FullName + "|" + GetSchemaSignature(reader);
 
-            var mapper = (Func<SqlDataReader, T>)_entityMappers.GetOrAdd(schemaKey, _ =>
+            var mapper = (Func<SqlDataReader, T>)EntityMapperCache.GetOrAdd(schemaKey, _ =>
                 BuildDataReaderMapper<T>(reader)
             );
             return mapper(reader);
@@ -1809,7 +1806,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name)
+                UnmappedPropertyCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name)
             );
 
             // Precompute mapping array
@@ -1894,7 +1891,7 @@ namespace Funcular.Data.Orm.SqlServer
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1948,7 +1945,7 @@ namespace Funcular.Data.Orm.SqlServer
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -2231,7 +2228,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>(); // Ensure column mappings are discovered
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));
@@ -2254,60 +2251,10 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Computes a mapping of actual database column names to column ordinals for the provided reader.
-        /// This mapping is used to quickly map reader columns to entity properties without repeated GetOrdinal calls.
-        /// </summary>
-        /// <param name="type">The CLR type being mapped.</param>
-        /// <param name="reader">The active <see cref="SqlDataReader"/> used to inspect schema and values.</param>
-        /// <returns>A dictionary mapping column name to ordinal. Comparisons ignore underscores and case.</returns>
-        protected internal Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
-        {
-            var ordinals = new Dictionary<string, int>(new IgnoreUnderscoreAndCaseStringComparer());
-            ICollection<string> columnNames = new List<string>();
-#if NET8_0_OR_GREATER
-            var columnSchema = reader.GetColumnSchema();
-            foreach (var dbColumn in columnSchema)
-            {
-                columnNames.Add(dbColumn.ColumnName);
-            }
-#else
-                        var schemaTable = reader.GetSchemaTable();
-                        foreach (DataRow row in schemaTable?.Rows)
-                        {
-                            columnNames.Add(row["ColumnName"].ToString());
-                        }
-#endif
-
-            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-            foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray()))
-            {
-                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-
-                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                var actualColumnName = columnAttr?.Name;
-
-                if (actualColumnName == null)
-                {
-                    // Find matching schema column using comparer semantics
-                    actualColumnName = columnNames.FirstOrDefault(c => comparer.Equals(c, property.Name));
-                }
-
-                if (actualColumnName != null)
-                {
-                    var ordinal = reader.GetOrdinal(actualColumnName);
-                    ordinals[actualColumnName] = ordinal;
-
-                    // Populate _columnNames for future GetColumnName calls
-                    _columnNames[property.Name.ToLowerInvariant()] = Dialect.EncloseIdentifier(actualColumnName);
-                }
-            }
-            return ordinals;
-        }
-
-
-        /// <summary>
-        /// Computes the database column name for the given property by consulting [Column] and cached schema.
-        /// Returns an empty string for properties marked with <see cref="NotMappedAttribute"/>.
+        /// Computes the database column name for a property that discovery hasn't cached: its <c>[Column]</c> name, else
+        /// its lower-cased property name. Returns an empty string for properties marked with
+        /// <see cref="NotMappedAttribute"/>. No cache entry is read: a key made of a bare property name would match
+        /// any type's property of that name (provider-scoped caches plan, D6).
         /// </summary>
         /// <param name="property">The property to compute a column name for.</param>
         /// <returns>The column name to use in SQL statements.</returns>
@@ -2315,9 +2262,7 @@ namespace Funcular.Data.Orm.SqlServer
             property.GetCustomAttribute<NotMappedAttribute>() != null
                 ? string.Empty
                 : Dialect.EncloseIdentifier(property.GetCustomAttribute<ColumnAttribute>()?.Name ??
-                  (_columnNames.TryGetValue(property.Name.ToLowerInvariant(), out var columnName)
-                      ? columnName
-                      : property.Name.ToLowerInvariant()));
+                                            property.Name.ToLowerInvariant());
 
 
 
@@ -2336,13 +2281,14 @@ namespace Funcular.Data.Orm.SqlServer
             p.Name.Equals($"{typeof(T).Name}Id", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// Returns the properties of <typeparamref name="T"/> that are marked with <see cref="NotMappedAttribute"/>.
-        /// Used to avoid attempting to map or read such properties from a data reader.
+        /// Returns the properties of <typeparamref name="T"/> that have no column in this instance's scope: those marked
+        /// <see cref="NotMappedAttribute"/>, the remote ones, and those with neither <c>[Column]</c> nor a discovered
+        /// column. Used to avoid attempting to map or read such properties from a data reader.
         /// </summary>
         /// <typeparam name="T">The type whose unmapped properties are requested.</typeparam>
         /// <param name="type">The CLR Type (provided by the cache accessor).</param>
-        /// <returns>A collection of properties decorated with <see cref="NotMappedAttribute"/>.</returns>
-        protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
+        /// <returns>The unmapped properties.</returns>
+        protected internal ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new()
         {
             var properties = typeof(T).GetProperties();
@@ -2359,7 +2305,7 @@ namespace Funcular.Data.Orm.SqlServer
                 var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
                 if (columnAttr != null) return false; // Explicit column mapping
                 var key = p.ToDictionaryKey();
-                return !_columnNames.ContainsKey(key); // No cached column mapping
+                return !ColumnNameCache.ContainsKey(key); // No cached column mapping
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
@@ -2378,7 +2324,7 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
+        private string GetTableNameByType(Type type) => TableNameCache.GetOrAdd(type, ResolveTableName);
 
         /// <summary>
         /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
@@ -2388,7 +2334,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">The entity type to determine the table name for.</typeparam>
         /// <returns>The resolved table name.</returns>
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
+        protected override string GetTableName<T>() => TableNameCache.GetOrAdd(typeof(T), ResolveTableName);
 
         /// <summary>
         /// Resolves the table name for a CLR type. Resolution order:
@@ -2454,32 +2400,48 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The resolved database column name.</returns>
         protected override string GetCachedColumnName(PropertyInfo property)
         {
-            return ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => ComputeColumnName(property));
+            return ColumnNameCache.GetOrAdd(property.ToDictionaryKey(), p => ComputeColumnName(property));
         }
 
         #region Internal Accessors for SqlLinqQueryProvider
 
         internal string GetTableNameInternal<T>() => GetTableName<T>();
-        
-        internal static ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertiesCache => _unmappedPropertiesCache;
-        
-        internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
 
-        internal static ConcurrentDictionary<string, string> ColumnNamesCache => _columnNames;
+        internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
 
         #endregion
 
-        #region Identifier Cache Scope (provider-scoped caches plan, Task 1a seam)
+        #region Identifier Cache Scope (provider-scoped caches plan)
 
-        // SEAM (Task 1a): behaviour-neutral. The overrides keep returning this provider's 3.9.0 statics, and the
-        // accessors read this instance's scope, which is still the process-wide set. Task 3 removes the overrides and
-        // the statics and routes the LINQ provider and visitors through the accessors.
+        /// <summary>
+        /// The identity of this instance's cache scope (D2, D3): the constructor string, or the supplied connection's
+        /// string when that is empty, parsed by <see cref="SqlConnectionStringBuilder"/> with the password removed
+        /// (every synonym) and taken as the builder's canonical string. A string the builder rejects is used as given;
+        /// the registry keeps only its SHA-256. Never logged.
+        /// </summary>
+        protected override string CacheScopeIdentity
+        {
+            get
+            {
+                var source = _cacheScopeIdentitySource ?? string.Empty;
+                try
+                {
+                    var builder = new SqlConnectionStringBuilder(source);
+                    builder.Remove("Password");
+                    return builder.ConnectionString;
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is FormatException ||
+                                           ex is KeyNotFoundException || ex is InvalidOperationException)
+                {
+                    return source;
+                }
+            }
+        }
 
-        /// <inheritdoc />
-        protected override ConcurrentDictionary<string, Delegate> EntityMapperCache => _entityMappers;
+        /// <summary>The runtime type of <see cref="Dialect"/> (D1).</summary>
+        protected override Type CacheScopeDialectType => Dialect.GetType();
 
-        /// <inheritdoc />
-        protected override ConcurrentDictionary<Type, string> ProcedureNameCache => _procedureNames;
+        // Internal accessors: the LINQ provider, the visitors and the tests read this instance's scope through these.
 
         /// <summary>This instance's table-name cache.</summary>
         internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
