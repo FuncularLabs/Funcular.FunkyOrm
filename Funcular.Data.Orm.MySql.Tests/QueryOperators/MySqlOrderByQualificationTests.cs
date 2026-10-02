@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Linq.Expressions;
 using Funcular.Data.Orm.MySql.Tests.Domain;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using MySqlConnector;
 
 namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
 {
@@ -496,6 +498,57 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
                 AssertPersonRowsMatchOracle(marker, q => q.OrderBy(p => p.Id > 0 ? target : target).ThenBy(p => p.UniqueId == target ? 0 : 1).ThenBy(p => p.Id).ToList());
             else
                 AssertPersonRowsMatchOracle(marker, q => q.OrderBy(p => p.Id > 0 ? moment : moment).ThenBy(p => p.DateUtcCreated > moment ? 0 : 1).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
+        public void TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle()
+        {
+            // Across a year boundary, and seconds apart: invariant short formats (MM/dd/yyyy, HH:mm) don't sort these
+            // chronologically (rev 39, J3).
+            var (marker, _) = SeedAbc();
+            var later = new DateOnly(2026, 1, 2);
+            var earlier = new DateOnly(2025, 12, 31);
+            var laterTime = new TimeOnly(10, 0, 30);
+            var earlierTime = new TimeOnly(10, 0, 10);
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? later : earlier).ThenBy(p => p.Id).ToList());
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterTime : earlierTime).ThenBy(p => p.Id).ToList());
+
+            // Under a second apart: the fraction must survive (rev 40, F1).
+            var laterFraction = new TimeOnly(10, 0, 30, 500);
+            var earlierFraction = new TimeOnly(10, 0, 30, 200);
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterFraction : earlierFraction).ThenBy(p => p.Id).ToList());
+        }
+
+        /// <summary>The person table's <c>dateutc_created</c> as a <see cref="DateTimeOffset"/> (UTC <c>DATETIME(6)</c>).</summary>
+        [Table("person")]
+        public class PersonCreated
+        {
+            public int Id { get; set; }
+            public string LastName { get; set; }
+            [Column("dateutc_created")] public DateTimeOffset Created { get; set; }
+        }
+
+        [TestMethod]
+        public void TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes()
+        {
+            // WHERE sends a DateTimeOffset as its UTC time (MySqlConnector); the ORDER BY value must too, or MySQL drops
+            // the offset and the two disagree (rev 39, J2).
+            var marker = NewMarker();
+            // Seeded through the harness: inserting a Person discovers its columns, so the cleanup's
+            // Delete<Person>(predicate) works when this test runs alone (rev 43, M1; the cold-cache Delete defect).
+            SeedTypedPerson(marker, "a", null, null, new DateTime(2026, 1, 2, 6, 0, 0));
+            SeedTypedPerson(marker, "b", null, null, new DateTime(2026, 1, 2, 7, 30, 0));
+            SeedTypedPerson(marker, "c", null, null, new DateTime(2026, 1, 2, 8, 0, 0));
+            var value = new DateTimeOffset(2026, 1, 2, 12, 0, 0, TimeSpan.FromHours(5)); // 07:00Z
+
+            var picked = _provider.Query<PersonCreated>().Where(p => p.LastName == marker && p.Created > value)
+                .Select(p => p.Id).ToList();
+            var orderedFirst = _provider.Query<PersonCreated>().Where(p => p.LastName == marker)
+                .OrderBy(p => p.Created > value ? 0 : 1).ThenBy(p => p.Id).Select(p => p.Id).ToList().Take(2).ToList();
+
+            Assert.AreEqual(2, picked.Count, "WHERE picks the two rows after 07:00Z");
+            CollectionAssert.AreEquivalent(picked, orderedFirst);
         }
 
         [TestMethod]

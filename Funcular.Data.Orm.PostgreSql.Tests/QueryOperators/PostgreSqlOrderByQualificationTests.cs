@@ -499,6 +499,26 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.QueryOperators
         }
 
         [TestMethod]
+        public void TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle()
+        {
+            // Across a year boundary, and seconds apart: invariant short formats (MM/dd/yyyy, HH:mm) don't sort these
+            // chronologically (rev 39, J3).
+            var (marker, _) = SeedAbc();
+            var later = new DateOnly(2026, 1, 2);
+            var earlier = new DateOnly(2025, 12, 31);
+            var laterTime = new TimeOnly(10, 0, 30);
+            var earlierTime = new TimeOnly(10, 0, 10);
+
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? later : earlier).ThenBy(p => p.Id).ToList());
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterTime : earlierTime).ThenBy(p => p.Id).ToList());
+
+            // Under a second apart: the fraction must survive (rev 40, F1).
+            var laterFraction = new TimeOnly(10, 0, 30, 500);
+            var earlierFraction = new TimeOnly(10, 0, 30, 200);
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName == "a" ? laterFraction : earlierFraction).ThenBy(p => p.Id).ToList());
+        }
+
+        [TestMethod]
         public void AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand()
         {
             // The helper itself: a parameter is checked against the command it was logged with, not an earlier one,

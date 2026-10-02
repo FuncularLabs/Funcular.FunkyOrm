@@ -19,6 +19,45 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 44 (fix-verification of `66bde1e..4b7ab2b`, 2026-10-01) — what changed:**
+>   - The MySQL harness discovers `Person` before each test, so its cleanup works when a test runs alone (N1).
+>   - The `DateOnly`/`TimeOnly` test also runs under th-TH (N2).
+>   - §4.3 scope (N3); the §9.45 count (N4); the Task 12 status and §9.46.
+
+> **Revision 43 (fix-verification of `66bde1e..8eaa0d0`, 2026-10-01) — what changed:**
+>   - The MySQL `DateTimeOffset` test seeds through the harness, so it passes when run alone (M1).
+>   - `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` runs under fi-FI (M4).
+>   - AC12-10's PostgreSQL sentence (M2); the Changelog list made tight again (M3).
+>   - §4.3 rows for the parameter members (M5); wording (M6); the Task 12 status and §9.45.
+
+> **Revision 42 (fix-verification of `66bde1e..9f2d531`, 2026-10-01) — what changed:** docs only.
+>   - The Changelog's formats list is scoped to values sent as parameters (L1).
+>   - The PostgreSQL null-test wording in Advanced.md and the AI reference (L2).
+>   - The AC12-10 matrix row and mutation table are brought up to revs 39–41 (L3).
+>   - Bookkeeping (L4); the Task 12 status and §9.44.
+
+> **Revision 41 (fix-verification of `66bde1e..6f503a9`, 2026-10-01) — what changed:** pins for all seven
+>   `TimeOnly` digits (K3) and for the eleven inline numeric types, with `nint`/`nuint`/`Half` as parameters (K4).
+>   Prose (K1, K2, K2b, K5–K7):
+>   - the Changelog's Security, API and formatting bullets, and the AC12-10 lead-in, claim no more than is sent;
+>   - AC12-10's lazy continuation;
+>   - the four visitors' comments, Advanced.md and the AI reference;
+>   - the Task 12 status and §9.43.
+
+> **Revision 40 (fix-verification of `66bde1e..9ce9e86`, 2026-10-01) — what changed:** a `TimeOnly` fraction pin
+>   and oracle row (F1). Prose (F2–F5):
+>   - the Changelog's Security, Changed and "Other changes:" text;
+>   - the numeric types listed in the Changelog, Advanced.md and AC12-10;
+>   - a §8 entry;
+>   - the Task 12 status and §9.42.
+
+> **Revision 39 (fix-verification of `66bde1e..26abd27`, 2026-10-01) — what changed:** code and prose (J1–J6).
+>   - `DateOnly`/`TimeOnly` in ORDER BY are ISO text (J3).
+>   - A MySQL `DateTimeOffset` is its UTC time (J2).
+>   - AC12-10's per-position `DateTimeOffset` claims are removed (J1, J5), and the numeric types named (J4).
+>   - The Changelog regrouped (J6).
+>   - §9.40's H1 row annotated, the Task 12 status, and §9.41.
+
 > **Revision 38 (fix-verification of `66bde1e..89383ff`, 2026-10-01) — what changed:** plan prose (H1–H4), and
 >   the Changelog's `DateTimeOffset` bullet.
 >   - AC12-10: the culture-invariant text sentence and the `DateTimeOffset` result.
@@ -824,33 +863,36 @@ providers** unless stated.
   It's read through `Convert` (not `ConvertChecked`, which is part of the value), so a captured `char` stays a char
   literal, and an enum value is its underlying number *(rev 25; rev 26)*. Branch values take the same path, so a
   value reads the same in the test and in a branch *(rev 26)*.
-- **AC12-10** *(rev 30, owner decision 2026-10-01)* Every value in an ORDER BY ternary that 3.9.0 wrote as quoted SQL
-  text (a string, char, `Guid`, date or other non-numeric value) is sent as a command parameter. *(Rev 31–32)*
-  - **What a parameter carries:** the literal's text, typed as the literal was:
+- **AC12-10** *(rev 30, owner decision 2026-10-01)* In an ORDER BY ternary, booleans, enums, `NULL` and values of
+  type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay
+  inline. No other value is written into the command text: each is sent as a command parameter where the SQL uses
+  it. *(Rev 31–32; lead-in restated in rev 41)*
+  - **What a parameter carries:** its value's text (below), typed as the literal was:
     - untyped on PostgreSQL;
     - text on MySQL and SQLite;
     - `varchar` on SQL Server, except strings and chars, which are `nvarchar` like WHERE's.
 
-    The text is culture-invariant. 3.9.0 wrote a `DateTimeOffset`, `DateOnly`, `TimeOnly` and any other value with
-    `ToString()` in the current culture, so for those values the text differs.
+    A `DateTime`, `DateTimeOffset`, `DateOnly` or `TimeOnly` has a fixed format (Changelog; a `DateTime`'s is
+    3.9.0's). Any other value's text is `Convert.ToString` with the invariant culture. On MySQL a `DateTimeOffset`
+    is its UTC time, as WHERE sends it *(rev 39)*.
   - **One parameter per occurrence:** each occurrence of a value is its own parameter, as each literal was its own
     literal, so the database types each one where it's used.
-  - **On PostgreSQL**, a value compared with `null` is decided in .NET. `IS NULL` can't give an untyped parameter
-    a type.
+  - **On PostgreSQL**, a value that would be a parameter, compared with `null`, is decided in .NET: `IS NULL`
+    can't give an untyped parameter a type. An inline value is sent (`5 IS NULL`) *(rev 43, M2)*.
   - **Result:** a `Guid` or `DateTime` value compares and sorts as it did in 3.9.0, on every provider.
-  - **A `DateTimeOffset`** is sent as invariant `yyyy-MM-dd HH:mm:ss.fffffffK` text, offset included *(rev 37–38)*.
-    The rev 37 reviewer executed this; no test schema has a `DateTimeOffset` column, so no test pins it:
-    - Against a date/time column on SQL Server, PostgreSQL or MySQL, the database converts the text and compares
-      instants. 3.9.0's current-culture text failed to convert there under some cultures.
-    - As a branch value, against another value, or on SQLite, it compares and sorts as text. Values with different
-      offsets therefore order by text, not by instant.
+  - **A `DateTimeOffset`, `DateOnly` or `TimeOnly`:** its text is fixed (above). How a database compares that text
+    with a column is the database's rule, and this AC asserts none. *(Rev 39, J1: three rounds of per-position claims
+    were each broader than the execution.)*
+    - Tested: the `DateOnly` and `TimeOnly` branch values sort as LINQ-to-objects does.
+    - Tested: on MySQL, ORDER BY and WHERE pick the same rows for a `DateTimeOffset`.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
-  Numbers, booleans, enums and `NULL` stay inline. On every provider, a text value with quote or backslash
-  characters, compared in a ternary's test, orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no
-  quoted value appears in the command text, in any position *(rev 34, F2)*. A command carries only the
-  parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
-  generator and still inline values; MySQL's inline literal also escapes backslashes.
+  - **Tested on every provider:** a text value with quote or backslash characters, compared in a ternary's test,
+    orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no quoted value appears in the command text,
+    in any position *(rev 34, F2)*.
+  - A command carries only the parameters it uses: an aggregate drops the ORDER BY and its parameters.
+  - The visitors' 3.9.0 constructors have no generator and still inline values; MySQL's inline literal also
+    escapes backslashes.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
   dropped; they can never break a tie, so the order is unchanged.
 
@@ -1150,7 +1192,7 @@ providers** unless stated.
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
 | AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
-| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (8 tests; 9 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
+| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (10 tests; 11 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`; *(rev 39)* `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (seven-digit `TimeOnly` pin since rev 41; under fi-FI since rev 43, and th-TH since rev 44), `TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle` (a sub-second assertion since rev 40), MySQL `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes`; *(rev 41)* `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI). Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
@@ -1186,6 +1228,9 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | `*OrderByClauseVisitor` 3.9.0 constructor (kept) and the qualifier overload *(rev 24)* | `Constructor_390Signature_IsKept`; every provider call site |
 | `*OrderByClauseVisitor.OrderByTerms` *(new)* + duplicate removal | AC13-2 inversion tests; `ThenBy_SameKeyTwice_Executes`; direct tests |
 | `*OrderByClauseVisitor` ternary null handling | AC12-8; direct tests |
+| `*OrderByClauseVisitor` constructor taking a parameter generator *(new, rev 30)* | `ParameterMode_*`; every LINQ ORDER BY path (the AC12-10 oracle rows) |
+| `*OrderByClauseVisitor.Parameters` *(new, rev 30)* | `ParameterMode_*`; `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` |
+| `QueryComponents.OrderByParameters` *(new, rev 30; all four providers)* | `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses` |
 | `QueryComponents.Terminal`, `.RowLimit`, `.OrderByTerms`, `.IsEmptyByTake` *(new)* | AC13-1, AC13-2, AC13-10 |
 | `*LinqQueryProvider.ParseExpression` (pre-pass call; Single/Last/LongCount branches; negative `Skip` clamp; empty-`Take` flag) | AC13-* |
 | `*LinqQueryProvider.Execute` / `ExecuteScalarProjection` (empty-`Take` short-circuit) | AC13-10 `Take0_*`, `TakeNonPositive_*`, `ScalarProjection_Take0_Terminal_*` |
@@ -1297,6 +1342,12 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Literal mode drifts from `LiteralText` (3.9.0's `ToString()` default) *(rev 31)* | the literal-parity assert in `ParameterMode_GuidsAndDates_…` |
 | A value whose text is null not emptied *(rev 31)* | `LiteralMode_ValueWithNullText_IsEmptyText` |
 | Placeholders substituted without a parameter generator (key, SQL or both) *(rev 33)* | `LiteralMode_PlaceholderShapedText_IsInlined` |
+| `DateOnly`/`TimeOnly` in the current culture's format (3.9.0's `ToString()`) *(rev 39)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText`, `TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle` |
+| `TimeOnly` with fewer fraction digits (`HH:mm:ss`, `.F`, `.FFF`, `.FFFFFF`) *(rev 40–41)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (`10:00:30.1234567`); `HH:mm:ss` also the sub-second oracle assertion |
+| MySQL: a `DateTimeOffset` not as its UTC time, or with fewer digits *(rev 39)* | MySQL `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText`; the UTC case also `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes` |
+| `IsNumber` without one of the eleven types, or with `nint`/`nuint`/`Half` *(rev 41)* | `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` |
+| `DateOnly`/`TimeOnly` with the current culture as the format provider (format kept) *(rev 44)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText`: th-TH kills `DateOnly`'s, fi-FI kills `TimeOnly`'s |
+| An inline number, or `LiteralText`'s default, in the current culture *(rev 41)* | `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI) |
 | `AssertEveryParameterReferenced` parsing the joined log by line (the rev 30 helper) *(rev 31)* | `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand` |
 | MySQL literal mode without backslash escaping *(rev 30)* | `LiteralMode_Backslash_IsEscaped` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
@@ -1866,6 +1917,44 @@ Each task lists the tests it turns green. Every implementation task starts with 
   - **Verification layer 5 (rev 36, §9.38).** Plan prose only (F1–F5).
   - **Verification layer 6 (rev 37, §9.39).** Plan prose only (G1–G5).
   - **Verification layer 7 (rev 38, §9.40).** Plan prose and one Changelog bullet (H1–H4).
+  - **Verification layer 8 (rev 39, §9.41).**
+    - Code: the four visitors' `LiteralText` writes a `DateOnly` as `yyyy-MM-dd` and a `TimeOnly` as
+      `HH:mm:ss.FFFFFFF`. Both are matched by type name, since netstandard2.0 has neither type.
+    - Code: MySQL's writes a `DateTimeOffset` as its UTC time.
+    - Tests first, red on `26abd27`: SQL Server 2, PostgreSQL 2, MySQL 4, SQLite 2.
+      - Direct ISO text pins.
+      - `DateOnly` and `TimeOnly` branch-value oracle rows.
+      - On MySQL: WHERE and ORDER BY agree for a `DateTimeOffset`, and the updated UTC text pin.
+    - Mutations (4, all killed).
+    - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
+  - **Verification layer 9 (rev 40, §9.42).** A `TimeOnly` fraction pin and oracle row on all four providers. These
+    are guards: the implementation was already right, and the `"HH:mm:ss"` mutant now fails.
+    - Mutations (4, all killed (TimeOnly without its fraction, per provider)).
+    - Prose F2–F5.
+    - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
+  - **Verification layer 10 (rev 41, §9.43).** One new test and one added pin per provider; both are guards (the
+    code was already right):
+    - a seven-digit `TimeOnly` pin, added to `ParameterMode_DateOnlyAndTimeOnly_AreIsoText`;
+    - a new test: the eleven numeric types inline under fi-FI, and `nint`/`nuint`/`Half` as parameters.
+    - Mutations (28 of 28 killed, 7 per provider: `TimeOnly` as `HH:mm:ss.F` and `.FFF`; `IsNumber` without `decimal`, `sbyte` or `ulong`; `IsNumber` with `nint`; an inline number in the current culture).
+    - Prose K1, K2, K2b, K5–K7.
+    - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
+  - **Verification layer 11 (rev 42, §9.44).** Docs only: L1–L4. No code or test change, so the suites and
+    mutations of layer 10 stand (the verifier re-ran them: suites reproduced, 70 of 70 mutants killed).
+  - **Verification layer 12 (rev 43, §9.45).**
+    - Two test changes, both guards (the code is unchanged):
+      - the MySQL `DateTimeOffset` test seeds through the harness;
+      - `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` runs under fi-FI.
+    - Mutations (8 of 8 killed by `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` alone: `DateOnly` and `TimeOnly` in the current culture, per provider; the MySQL `DateTimeOffset` test passes run alone).
+    - Docs M2, M3, M5, M6.
+    - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
+  - **Verification layer 13 (rev 44, §9.46).**
+    - Test changes only, both guards:
+      - the MySQL harness discovers `Person` before each test;
+      - the `DateOnly`/`TimeOnly` test also runs under th-TH.
+    - Mutations (8 of 8 killed by `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` alone: `DateOnly` and `TimeOnly` with the current culture as format provider, per provider; the three N1 tests and the rev 39 `DateTimeOffset` test each pass run alone).
+    - Docs N3, N4.
+    - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -1939,7 +2028,12 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
-  pass with their class. Follow-up issue.
+  pass with their class. Follow-up issue: the fix is on `fix/mysql-delete-cold-cache`
+  (`docs/plans/COLD_CACHE_DELETE_PLAN.md`).
+  - *(Rev 44, N1)* The MySQL harness now discovers `Person` in `TestInitialize`. Those two tests, plus
+    `Last_AfterComputedOrderBy_InvertsComputedTerm` and the rev 39 `DateTimeOffset` test, pass when run alone.
+  - They no longer reproduce the defect. The cold-cache plan's AC4 (these two tests, run alone, as the fix's
+    evidence on this branch) must be restated at its merge; its own `ColdCacheDeleteTests` rows carry the proof.
 - SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
 - Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
   `Single*` without user `Skip`/`Take` no longer routes through it (row limit). With user paging it still
@@ -2067,6 +2161,11 @@ Each task lists the tests it turns green. Every implementation task starts with 
   `InvalidCastException` from text to `DateTimeOffset` in the reader's `Convert.ChangeType`
   (`SqliteOrmDataProvider.cs`). That file is unchanged since `master` (author, `git diff`). Follow-up candidate,
   with the culture entry above.
+- **SQL Server `DateTime` under a day-first session (pre-existing; rev 39 reviewer, executed).**
+  - The scenario: `yyyy-MM-dd HH:mm:ss.fff` sent as `varchar` against a `datetime` column, under
+    `Current Language=British English`.
+  - It is read day-first: WHERE picked rows c,d and ORDER BY picked a,b for the same comparison.
+  - The same happens at `66bde1e`, so AC12-10's "as 3.9.0" holds.
 - Sentinel.MVP pins `3.9.0-beta1`; the upgrade is the D3 smoke test.
 
 ---
@@ -2817,10 +2916,100 @@ resolved. Suites at HEAD: SqlServer 882, PostgreSql 757, MySql 708, Sqlite 785.
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
-| H1 | minor | TEST-GAP | AC12-10's "a `DateTimeOffset` is compared as its invariant text" was false against a typed column: SQL Server, PostgreSQL and MySQL convert it and compare instants. Only SQLite, branch values and value-vs-value comparisons compare text. No test has a `DateTimeOffset` column. | Restated per position, from the reviewer's executed probe, marked as not pinned by a test. The Changelog bullet now says the same. |
+| H1 | minor | TEST-GAP | AC12-10's "a `DateTimeOffset` is compared as its invariant text" was false against a typed column. No test has a `DateTimeOffset` column. | Restated per position. *(Rev 39: that restatement was itself too broad, J1, and the position claims were removed; §9.41.)* |
 | H2 | nit | HOUSE-RULE | "For a `DateTimeOffset` it therefore differs" read as if only that type's text changed; `DateOnly`, `TimeOnly` and any value 3.9.0 wrote with `ToString()` changed too (executed). | Named in AC12-10 and in the Changelog. |
 | H3 | nit | HOUSE-RULE | §9.39's "every outcome … confirmed" contradicted its own G1 row. | Now "every shaped outcome". |
 | H4 | nit | HOUSE-RULE | The §8 entry's provenance didn't credit the rev 36 reviewer or the rev 37 restatement. | Updated, with §9.37's O1 line. |
+
+### 9.41 Fix-verification of `66bde1e..26abd27` (non-author; `Query<T>()` probes on 4 providers × 6 cultures, typed date/time columns, `66bde1e` and HEAD)
+
+Verdict: NOT CLEAN. H3 and H4 are resolved; H1 and H2 partly.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| J1 | minor | TEST-GAP | The per-position `DateTimeOffset` claims were too broad. Only SQL Server `datetimeoffset` and PostgreSQL `timestamptz` compare instants; `datetime2`, `timestamp`, `date` and every MySQL type drop the offset; SQL Server `datetime` fails with 241. A branch beside a `datetimeoffset`/`timestamptz` column sorts by instant. | The claims were removed from AC12-10 and the Changelog: the text format is stated, and comparison is the database's rule. The two shapes now pinned by tests are named. |
+| J2 | minor | AC-GAP | MySQL: WHERE sends a `DateTimeOffset` as UTC, while ORDER BY sent offset text that MySQL drops, so the two disagreed. 3.9.0 failed there with 1525. | A MySQL `DateTimeOffset` is its UTC time; a test checks that WHERE and ORDER BY pick the same rows. |
+| J3 | minor | AC-GAP | `DateOnly` became invariant `MM/dd/yyyy`: MySQL rejects it, a dmy session misreads it, and it doesn't sort across years. `TimeOnly` `HH:mm` dropped seconds. | ISO `yyyy-MM-dd` and `HH:mm:ss.FFFFFFF`; direct pins and branch-value oracle rows on all four. |
+| J4 | nit | HOUSE-RULE | "Other value written with `ToString()`" and "Numbers stay inline" were too broad (`TimeSpan`'s text is unchanged; `Half` is a parameter). | The Changelog and AC12-10 name the three date and time types, and "C#'s built-in numeric types". |
+| J5 | nit | HOUSE-RULE | "Failed under some cultures" omitted the day/month swap and MySQL failing under en-US. | Folded into the Changelog's "reject … or read with day and month swapped"; the per-provider detail was removed with J1. |
+| J6 | nit | HOUSE-RULE | The Changed intro ("These shapes now throw") headed bullets that don't throw. | "Other changes:" now separates them. |
+
+### 9.42 Fix-verification of `66bde1e..9ce9e86` (non-author; counts reproduced; 10 own mutants; 97.7 % visitor coverage; netstandard2.0 on .NET 6 for MySQL, PostgreSQL and SQLite)
+
+Verdict: NOT CLEAN. J1, J2 and J5 are resolved; J3 and J4 partly; J6 not.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| F1 | minor | TEST-GAP | The `TimeOnly` fraction (`HH:mm:ss.FFFFFFF`) wasn't pinned; the `"HH:mm:ss"` mutant survived on all four. | A direct pin (`10:00:30.5`) and a sub-second oracle row on all four; the mutant re-run. |
+| F2 | minor | HOUSE-RULE | The Security bullet's "carrying the literal's text, so the database converts them as it converted the literal" contradicted the date/time format change. | Restated: typed as the literal was, carrying its text except for date and time values. |
+| F3 | nit | HOUSE-RULE | "Other changes:" needed a blank line before it to separate the lists (J6 not fixed). | Blank line added. |
+| F4 | nit | HOUSE-RULE | `nint`/`nuint` are built-in numeric types but are parameters; Advanced.md still said "numbers … stay inline". | The eleven inline numeric types are listed in the Changelog, Advanced.md and AC12-10. |
+| F5 | nit | HOUSE-RULE | The date/time bullet's harms didn't cover `TimeOnly`'s lost seconds. | Added. |
+
+Recorded in §8: SQL Server `DateTime` under a day-first session (pre-existing).
+
+### 9.43 Fix-verification of `66bde1e..6f503a9` (non-author; suites reproduced; own mutants per provider; pandoc render checks)
+
+Verdict: NOT CLEAN.
+- **Resolved:** F3 and F5.
+- **Resolved as scoped, each leaving a test gap:** F1 and F4.
+- **Partial:** F2. Its rewrite added two over-claims.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| K1 | minor | HOUSE-RULE | "Every value that 3.9.0 quoted … is now a parameter": 3.9.0 quoted an enum as its name, and HEAD inlines its number. | The Security bullet and the AC12-10 lead-in say only what stays inline and that no other value is written into the SQL. |
+| K2 | minor | HOUSE-RULE | "It carries the literal's text, except date and time values": a `Half` (`1,5` → `1.5`) and a negative `nint`, `BigInteger` or `Int128` (U+2212 → `-`) changed too. | The text claim is deleted from Security. The formatting bullet covers every value sent as a parameter (scoped so in rev 42, L1): the invariant culture, and fixed formats for dates and times. |
+| K2b | nit | HOUSE-RULE | "No literal's text depends on the current culture": a type with neither `IConvertible` nor `IFormattable` is its own `ToString()`. | Deleted from the API bullet. The formatting bullet says `Convert.ToString` with the invariant culture and names that exception; AC12-10 says the same for values without a fixed format. A `DateTime` keeps 3.9.0's fixed format, now listed. |
+| K3 | minor | TEST-GAP | F1's pin covered one fractional digit: `HH:mm:ss.F` survived on 4/4, and `.FFF` survived on SQL Server. | A `10:00:30.1234567` pin per provider. |
+| K4 | minor | TEST-GAP | The eleven inline types were unpinned: dropping `decimal` from `IsNumber` survived every suite. | A direct test per provider: the eleven types inline with invariant text under fi-FI, and `nint`/`nuint`/`Half` as parameters. |
+| K5 | nit | HOUSE-RULE | AC12-10's closing paragraph rendered inside the AC12-9 sub-bullet (lazy continuation). | Split into sub-bullets, and the duplicated inline sentence deleted. |
+| K6 | nit | HOUSE-RULE | The visitors' doc comments still said "non-numeric … Numbers … stay inline" and "converts it as it converted 3.9.0's literal". | Restated in all four. |
+| K7 | nit | HOUSE-RULE | Advanced.md's PostgreSQL parenthetical listed only strings, chars, `Guid`s and dates. The AI reference still said "(strings, chars, `Guid`s, dates)". | Both restated. |
+
+### 9.44 Fix-verification of `66bde1e..9f2d531` (non-author; suites reproduced twice; 70 mutants, 42 its own, all killed; 97.7 % visitor coverage; pandoc)
+
+Verdict: NOT CLEAN on documents only. The code is verified.
+- **Resolved:** K1, K2b, K3, K4, K5, K6.
+- **Resolved as worded, each leaving a new nit:** K2 (L1), K7 (L2).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| L3 | minor | HOUSE-RULE | The §4.2 AC12-10 row and the §4.4 mutation table stopped at rev 33: the rev 39–41 tests and mutants weren't listed, and the direct-test count was stale. | Row and count updated; five mutation rows added. |
+| L1 | nit | HOUSE-RULE | The formats list's "any other value" read as covering enums, booleans and `NULL`, which are inline. | The list is scoped to values sent as parameters (or quoted without a generator), and the inline set is restated. |
+| L2 | nit | HOUSE-RULE | "Such a value compared with `null`" read as covering inline values; PostgreSQL still sends `5 IS NULL`. | Scoped to a would-be parameter, with the inline example. |
+| L4 | nit | HOUSE-RULE | The rev 41 lists omitted K2b; "two guard tests" was one new test and one added pin. | Corrected. |
+
+Incident: the verifier wrote a probe into the main checkout's PostgreSQL direct-test file for about three minutes,
+then restored it. No build or test ran there. Checked afterwards: the file's blob equals HEAD's, and
+`git diff HEAD` is empty.
+
+### 9.45 Fix-verification of `66bde1e..8eaa0d0` (non-author; 26 mutants (23 per provider plus 3 MySQL-only), 95 provider-mutants, all killed by the named tests; fi-FI value probe in both modes; PostgreSQL null-test probe, 10 shapes)
+
+Verdict: NOT CLEAN.
+- **Resolved:** L1, L3 and L4.
+- **Partial:** L2 (its AC12-10 sibling sentence was not updated: M2).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| M1 | minor | TEST-GAP | Run alone, the MySQL `DateTimeOffset` test (rev 39) failed at cleanup and left its three rows. It seeded with raw SQL, so `Person` was cold when the cleanup ran `Delete<Person>(predicate)`, which hit the cold-cache Delete defect. The verifier deleted the 21 rows its runs leaked. | Seeded through `SeedTypedPerson`, which warms `Person`; run alone, it passes and leaves no row. |
+| M2 | nit | HOUSE-RULE | AC12-10 said "on PostgreSQL, a value compared with `null` is decided in .NET"; an inline value is still sent (`5 IS NULL`, executed). | Scoped to a would-be parameter. |
+| M3 | nit | HOUSE-RULE | Fix-introduced: the blank line before the inline sentence made the whole "Other changes:" list loose. | The sentence is folded into the lead-in. |
+| M4 | nit | TEST-GAP | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` ran in the machine's culture. Under sv-SE, `DateOnly.ToString()` is already ISO, so the current-culture mutant survived there (executed). | Runs under fi-FI on all four. |
+| M5 | nit | PLAN-GAP | §4.3 had no rows for the generator constructor, `Parameters` or `QueryComponents.OrderByParameters`. | Rows added. |
+| M6 | nit | HOUSE-RULE | "Sub-second rows" described one assertion. | Reworded. |
+
+### 9.46 Fix-verification of `66bde1e..4b7ab2b` (non-author; every QueryOperators method run alone on four providers; culture-forced runs under sv-SE and th-TH; M1/M4/M5 mutants)
+
+Verdict: NOT CLEAN.
+- **Resolved:** M2, M3 and M6.
+- **Resolved for the named items, each with a residual:** M1 (N1), M4 (N2), M5 (N3).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| N1 | minor | TEST-GAP | Three more MySQL tests failed when run alone, for the same cold-cleanup reason as M1, and one leaked rows: `ComputedMemberOrderBy_EmitsExpression_Unchanged`, `ComputedAttributeEntityWithoutJoins_OwnColumnOrder_Unqualified` and `Last_AfterComputedOrderBy_InvertsComputedTerm`. They predate Task 12. | The MySQL harness discovers `Person` in `TestInitialize` (the verifier's validated fix); each of the three passes run alone. Consequence recorded in §8: the cold-cache plan's AC4 no longer reproduces the defect on this branch. |
+| N2 | nit | TEST-GAP | `DateOnly` with the current culture as format provider survived fi-FI, which is Gregorian with `-` as a literal; under th-TH it would send `2569-01-02`. | The test runs under fi-FI and th-TH; both provider mutants are killed. |
+| N3 | nit | HOUSE-RULE | Fix-introduced: the §4.3 row said "PostgreSQL's equivalent", but PostgreSQL has the same member. | "All four providers". |
+| N4 | nit | HOUSE-RULE | The §9.45 count: 26 × 4 ≠ 95. | 23 per provider plus 3 MySQL-only. |
 
 ---
 
