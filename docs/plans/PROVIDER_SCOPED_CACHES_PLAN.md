@@ -8,9 +8,15 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 8, the test plan after the seventh Task 0 review (§9.7). Nothing is implemented yet.
-> The rev 7 reviewer ran the AC7 rows on a test-created table on all four providers: Red at the seam (or a Guard),
-> green when fixed, and on SQL Server and SQLite every per-site mutant killed by its row.
+> **Status (2026-10-01):** rev 9, the test plan after the eighth Task 0 review (§9.8). Nothing is implemented yet.
+> What each reviewer ran and found is recorded in §9.
+
+> **Revision 9 — what changed (R8-1…R8-5):**
+> - D11 records that a custom SQLite dialect's `EncloseIdentifier` must leave an enclosed name unchanged after D5;
+>   the bracket Guard covers brackets and backticks (R8-2).
+> - One kill claim is corrected (R8-1).
+> - An existing SQLite pin that D5 changes is listed for Task 3, with a Changelog line (R8-3).
+> - §4.2 maps the six cache properties (R8-4); bookkeeping (R8-5).
 
 > **Revision 8 — what changed (R7-1…R7-7).** Six rounds running, a fix caused the next finding. So rev 8
 > adopts rules the reviewer already executed instead of designing new ones.
@@ -21,17 +27,15 @@
 > - An internal mapped-set accessor per provider for observers (R7-3).
 > - §4.1/§4.2 completed (R7-4); AC7 type, fragments, seeds and identities named (R7-5).
 > - D7's mapper and procedure-name members (R7-6); bookkeeping (R7-7).
-> The rev 5 and rev 6 reviewers prototyped the seam, the fixed state and 13 per-site mutants on SQL Server and
-> SQLite. On SQLite every AC7 row is Red at the seam (or a Guard) and green after the fix, and every listed mutant
-> dies, M1 included. On SQL Server, P1's `Sum`/`Average` overflowed on the shared `person` data (R6-1), so the AC7
-> rows now run on a table the test creates.
 
 > **Revision 7 — what changed (R6-1…R6-7):**
 > - AC7 runs on a test-created table with fixed rows, on every provider (R6-1).
 > - D9's advice is limited to settings that don't affect name resolution (R6-2).
-> - The cold-cache observers read the tested instance's own scope, with a self-check (R6-3).
+> - The cold-cache observers read the tested instance's own scope, with a self-check (R6-3). *(Rev 8: no
+>   self-check; observers read through the tested instance itself, R7-3.)*
 > - The SQLite bracket-quoting mapper row becomes a Guard (R6-4). A new D11 unquotes SQLite's mapper with the
->   dialect, so D5 doesn't break a bracket-quoting SQLite provider (R6-5).
+>   dialect, so D5 doesn't break a bracket-quoting SQLite provider (R6-5). *(Rev 8: replaced by the quote-pair rule,
+>   R7-1.)*
 > - §4.2 maps each member to its tests, including Core's `GetUnmappedProperties<T>()` (R6-6). The rev 5 note is
 >   corrected (R6-7).
 
@@ -78,7 +82,7 @@
 > - **Gates and residuals.** The PostgreSQL and MySQL pins gate through local runs recorded with sha (N11). The stale
 >   prose list and D7 surface are completed (N15, N16). §6 additions (N17).
 
-## 1. Verified premises (author at `89383ff`; Task 0 reviewers executed E1–E24 and a seam/fixed prototype, §9.1–§9.7)
+## 1. Verified premises (author at `89383ff`; Task 0 reviewers executed E1–E24 and a seam/fixed prototype, §9.1–§9.8)
 
 - **Shared statics.** Four fields on `Funcular.Data.Orm.Core/OrmDataProvider.cs`:
   - `_tableNames`, `_columnNames` and `_mappedTypes` are `protected static readonly`;
@@ -231,6 +235,14 @@
     - Executed by the rev 7 reviewer: `ReservedWordTable_InsertAndQuery_Works` read `0` where `42` was expected.
     - The pair rule passed the default, reserved-only bracket, always-bracket and always-backtick dialects.
   - The server providers' mappers have the same limitation, pre-existing (§6).
+  - **Idempotent enclosing** *(rev 9, R8-2)*.
+    - After D5, SQLite's SQL builders still pass a cached, already enclosed name through
+      `Dialect.EncloseIdentifier` (`SqliteOrmDataProvider.cs:1239`, `:1245`). The server providers use the cached
+      name as is.
+    - The built-in dialects return an enclosed name unchanged. A custom SQLite dialect must do the same.
+    - One that wraps unconditionally works at 3.9.0 and breaks after D5. The rev 8 reviewer executed it:
+      `SELECT [[Id]] …`, SQLite Error 1.
+    - Recorded in §6 and in the Changelog's "Changed", not fixed here.
 
 ## 3. Acceptance criteria
 
@@ -263,7 +275,8 @@
   by underscores, is queryable.
 - **AC9 — Procedure names are scoped** (SQL Server, MySQL).
 - **AC10 — No regressions.** All four suites, CI's SQL Server job, net48 and net9 are green. The cold-cache tests keep
-  their meaning.
+  their meaning. A custom SQLite dialect whose `EncloseIdentifier` leaves an enclosed name unchanged reads as at
+  3.9.0. One that doesn't is a recorded break (D11, §6, Changelog) *(rev 9, R8-2)*.
 
 ## 4. Test plan
 
@@ -295,13 +308,13 @@ Every row is run alone at the seam and its outcome recorded.
 | AC4 | `ExplicitConnection_SuppliesTheIdentity` [all four: empty constructor string; two explicit connections to different databases don't share] | none | Red at the seam |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareNames` | none | Red |
 | AC5 | `SameProviderType_DifferentDialectType_DoNotShareMappers` (a double-quoting dialect reads `person` first, then the default provider must read the right `Id` and `FirstName`) | SQL Server (CI) | Red (E6/E17: `Id=0`, null) |
-| AC5 | `SqliteBracketDialect_ReadsItsOwnRows`: a SQLite provider whose dialect brackets **every** identifier reads its own property-named table after D5 *(rev 7, R6-5)*. (Rev 7's "same with a bracket-quoting dialect" mapper-sharing row is dropped: with D11 its mutation is equivalent, R7-2.) | SQLite temp file (CI) | Guard: green at the seam; killed by "SQLite mapper strips only `"`" once D5 is in |
-| AC5 | `SqliteDefaultDialect_ReadsAReservedWordColumn` (the default dialect, a column named `Order`, after D5) *(rev 8, R7-1)* | SQLite temp file (CI) | Guard: green at the seam; killed by "D11 derived from the dialect's quoting of `x`" and by "no D11" |
-| AC5 | `MapperCache_IsScoped_ThroughARealRead` [PostgreSQL in PostgreSql.Tests, MySQL in MySql.Tests, SQLite in SqlServer.Tests/Caching on a temp file *(rev 8, R7-2)*]. P_A reads `person`, then A's mapper cache has an entry and B's has none. P_B reads, then B has its own. | PostgreSQL, MySQL | Red at the seam (one shared cache) |
+| AC5 | `SqliteBracketDialect_ReadsItsOwnRows` [`[…]`, backtick]: a SQLite provider whose dialect encloses **every** identifier, idempotently (an enclosed name is returned unchanged), reads its own property-named table after D5 *(rev 7, R6-5; rev 9, R8-2)*. (Rev 7's "same with a bracket-quoting dialect" mapper-sharing row is dropped: with D11 its mutation is equivalent, R7-2.) | SQLite temp file (CI) | Guard: green at the seam; killed by "SQLite mapper strips only `"`" once D5 is in, and the backtick row by "the pair rule without backticks" |
+| AC5 | `SqliteDefaultDialect_ReadsAReservedWordColumn` (the default dialect, a column named `Order`, after D5) *(rev 8, R7-1)* | SQLite temp file (CI) | Guard: green at the seam; killed by "D11 derived from the dialect's quoting of `x`" and by "no unquoting at all" *(rev 9, R8-1)* |
+| AC5 | `MapperCache_IsScoped_ThroughARealRead` [PostgreSQL in PostgreSql.Tests, MySQL in MySql.Tests, SQLite in SqlServer.Tests/Caching on a temp file *(rev 8, R7-2)*]. P_A reads `person`, then A's mapper cache has an entry and B's has none. P_B reads, then B has its own. On SQLite, the test creates `person` in each temp file. | PostgreSQL, MySQL, SQLite temp files (CI) | Red at the seam (one shared cache) |
 | AC6 | `ComputeColumnName_IgnoresABareNameKey` | none | Red (planted bare key used) |
 | AC2 | `UnmappedSet_IsComputedFromTheInstanceScope` [per provider]: a column name for `T.X` planted in scope A only; A's instance `GetUnmappedProperties<T>` excludes `X`, B's includes it *(rev 8, R7-4)* | none | Red at the seam (A's plant is seen by B) |
 | AC2 | `CoreGetUnmappedProperties_ReadsTheInstanceScope` (probe subclass of a direct `OrmDataProvider` subclass) *(rev 7, R6-6; listed here in rev 8, R7-4)* | none | Guard: green at the seam; killed by "Core's `GetUnmappedProperties<T>()` reads a static set" |
-| AC4 | `MappedSetAccessor_ReadsTheInstanceScope` [per provider]: the internal accessor (Task 1a) of instance A shows a type that A discovered, and instance B in another scope doesn't *(rev 8, R7-3)* | none | Red at the seam (one shared set) |
+| AC4 | `MappedSetAccessor_ReadsTheInstanceScope` [per provider]: the internal accessor (Task 1a) of instance A shows a type marked mapped in A's scope (planted), and instance B in another scope doesn't *(rev 8, R7-3)* | none | Red at the seam (one shared set) |
 | AC7 | `LinqSites_ReadTheirOwnScope`. Through the seam accessors, plant valid mappings for the dedicated type `LinqProbe { Id, FirstName }` (`[Table("zz_psc_linq")]`, below) in P2's scope: table `zz_psc_linq`, `FirstName → last_name`, `Id → employer_id`, the type marked mapped. Then run `OrderBy`/`ThenBy`, both `Select` forms, `Last()` without `OrderBy`, `Where` and `First(pred)` (on `"x"`), `Count`/`Any`/`All` with a predicate, and `Max`/`Sum`/`Average` on `Id`. Capture the SQL through `Log` (logged before execution) and assert each site's exact fragment, e.g. `MAX(zz_psc_linq.employer_id)` (SQLite renders `Average` as `ROUND(AVG(…), 10)`) *(rev 8, R7-5)*. | SQL Server (CI), SQLite temp file (CI) | Guard |
 | AC7 | `LinqSites_NeverReadAnotherScope`. P2 plants first. P1 (same database, different identity: `Application Name` on SQL Server and PostgreSQL, `Connection Timeout` on MySQL, `Default Timeout` on SQLite) then plants **the same shape as P2** with distinct values: table `zz_psc_linq`, the type marked mapped, `FirstName → middle_initial`, `Id → id`. P1 runs every site, and the row asserts **P1's own exact fragments** at each one, which proves P1 ran it. Only then does P2 run; P2's exact fragments must show its own plant at every site. *(rev 6, R5-2)* | SQL Server (CI), SQLite temp file (CI) | Red at the seam (shared caches) |
 | AC7 | `LinqUnmappedRead_IsScoped` [per site]. Two dedicated types, each `[Table("zz_psc_linq")]` so P1 discovers its table: type A has `FirstName` planted as unmapped in P2's scope, type B has `Id`. Type A runs ORDER BY, SELECT, `Count` with a predicate, and the predicate site (`Where(x => x.FirstName == …)`) *(rev 6, R5-3)*. Type B runs default `Last()` (which orders by `Id`) *(rev 6, R5-1)* and `Max(x => x.Id)`. At each site, P2 is rejected with that site's message and **no SQL is logged**: ORDER BY and `Last` `Only simple member access…`; SELECT `Unmapped properties cannot be selected directly.`; `Count` with a predicate and the predicate site `Expression type Parameter…`; aggregate `Only simple member access is supported in aggregate expressions.`. P1, in another scope, renders and executes the same shape. | SQL Server (CI), SQLite temp file (CI) | Red at the seam |
@@ -341,7 +354,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 | `CacheScopeIdentity` (four providers) | AC4 `OtherConnectionDifference_IsAnotherScope`, `ExplicitConnection_SuppliesTheIdentity`, `UnparseableConnectionString_IsHashed`, `SqliteMemoryAndTemporaryDatabases_NeverShare` |
 | `CacheScopeDialectType` (four providers) | AC4 `ProviderTypeOrDialectTypeDifference_IsAnotherScope`; AC5 rows |
 | Core's defaults | AC4 `EmptyIdentity_IsPerProviderType` |
-| The four protected cache properties | AC2 rows; AC4 `SameScope_ShareOneCacheSet` |
+| The six protected cache properties | `TableNameCache`, `ColumnNameCache`, `UnmappedPropertyCache`, `MappedTypes`: AC2 rows and AC4 `SameScope_ShareOneCacheSet`. `EntityMapperCache`: the AC5 mapper rows and `MapperCache_IsScoped_ThroughARealRead`. `ProcedureNameCache`: AC9 *(rev 9, R8-4)* |
 | The instance accessors | AC4 and AC7 rows (planting and observing) |
 | `ToDictionaryKey` | AC3 rows |
 | The providers' instance `GetUnmappedProperties<T>` (four providers) | `UnmappedSet_IsComputedFromTheInstanceScope` (per provider); AC2 `TwoSqliteDatabases_ColumnMissingInFirst_IsReadInSecond` |
@@ -380,6 +393,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 | Unmapped set left process-wide | AC2 missing-column row |
 | Entity mappers left process-wide (per provider) | AC5 mapper rows of that provider; on SQLite, `MapperCache_IsScoped_ThroughARealRead` *(rev 8, R7-2)* |
 | SQLite's mapper strips only `"` (no D11) | `SqliteBracketDialect_ReadsItsOwnRows` |
+| SQLite's mapper strips no quotes at all | `SqliteDefaultDialect_ReadsAReservedWordColumn`; the existing `ReservedWordTable_InsertAndQuery_Works` *(rev 9, R8-1)* |
+| The pair rule without backticks | `SqliteBracketDialect_ReadsItsOwnRows` (backtick row) *(rev 9, R8-2)* |
 | D11 derived from the dialect's quoting of `x` (rev 7's rule) | `SqliteDefaultDialect_ReadsAReservedWordColumn`; the existing `ReservedWordTable_InsertAndQuery_Works` (local Sqlite.Tests) |
 | The internal mapped-set accessor reads a static set | `MappedSetAccessor_ReadsTheInstanceScope` |
 | Core's `GetUnmappedProperties<T>()` reads a static set | `CoreGetUnmappedProperties_ReadsTheInstanceScope` |
@@ -405,7 +420,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–7 NOT CLEAN (§9.1–§9.7). Rev 8 is re-reviewed.
+1. **Task 0** — test-plan review: revs 1–8 NOT CLEAN (§9.1–§9.8). Rev 9 is re-checked on its diff and the rows it
+   touches.
 2. **Task 1a — Seam (no behaviour change, green on its own).**
    - The registry API, the protected properties and the identity members, all returning the existing shared
      statics.
@@ -433,6 +449,12 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - `PostgreSqlOrmDataProvider.cs:593`, `MySqlOrmDataProvider.cs:571`, `SqliteOrmDataProvider.cs:545` ("guarded
        (_mappedTypes)");
      - the field docs.
+   - **an existing SQLite pin that D5 changes** *(rev 9, R8-3)*:
+     - `SqliteOrderByQualificationTests.RemoteMemberOrderBy_EmitsExactResolvedFragment_NoBasePrefix` asserts
+       `"country_0".Name ASC` ("unchanged from 3.9.0").
+     - After D5, SQLite emits the discovered spelling `"country_0".name ASC` (executed by the rev 8 reviewer: the
+       only failure in the fixed Sqlite.Tests).
+     - Re-pinned to the discovered spelling, with its message updated.
 6. **Task 4 — Green and gauntlet.**
    - Suites, net48, net9; mutations (§4.3); coverage (§4.2).
    - Changelog: Fixed (AC1, AC2, AC5, AC8, AC9). Changed:
@@ -440,7 +462,9 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - `InternalsVisibleTo`;
      - scope growth per distinct password-less string, with no eviction and the advice from D9;
      - coldness per scope;
-     - the per-instance-scope cost.
+     - the per-instance-scope cost;
+     - SQLite's SQL uses the database's spelling of convention-mapped columns (D5);
+     - a custom SQLite dialect's `EncloseIdentifier` must leave an enclosed name unchanged (D11).
    - The 3.10 plan's §8 entry points here.
 7. **Task 5 — Hostile review and fix-verification** to CLEAN, then the merge into `development/3.10`.
    - **Ship dependency (R5):** per-scope coldness makes the cold-cache `Delete<T>(predicate)` defect fire on first use
@@ -479,6 +503,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 - **Principals:** Integrated Security with impersonation, and Entra/`AccessToken` principals, share the string's
   scope.
 - **Dialect state:** custom dialects of one type that carry state share a scope.
+- **A custom SQLite dialect that encloses unconditionally** breaks after D5: cached names are enclosed again (D11).
+  Recorded, not fixed.
 - **Server providers' mappers** unquote only their default quote character, so a custom dialect that quotes
   differently maps nothing (pre-existing; D11 fixes SQLite only, because D5 would otherwise newly break it).
 - **Per-user connection strings** give per-user discovery, and the registry has no eviction.
@@ -597,3 +623,17 @@ Verdict: NOT CLEAN.
 | R7-5 | minor | TEST-GAP | Fix-introduced. AC7's text still showed `person` fragments, named no type, didn't specify the seeds `First(pred)` needs, and didn't name P1's identity on PostgreSQL and MySQL. | `LinqProbe`, the fragments, three seed rows and the identities named. |
 | R7-6 | minor | PLAN-GAP | D7 didn't list the mapper and procedure-name members that the non-SqlServer assemblies need. | Added to D7 and the Changelog's "Changed". |
 | R7-7 | nit | PLAN-GAP | §9.6 omitted R5-4 (d); D11 sat between D9 and D10. | Fixed. |
+
+### 9.8 Task 0 re-review of rev 8 (`a5870a8`; non-author; prototype on all four providers with 19 mutants; AC7 on all four with 12 per-site mutants each)
+
+Verdict: NOT CLEAN.
+- **Resolved:** R7-2 through R7-7.
+- **Partial:** R7-1 (R8-1, R8-2).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| R8-1 | minor | PLAN-GAP | `SqliteDefaultDialect_ReadsAReservedWordColumn` was said to be killed by "no D11" (strips only `"`), but the default dialect quotes with `"`, so it stays green. | Killed by "no unquoting at all"; that mutant added to §4.3. |
+| R8-2 | minor | AC-GAP | Fix-introduced. (a) After D5, SQLite re-encloses cached names, so a dialect that encloses unconditionally breaks (executed: `[[Id]]`). (b) No row pinned D11's backtick clause. | (a) The constraint is recorded in D11, AC10, §6 and the Changelog. (b) The bracket Guard is parameterized over brackets and backticks. |
+| R8-3 | minor | PLAN-GAP | D5 turns an existing SQLite pin red (`"country_0".Name` becomes `.name`), with no Changelog line. | Re-pinned in Task 3; Changelog "Changed". |
+| R8-4 | nit | HOUSE-RULE | §4.2 said four cache properties; R7-6 made it six. | Six, each mapped. |
+| R8-5 | nit | PLAN-GAP | (a) A stale paragraph rendered inside the rev 8 note. (b) The rev 7 note didn't mark what rev 8 replaced. (c) The mapper row's DB column omitted SQLite. (d) The accessor row said "discovered" with no database. | (a) Deleted. (b) Annotated. (c) and (d) Fixed. |
