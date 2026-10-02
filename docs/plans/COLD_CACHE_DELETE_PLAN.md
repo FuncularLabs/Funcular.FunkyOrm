@@ -8,9 +8,18 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 4, the test plan after the third Task 0 review (§9.3). Nothing is implemented yet.
-> The rev 3 reviewer executed every §4.1 row red at `fae4472` and green with a faithful D1–D3 sketch, killed every
-> listed mutant, and confirmed AC4 on `development/3.10`. Rev 4 fixes test construction (§9.3).
+> **Status (2026-10-01):** rev 5, the test plan after the fourth Task 0 review (§9.4).
+> - Task 1 landed the pass-through seam at `dd121c5`. The rev 4 rows are written, uncommitted, and each was run
+>   alone there: every expected-red row is red for its stated reason, and the SQLite execution row is green.
+> - The rev 5 rows (§4.1, marked *rev 5*) are added before Task 2.
+> - The rev 3 and rev 4 reviewers ran a faithful D1–D3 sketch: every row went red→green and every listed mutant
+>   was killed.
+
+> **Revision 5 — what changed (re-review F1–F5):**
+> - An async missing-table row; both missing-table rows check coldness after the rollback (F1).
+> - Guard rows: a cold delete by id outside a transaction doesn't discover (F3). They also cover base-uncovered
+>   SQL Server lines, with a no-match row (F2).
+> - The missing-table types named (F4); stale prose (F5).
 
 > **Revision 3 — what changed (re-review R1–R9):**
 > - The matrix and mutations are per provider. The SQLite rows that can't go red→green at `fae4472` are dropped
@@ -21,7 +30,7 @@
 >   (R6).
 > - D3 comes after the transaction guard (R7); construction details (R8); prose (R9).
 
-## 1. Verified premises (author by reading `fae4472`; Task 0 reviewers executed, §9.1–§9.2)
+## 1. Verified premises (author by reading `fae4472`; Task 0 reviewers executed, §9.1–§9.4)
 
 - **How the unmapped set goes wrong.**
   - `GenerateWhereClause<T>` reads `_unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>)`
@@ -103,8 +112,10 @@
 - **AC8:** A cold `GenerateWhereClause<T>` discovers `T` before translating. On SQL Server, MySQL and PostgreSQL it
   renders `T`'s own snake_case columns, including inside a `[SqlExpression]` token.
 - **AC9:** A cold `Delete<T>(id)` and, separately, a cold `DeleteAsync<T>(id)` delete the row on SQL Server, MySQL and
-  PostgreSQL. The key is a `[Key]` whose snake_case column (`zz_probe_pk_id`) is convention-mapped. On a missing
-  table, the error has D3's shape.
+  PostgreSQL. The key is a `[Key]` whose snake_case column (`zz_probe_pk_id`) is convention-mapped.
+  - On a missing table, sync and async, the error has D3's shape, and nothing is cached for the type.
+  - Without a transaction, a cold delete by id (sync and async, all four providers) throws the transaction guard's
+    error and doesn't discover the type *(rev 5, F3)*.
 
 ## 4. Test plan
 
@@ -122,7 +133,11 @@
 | AC8 | `GenerateWhereClause_Cold_RendersSnakeCaseColumns` (incl. `[SqlExpression("COALESCE({LastName}, '')")]` on `person`) | ✓ | ✓ | ✓ | — (§1 key mismatch) |
 | AC9 | `DeleteById_Cold_WithASnakeCaseKey_DeletesTheRow` (type `ColdPkRow`) | ✓ | ✓ | ✓ | — (§1 key mismatch) |
 | AC9 | `DeleteByIdAsync_Cold_WithASnakeCaseKey_DeletesTheRow` (type `ColdPkAsyncRow`) | ✓ | ✓ | ✓ | — (§1 key mismatch) |
-| AC9 | `DeleteById_Cold_MissingTable_ThrowsTheDiscoveryError` (D3's shape) | ✓ | ✓ | ✓ | — |
+| AC9 | `DeleteById_Cold_MissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPkRow`; D3's shape; coldness re-checked after the rollback) | ✓ | ✓ | ✓ | — |
+| AC9 | `DeleteByIdAsync_Cold_MissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPkAsyncRow`; as above) *(rev 5, F1)* | ✓ | ✓ | ✓ | — |
+| AC9 | `DeleteById_Cold_WithoutTransaction_ThrowsTheGuard_AndDoesNotDiscover` (guard row; the type is still cold afterwards) *(rev 5, F3)* | ✓ | ✓ | ✓ | ✓ |
+| AC9 | `DeleteByIdAsync_Cold_WithoutTransaction_ThrowsTheGuard_AndDoesNotDiscover` (as above) *(rev 5, F3)* | ✓ | ✓ | ✓ | ✓ |
+| coverage | `DeleteByIdAsync_Cold_NoMatchingRow_ReturnsFalse` (guard row) *(rev 5, F2)* | ✓ | — | — | — |
 | D3 (SQLite) | `DeleteById_Cold_SqliteSyncAndAsync_Execute` (property-named key; equivalent change at `fae4472`, coverage only) | — | — | — | ✓ |
 | AC4 | the two named tests, each run alone, plus the D1-removed mutant | — | on `development/3.10` (Task 4) | — | — |
 
@@ -137,6 +152,10 @@
     `zz_cold_pk (zz_probe_pk_id INT PRIMARY KEY, label …)`. A column named like the property would make the row
     vacuous (C2).
   - `ColdHelperPerson` (direct helper row).
+  - `ColdMissingPkRow` and `ColdMissingPkAsyncRow` (each `[Table("zz_cold_missing")]`, never created) *(rev 5, F4)*.
+  - `ColdExecPkRow` and `ColdExecPkAsyncRow` (`zz_cold_exec_pk`, SQLite's execution row), kept apart from `ColdPkRow`
+    so the snake_case SQLite AC9 rows (Task 4) can reuse that name.
+  - Table names are fixed, so two simultaneous runs against one database would collide. Runs are serial (§1).
 - **Seeding:** rows are seeded and removed with raw SQL.
 - **Server tables:** they use `person` (snake_case columns, which defeat naive-name alternatives to D1).
 - **SQLite:** one temp-file database per class, with **property-named** columns (`Id`, `FirstName`, `LastName`).
@@ -146,6 +165,7 @@
   - AC7: `DROP TABLE IF EXISTS` → tx1 → attempt 1 → **rollback** → create the table → seed one row → tx2 →
     attempt 2 → commit.
   - AC9: `DROP TABLE IF EXISTS` → create → test.
+  - Missing-table rows: `DROP TABLE IF EXISTS` → tx → attempt → rollback → coldness check.
   - Both drop in `finally`, after disposing the provider.
   - Raw MySQL connections set `lock_wait_timeout` and `innodb_lock_wait_timeout` to 10 s.
 - **Coldness precondition.** Each test first asserts, through the provider's internal accessors (each provider grants
@@ -161,7 +181,12 @@
   - the naive column for the method-call row on the server providers: `Unknown column 'person.lastname'`, `Invalid
     column name 'lastname'`, `42703`;
   - on SQLite, the method-call row reads survivors through `Query<T>()`, so its red is `near "FROM": syntax error`;
-  - the naive key column for the AC9 rows.
+  - the naive key column for the AC9 rows;
+  - for the missing-table rows, the raw provider exception (SQL Server `SqlException` 208, MySQL
+    `MySqlException` 1146, PostgreSQL `PostgresException` 42P01) instead of D3's `InvalidOperationException`.
+- **Not red at base:** the guard rows and the no-match row are green at `fae4472`; they kill mutants (§4.2) and
+  cover lines (§4.3). The direct helper rows can fail only once the pass-through seam exists (`dd121c5`), since
+  the helper (`protected internal`) doesn't exist at `fae4472` *(rev 5, F5)*.
 
 ### 4.2 Mutations each key test must kill (per provider)
 
@@ -171,10 +196,12 @@
 | D1 after the unmapped `GetOrAdd` | AC1/AC2 rows | all 4 |
 | D1 after `ResolveRemoteJoins` | AC8 `[SqlExpression]` row | SQL Server, MySQL, PostgreSQL |
 | Discovery in `Delete`/`DeleteAsync` only | AC8 `DiscoversFirst` | all 4 |
-| Discovery wrapped in a swallowing try/catch | AC7 (attempt 1 must report the discovery error) | MySQL, SQLite |
+| Discovery wrapped in a swallowing try/catch | AC7 (attempt 1 must report the discovery error) | all 4 |
 | No D2 guard | AC6 (`ExecProcedure`-first: SQL Server, MySQL; direct helper: all 4) | all 4 |
 | No D3 | AC9 rows | SQL Server, MySQL, PostgreSQL |
 | D3 in only one of `Delete`/`DeleteAsync(long)` | the AC9 row of the other | SQL Server, MySQL, PostgreSQL |
+| D3 wrapped in a swallowing try/catch (each method) | that method's missing-table row *(rev 5, F1)* | SQL Server, MySQL, PostgreSQL |
+| D3 before the transaction guard (each method) | that method's guard row *(rev 5, F3)* | all 4 |
 
 Notes:
 - The swallowing-try/catch row is killed on all four providers (AC7 now runs on all four).
@@ -188,7 +215,7 @@ Notes:
 |---|---|
 | Unmapped helper (×4) | AC6 direct; AC6 `ExecProcedure` (SQL Server, MySQL) |
 | `GenerateWhereClause<T>` (×4) | AC8 rows; AC1/AC2 |
-| `Delete<T>(long)` / `DeleteAsync<T>(long)` (×4) | AC9 rows (server providers, sync and async separately); SQLite's execution row |
+| `Delete<T>(long)` / `DeleteAsync<T>(long)` (×4) | AC9 rows (server providers, sync and async separately); the guard rows (all 4); SQLite's execution row; SQL Server's no-match row |
 
 Per-file line coverage (coverlet, deduplicated cobertura), at base `fae4472` (executed by the rev 3 reviewer):
 
@@ -203,8 +230,16 @@ Uncovered at base:
 - `Delete`/`DeleteAsync(long)` on MySQL (0/28);
 - `DeleteAsync(long)` on PostgreSQL and SQLite (0/14 each).
 
-The rev 4 rows (AC9 sync and async, AC7 and the missing-table row on every server provider, SQLite's execution row)
-cover them. The floor is 85 % per file at HEAD, with no pre-arranged waiver.
+The AC9, AC7 and missing-table rows and SQLite's execution row cover these gaps on MySQL, PostgreSQL and SQLite.
+
+**SQL Server.** The rev 4 rows cover no line that is uncovered at base (§9.4 F2), so D1–D3's own lines alone
+would land within 0.05 % of the floor, on either side depending on how the helper is written. The rev 5 rows
+cover base-uncovered lines:
+- the async guard row covers the throw at `SqlServerOrmDataProvider.cs:337`;
+- the no-match row covers the log line at `:351`.
+
+The reviewer executed these two rows: they took SQL Server from 1090 to 1092 covered lines. The floor is 85 % per
+file at HEAD, with no pre-arranged waiver.
 
 ### 4.4 Suites, where they run
 
@@ -221,8 +256,12 @@ Local runs are recorded with their sha.
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: rev 1 and rev 2 NOT CLEAN (§9.1–§9.2). Rev 3 is re-reviewed.
-2. **Task 1** — red tests (§4.1); each red row is run alone on `fae4472`, and its message recorded.
+1. **Task 0** — test-plan review: revs 1–4 NOT CLEAN (§9.1–§9.4). Rev 5 is re-reviewed.
+2. **Task 1** — red tests (§4.1).
+   - The pass-through seam is committed at `dd121c5`: `protected internal UnmappedPropertiesFor<T>()` at every listed
+     site.
+   - Each red row was run alone at `dd121c5` and its message recorded.
+   - The rev 5 rows are added, and each is run alone, before Task 2.
 3. **Task 2** — D1–D3 in all four providers; green; mutations (§4.2); suites (§4.4); coverage (§4.3).
 4. **Task 3** — Changelog "Fixed"; hostile review and fix-verification to CLEAN.
 5. **Task 4 — Merge path (owner).** A merge to `master` runs `ci.yml`'s `publish` (NuGet push), so nothing lands on
@@ -305,3 +344,17 @@ faithful D1–D3; every listed mutant is killed; AC4 holds.
 | C10 | minor | PLAN-GAP | D3 changes a public error shape. | Recorded in D3; pinned by a row; Changelog. |
 | C11 | nit | PLAN-GAP | §6 said `GenerateOrderByClause` was unchanged, but D2 rewrites its sites. | §6 corrected. |
 | C12 | nit | PLAN-GAP | The provider-scoped D5/D7 interaction; `HashSet` can throw. | Task 4, §6. |
+
+### 9.4 Task 0 re-review of rev 4 (`43fa1f2`; non-author; own D1–D3 sketch; rows run alone at base and on the sketch on all four providers; coverage)
+
+Verdict: NOT CLEAN.
+- **Resolved:** C1–C7, C9, C11, C12.
+- **Partial:** C8 (F2), C10 (F1).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| F1 | minor | TEST-GAP | The async missing-table row was missing. A swallowing try/catch around the async D3 survived every row and the MySQL suite, and left a naive key cached. | Async row (own type); both rows re-check coldness; mutation row. |
+| F2 | minor | HOUSE-RULE | SQL Server: the rows covered no base-uncovered line. The floor depended on how the helper was written (85.004 % or 84.96 %). | Async guard row (`:337`) and no-match row (`:351`); executed 1090 → 1092. |
+| F3 | nit | AC-GAP | "After the transaction guard" was unpinned: a "D3 before the guard" mutant passed the SQL Server suite. | AC9 amended; guard rows, sync and async, on all four; mutation row. |
+| F4 | nit | PLAN-GAP | The missing-table row's type, table, DDL ordering and expected red were unspecified. | Named (Task 1's `ColdMissingPkRow` on `zz_cold_missing`), ordering and expected exceptions listed. |
+| F5 | nit | PLAN-GAP | Stale prose: the swallow row's "On" cell, the Task 0 line, and "red on `fae4472`" for the helper rows. | Corrected; the helper's access level stated. |
