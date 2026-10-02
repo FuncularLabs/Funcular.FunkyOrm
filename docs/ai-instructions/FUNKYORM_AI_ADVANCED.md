@@ -199,7 +199,7 @@ LINQ-to-objects.
 |---|---|---|
 | `Where` | `WHERE` | Predicate over the queried entity `T`. |
 | `Select` | narrow `SELECT` | `new T { … }` (same entity) or `x => x.Member` only (§1). |
-| `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE`; values other than booleans, enums, `NULL` and `sbyte`/`byte`/`short`/`ushort`/`int`/`uint`/`long`/`ulong`/`float`/`double`/`decimal` as parameters (`== null`, literal, captured or computed without the row, → `IS [NOT] NULL`; PostgreSQL decides such a value's null test before sending). NULL placement follows the database (PostgreSQL: NULLs last ascending). |
+| `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE`; values other than booleans, enums, `NULL` and `sbyte`/`byte`/`short`/`ushort`/`int`/`uint`/`long`/`ulong`/`float`/`double`/`decimal` as parameters (`== null`, literal, captured or computed without the row, → `IS [NOT] NULL`; PostgreSQL decides a would-be parameter's null test before sending; an inline value stays `5 IS NULL`). NULL placement follows the database (PostgreSQL: NULLs last ascending). |
 | `ThenBy`, `ThenByDescending` | more `ORDER BY` keys | A repeated key is dropped. |
 | `Skip`, `Take` | `OFFSET`/`FETCH` or `LIMIT`/`OFFSET` | Paging rule below. Default order `id` (SQLite `rowid`). `Skip(n<0)` = `Skip(0)`; `Take(n≤0)` → empty, no query. |
 | `Distinct` | `SELECT DISTINCT` | Custom projection ⇒ ordering keys must be projected. No aggregate after it. |

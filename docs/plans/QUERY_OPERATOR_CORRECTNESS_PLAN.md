@@ -19,9 +19,15 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 42 (fix-verification of `66bde1e..9f2d531`, 2026-10-01) — what changed:** docs only.
+>   - The Changelog's formats list is scoped to values sent as parameters (L1).
+>   - The PostgreSQL null-test wording in Advanced.md and the AI reference (L2).
+>   - The AC12-10 matrix row and mutation table are brought up to revs 39–41 (L3).
+>   - Bookkeeping (L4); the Task 12 status and §9.44.
+
 > **Revision 41 (fix-verification of `66bde1e..6f503a9`, 2026-10-01) — what changed:** pins for all seven
 >   `TimeOnly` digits (K3) and for the eleven inline numeric types, with `nint`/`nuint`/`Half` as parameters (K4).
->   Prose (K1, K2, K5–K7):
+>   Prose (K1, K2, K2b, K5–K7):
 >   - the Changelog's Security, API and formatting bullets, and the AC12-10 lead-in, claim no more than is sent;
 >   - AC12-10's lazy continuation;
 >   - the four visitors' comments, Advanced.md and the AI reference;
@@ -1175,7 +1181,7 @@ providers** unless stated.
 | AC12-7 | `DefaultPaging_OnJoinEntity_Executes`, `DefaultPaging_OnJoinEntity_SubsetProjection_Executes` | SQLite (regression rows in the other 3) |
 | AC12-8 | `[DataTestMethod] TernaryOrderBy_NullComparison_MatchesOracle` over {`x.M == null`, `null == x.M`, `x.M != null`, `null != x.M`}; *(rev 22)* rows 4–7 (a captured null, both operand orders, `==`/`!=`); direct `Ternary_Branch_BuildsCase[captured null ==, captured null !=, reversed, captured int? null, captured int? null, reversed, captured value]`; *(rev 24)* row 8 (a null computed by a nested lambda); direct `Ternary_Branch_BuildsCase[null computed by a nested lambda]`, `TernaryOperand_EvaluatedOnce_NullCheckAndSqlAgree`; *(rev 25)* `TernaryOperand_ThatThrows_EvaluatedOnce_Rejected`, `CapturedCharAndEnum_FormatAsTheirValues`, `BlockOperand_DeclaredVariable_DoesNotReadTheRow`; *(rev 26)* `CheckedConversion_IsEvaluated_NotUnwrapped`, `CapturedInstanceProperty_SameValueInTestAndBranch`, `TernaryOperand_ThatThrows_KeepsThe390Message`; non-int enums and a catch variable in the existing direct tests | all 4 |
 | AC12-9 | `ThenBy_SameKeyTwice_Executes` (SQL-text asserts one occurrence); *(rev 24)* `ThenBy_SameTernaryKeyTwice_Executes` (a `CASE` key listed twice; all 4) | all 4 |
-| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (8 tests; 9 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`. Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
+| AC12-10 *(rev 30)* | `TernaryOrderBy_TextWithQuotesOrBackslashes_IsAParameter_MatchesOracle` [3 values], `Last_AfterTextTernaryOrderBy_InvertedOrderKeepsItsParameters`, `TextTernaryOrderBy_WithWhereParameters_MatchesOracle`, `Count_AfterTextTernaryOrderBy_Works`, `ScalarProjection_AfterTextTernaryOrderBy_BindsTheParameters`, `TextTernaryOrderings_SendOnlyTheParametersTheCommandUses`; *(rev 31)* `TernaryOrderBy_GuidValue_MatchesOracle`, `TernaryOrderBy_DateTimeValue_MatchesOracle` [6 rows: `==`/`>` × whole/half second × unspecified/UTC kind], `TernaryOrderBy_GuidBranchValues_MatchesOracle`, `TernaryOrderBy_DateTimeOffsetBranchValues_MatchesOracle`, `TernaryOrderBy_NonAsciiText_MatchesOracle`; *(rev 32)* `TernaryOrderBy_CapturedValueComparedWithNull_MatchesOracle` [4 shapes], `TernaryOrderBy_OneValueAgainstADateThenATimestamp_MatchesOracle` [2], `TernaryOrderBy_ValueAsBranchThenCompared_MatchesOracle` [Guid, date], SQL Server `TernaryOrderBy_DateTimeValue_OnALegacyDatetimeColumn_ComparesAs390Did`; direct `ParameterMode_*` (10 tests; 11 on PostgreSQL), incl. *(rev 31)* `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText` under fi-FI and `ParameterMode_Char_IsText`, *(rev 32)* `ParameterMode_DuplicateTerm_SendsItsParametersOnce`, `ParameterMode_EachOccurrence_IsItsOwnParameter`, `ParameterMode_TermsDifferingOnlyInAValuesKind_AreBothKept`, `ParameterMode_TermKey_KeepsTermsWhoseValuesDiffer_WhateverTheirText` and PostgreSQL `ParameterMode_ValueComparedWithNull_IsDecidedHere`; `LiteralMode_ValueWithNullText_IsEmptyText`, *(rev 33)* `LiteralMode_PlaceholderShapedText_IsInlined`; MySQL `LiteralMode_Backslash_IsEscaped`; *(rev 39)* `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (seven-digit `TimeOnly` pin since rev 41), `TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle` (sub-second rows since rev 40), MySQL `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes`; *(rev 41)* `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI). Harness: `CommandTexts()`, `AssertEveryParameterReferenced()` (rev 31: per log entry; self-test `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand`) | all 4 |
 | AC13-1 | `Single_Predicate_ReturnsTargetNotFirst`, `SingleOrDefault_Predicate_NoMatch_ReturnsNull`, `Single_NoMatch_Throws`, `Single_TwoMatches_Throws`, `SingleOrDefault_TwoMatches_Throws`, `Single_NoUserOrder_EmitsRowLimit_NoIdOrder` (SQL shape), `Single_OnEntityWithoutIdColumn_Works`, `Single_AfterDistinctProjection_Works`, `Single_AfterTake1_OverManyRows_ReturnsRow`, `Single_AfterSkipOnly_OverManyRows_Throws` (also asserts the cap in SQL: `FETCH NEXT 2 ROWS` / `LIMIT 2 OFFSET n`), `Single_AfterSkipTake_Parameterless_MatchesOracle`; *(rev 24)* `Single_AfterTakeGreaterThanTwo_ReadsTwoRows` (all 4) | all 4 |
 | AC13-2 | `Last_Parameterless_Unordered_ReturnsMaxId`, `Last_ReadsOneRow_EmitsRowLimit` *(rev 21)*, `Last_AfterOrderByNonIdKey_ReturnsLastInOrder`, `Last_AfterOrderByThenByDescending_InvertsEveryTerm`, `Last_AfterRemoteOrderBy_ReturnsLastInOrder`, `Last_AfterTernaryOrderBy_InvertsCaseTerm`, `Last_AfterComputedOrderBy_InvertsComputedTerm` (scores 9/null/5: the expected row is the min id), `LastOrDefault_Predicate_WithExplicitOrderBy_MatchesOracle`, `Last_Empty_Throws`, `LastOrDefault_Empty_ReturnsNull`, `Last_EntityWithoutIdProperty_ThrowsExistingInvalidOperation`, `Last_AfterDistinctProjection_NoOrder_ThrowsNamingLast`, `Last_AfterDistinctProjection_WithProjectedOrder_Works`; existing PG `LastOrDefault(x => …guid…)` stays green; *(rev 22)* `LastFamily_AfterDistinctProjection_NoOrder_ThrowsNamingTerminal` (5 rows), `Last_NullableKey_EqualsTheProvidersOwnOrder`, `Last_EntityWithoutId_ScalarProjection_ScalarGuardWins`, `Last_EntityWithoutId_DistinctProjection_DistinctGuardWins` | all 4 |
 | AC13-3 | `LongCount_EqualsCount_ReturnsInt64`, `LongCount_Predicate_EqualsCountPredicate`, `LongCount_FilteredByReverseRemoteKey_ThrowsNotSupported`; SQL Server only: `LongCount_EmitsCountBig`; *(rev 23)* `LongCount_PredicateOnForwardRemoteColumn_InjectsJoin`, `LongCount_PredicateOnReverseRemoteKey_ThrowsNotSupported` (all 4) | all 4 |
@@ -1322,6 +1328,11 @@ providers they're green. SQLite's #13 rows that must execute order by `FirstName
 | Literal mode drifts from `LiteralText` (3.9.0's `ToString()` default) *(rev 31)* | the literal-parity assert in `ParameterMode_GuidsAndDates_…` |
 | A value whose text is null not emptied *(rev 31)* | `LiteralMode_ValueWithNullText_IsEmptyText` |
 | Placeholders substituted without a parameter generator (key, SQL or both) *(rev 33)* | `LiteralMode_PlaceholderShapedText_IsInlined` |
+| `DateOnly`/`TimeOnly` in the current culture's format (3.9.0's `ToString()`) *(rev 39)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText`, `TernaryOrderBy_DateOnlyAndTimeOnlyBranchValues_MatchesOracle` |
+| `TimeOnly` with fewer fraction digits (`HH:mm:ss`, `.F`, `.FFF`, `.FFFFFF`) *(rev 40–41)* | `ParameterMode_DateOnlyAndTimeOnly_AreIsoText` (`10:00:30.1234567`); `HH:mm:ss` also the sub-second oracle row |
+| MySQL: a `DateTimeOffset` not as its UTC time, or with fewer digits *(rev 39)* | MySQL `ParameterMode_GuidsAndDates_AreBoundAsTheirLiteralText`; the UTC case also `TernaryOrderBy_DateTimeOffsetValue_PicksTheRowsWhereDoes` |
+| `IsNumber` without one of the eleven types, or with `nint`/`nuint`/`Half` *(rev 41)* | `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` |
+| An inline number, or `LiteralText`'s default, in the current culture *(rev 41)* | `ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters` (fi-FI) |
 | `AssertEveryParameterReferenced` parsing the joined log by line (the rev 30 helper) *(rev 31)* | `AssertEveryParameterReferenced_ChecksEachParameterAgainstItsOwnCommand` |
 | MySQL literal mode without backslash escaping *(rev 30)* | `LiteralMode_Backslash_IsEscaped` |
 | Allow non-`Queryable` spine methods | `NonQueryableSpineMethod_Rejected` |
@@ -1906,12 +1917,15 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Mutations (4, all killed (TimeOnly without its fraction, per provider)).
     - Prose F2–F5.
     - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
-  - **Verification layer 10 (rev 41, §9.43).** Two guard tests per provider (the code was already right):
-    - a seven-digit `TimeOnly` pin;
-    - the eleven numeric types inline under fi-FI, and `nint`/`nuint`/`Half` as parameters.
+  - **Verification layer 10 (rev 41, §9.43).** One new test and one added pin per provider; both are guards (the
+    code was already right):
+    - a seven-digit `TimeOnly` pin, added to `ParameterMode_DateOnlyAndTimeOnly_AreIsoText`;
+    - a new test: the eleven numeric types inline under fi-FI, and `nint`/`nuint`/`Half` as parameters.
     - Mutations (28 of 28 killed, 7 per provider: `TimeOnly` as `HH:mm:ss.F` and `.FFF`; `IsNumber` without `decimal`, `sbyte` or `ulong`; `IsNumber` with `nint`; an inline number in the current culture).
-    - Prose K1, K2, K5–K7.
+    - Prose K1, K2, K2b, K5–K7.
     - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
+  - **Verification layer 11 (rev 42, §9.44).** Docs only: L1–L4. No code or test change, so the suites and
+    mutations of layer 10 stand (the verifier re-ran them: suites reproduced, 70 of 70 mutants killed).
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2910,13 +2924,30 @@ Verdict: NOT CLEAN.
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
 | K1 | minor | HOUSE-RULE | "Every value that 3.9.0 quoted … is now a parameter": 3.9.0 quoted an enum as its name, and HEAD inlines its number. | The Security bullet and the AC12-10 lead-in say only what stays inline and that no other value is written into the SQL. |
-| K2 | minor | HOUSE-RULE | "It carries the literal's text, except date and time values": a `Half` (`1,5` → `1.5`) and a negative `nint`, `BigInteger` or `Int128` (U+2212 → `-`) changed too. | The text claim is deleted from Security. The formatting bullet covers every value: the invariant culture, and fixed formats for dates and times. |
+| K2 | minor | HOUSE-RULE | "It carries the literal's text, except date and time values": a `Half` (`1,5` → `1.5`) and a negative `nint`, `BigInteger` or `Int128` (U+2212 → `-`) changed too. | The text claim is deleted from Security. The formatting bullet covers every value sent as a parameter (scoped so in rev 42, L1): the invariant culture, and fixed formats for dates and times. |
 | K2b | nit | HOUSE-RULE | "No literal's text depends on the current culture": a type with neither `IConvertible` nor `IFormattable` is its own `ToString()`. | Deleted from the API bullet. The formatting bullet says `Convert.ToString` with the invariant culture and names that exception; AC12-10 says the same for values without a fixed format. A `DateTime` keeps 3.9.0's fixed format, now listed. |
 | K3 | minor | TEST-GAP | F1's pin covered one fractional digit: `HH:mm:ss.F` survived on 4/4, and `.FFF` survived on SQL Server. | A `10:00:30.1234567` pin per provider. |
 | K4 | minor | TEST-GAP | The eleven inline types were unpinned: dropping `decimal` from `IsNumber` survived every suite. | A direct test per provider: the eleven types inline with invariant text under fi-FI, and `nint`/`nuint`/`Half` as parameters. |
 | K5 | nit | HOUSE-RULE | AC12-10's closing paragraph rendered inside the AC12-9 sub-bullet (lazy continuation). | Split into sub-bullets, and the duplicated inline sentence deleted. |
 | K6 | nit | HOUSE-RULE | The visitors' doc comments still said "non-numeric … Numbers … stay inline" and "converts it as it converted 3.9.0's literal". | Restated in all four. |
 | K7 | nit | HOUSE-RULE | Advanced.md's PostgreSQL parenthetical listed only strings, chars, `Guid`s and dates. The AI reference still said "(strings, chars, `Guid`s, dates)". | Both restated. |
+
+### 9.44 Fix-verification of `66bde1e..9f2d531` (non-author; suites reproduced twice; 70 mutants, 42 its own, all killed; 97.7 % visitor coverage; pandoc)
+
+Verdict: NOT CLEAN on documents only. The code is verified.
+- **Resolved:** K1, K2b, K3, K4, K5, K6.
+- **Resolved as worded, each leaving a new nit:** K2 (L1), K7 (L2).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| L3 | minor | HOUSE-RULE | The §4.2 AC12-10 row and the §4.4 mutation table stopped at rev 33: the rev 39–41 tests and mutants weren't listed, and the direct-test count was stale. | Row and count updated; five mutation rows added. |
+| L1 | nit | HOUSE-RULE | The formats list's "any other value" read as covering enums, booleans and `NULL`, which are inline. | The list is scoped to values sent as parameters (or quoted without a generator), and the inline set is restated. |
+| L2 | nit | HOUSE-RULE | "Such a value compared with `null`" read as covering inline values; PostgreSQL still sends `5 IS NULL`. | Scoped to a would-be parameter, with the inline example. |
+| L4 | nit | HOUSE-RULE | The rev 41 lists omitted K2b; "two guard tests" was one new test and one added pin. | Corrected. |
+
+Incident: the verifier wrote a probe into the main checkout's PostgreSQL direct-test file for about three minutes,
+then restored it. No build or test ran there. Checked afterwards: the file's blob equals HEAD's, and
+`git diff HEAD` is empty.
 
 ---
 

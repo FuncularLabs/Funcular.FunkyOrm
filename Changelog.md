@@ -97,18 +97,21 @@ Other changes:
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
   can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places). Equality follows the same rules, as it
   already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
-- **Values in an ORDER BY ternary are formatted with the invariant culture, and dates and times with a fixed
-  format.** 3.9.0 wrote a `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format, and some
-  other values in the current culture's text (a `Half` as `1,5`, a negative `nint` with the culture's minus sign).
-  A database could reject that text, or, under a day-first culture, read a date with day and month swapped. A
-  `TimeOnly` lost its seconds (`10:00 AM`), so times in the same minute compared as equal. The formats now:
+- **The text of an ORDER BY ternary's parameters is formatted with the invariant culture, and dates and times have
+  a fixed format.** 3.9.0 wrote a `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format, and
+  some other values in the current culture's text (a `Half` as `1,5`, a negative `nint` with the culture's minus
+  sign). A database could reject that text, or, under a day-first culture, read a date with day and month swapped.
+  A `TimeOnly` lost its seconds (`10:00 AM`), so times in the same minute compared as equal. The text of a value
+  sent as a parameter (or quoted, by a visitor without a generator) is now:
   - `DateTime`: `yyyy-MM-dd HH:mm:ss.fff`, as in 3.9.0.
   - `DateTimeOffset`: `yyyy-MM-dd HH:mm:ss.fffffffK`. On MySQL it is its UTC time, `yyyy-MM-dd HH:mm:ss.ffffff`, as
     WHERE sends it.
   - `DateOnly`: `yyyy-MM-dd`.
   - `TimeOnly`: `HH:mm:ss.FFFFFFF`.
-  - Any other value: `Convert.ToString` with the invariant culture (a type that is neither `IConvertible` nor
+  - any other such value: `Convert.ToString` with the invariant culture (a type that is neither `IConvertible` nor
     `IFormattable` is its own `ToString()`).
+
+  Booleans, enums, `NULL` and the eleven numeric types are inline (see Security).
 - **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
