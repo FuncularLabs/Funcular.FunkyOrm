@@ -8,7 +8,7 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 11, the test plan after the tenth Task 0 review (§9.10).
+> **Status (2026-10-01):** rev 12, the test plan after the eleventh Task 0 review (§9.11).
 > - The §9.6 reviewer ran the implementer's own tests:
 >   - every expected-red row was red at the seam for its stated reason, and every other row was green there;
 >   - every row was green with a faithful D1–D3;
@@ -23,8 +23,13 @@
 >   its listed providers except "D3 before the guard", which survived a guard row on a never-created table with a
 >   type-only assertion (§9.5 G1). The implementer's guard rows kill it (§9.6).
 
+> **Revision 12 — what changed (re-check M1–M5):** documents only. The rev 6 note's summary of the rev 3 and rev 4
+> reviewers' results is deleted (M1, M2), and those records are cited instead. The quote in §9.10 is corrected (M3).
+> SQLite's execution row is added to "Not red at base" (M4). The rev 3 note is scoped to R1's rows (M5).
+
 > **Revision 11 — what changed (re-check L1):** documents only. The rev 6 note's "every row went red→green"
 > corrected. The author swept the plan for the same pattern, and no other instance claims more than its record.
+> *(Rev 12: that sweep claim was wrong; see §9.11.)*
 
 > **Revision 10 — what changed (re-check K1–K2):** documents only. The reviewer's text, verbatim, for the §9.8 J1
 > row (K1) and the rev 5 bullet (K2).
@@ -44,8 +49,8 @@
 > - The no-match row's type, key form and class are named (G2).
 > - The coverage metric is defined, with the measured faithful numbers and margin (G3).
 > - D3's error-shape change is scoped to the server providers, and the §4.3 gap sentence corrected (G4).
-> - The rev 3 and rev 4 reviewers ran a faithful D1–D3 sketch: every row was green with the sketch, every row except
->   SQLite's execution row was red at base, and every listed mutant was killed *(wording corrected in rev 11, L1)*.
+> - What the rev 3 and rev 4 reviewers ran, and found, is recorded in §9.3 and §9.4 *(rev 12: the summary that
+>   stood here claimed more than those records, L1/M1/M2, and is deleted)*.
 
 > **Revision 5 — what changed (re-review F1–F5):**
 > - An async missing-table row; both missing-table rows check coldness after the rollback (F1).
@@ -54,8 +59,8 @@
 > - The missing-table types named (F4); stale prose (F5).
 
 > **Revision 3 — what changed (re-review R1–R9):**
-> - The matrix and mutations are per provider. The SQLite rows that can't go red→green at `fae4472` are dropped
->   (R1).
+> - The matrix and mutations are per provider. The SQLite AC8 `[SqlExpression]` and AC9 rows, which can't go
+>   red→green at `fae4472`, are dropped (R1).
 > - AC7 asserts the discovery error and uses a `[Table]` type (R2).
 > - D2's scope is narrowed to the provider classes, and the guarded sites are listed (R3).
 > - DDL ordering (R4); the `[SqlExpression]` row moved to `person` (R5); direct helper rows and a member→tests table
@@ -227,7 +232,8 @@
   - the naive key column for the AC9 rows;
   - for the missing-table rows, the raw provider exception (SQL Server `SqlException` 208, MySQL
     `MySqlException` 1146, PostgreSQL `PostgresException` 42P01) instead of D3's `InvalidOperationException`.
-- **Not red at base:** the guard rows and the no-match row are green at `fae4472`.
+- **Not red at base:** the guard rows, the no-match row and SQLite's execution row are green at `fae4472`. SQLite's
+  execution row is an equivalent change, coverage only (C9) *(rev 12, M4)*.
   - The guard rows kill mutants (§4.2).
   - Only SQL Server's async guard row covers a line no other row covers: its throw at `:337` *(rev 7, H1; rev 8,
     I1)*. Every other guard's lines are reached by other rows too. A one-line guard is reached by any row that
@@ -319,7 +325,7 @@ Local runs are recorded with their sha.
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–10 NOT CLEAN (§9.1–§9.10). Rev 11 is re-checked on its diff.
+1. **Task 0** — test-plan review: revs 1–11 NOT CLEAN (§9.1–§9.11). Rev 12 is re-checked on its diff.
 2. **Task 1** — red tests (§4.1).
    - The pass-through seam is committed at `dd121c5`: `protected internal UnmappedPropertiesFor<T>()` at every listed
      site.
@@ -485,4 +491,17 @@ Verdict: NOT CLEAN on one nit, which predates the fix layer. K1 and K2 resolved.
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
-| L1 | nit | PLAN-GAP | Since rev 6, the Revision 6 note said the rev 3 and rev 4 sketches turned "every row red→green"; rev 4's SQLite execution row was never red. | Corrected. The author swept the plan for the same pattern. |
+| L1 | nit | PLAN-GAP | Since rev 6, the Revision 6 note said the rev 3 and rev 4 sketches: "every row went red→green"; rev 4's SQLite execution row was never red. | Corrected. The author swept the plan for the same pattern. |
+
+### 9.11 Narrow re-check of rev 11 (`9f7e765..71eda2f`; non-author; committed content and the §9.6 artifacts, read-only)
+
+Verdict: NOT CLEAN on five nits. L1 is partial, and the author's sweep claim was wrong. None of these would mislead an
+implementer.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| M1 | nit | PLAN-GAP | Fix-introduced: "every row except SQLite's execution row was red at base" missed the direct helper rows, which are red only from the seam. | The summary is deleted; §9.3/§9.4 are cited. |
+| M2 | nit | PLAN-GAP | "Every listed mutant was killed" dropped "on its listed providers" for rev 3; §9.4 records no run of the listed set. | Same deletion. |
+| M3 | nit | PLAN-GAP | The §9.10 L1 row misquoted the text it corrected. | Quoted exactly. |
+| M4 | nit | PLAN-GAP | §4.1 "Not red at base" omitted SQLite's execution row (since rev 5). | Added. |
+| M5 | nit | PLAN-GAP | The rev 3 note's "the SQLite rows that can't go red→green" was broader than R1's two rows. | Scoped. |
