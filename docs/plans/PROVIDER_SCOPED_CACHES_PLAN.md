@@ -8,8 +8,9 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 11. Task 0 CLEAN at `1964b7e` (§9.10). Task 1a, the seam, is `3bb2b58`. Task 1b's rows
-> are written and uncommitted; each was run alone at the seam, with results in §5. Tasks 2–5 are next.
+> **Status (2026-10-01):** rev 12. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
+> review is next. `GeneralExtensions.cs` coverage is the owner's call (§4.2).
 
 > **Revision 11 — what changed:** Tasks 1a and 1b are recorded. Three notes from the Task 1b implementer are
 > recorded (§5). D2 names UTF-8. The §9.10 nits R10-1…R10-6 are applied in the reviewer's wording.
@@ -500,6 +501,26 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
      - SQLite's SQL uses the database's spelling of convention-mapped columns (D5);
      - a custom SQLite dialect's `EncloseIdentifier` must be idempotent: it returns a name it has already enclosed unchanged (`E(E(x)) = E(x)`) (D11).
    - The 3.10 plan's §8 entry points here.
+   - **Tasks 2–3 done:** `019636a`, committed with the Task 1b tests.
+     - Each of the 111 row results passes alone.
+     - One row's construction changed: `SqlServerThenPostgreSql_SameEntity_BothQueriesRun` drops `.Take(2)`, which pulled
+       in the pre-existing default `ORDER BY id` (3.10 plan §8). Re-checked at the seam, still red: `42601` at `[`.
+   - **Task 4 done:**
+     - Mutations: the §4.3 rows, expanded per provider and per site to 90 mutants, each killed by its named rows.
+       M1 (aggregate selector) dies only to `NeverReadAnotherScope`, and each per-site unmapped mutant only to its own
+       row.
+     - Coverage: the two Core rows `CoreGetTableName_ReadsTheInstanceScope` and
+       `CoreGetUnmappedProperties_ComputesWhenNothingIsPlanted` (`3f16bed`, Guards, each with a killed mutant) cover
+       Core members this change touched that no row called. Per file, distinct lines across every cobertura class
+       element, unioned across the four suites (base `7d98e3d` → HEAD):
+       - `OrmDataProvider.cs` 81.32 % → 89.95 %;
+       - `CacheScope.cs` (new) 88.33 %;
+       - SQL Server 87.09 % / 91.24 %; PostgreSQL 86.94 % / 93.33 %; MySQL 85.28 % / 93.36 %; SQLite 89.77 % /
+         94.42 % (provider / LINQ provider);
+       - `GeneralExtensions.cs` 19.05 %, unchanged from base. Its one touched line is covered; owner's call (§4.2).
+     - Suites at `d781e63`: SqlServer.Tests 980, PostgreSql.Tests 769, MySql.Tests 721, Sqlite.Tests 788, DotNet9 5,
+       all passing. net48 76/76 at `019636a`; later commits touch no product file.
+     - Changelog `d781e63`.
 7. **Task 5 — Hostile review and fix-verification** to CLEAN, then the merge into `development/3.10`.
    - **Ship dependency (R5):** per-scope coldness makes the cold-cache `Delete<T>(predicate)` defect fire on first use
      in each scope. `fix/mysql-delete-cold-cache` must therefore land in `development/3.10` before 3.10.0 ships
