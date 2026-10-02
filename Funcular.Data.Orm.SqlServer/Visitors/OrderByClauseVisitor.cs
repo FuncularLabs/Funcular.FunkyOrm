@@ -78,11 +78,10 @@ namespace Funcular.Data.Orm.Visitors
         {
         }
 
-        /// <param name="parameterGenerator">When given, a value FunkyORM would write as quoted SQL text (a string, char,
-        /// <see cref="Guid"/>, date or other non-numeric value) is sent as a command parameter carrying that text, one
-        /// per occurrence as each literal was its own literal, listed in <see cref="Parameters"/>. A dropped duplicate
-        /// term binds nothing. Numbers, booleans, enums and <c>NULL</c> stay inline. Without a generator, values are
-        /// inlined as literals.</param>
+        /// <param name="parameterGenerator">When given, every value except booleans, enums, <c>NULL</c> and the eleven
+        /// numeric types in <c>IsNumber</c> is sent as a command parameter, one per occurrence as each literal was its
+        /// own literal, listed in <see cref="Parameters"/>. A dropped duplicate term binds nothing. Without a
+        /// generator, values are inlined as literals.</param>
         public OrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
@@ -479,10 +478,10 @@ namespace Funcular.Data.Orm.Visitors
 
         /// <summary>
         /// A value's SQL. With a parameter generator, anything <see cref="FormatConstant"/> would quote becomes a command
-        /// parameter carrying the text it would quote (<see cref="LiteralText"/>), so the database converts it as it
-        /// converted 3.9.0's literal there: each occurrence is its own parameter, as each literal was its own literal.
-        /// Until its term is added the value is a placeholder (<see cref="AddOrderByClause"/>). Numbers, booleans,
-        /// enums and <c>NULL</c> stay inline.
+        /// parameter carrying the text it would quote (<see cref="LiteralText"/>), typed as <see cref="Bind"/> says.
+        /// Each occurrence is its own parameter, as each literal was its own literal. Until its term is added the value
+        /// is a placeholder (<see cref="AddOrderByClause"/>). Booleans, enums, <c>NULL</c> and the numeric types in
+        /// <see cref="IsNumber"/> stay inline.
         /// </summary>
         private string ValueSql(object value)
         {
@@ -510,10 +509,10 @@ namespace Funcular.Data.Orm.Visitors
 
         /// <summary>
         /// The text between the quotes of a value <see cref="FormatConstant"/> quotes, and of the parameter that
-        /// replaces it, never in the current culture: a date as <c>yyyy-MM-dd HH:mm:ss.fff</c>, a
+        /// replaces it, formatted with the invariant culture: a date as <c>yyyy-MM-dd HH:mm:ss.fff</c>, a
         /// <see cref="DateTimeOffset"/> as <c>yyyy-MM-dd HH:mm:ss.fffffffK</c>, a <c>DateOnly</c> as
-        /// <c>yyyy-MM-dd</c>, a <c>TimeOnly</c> as <c>HH:mm:ss.FFFFFFF</c>, a Guid as <c>D</c>, anything else as its
-        /// invariant text.
+        /// <c>yyyy-MM-dd</c>, a <c>TimeOnly</c> as <c>HH:mm:ss.FFFFFFF</c>, a Guid as <c>D</c>, anything else as
+        /// <see cref="Convert.ToString(object, IFormatProvider)"/> gives it.
         /// </summary>
         private static string LiteralText(object value)
         {

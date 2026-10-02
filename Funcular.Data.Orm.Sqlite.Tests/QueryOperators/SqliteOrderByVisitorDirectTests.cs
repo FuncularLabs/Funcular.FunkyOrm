@@ -554,6 +554,54 @@ namespace Funcular.Data.Orm.Sqlite.Tests.QueryOperators
             var fraction = new TimeOnly(10, 0, 30, 500);
             var (fractions, _) = WithParameters(p => p.Id > 0 ? fraction : TimeOnly.MinValue);
             Assert.AreEqual("10:00:30.5", fractions.Parameters[0].Value, "the fraction is kept (rev 40, F1)");
+
+            var ticks = new TimeOnly(10, 0, 30).Add(TimeSpan.FromTicks(1234567));
+            var (sevenDigits, _) = WithParameters(p => p.Id > 0 ? ticks : TimeOnly.MinValue);
+            Assert.AreEqual("10:00:30.1234567", sevenDigits.Parameters[0].Value, "all seven digits are kept (rev 41, K3)");
+        }
+
+        [TestMethod]
+        public void ParameterMode_TheElevenNumericTypes_StayInline_OtherNumbersAreParameters()
+        {
+            // Under fi-FI, whose decimal separator is ',' and whose minus sign is U+2212, so the text must be
+            // invariant (rev 41, K4).
+            var saved = CultureInfo.CurrentCulture;
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fi-FI");
+            try
+            {
+                AssertInline((sbyte)-5, "-5");
+                AssertInline((byte)200, "200");
+                AssertInline((short)-300, "-300");
+                AssertInline((ushort)40000, "40000");
+                AssertInline(-70000, "-70000");
+                AssertInline(3000000000u, "3000000000");
+                AssertInline(-5000000000L, "-5000000000");
+                AssertInline(10000000000000000000UL, "10000000000000000000");
+                AssertInline(1.5f, "1.5");
+                AssertInline(-2.25d, "-2.25");
+                AssertInline(3.75m, "3.75");
+
+                AssertParameter((nint)(-5), "-5");
+                AssertParameter((nuint)5, "5");
+                AssertParameter((Half)1.5, "1.5");
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = saved;
+            }
+        }
+
+        private static void AssertInline<T>(T value, string text)
+        {
+            var (visitor, fragment) = WithParameters(p => p.Id > 0 ? value : value);
+            Assert.AreEqual(0, visitor.Parameters.Count, typeof(T).Name);
+            StringAssert.EndsWith(fragment, $"THEN {text} ELSE {text} END", typeof(T).Name);
+        }
+
+        private static void AssertParameter<T>(T value, string text)
+        {
+            var (visitor, _) = WithParameters(p => p.Id > 0 ? value : value);
+            CollectionAssert.AreEqual(new object[] { text, text }, visitor.Parameters.Select(x => x.Value).ToList(), typeof(T).Name);
         }
 
         [TestMethod]

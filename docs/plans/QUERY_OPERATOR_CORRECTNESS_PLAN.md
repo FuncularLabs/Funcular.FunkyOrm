@@ -19,6 +19,14 @@
 >   (§9.33 onward).
 > - **Then:** the PR, `3.10.0-beta1`, the Sentinel smoke test, and `3.10.0`.
 
+> **Revision 41 (fix-verification of `66bde1e..6f503a9`, 2026-10-01) — what changed:** pins for all seven
+>   `TimeOnly` digits (K3) and for the eleven inline numeric types, with `nint`/`nuint`/`Half` as parameters (K4).
+>   Prose (K1, K2, K5–K7):
+>   - the Changelog's Security, API and formatting bullets, and the AC12-10 lead-in, claim no more than is sent;
+>   - AC12-10's lazy continuation;
+>   - the four visitors' comments, Advanced.md and the AI reference;
+>   - the Task 12 status and §9.43.
+
 > **Revision 40 (fix-verification of `66bde1e..9ce9e86`, 2026-10-01) — what changed:** a `TimeOnly` fraction pin
 >   and oracle row (F1). Prose (F2–F5):
 >   - the Changelog's Security, Changed and "Other changes:" text;
@@ -838,17 +846,18 @@ providers** unless stated.
   It's read through `Convert` (not `ConvertChecked`, which is part of the value), so a captured `char` stays a char
   literal, and an enum value is its underlying number *(rev 25; rev 26)*. Branch values take the same path, so a
   value reads the same in the test and in a branch *(rev 26)*.
-- **AC12-10** *(rev 30, owner decision 2026-10-01)* Every value in an ORDER BY ternary that 3.9.0 wrote as quoted SQL
-  text (every value except booleans, enums, `NULL` and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal`) is sent as a command parameter.
-  *(Rev 31–32; lead-in narrowed in rev 40)*
-  - **What a parameter carries:** the literal's text, typed as the literal was:
+- **AC12-10** *(rev 30, owner decision 2026-10-01)* In an ORDER BY ternary, booleans, enums, `NULL` and values of
+  type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay
+  inline. No other value is written into the command text: each is sent as a command parameter where the SQL uses
+  it. *(Rev 31–32; lead-in restated in rev 41)*
+  - **What a parameter carries:** its value's text (below), typed as the literal was:
     - untyped on PostgreSQL;
     - text on MySQL and SQLite;
     - `varchar` on SQL Server, except strings and chars, which are `nvarchar` like WHERE's.
 
-    The text is never the current culture's. A `DateTimeOffset`, `DateOnly` or `TimeOnly`, which 3.9.0 wrote in the
-    current culture, has a fixed format (Changelog). On MySQL a `DateTimeOffset` is its UTC time, as WHERE sends
-    it *(rev 39)*.
+    A `DateTime`, `DateTimeOffset`, `DateOnly` or `TimeOnly` has a fixed format (Changelog; a `DateTime`'s is
+    3.9.0's). Any other value's text is `Convert.ToString` with the invariant culture. On MySQL a `DateTimeOffset`
+    is its UTC time, as WHERE sends it *(rev 39)*.
   - **One parameter per occurrence:** each occurrence of a value is its own parameter, as each literal was its own
     literal, so the database types each one where it's used.
   - **On PostgreSQL**, a value compared with `null` is decided in .NET. `IS NULL` can't give an untyped parameter
@@ -861,12 +870,12 @@ providers** unless stated.
     - Tested: on MySQL, ORDER BY and WHERE pick the same rows for a `DateTimeOffset`.
   - **Duplicate terms are still dropped (AC12-9).** Terms are compared with each value written as its kind and
     text, and a dropped term binds nothing.
-  Booleans, enums, `NULL` and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline. On every provider, a text value
-  with quote or backslash
-  characters, compared in a ternary's test, orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no
-  quoted value appears in the command text, in any position *(rev 34, F2)*. A command carries only the
-  parameters it uses: an aggregate drops the ORDER BY and its parameters. The visitors' 3.9.0 constructors have no
-  generator and still inline values; MySQL's inline literal also escapes backslashes.
+  - **Tested on every provider:** a text value with quote or backslash characters, compared in a ternary's test,
+    orders rows as LINQ-to-objects does *(rev 33: narrowed, R3)*, and no quoted value appears in the command text,
+    in any position *(rev 34, F2)*.
+  - A command carries only the parameters it uses: an aggregate drops the ORDER BY and its parameters.
+  - The visitors' 3.9.0 constructors have no generator and still inline values; MySQL's inline literal also
+    escapes backslashes.
 - **AC12-9** A duplicate ordering key (`OrderBy(a).ThenBy(a)`) executes. Later duplicate fragments are
   dropped; they can never break a tie, so the order is unchanged.
 
@@ -1897,6 +1906,12 @@ Each task lists the tests it turns green. Every implementation task starts with 
     - Mutations (4, all killed (TimeOnly without its fraction, per provider)).
     - Prose F2–F5.
     - Suites: SqlServer 884, Sqlite 787, PostgreSql 759, MySql 711; net48 76/76; net9 5/5.
+  - **Verification layer 10 (rev 41, §9.43).** Two guard tests per provider (the code was already right):
+    - a seven-digit `TimeOnly` pin;
+    - the eleven numeric types inline under fi-FI, and `nint`/`nuint`/`Half` as parameters.
+    - Mutations (28 of 28 killed, 7 per provider: `TimeOnly` as `HH:mm:ss.F` and `.FFF`; `IsNumber` without `decimal`, `sbyte` or `ulong`; `IsNumber` with `nint`; an inline number in the current culture).
+    - Prose K1, K2, K5–K7.
+    - Suites: SQL Server 885, PostgreSQL 760, MySQL 712, SQLite 788; net48 76/76; net9 5/5.
 - **Task 11 — Gauntlet and release.**
   - *(Rev 24, gx F4)* Bump the five shipping csprojs to `3.10.0-beta1` before the PR (done in the gauntlet round),
     then to `3.10.0` for the release. CI packs and publishes from `master`.
@@ -2884,6 +2899,24 @@ Verdict: NOT CLEAN. J1, J2 and J5 are resolved; J3 and J4 partly; J6 not.
 | F5 | nit | HOUSE-RULE | The date/time bullet's harms didn't cover `TimeOnly`'s lost seconds. | Added. |
 
 Recorded in §8: SQL Server `DateTime` under a day-first session (pre-existing).
+
+### 9.43 Fix-verification of `66bde1e..6f503a9` (non-author; suites reproduced; own mutants per provider; pandoc render checks)
+
+Verdict: NOT CLEAN.
+- **Resolved:** F3 and F5.
+- **Resolved as scoped, each leaving a test gap:** F1 and F4.
+- **Partial:** F2. Its rewrite added two over-claims.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| K1 | minor | HOUSE-RULE | "Every value that 3.9.0 quoted … is now a parameter": 3.9.0 quoted an enum as its name, and HEAD inlines its number. | The Security bullet and the AC12-10 lead-in say only what stays inline and that no other value is written into the SQL. |
+| K2 | minor | HOUSE-RULE | "It carries the literal's text, except date and time values": a `Half` (`1,5` → `1.5`) and a negative `nint`, `BigInteger` or `Int128` (U+2212 → `-`) changed too. | The text claim is deleted from Security. The formatting bullet covers every value: the invariant culture, and fixed formats for dates and times. |
+| K2b | nit | HOUSE-RULE | "No literal's text depends on the current culture": a type with neither `IConvertible` nor `IFormattable` is its own `ToString()`. | Deleted from the API bullet. The formatting bullet and AC12-10 say `Convert.ToString` with the invariant culture, naming that exception. |
+| K3 | minor | TEST-GAP | F1's pin covered one fractional digit: `HH:mm:ss.F` survived on 4/4, and `.FFF` survived on SQL Server. | A `10:00:30.1234567` pin per provider. |
+| K4 | minor | TEST-GAP | The eleven inline types were unpinned: dropping `decimal` from `IsNumber` survived every suite. | A direct test per provider: the eleven types inline with invariant text under fi-FI, and `nint`/`nuint`/`Half` as parameters. |
+| K5 | nit | HOUSE-RULE | AC12-10's closing paragraph rendered inside the AC12-9 sub-bullet (lazy continuation). | Split into sub-bullets, and the duplicated inline sentence deleted. |
+| K6 | nit | HOUSE-RULE | The visitors' doc comments still said "non-numeric … Numbers … stay inline" and "converts it as it converted 3.9.0's literal". | Restated in all four. |
+| K7 | nit | HOUSE-RULE | Advanced.md's PostgreSQL parenthetical listed only strings, chars, `Guid`s and dates. The AI reference still said "(strings, chars, `Guid`s, dates)". | Both restated. |
 
 ---
 

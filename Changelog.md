@@ -11,11 +11,12 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 ### Security
 - **Values in an ORDER BY ternary are now sent as command parameters.** Before, a text value (`x.Name == input ? 0 :
   1`) was written into the SQL as a quoted literal, with only its quotes doubled. On MySQL, whose default mode treats
-  a backslash as an escape character, a crafted value could change the query. Every value that 3.9.0 quoted
-  (strings, chars, `Guid`s, dates and times, and others) is now a parameter, typed as that literal was: untyped on
-  PostgreSQL, `varchar` on SQL Server (strings and chars are `nvarchar`, like WHERE's). It carries the literal's
-  text, except that date and time values now have a fixed format (see Changed). Booleans, enums, `NULL` and values
-  of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline. Upgrade if you order by a ternary over values you don't control.
+  a backslash as an escape character, a crafted value could change the query. Now booleans, enums, `NULL` and
+  values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and
+  `decimal` stay inline, and no other value (a string, char, `Guid`, date or time, and so on) is written into the
+  SQL: each is sent as a parameter where the SQL uses it. A parameter is typed as 3.9.0's literal
+  was (untyped on PostgreSQL, `varchar` on SQL Server), except that on SQL Server strings and chars are
+  `nvarchar`, like WHERE's. Upgrade if you order by a ternary over values you don't control.
 
 ### Fixed
 - **`Single`/`SingleOrDefault` dropped their predicate and never checked cardinality.**
@@ -90,21 +91,24 @@ Other changes:
   `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
   property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
   property. Their 3.9.0 constructor is unchanged, so code compiled against 3.9.0 keeps binding. Without a generator
-  a visitor still inlines values; MySQL's inline literal now also escapes backslashes, and no literal's text depends
-  on the current culture any more.
+  a visitor still inlines values; MySQL's inline literal now also escapes backslashes.
 - **SQL Server: text in an ORDER BY ternary is now `nvarchar`**, like a WHERE string parameter; 3.9.0's literal was
   `varchar`. Text outside the database's code page now matches (`x.Name == "Ωmega" ? 0 : 1` matched no row before).
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
   can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places). Equality follows the same rules, as it
   already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
-- **Date and time values in an ORDER BY ternary have a fixed format, never the current culture's.** 3.9.0 wrote a
-  `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format. A database could reject that text,
-  or, under a day-first culture, read it with day and month swapped. A `TimeOnly` lost its seconds (`10:00 AM`), so
-  times in the same minute compared as equal. The formats now:
+- **Values in an ORDER BY ternary are formatted with the invariant culture, and dates and times with a fixed
+  format.** 3.9.0 wrote a `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format, and some
+  other values in the current culture's text (a `Half` as `1,5`, a negative `nint` with the culture's minus sign).
+  A database could reject that text, or, under a day-first culture, read a date with day and month swapped. A
+  `TimeOnly` lost its seconds (`10:00 AM`), so times in the same minute compared as equal. The formats now:
+  - `DateTime`: `yyyy-MM-dd HH:mm:ss.fff`, as in 3.9.0.
   - `DateTimeOffset`: `yyyy-MM-dd HH:mm:ss.fffffffK`. On MySQL it is its UTC time, `yyyy-MM-dd HH:mm:ss.ffffff`, as
     WHERE sends it.
   - `DateOnly`: `yyyy-MM-dd`.
   - `TimeOnly`: `HH:mm:ss.FFFFFFF`.
+  - Any other value: `Convert.ToString` with the invariant culture (a type that is neither `IConvertible` nor
+    `IFormattable` is its own `ToString()`).
 - **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
