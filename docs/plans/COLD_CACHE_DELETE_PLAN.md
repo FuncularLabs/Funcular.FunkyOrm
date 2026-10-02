@@ -8,15 +8,18 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 15. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2 are done. Task 3's hostile review
+> **Status (2026-10-01):** rev 16. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2 are done. Task 3's hostile review
 > (§9.12) found no code defect; its fix layer is `34dd5fc`.
 > - Task 1: the seam `dd121c5`. Task 2: D1–D3 with the tests, `2727e4a` (message corrected from `c07693e`, HR1-7).
 > - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer `34dd5fc`, with one new test row per server
 >   provider. Its fix-verifications found nits only: §9.14 (addressed in rev 14, `982acb2`) and §9.15 (addressed in
->   rev 15). Rev 15 is re-verified next.
+>   rev 15); §9.16 found two plan nits, addressed in rev 16, which is re-verified next.
 
-> **Revision 15 — what changed (fix-verification FV2-1…FV2-6):** documents and comments only, in the reviewer's
-> wording. The Changelog's "Changed" bullet is tied to the missing-table error; "ran" becomes "could run". The
+> **Revision 16 — what changed (fix-verification FV3-1…FV3-2):** plan only. The AC7 and AC9 sub-bullets use AC7's own
+> words (no unmapped set and no column names cached; the type stays undiscovered). The rev 15 note is scoped.
+
+> **Revision 15 — what changed (fix-verification FV2-1…FV2-6):** documents and comments only; the Changelog in the
+> reviewer's wording, the comments and plan in the author's *(note scoped in rev 16, FV3-2)*. The Changelog's "Changed" bullet is tied to the missing-table error; "ran" becomes "could run". The
 > comments state the code's condition (the key is absent) rather than who writes it. The AC7 sub-bullet and D1's
 > list are scoped. The stale status is corrected.
 
@@ -172,13 +175,15 @@
   unmapped set and no column names, and the next call succeeds once the table exists. (`[Table]` types; an
   unattributed type's table-name fallback is §6.)
   - On SQL Server, MySQL and PostgreSQL, a cold predicate delete that 3.9.0 sent to the database (such as a lone
-    method call on a member) also reports the discovery error and caches nothing *(rev 14, FV1-1; scoped in rev 15,
+    method call on a member) also reports the discovery error, caches no unmapped set and no column names, and leaves
+    the type undiscovered *(rev 14, FV1-1; scoped in rev 15,
     FV2-4, FV2-5)*.
 - **AC8:** A cold `GenerateWhereClause<T>` discovers `T` before translating. On SQL Server, MySQL and PostgreSQL it
   renders `T`'s own snake_case columns, including inside a `[SqlExpression]` token.
 - **AC9:** A cold `Delete<T>(id)` and, separately, a cold `DeleteAsync<T>(id)` delete the row on SQL Server, MySQL and
   PostgreSQL. The key is a `[Key]` whose snake_case column (`zz_probe_pk_id`) is convention-mapped.
-  - On a missing table, sync and async, the error has D3's shape, and nothing is cached for the type.
+  - On a missing table, sync and async, the error has D3's shape, no unmapped set and no column names are cached for
+    the type, and it stays undiscovered *(wording scoped in rev 16, FV3-1)*.
   - Without a transaction, a cold delete by id (sync and async, all four providers) throws the transaction guard's
     error and doesn't discover the type *(rev 5, F3)*.
 
@@ -380,7 +385,7 @@ Local runs are recorded with their sha.
 4. **Task 3** — Changelog "Fixed"; hostile review and fix-verification to CLEAN.
    - Changelog `8c855a7` and `2d2e439` (under `[Unreleased]` until the owner's Task 4 choice).
    - Hostile review §9.12: NOT CLEAN, no code defect. Its fix layer is `34dd5fc` (rev 13). Fix-verifications §9.14 and
-     §9.15 found nits only, addressed in revs 14 and 15.
+     §9.15 found nits only, addressed in revs 14 and 15; §9.16 found two plan nits, addressed in rev 16.
 5. **Task 4 — Merge path (owner).** A merge to `master` runs `ci.yml`'s `publish` (NuGet push), so nothing lands on
    `master` without a release decision:
    - **(a)** 3.9.1: version bump, PR into `master`, publish; or
@@ -609,3 +614,16 @@ Verdict: NOT CLEAN on six nits; no code defect.
 | FV2-4 | nit | TEST-GAP | Fix-introduced: the AC7 sub-bullet carried all of AC7, including "the next call succeeds", which its row doesn't test. | Scoped to "reports the discovery error and caches nothing". |
 | FV2-5 | nit | PLAN-GAP | D1 and AC7 said "a method call on a member"; one mixed with a convention comparison wasn't sent. | "A lone method call". |
 | FV2-6 | nit | PLAN-GAP | Fix-introduced: stale status ("this revision's commit", "fix-verification is next"), and results claimed before verification. | Corrected. |
+
+### 9.16 Fix-verification of `fae4472..5b7fafb` (non-author; code read in all four providers; probes at `fae4472` and `5b7fafb`; the cold classes and "No D1")
+
+Verdict: NOT CLEAN on two plan nits; no code defect.
+- **Resolved:** FV2-1, FV2-2, FV2-3, FV2-5, FV2-6.
+- **Partial:** FV2-4.
+- No delete path lets 208, 1146 or 42P01 escape unwrapped. The comments' condition matches all four
+  `GetUnmappedProperties` bodies.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FV3-1 | nit | TEST-GAP | Fix-introduced: the AC7 sub-bullet's "caches nothing" was broader than the code (`_tableNames` and the property cache do fill) and than its row. AC9's "nothing is cached" had the same breadth. | AC7's own words in both. |
+| FV3-2 | nit | PLAN-GAP | The rev 15 note said every change used the reviewer's wording; only the Changelog did. | Scoped. |
