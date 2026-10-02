@@ -204,6 +204,9 @@ namespace Funcular.Data.Orm.Sqlite
         public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover first, like the other operations. The key's column still resolves to the property name here:
+            // the base GetCachedColumnName keys on FullName, not on the ToDictionaryKey keys discovery writes.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -371,6 +374,9 @@ namespace Funcular.Data.Orm.Sqlite
         public override bool Delete<T>(long id)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover first, like the other operations. The key's column still resolves to the property name here:
+            // the base GetCachedColumnName keys on FullName, not on the ToDictionaryKey keys discovery writes.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -773,6 +779,10 @@ namespace Funcular.Data.Orm.Sqlite
             SqliteParameterGenerator parameterGenerator = null,
             SqliteExpressionTranslator translator = null) where T : class, new()
         {
+            // Discover T before anything reads its columns: until discovery every convention-mapped member of T
+            // counts as unmapped.
+            DiscoverColumns<T>();
+
             var paramGen = parameterGenerator ?? new SqliteParameterGenerator();
             var trans = translator ?? new SqliteExpressionTranslator(paramGen, _stringComparison);
 
@@ -1231,11 +1241,16 @@ namespace Funcular.Data.Orm.Sqlite
         /// <summary>
         /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
         /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
-        /// It currently returns the cached set, computing and caching it on first use
-        /// (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
+        /// Once <typeparamref name="T"/> is discovered (in <c>_mappedTypes</c>) it returns the cached set, computing and
+        /// caching it on first use. Before that it returns the set computed without caching: an undiscovered type's
+        /// convention-mapped properties all count as unmapped, and a cached set would outlive the discovery that
+        /// corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
         /// </summary>
         protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
-            => _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+        {
+            if (!_mappedTypes.Contains(typeof(T))) return GetUnmappedProperties<T>(typeof(T));
+            return _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+        }
 
         protected internal object GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 

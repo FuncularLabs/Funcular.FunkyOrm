@@ -185,6 +185,8 @@ namespace Funcular.Data.Orm.PostgreSql
         public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -373,6 +375,8 @@ namespace Funcular.Data.Orm.PostgreSql
         public override bool Delete<T>(long id)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -833,6 +837,10 @@ namespace Funcular.Data.Orm.PostgreSql
             PostgreSqlParameterGenerator parameterGenerator = null,
             PostgreSqlExpressionTranslator translator = null) where T : class, new()
         {
+            // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
+            // tokens through the column cache, and until discovery every convention-mapped member of T is unmapped.
+            DiscoverColumns<T>();
+
             var paramGen = parameterGenerator ?? new PostgreSqlParameterGenerator();
             var trans = translator ?? new PostgreSqlExpressionTranslator(paramGen);
 
@@ -1462,11 +1470,16 @@ namespace Funcular.Data.Orm.PostgreSql
         /// <summary>
         /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
         /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
-        /// It currently returns the cached set, computing and caching it on first use
-        /// (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
+        /// Once <typeparamref name="T"/> is discovered (in <c>_mappedTypes</c>) it returns the cached set, computing and
+        /// caching it on first use. Before that it returns the set computed without caching: an undiscovered type's
+        /// convention-mapped properties all count as unmapped, and a cached set would outlive the discovery that
+        /// corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
         /// </summary>
         protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
-            => _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+        {
+            if (!_mappedTypes.Contains(typeof(T))) return GetUnmappedProperties<T>(typeof(T));
+            return _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+        }
 
         protected internal object GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 
