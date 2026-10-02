@@ -4,7 +4,9 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Funcular.Data.Orm.Attributes;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -12,12 +14,14 @@ namespace Funcular.Data.Orm.Sqlite.Tests
 {
     /// <summary>
     /// Cold-cache delete matrix (docs/plans/COLD_CACHE_DELETE_PLAN.md §4.1, SQLite column). One temp-file database
-    /// per class with PROPERTY-named columns: at fae4472 the SQLite provider's base <c>GetCachedColumnName</c> keyed
-    /// on <c>DeclaringType.FullName</c> while discovery wrote <c>ToDictionaryKey()</c> keys (plan §1), so snake_case
-    /// rows (AC8 <c>[SqlExpression]</c>, AC9) are not in this column. SQLite has no stored procedures, so the AC6
-    /// ExecProcedure-first row is not either. Every test's entity type is used by that test only and nowhere else in
-    /// this assembly, and rows/tables are seeded and removed with raw SQL; each test first asserts coldness through
-    /// the provider instance under test.
+    /// per class; <c>person</c> has PROPERTY-named columns. At fae4472 the SQLite provider's base
+    /// <c>GetCachedColumnName</c> keyed on <c>DeclaringType.FullName</c> while discovery wrote <c>ToDictionaryKey()</c>
+    /// keys (plan §1), so the snake_case rows (AC8 <c>[SqlExpression]</c>, AC9) were dropped from this column. D5 of
+    /// the provider-scoped caches plan keys both on <c>ToDictionaryKey()</c>, so those rows are here now (plan Task 4),
+    /// each on its own snake_case table. SQLite has no stored procedures, so the AC6 ExecProcedure-first row is not
+    /// in this column. Every test's entity type is used by that test only and nowhere else in this assembly, and
+    /// rows/tables are seeded and removed with raw SQL; each test first asserts coldness through the provider instance
+    /// under test.
     /// </summary>
     [TestClass]
     public class ColdCacheDeleteTests
@@ -80,6 +84,31 @@ namespace Funcular.Data.Orm.Sqlite.Tests
             public string LastName { get; set; }
         }
 
+        [Table(SnakeWhereTable)]
+        public class ColdComputedPerson
+        {
+            public int Id { get; set; }
+            public string FirstName { get; set; } // column: first_name
+            public string LastName { get; set; }  // column: last_name
+
+            [SqlExpression("COALESCE({LastName}, '')")]
+            public string SafeLastName { get; set; }
+        }
+
+        [Table(PkTable)]
+        public class ColdPkRow
+        {
+            [Key] public int ZzProbePkId { get; set; } // column: zz_probe_pk_id
+            public string Label { get; set; }
+        }
+
+        [Table(PkTable)]
+        public class ColdPkAsyncRow
+        {
+            [Key] public int ZzProbePkId { get; set; } // column: zz_probe_pk_id
+            public string Label { get; set; }
+        }
+
         [Table(RetryTable)]
         public class ColdRetryRow
         {
@@ -130,6 +159,8 @@ namespace Funcular.Data.Orm.Sqlite.Tests
         private const string RetryTable = "zz_cold_retry";
         private const string ExecPkTable = "zz_cold_exec_pk";
         private const string NoTxTable = "zz_cold_pk_notx";
+        private const string SnakeWhereTable = "zz_cold_snake_where"; // snake_case columns, unlike person
+        private const string PkTable = "zz_cold_pk";                   // snake_case key: zz_probe_pk_id
 
         private static string _dbPath;
         private static string _connectionString;
@@ -360,9 +391,110 @@ namespace Funcular.Data.Orm.Sqlite.Tests
             Assert.IsFalse(string.IsNullOrWhiteSpace(components.WhereClause));
         }
 
+        /// <summary>
+        /// The SQLite twin of the server rows, on its own snake_case table: a cold predicate renders T's discovered
+        /// columns, including inside a <c>[SqlExpression]</c> token (cold-cache plan Task 4; needs D1 and D5).
+        /// </summary>
+        [TestMethod]
+        public void GenerateWhereClause_Cold_RendersSnakeCaseColumns()
+        {
+            try
+            {
+                ExecRaw($"DROP TABLE IF EXISTS {SnakeWhereTable}");
+                ExecRaw($"CREATE TABLE {SnakeWhereTable} (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)");
+                using (var provider = new SqliteOrmDataProvider(_connectionString))
+                {
+                    AssertCold(provider, typeof(ColdComputedPerson));
+                    var marker = _marker;
+
+                    SqliteQueryComponents components = null;
+                    var failure = Capture(() => components = provider.GenerateWhereClause<ColdComputedPerson>(
+                        p => p.SafeLastName == marker && p.FirstName == "kept"));
+
+                    Assert.IsNull(failure, $"a cold predicate must translate; threw {Describe(failure)}");
+                    var where = components.WhereClause;
+                    StringAssert.Contains(where, "first_name", $"T's own snake_case column; WHERE: {where}");
+                    Assert.IsTrue(Regex.IsMatch(where, @"COALESCE\([^)]*last_name", RegexOptions.IgnoreCase),
+                        $"the [SqlExpression] token must resolve to the discovered column; WHERE: {where}");
+                    Assert.IsFalse(Regex.IsMatch(where, @"\b(lastname|firstname)\b", RegexOptions.IgnoreCase),
+                        $"no naive column name may be rendered; WHERE: {where}");
+                }
+            }
+            finally
+            {
+                ExecRaw($"DROP TABLE IF EXISTS {SnakeWhereTable}");
+            }
+        }
+
         #endregion
 
-        #region D3 on SQLite — behaviour-neutral at fae4472 (base GetCachedColumnName keys on FullName); coverage only
+        #region AC9 — cold delete by id discovers first (D3), with a snake_case key (needs D5)
+
+        [TestMethod]
+        public void DeleteById_Cold_WithASnakeCaseKey_DeletesTheRow()
+        {
+            try
+            {
+                CreateSnakeKeyTable(PkTable);
+                using (var provider = new SqliteOrmDataProvider(_connectionString))
+                {
+                    AssertCold(provider, typeof(ColdPkRow));
+                    provider.BeginTransaction();
+                    bool deleted;
+                    try
+                    {
+                        deleted = provider.Delete<ColdPkRow>(1L);
+                        provider.CommitTransaction();
+                    }
+                    catch
+                    {
+                        provider.RollbackTransaction();
+                        throw;
+                    }
+                    Assert.IsTrue(deleted, "the cold delete by id must remove the row");
+                }
+                CollectionAssert.AreEqual(new long[] { 2 }, SnakeKeyTableIds(PkTable), "only the kept row survives");
+            }
+            finally
+            {
+                ExecRaw($"DROP TABLE IF EXISTS {PkTable}");
+            }
+        }
+
+        [TestMethod]
+        public async Task DeleteByIdAsync_Cold_WithASnakeCaseKey_DeletesTheRow()
+        {
+            try
+            {
+                CreateSnakeKeyTable(PkTable);
+                using (var provider = new SqliteOrmDataProvider(_connectionString))
+                {
+                    AssertCold(provider, typeof(ColdPkAsyncRow));
+                    provider.BeginTransaction();
+                    bool deleted;
+                    try
+                    {
+                        deleted = await provider.DeleteAsync<ColdPkAsyncRow>(1L);
+                        provider.CommitTransaction();
+                    }
+                    catch
+                    {
+                        provider.RollbackTransaction();
+                        throw;
+                    }
+                    Assert.IsTrue(deleted, "the cold async delete by id must remove the row");
+                }
+                CollectionAssert.AreEqual(new long[] { 2 }, SnakeKeyTableIds(PkTable), "only the kept row survives");
+            }
+            finally
+            {
+                ExecRaw($"DROP TABLE IF EXISTS {PkTable}");
+            }
+        }
+
+        #endregion
+
+        #region D3 on SQLite, property-named key — behaviour-neutral at fae4472 (base GetCachedColumnName keyed on FullName); coverage only
 
         [TestMethod]
         public async Task DeleteById_Cold_SqliteSyncAndAsync_Execute()
@@ -527,6 +659,25 @@ namespace Funcular.Data.Orm.Sqlite.Tests
             ExecRaw($"DROP TABLE IF EXISTS {NoTxTable}");
             ExecRaw($"CREATE TABLE {NoTxTable} (ZzProbePkId INTEGER PRIMARY KEY, Label TEXT NOT NULL)");
             ExecRaw($"INSERT INTO {NoTxTable} (ZzProbePkId, Label) VALUES (1, 'gone'), (2, 'kept')");
+        }
+
+        /// <summary>Drops and recreates <paramref name="table"/> with a snake_case key and rows 1 ('gone') and 2 ('kept').</summary>
+        private static void CreateSnakeKeyTable(string table)
+        {
+            ExecRaw($"DROP TABLE IF EXISTS {table}");
+            ExecRaw($"CREATE TABLE {table} (zz_probe_pk_id INTEGER PRIMARY KEY, label TEXT NOT NULL)");
+            ExecRaw($"INSERT INTO {table} (zz_probe_pk_id, label) VALUES (1, 'gone'), (2, 'kept')");
+        }
+
+        private static List<long> SnakeKeyTableIds(string table)
+        {
+            var ids = new List<long>();
+            using var connection = OpenRaw();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"SELECT zz_probe_pk_id FROM {table} ORDER BY zz_probe_pk_id";
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) ids.Add(reader.GetInt64(0));
+            return ids;
         }
 
         private static List<long> KeyTableIds(string table)
