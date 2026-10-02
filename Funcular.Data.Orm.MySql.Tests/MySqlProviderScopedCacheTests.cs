@@ -90,6 +90,10 @@ namespace Funcular.Data.Orm.MySql.Tests
 
         protected override OrmDataProvider CreateP1() => new MySqlOrmDataProvider(P1ConnectionString);
 
+        protected override OrmDataProvider CreateUniqueScopeProvider() => new MySqlOrmDataProvider(
+            new MySqlConnectionStringBuilder(P2ConnectionString) { ApplicationName = "zz_psc_" + Guid.NewGuid().ToString("N") }
+                .ConnectionString);
+
         protected override LinqCaches CachesOf(OrmDataProvider provider)
         {
             var p = (MySqlOrmDataProvider)provider;

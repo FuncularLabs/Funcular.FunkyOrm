@@ -34,10 +34,6 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         public void InitQueryOperatorProvider()
         {
             InitProvider();
-            // Discover Person's columns up front: the cleanup's Delete<Person>(predicate) fails on a cold column cache
-            // (the cold-cache Delete defect, fixed on fix/mysql-delete-cold-cache), so a test that never touched
-            // Person failed alone and leaked its rows (rev 44, N1).
-            _provider.Query<Person>();
             _logEntries.Clear();
             var log = _provider.Log;
             _provider.Log = s =>

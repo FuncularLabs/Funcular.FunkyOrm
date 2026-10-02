@@ -191,6 +191,8 @@ namespace Funcular.Data.Orm.PostgreSql
         public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -379,6 +381,8 @@ namespace Funcular.Data.Orm.PostgreSql
         public override bool Delete<T>(long id)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -839,6 +843,11 @@ namespace Funcular.Data.Orm.PostgreSql
             PostgreSqlParameterGenerator parameterGenerator = null,
             PostgreSqlExpressionTranslator translator = null) where T : class, new()
         {
+            // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
+            // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
+            // column-cache key is absent.
+            DiscoverColumns<T>();
+
             var paramGen = parameterGenerator ?? new PostgreSqlParameterGenerator();
             var trans = translator ?? new PostgreSqlExpressionTranslator(paramGen);
 
@@ -847,7 +856,7 @@ namespace Funcular.Data.Orm.PostgreSql
 
             var visitor = new PostgreSqlWhereClauseVisitor<T>(
                 ColumnNameCache,
-                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                UnmappedPropertiesFor<T>(),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
 
@@ -876,7 +885,7 @@ namespace Funcular.Data.Orm.PostgreSql
         {
             var visitor = new PostgreSqlOrderByClauseVisitor<T>(
                 ColumnNameCache,
-                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                UnmappedPropertiesFor<T>());
             visitor.Visit(expression);
             if (commandElements == null)
                 commandElements = new PostgreSqlQueryComponents<T>(expression, string.Empty, string.Empty, string.Empty, visitor.OrderByClause, new List<NpgsqlParameter> { });
@@ -1209,7 +1218,7 @@ namespace Funcular.Data.Orm.PostgreSql
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                UnmappedPropertyCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
+                UnmappedPropertiesFor<T>().Select(p => p.Name));
 
             var mappings = properties.Select(p =>
             {
@@ -1269,7 +1278,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected internal CommandParameters BuildInsertCommandObject<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1294,7 +1303,7 @@ namespace Funcular.Data.Orm.PostgreSql
         protected internal CommandParameters BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1516,12 +1525,28 @@ namespace Funcular.Data.Orm.PostgreSql
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
         }
 
+        /// <summary>
+        /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
+        /// this class that needs that set calls this helper rather than <see cref="OrmDataProvider.UnmappedPropertyCache"/>
+        /// directly. Once <typeparamref name="T"/> is discovered (in this instance's
+        /// <see cref="OrmDataProvider.MappedTypes"/>) it returns the cached set, computing and caching it on first use.
+        /// Before that it returns the set computed without caching: a convention-mapped property counts as unmapped
+        /// while its column-name cache key (<see cref="GeneralExtensions.ToDictionaryKey"/>) is absent, and a cached set
+        /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2). Both reads are of
+        /// this instance's scope.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
+        {
+            if (!MappedTypes.Contains(typeof(T))) return GetUnmappedProperties<T>(typeof(T));
+            return UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+        }
+
         protected internal object GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>();
-            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));

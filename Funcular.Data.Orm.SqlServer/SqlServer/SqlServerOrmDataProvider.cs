@@ -267,7 +267,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
         /// <returns>The number of rows affected by the delete operation.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the predicate
-        /// results in an invalid or trivial WHERE clause.</exception>
+        /// results in an invalid or trivial WHERE clause; also if <typeparamref name="T"/>'s table doesn't exist when its
+        /// columns are first discovered (the <see cref="SqlException"/> is then the
+        /// <see cref="Exception.InnerException"/>).</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -327,11 +329,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="id">The primary key value of the entity to delete. This value is used to identify the entity in the database.</param>
         /// <returns><see langword="true"/> if the entity was successfully deleted; otherwise, <see langword="false"/>.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, or if
+        /// <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
+        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
         public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
 
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
@@ -884,11 +891,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="id">The primary key value of the record to delete.</param>
         /// <returns><see langword="true"/> if the record was successfully deleted; otherwise, <see langword="false"/>.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, or if
+        /// <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
+        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
         public override bool Delete<T>(long id)
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
 
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
@@ -1424,6 +1436,11 @@ namespace Funcular.Data.Orm.SqlServer
             ParameterGenerator parameterGenerator = null,
             SqlExpressionTranslator translator = null) where T : class, new()
         {
+            // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
+            // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
+            // column-cache key is absent.
+            DiscoverColumns<T>();
+
             // Use the provided ParameterGenerator and translator, or create new ones if not specified
             var paramGen = parameterGenerator ?? new ParameterGenerator();
             var trans = translator ?? new SqlExpressionTranslator(paramGen);
@@ -1434,7 +1451,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             var visitor = new WhereClauseVisitor<T>(
                 ColumnNameCache,
-                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                UnmappedPropertiesFor<T>(),
                 paramGen,
                 trans,
                 tableName,
@@ -1475,7 +1492,7 @@ namespace Funcular.Data.Orm.SqlServer
         {
             var visitor = new OrderByClauseVisitor<T>(
                 ColumnNameCache,
-                UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                UnmappedPropertiesFor<T>());
             visitor.Visit(expression);
             if (commandElements == null)
             {
@@ -1806,7 +1823,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                UnmappedPropertyCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name)
+                UnmappedPropertiesFor<T>().Select(p => p.Name)
             );
 
             // Precompute mapping array
@@ -1891,7 +1908,7 @@ namespace Funcular.Data.Orm.SqlServer
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1945,7 +1962,7 @@ namespace Funcular.Data.Orm.SqlServer
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -2228,7 +2245,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>(); // Ensure column mappings are discovered
-            var unmapped = UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));
@@ -2281,13 +2298,16 @@ namespace Funcular.Data.Orm.SqlServer
             p.Name.Equals($"{typeof(T).Name}Id", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// Returns the properties of <typeparamref name="T"/> that have no column in this instance's scope: those marked
-        /// <see cref="NotMappedAttribute"/>, the remote ones, and those with neither <c>[Column]</c> nor a discovered
-        /// column. Used to avoid attempting to map or read such properties from a data reader.
+        /// Returns the properties of <typeparamref name="T"/> that aren't read as columns of its table: those marked
+        /// <see cref="NotMappedAttribute"/>, those with a remote attribute, and those with neither a
+        /// <see cref="ColumnAttribute"/> nor an entry in this instance's column-name cache (keyed
+        /// <see cref="GeneralExtensions.ToDictionaryKey"/>). Before <typeparamref name="T"/> is discovered that set can
+        /// include convention-mapped properties, so callers cache it only for discovered types
+        /// (<see cref="UnmappedPropertiesFor{T}"/>).
         /// </summary>
         /// <typeparam name="T">The type whose unmapped properties are requested.</typeparam>
-        /// <param name="type">The CLR Type (provided by the cache accessor).</param>
-        /// <returns>The unmapped properties.</returns>
+        /// <param name="type">The CLR type, always <c>typeof(T)</c> (the parameter fits the cache's value factory).</param>
+        /// <returns>Those properties.</returns>
         protected internal ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new()
         {
@@ -2308,6 +2328,22 @@ namespace Funcular.Data.Orm.SqlServer
                 return !ColumnNameCache.ContainsKey(key); // No cached column mapping
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
+        }
+
+        /// <summary>
+        /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
+        /// this class that needs that set calls this helper rather than <see cref="OrmDataProvider.UnmappedPropertyCache"/>
+        /// directly. Once <typeparamref name="T"/> is discovered (in this instance's
+        /// <see cref="OrmDataProvider.MappedTypes"/>) it returns the cached set, computing and caching it on first use.
+        /// Before that it returns the set computed without caching: a convention-mapped property counts as unmapped
+        /// while its column-name cache key (<see cref="GeneralExtensions.ToDictionaryKey"/>) is absent, and a cached set
+        /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2). Both reads are of
+        /// this instance's scope.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
+        {
+            if (!MappedTypes.Contains(typeof(T))) return GetUnmappedProperties<T>(typeof(T));
+            return UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
         }
 
         /// <summary>

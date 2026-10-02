@@ -48,6 +48,14 @@ namespace Funcular.Data.Orm.Tests.Caching
             public string FirstName { get; set; }
         }
 
+        /// <summary>The cross-scope replay row's type: LastName is mapped by convention to <c>last_name</c>.</summary>
+        [Table(Table)]
+        public class ReplayRow
+        {
+            public int Id { get; set; }
+            public string LastName { get; set; }
+        }
+
         /// <summary>The caches a provider instance reads, through that provider's internal scope accessors.</summary>
         protected sealed class LinqCaches
         {
@@ -68,6 +76,9 @@ namespace Funcular.Data.Orm.Tests.Caching
 
         /// <summary>The same database under another identity.</summary>
         protected abstract OrmDataProvider CreateP1();
+
+        /// <summary>The same database under an identity no other test uses: a new, registered scope.</summary>
+        protected abstract OrmDataProvider CreateUniqueScopeProvider();
 
         protected abstract LinqCaches CachesOf(OrmDataProvider provider);
 
@@ -162,6 +173,46 @@ namespace Funcular.Data.Orm.Tests.Caching
                                 $"{ex.GetType().Name}: {ex.Message}");
                 }
                 StringAssert.Contains(string.Join("\n", p1Sql), p1Fragment, $"P1 {site}: rendered SQL");
+            }
+            finally
+            {
+                DropLinqTable();
+            }
+        }
+
+        /// <summary>
+        /// Review HRA-1: scope A warms the type; scope B's first operation is a delete by predicate inside a
+        /// transaction, which must succeed; B's <c>GetList</c> must then return the surviving rows.
+        /// </summary>
+        [TestMethod]
+        public void CrossScopeReplay_FirstDeleteInANewScope_ThenGetListReturnsTheRows()
+        {
+            RequireDatabase();
+            try
+            {
+                CreateLinqTable();
+                using (var a = CreateP2())
+                    Assert.AreEqual(3, a.GetList<ReplayRow>().Count, "scope A warms the type");
+
+                using var b = CreateUniqueScopeProvider();
+                var transactional = (ISqlOrmProvider)b;
+                transactional.BeginTransaction();
+                int deleted;
+                try
+                {
+                    deleted = b.Delete<ReplayRow>(x => x.LastName == "z");
+                    transactional.CommitTransaction();
+                }
+                catch
+                {
+                    try { transactional.RollbackTransaction(); } catch { /* the original failure is the finding */ }
+                    throw;
+                }
+                Assert.AreEqual(1, deleted, "B's first operation, a delete by predicate, deletes the matching row");
+
+                var rows = b.GetList<ReplayRow>().OrderBy(r => r.Id).ToList();
+                Assert.AreEqual("1:x|2:y", string.Join("|", rows.Select(r => $"{r.Id}:{r.LastName}")),
+                    "B's GetList after its first delete returns the surviving rows");
             }
             finally
             {

@@ -33,6 +33,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
             return new SqlServerOrmDataProvider(builder.ConnectionString);
         }
 
+        protected override OrmDataProvider CreateUniqueScopeProvider()
+        {
+            var builder = new SqlConnectionStringBuilder(P2ConnectionString) { ApplicationName = "zz_psc_" + Unique() };
+            return new SqlServerOrmDataProvider(builder.ConnectionString);
+        }
+
         protected override LinqCaches CachesOf(OrmDataProvider provider)
         {
             var p = (SqlServerOrmDataProvider)provider;
@@ -75,6 +81,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
         {
             var builder = new SqliteConnectionStringBuilder($"Data Source={_path}");
             builder.DefaultTimeout += 1;
+            return new SqliteOrmDataProvider(builder.ConnectionString);
+        }
+
+        protected override OrmDataProvider CreateUniqueScopeProvider()
+        {
+            // The database file is new for each test, and the timeout differs from P1's and P2's.
+            var builder = new SqliteConnectionStringBuilder($"Data Source={_path}");
+            builder.DefaultTimeout += 2;
             return new SqliteOrmDataProvider(builder.ConnectionString);
         }
 

@@ -73,6 +73,12 @@ subclasses.
   longer collide.
 - **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
   property whose column differs by underscores (`Label` → `la_bel`) is queryable.
+- **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** could run before
+  the type's columns were discovered. For example, `x => x.LastName == value` on a member mapped by convention could throw
+  `NotSupportedException: Expression type Parameter is not supported`. They now discover the type's columns first.
+  All four providers.
+- **`ExecProcedure<T>` as a type's first use** no longer leaves `Query<T>()` and `Delete<T>(predicate)` failing for
+  that type afterwards. SQL Server and MySQL.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -166,6 +172,10 @@ Other changes:
   A direct subclass that doesn't override `CacheScopeIdentity` gets one scope per provider type.
 - **`ToDictionaryKey()`** returns `{DeclaringType.FullName}.{Name}`.
 - PostgreSql, MySql and Sqlite grant `InternalsVisibleTo` to `Funcular.Data.Orm.SqlServer.Tests`.
+- On SQL Server, MySQL and PostgreSQL, when a delete inside a transaction is a type's first use and the type's table
+  doesn't exist, the provider's missing-table error (SQL Server 208, MySQL 1146, PostgreSQL 42P01) is now the
+  `InnerException` of an `InvalidOperationException`. Some of these calls threw the provider's exception directly
+  before.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

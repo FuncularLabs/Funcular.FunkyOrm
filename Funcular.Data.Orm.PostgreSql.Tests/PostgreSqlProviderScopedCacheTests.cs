@@ -55,6 +55,10 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
 
         protected override OrmDataProvider CreateP1() => new PostgreSqlOrmDataProvider(P1ConnectionString);
 
+        protected override OrmDataProvider CreateUniqueScopeProvider() => new PostgreSqlOrmDataProvider(
+            new NpgsqlConnectionStringBuilder(P2ConnectionString) { ApplicationName = "zz_psc_" + Guid.NewGuid().ToString("N") }
+                .ConnectionString);
+
         protected override LinqCaches CachesOf(OrmDataProvider provider)
         {
             var p = (PostgreSqlOrmDataProvider)provider;

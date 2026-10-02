@@ -535,8 +535,6 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
             // WHERE sends a DateTimeOffset as its UTC time (MySqlConnector); the ORDER BY value must too, or MySQL drops
             // the offset and the two disagree (rev 39, J2).
             var marker = NewMarker();
-            // Seeded through the harness: inserting a Person discovers its columns, so the cleanup's
-            // Delete<Person>(predicate) works when this test runs alone (rev 43, M1; the cold-cache Delete defect).
             SeedTypedPerson(marker, "a", null, null, new DateTime(2026, 1, 2, 6, 0, 0));
             SeedTypedPerson(marker, "b", null, null, new DateTime(2026, 1, 2, 7, 30, 0));
             SeedTypedPerson(marker, "c", null, null, new DateTime(2026, 1, 2, 8, 0, 0));
