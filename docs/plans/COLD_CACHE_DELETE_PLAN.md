@@ -8,12 +8,15 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 17. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2 are done. Task 3's hostile review
+> **Status (2026-10-01):** rev 18. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2 are done. Task 3's hostile review
 > (§9.12) found no code defect; its fix layer is `34dd5fc`.
 > - Task 1: the seam `dd121c5`. Task 2: D1–D3 with the tests, `2727e4a` (message corrected from `c07693e`, HR1-7).
 > - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer `34dd5fc`, with one new test row per server
 >   provider. Its fix-verifications found nits only: §9.14 (addressed in rev 14, `982acb2`) and §9.15 (addressed in
->   rev 15); §9.16 and §9.17 found plan nits, addressed in revs 16 and 17; rev 17 is re-verified next.
+>   rev 15); §9.16–§9.18 found plan nits, addressed in revs 16–18; rev 18 is re-verified next.
+
+> **Revision 18 — what changed (fix-verification FV5-1):** plan only. A summary sentence in §9.16 is deleted, not
+> reworded (§9.18).
 
 > **Revision 17 — what changed (fix-verification FV4-1…FV4-2):** plan only; the reviewer's text (§9.17).
 
@@ -387,7 +390,7 @@ Local runs are recorded with their sha.
 4. **Task 3** — Changelog "Fixed"; hostile review and fix-verification to CLEAN.
    - Changelog `8c855a7` and `2d2e439` (under `[Unreleased]` until the owner's Task 4 choice).
    - Hostile review §9.12: NOT CLEAN, no code defect. Its fix layer is `34dd5fc` (rev 13). Fix-verifications §9.14 and
-     §9.15 found nits only, addressed in revs 14 and 15; §9.16 and §9.17 found plan nits, addressed in revs 16 and 17.
+     §9.15 found nits only, addressed in revs 14 and 15; §9.16–§9.18 found plan nits, addressed in revs 16–18.
 5. **Task 4 — Merge path (owner).** A merge to `master` runs `ci.yml`'s `publish` (NuGet push), so nothing lands on
    `master` without a release decision:
    - **(a)** 3.9.1: version bump, PR into `master`, publish; or
@@ -622,8 +625,8 @@ Verdict: NOT CLEAN on six nits; no code defect.
 Verdict: NOT CLEAN on two plan nits; no code defect.
 - **Resolved:** FV2-1, FV2-2, FV2-3, FV2-5, FV2-6.
 - **Partial:** FV2-4.
-- No cold delete inside a transaction (the Changelog's condition) lets 208, 1146 or 42P01 escape unwrapped. The comments' condition matches all four
-  `GetUnmappedProperties` bodies.
+- The comments' condition matches all four `GetUnmappedProperties` bodies. *(Rev 18: a summary sentence about
+  unwrapped errors is deleted here, FV5-1; the Changelog states the scoped claim.)*
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
@@ -638,3 +641,11 @@ Verdict: NOT CLEAN on two plan nits. FV3-1 and FV3-2 resolved.
 |---|---|---|---|---|
 | FV4-1 | nit | PLAN-GAP | "AC7's own words" included "the type stays undiscovered", which AC7 doesn't say; the AC7 sub-bullet lacked a rev 16 tag; "AC9 sub-bullets" meant one. | The reviewer's text. |
 | FV4-2 | nit | PLAN-GAP | §9.16's "no delete path lets 208, 1146 or 42P01 escape unwrapped" dropped the Changelog's condition. | The reviewer's text. |
+
+### 9.18 Narrow fix-verification of `fae4472..2926306` (non-author; read-only)
+
+Verdict: NOT CLEAN on one plan nit. FV4-1 resolved; FV4-2 partial.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FV5-1 | nit | PLAN-GAP | The §9.16 sentence on unwrapped errors still dropped part of the Changelog's condition (a `[SubqueryAggregate]` child table can raise a raw missing-table error) and had no revision tag. | Sentence deleted. |
