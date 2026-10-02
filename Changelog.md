@@ -9,8 +9,8 @@ Not yet assigned to a release: a 3.9.1 patch, or folded into 3.10.0 (`docs/plans
 ### Fixed
 - **`Delete<T>(predicate)` and `DeleteAsync<T>(predicate)` as a type's first use in the process** threw
   `NotSupportedException: Expression type Parameter is not supported` when the predicate read a member mapped by
-  convention (no `[Column]`), and the type then failed in `Query<T>()` for the rest of the process. They now discover
-  the type's columns first. All four providers.
+  convention (no `[Column]`). They now discover the type's columns first, delete the matching rows, and leave the type
+  usable by `Query<T>()`. All four providers.
 - **`Delete<T>(id)` and `DeleteAsync<T>(id)` as a type's first use** named the key column after the property. A key
   whose column is spelled differently (property `ZzProbePkId`, column `zz_probe_pk_id`) failed. They now discover the
   type first. SQL Server, MySQL and PostgreSQL.
