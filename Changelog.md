@@ -9,11 +9,14 @@ Not yet assigned to a release: a 3.9.1 patch, or folded into 3.10.0 (`docs/plans
 ### Fixed
 - **`Delete<T>(predicate)` and `DeleteAsync<T>(predicate)` as a type's first use in the process** threw
   `NotSupportedException: Expression type Parameter is not supported` when the predicate read a member mapped by
-  convention (no `[Column]`). They now discover the type's columns first, delete the matching rows, and leave the type
-  usable by `Query<T>()`. All four providers.
+  convention (no `[Column]`) in a comparison (`x.LastName == value`). With a method call on such a member
+  (`x.LastName.StartsWith(…)`), SQL Server, MySQL and PostgreSQL sent a column named after the property (e.g.
+  `Invalid column name 'lastname'`), and SQLite deleted the rows but left `Query<T>()` failing for the type. They now
+  discover the type's columns first, delete the matching rows, and leave the type usable by `Query<T>()`. All four
+  providers.
 - **`Delete<T>(id)` and `DeleteAsync<T>(id)` as a type's first use** named the key column after the property. A key
-  whose column is spelled differently (property `ZzProbePkId`, column `zz_probe_pk_id`) failed. They now discover the
-  type first. SQL Server, MySQL and PostgreSQL.
+  whose column name differs from the property name by more than letter case (property `ZzProbePkId`, column
+  `zz_probe_pk_id`) failed. They now discover the type first. SQL Server, MySQL and PostgreSQL.
 - **`ExecProcedure<T>` as a type's first use** no longer leaves `Query<T>()` and `Delete<T>(predicate)` failing for
   that type afterwards. SQL Server and MySQL.
 
@@ -21,6 +24,10 @@ Not yet assigned to a release: a 3.9.1 patch, or folded into 3.10.0 (`docs/plans
 - On SQL Server, MySQL and PostgreSQL, `Delete<T>(id)`/`DeleteAsync<T>(id)` as a type's first use, on a table that
   doesn't exist, now throws `InvalidOperationException` with the provider's exception as `InnerException`, as a
   predicate delete does. Before, the provider's exception was thrown directly.
+- On SQL Server, MySQL and PostgreSQL, `Delete<T>(predicate)`/`DeleteAsync<T>(predicate)` as a type's first use, on a
+  table that doesn't exist, now throws `InvalidOperationException` with the provider's exception as `InnerException`
+  also when the predicate calls a method on a member (`LastName.StartsWith(…)`) or reads only `[Column]` members.
+  Before, those predicates sent the DELETE and the provider's exception was thrown directly.
 
 ## [3.9.0] - 2026-07-06
 

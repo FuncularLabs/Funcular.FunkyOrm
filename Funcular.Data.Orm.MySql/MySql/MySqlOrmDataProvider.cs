@@ -1506,9 +1506,10 @@ namespace Funcular.Data.Orm.MySql
         /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
         /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
         /// Once <typeparamref name="T"/> is discovered (in <c>_mappedTypes</c>) it returns the cached set, computing and
-        /// caching it on first use. Before that it returns the set computed without caching: an undiscovered type's
-        /// convention-mapped properties all count as unmapped, and a cached set would outlive the discovery that
-        /// corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
+        /// caching it on first use. Before that it returns the set computed without caching: until discovery, a
+        /// convention-mapped property with no entry in the column-name cache counts as unmapped (normally every such
+        /// property; an inherited member's entry can already exist from a sibling type's discovery), and a cached set
+        /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
         /// </summary>
         protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
         {

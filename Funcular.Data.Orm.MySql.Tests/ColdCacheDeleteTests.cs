@@ -131,6 +131,13 @@ namespace Funcular.Data.Orm.MySql.Tests
             public string Label { get; set; }
         }
 
+        [Table(MissingTable)] // never created
+        public class ColdMissingPredicateRow
+        {
+            public int Id { get; set; }
+            public string LastName { get; set; }
+        }
+
         [Table(NoTxTable)]
         public class ColdPkNoTxRow
         {
@@ -524,6 +531,30 @@ namespace Funcular.Data.Orm.MySql.Tests
                     provider.RollbackTransaction();
                     AssertDiscoveryError(failure, "cold async delete by id on a missing table");
                     AssertCold(typeof(ColdMissingPkAsyncRow), "after the failed discovery");
+                }
+            }
+            finally
+            {
+                ExecRaw($"DROP TABLE IF EXISTS {MissingTable}");
+            }
+        }
+
+        [TestMethod]
+        public void DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError()
+        {
+            // Before D1, a method call on a member reached the database, and the provider's exception was thrown
+            // directly. D1 discovers first, so the error has discovery's shape (review HR1-1).
+            AssertCold(typeof(ColdMissingPredicateRow));
+            try
+            {
+                ExecRaw($"DROP TABLE IF EXISTS {MissingTable}");
+                using (var provider = new MySqlOrmDataProvider(_connectionString))
+                {
+                    provider.BeginTransaction();
+                    var failure = Capture(() => provider.Delete<ColdMissingPredicateRow>(p => p.LastName.StartsWith("x")));
+                    provider.RollbackTransaction();
+                    AssertDiscoveryError(failure, "cold predicate delete (method call) on a missing table");
+                    AssertCold(typeof(ColdMissingPredicateRow), "after the failed discovery");
                 }
             }
             finally
