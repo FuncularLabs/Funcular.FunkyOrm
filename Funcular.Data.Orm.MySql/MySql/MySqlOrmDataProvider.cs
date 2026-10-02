@@ -816,7 +816,8 @@ namespace Funcular.Data.Orm.MySql
             MySqlExpressionTranslator translator = null) where T : class, new()
         {
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
-            // tokens through the column cache, and until discovery every convention-mapped member of T is unmapped.
+            // tokens through the column cache, and until discovery a convention-mapped member of T counts as unmapped
+            // unless another type's discovery already wrote its column-cache key.
             DiscoverColumns<T>();
 
             var paramGen = parameterGenerator ?? new MySqlParameterGenerator();
@@ -1507,8 +1508,8 @@ namespace Funcular.Data.Orm.MySql
         /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
         /// Once <typeparamref name="T"/> is discovered (in <c>_mappedTypes</c>) it returns the cached set, computing and
         /// caching it on first use. Before that it returns the set computed without caching: until discovery, a
-        /// convention-mapped property with no entry in the column-name cache counts as unmapped (normally every such
-        /// property; an inherited member's entry can already exist from a sibling type's discovery), and a cached set
+        /// convention-mapped property counts as unmapped unless its column-name cache key
+        /// (<c>DeclaringType.Name + "." + Name</c>) was already written by another type's discovery, and a cached set
         /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
         /// </summary>
         protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()

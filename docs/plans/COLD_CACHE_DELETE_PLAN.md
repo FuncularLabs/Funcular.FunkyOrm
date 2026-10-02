@@ -8,10 +8,17 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 13. Task 0 CLEAN at `129b6ac` (§9.11 was the last Task 0 record). Tasks 1–2
+> **Status (2026-10-01):** rev 14. Task 0 CLEAN at `129b6ac` (§9.13). Tasks 1–2
 > are done. Task 3's hostile review (§9.12) found no code defect; its fix layer is this revision's commit.
 > - Task 1: the seam `dd121c5`. Task 2: D1–D3 with the tests, `2727e4a` (message corrected from `c07693e`, HR1-7).
-> - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer, with one new test row per server provider.
+> - Task 3: the Changelog, `8c855a7` and `2d2e439`; the HR1 fix layer `34dd5fc`, with one new test row per server
+>   provider; its fix-verification (§9.14) found nits only, fixed in rev 14.
+
+> **Revision 14 — what changed (fix-verification FV1-1…FV1-7):**
+> - The Changelog keeps only claims that hold for every case; its examples of symptoms are cut (FV1-2…FV1-4).
+> - The doc and D1 comments state the cache-key mechanism, not a quantity (FV1-5).
+> - The new row is traced to AC7. The rev 12 re-check is recorded (§9.13), along with stale references and the
+>   Task 4 sweep list (FV1-1, FV1-6, FV1-7).
 
 > **Revision 13 — what changed (hostile review HR1-1…HR1-7):**
 > - D1's error-shape change for predicate deletes is recorded, with a red→green row per server provider (HR1-1).
@@ -157,6 +164,8 @@
 - **AC7:** On all four providers, a cold delete whose discovery fails reports the discovery error, caches no
   unmapped set and no column names, and the next call succeeds once the table exists. (`[Table]` types; an
   unattributed type's table-name fallback is §6.)
+  - On SQL Server, MySQL and PostgreSQL that holds also for a predicate 3.9.0 sent to the database, such as a
+    method call on a member *(rev 14, FV1-1)*.
 - **AC8:** A cold `GenerateWhereClause<T>` discovers `T` before translating. On SQL Server, MySQL and PostgreSQL it
   renders `T`'s own snake_case columns, including inside a `[SqlExpression]` token.
 - **AC9:** A cold `Delete<T>(id)` and, separately, a cold `DeleteAsync<T>(id)` delete the row on SQL Server, MySQL and
@@ -187,8 +196,9 @@
 | AC9 | `DeleteByIdAsync_Cold_WithoutTransaction_ThrowsTheGuard_AndDoesNotDiscover` (type `ColdPkNoTxAsyncRow`; as above) | ✓ | ✓ | ✓ | ✓ |
 | coverage | `DeleteByIdAsync_Cold_NoMatchingRow_ReturnsFalse` (type `ColdPkNoMatchAsyncRow`, key `Id` on column `id`; green at `fae4472`; covers a line, kills no mutant) *(rev 5, F2; rev 6, G2)* | ✓ | — | — | — |
 | D3 (SQLite) | `DeleteById_Cold_SqliteSyncAndAsync_Execute` (property-named key; equivalent change at `fae4472`, coverage only) | — | — | — | ✓ |
-| AC1 (error shape) | `DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPredicateRow` on the never-created missing table; `LastName.StartsWith(…)`; discovery's error, then coldness) *(rev 13, HR1-1)* | ✓ | ✓ | ✓ | — |
-| AC4 | as restated: the four cold classes, and the three named tests alone after the warm-up's removal, each with the D1-removed mutant | — | on `development/3.10` (Task 4) | — | — |
+| AC7 | `DeletePredicate_Cold_MethodCallOnMissingTable_ThrowsTheDiscoveryError` (type `ColdMissingPredicateRow` on the never-created missing table; `LastName.StartsWith(…)`; discovery's error, then coldness) *(rev 13, HR1-1)* | ✓ | ✓ | ✓ | — |
+| AC4 | as restated: the four cold classes (each with the D1-removed mutant), on `development/3.10` (Task 4) | ✓ | ✓ | ✓ | ✓ |
+| AC4 | as restated: the three named tests alone after the warm-up's removal, with the D1-removed mutant, on `development/3.10` (Task 4) | — | ✓ | — | — |
 
 **Construction.**
 - **Entity types**, all with `[Table]`, used only here:
@@ -201,6 +211,7 @@
     `zz_cold_pk (zz_probe_pk_id INT PRIMARY KEY, label …)`. A column named like the property would make the row
     vacuous (C2).
   - `ColdHelperPerson` (direct helper row).
+  - `ColdMissingPredicateRow` (the never-created missing table; `Id`, `LastName`) *(rev 14)*.
   - `ColdMissingPkRow` and `ColdMissingPkAsyncRow` (each `[Table("zz_cold_missing")]`, never created) *(rev 5, F4)*.
   - `ColdExecPkRow` and `ColdExecPkAsyncRow` (`zz_cold_exec_pk`, SQLite's execution row), kept apart from `ColdPkRow`
     so the snake_case SQLite AC9 rows (Task 4) can reuse that name.
@@ -241,7 +252,7 @@
   - on SQLite, the method-call row reads survivors through `Query<T>()`, so its red is `near "FROM": syntax error`;
   - the naive key column for the AC9 rows;
   - for the missing-table rows, the raw provider exception (SQL Server `SqlException` 208, MySQL
-    `MySqlException` 1146, PostgreSQL `PostgresException` 42P01) instead of D3's `InvalidOperationException`.
+    `MySqlException` 1146, PostgreSQL `PostgresException` 42P01) instead of discovery's `InvalidOperationException`.
 - **Not red at base:** the guard rows, the no-match row and SQLite's execution row are green at `fae4472`. SQLite's
   execution row is an equivalent change, coverage only (C9) *(rev 12, M4)*.
   - The guard rows kill mutants (§4.2).
@@ -327,8 +338,7 @@ Measured by the rev 5 reviewer with a faithful D1–D3 (all 265 SqlServer.Tests 
 | `SqliteOrmDataProvider.cs` | 843 / 928 | 90.84 % |
 
 The rev 5 sketch measured MySQL at 939 / 1082 = 86.78 %. The floor is 85 % per file at HEAD, with no pre-arranged waiver. Task 2
-records the real number. If it falls below the floor, the fix is a row for another base-uncovered SQL Server line,
-not a waiver.
+recorded the real number (above); it is above the floor.
 
 ### 4.4 Suites, where they run
 
@@ -351,7 +361,7 @@ Local runs are recorded with their sha.
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–11 NOT CLEAN (§9.1–§9.11). Rev 12 is re-checked on its diff.
+1. **Task 0** — test-plan review: revs 1–11 NOT CLEAN (§9.1–§9.11); rev 12 CLEAN (§9.13).
 2. **Task 1** — red tests (§4.1).
    - The pass-through seam is committed at `dd121c5`: `protected internal UnmappedPropertiesFor<T>()` at every listed
      site.
@@ -368,7 +378,12 @@ Local runs are recorded with their sha.
    - **(b)** merge it forward into `development/3.10` only.
 
    Either way:
-   - AC4, as restated (rev 13), runs on `development/3.10`, and the merge removes the rev 44 warm-up.
+   - AC4, as restated (rev 13), runs on `development/3.10`. The merge also removes or updates every workaround text
+     for this defect there *(rev 14, FV1-7)*:
+     - the rev 44 warm-up and its comment in `MySqlQueryOperatorTestBase.InitQueryOperatorProvider`;
+     - the rev 43 M1 comment in `MySqlOrderByQualificationTests.cs` ("Seeded through the harness …");
+     - the 3.10 plan's §8 entry ("Follow-up issue: the fix is on `fix/mysql-delete-cold-cache`", and the rev 44 N1
+       note).
    - Once `fix/provider-scoped-caches` lands, D1–D3 and the cold tests are re-verified against it, and the dropped
      SQLite AC8/AC9 rows are added as snake_case red→green rows.
      - Its D5 keys by FullName.
@@ -535,7 +550,7 @@ implementer.
 | M4 | nit | PLAN-GAP | §4.1 "Not red at base" omitted SQLite's execution row (since rev 5). | Added. |
 | M5 | nit | PLAN-GAP | The rev 3 note's "the SQLite rows that can't go red→green" was broader than R1's two rows. | Scoped. |
 
-### 9.12 Task 3 hostile review of `fae4472..17647d4` (non-author; every row alone on four providers; all 46 mutants plus its own; full suites; coverage; AC4 executed on `development/3.10`)
+### 9.12 Task 3 hostile review of `fae4472..17647d4` (`17647d4` has the same tree as `2d2e439`; non-author; every row alone on four providers; all 46 mutants plus its own; full suites; coverage; AC4 executed on `development/3.10`)
 
 Verdict: NOT CLEAN. No defect in the D1–D3 code; every implementer number was reproduced.
 
@@ -548,3 +563,25 @@ Verdict: NOT CLEAN. No defect in the D1–D3 code; every implementer number was 
 | HR1-3 | nit | HOUSE-RULE | "A key whose column is spelled differently failed": a case-only difference worked. | "Differs by more than letter case". |
 | HR1-5 | nit | HOUSE-RULE | The new doc comments overstated the unmapped set before discovery: an inherited member's cache entry can come from a sibling type. | Reworded in the four helpers and SQL Server's `GetUnmappedProperties`. |
 | HR1-7 | nit | HOUSE-RULE | The `c07693e` body said all 51 rows were red at the seam; 10 are green by design. | Message corrected before any push (`2727e4a`, same tree). |
+
+### 9.13 Narrow re-check of rev 12 (`71eda2f..129b6ac`; non-author; read-only) *(recorded in rev 14, FV1-6)*
+
+Verdict: CLEAN. M1–M5 resolved; no new findings. This closed Task 0.
+
+### 9.14 Fix-verification of `fae4472..34dd5fc` (non-author; the new row and "No D1" on three providers; probes at `fae4472` and HEAD; suites; coverage; AC4 on a scratch merge with `35c6477`)
+
+Verdict: NOT CLEAN on seven nits; no code defect.
+- **Resolved:** HR1-1, HR1-4, HR1-7.
+- **Partial:** HR1-2, HR1-3, HR1-5, HR1-6.
+- **AC4, executed:** the cold classes pass and fail with No D1. With the warm-up removed, the three tests pass alone
+  and fail with No D1.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FV1-1 | nit | PLAN-GAP | The new row was traced to AC1, which says nothing about errors; AC4's cold-class bullet ticked one provider; the type wasn't listed; "D3's" for a D1 row. | Traced to AC7 with a sub-bullet; AC4 split by provider; type listed; "discovery's". |
+| FV1-2 | nit | HOUSE-RULE | The second "Changed" bullet over-claimed: a method call mixed with a convention comparison threw `NotSupportedException` before, so nothing was sent. | The Changelog keeps only claims that hold for every case. |
+| FV1-3 | nit | HOUSE-RULE | The method-call symptoms split by column naming, not by provider. | Same; the symptom list is cut. |
+| FV1-4 | nit | HOUSE-RULE | The key bullet lacked the convention-mapped scope; a `[Column]` key worked. | Same. |
+| FV1-5 | nit | HOUSE-RULE | The D1 comments kept HR1-5's overstatement, and the new parenthetical named one of three causes (base type, sibling, same-named type). | Every comment states the key mechanism, not a quantity. |
+| FV1-6 | nit | PLAN-GAP | "Task 0 CLEAN" had no record; a future-tense sentence remained; the §9.12 sha was replaced by the rebuild. | §9.13 recorded; past tense; the sha mapped. |
+| FV1-7 | nit | PLAN-GAP | Task 4 named only the warm-up; two more workaround texts go stale at the merge. | Listed. |

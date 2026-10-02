@@ -1440,7 +1440,8 @@ namespace Funcular.Data.Orm.SqlServer
             SqlExpressionTranslator translator = null) where T : class, new()
         {
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
-            // tokens through the column cache, and until discovery every convention-mapped member of T is unmapped.
+            // tokens through the column cache, and until discovery a convention-mapped member of T counts as unmapped
+            // unless another type's discovery already wrote its column-cache key.
             DiscoverColumns<T>();
 
             // Use the provided ParameterGenerator and translator, or create new ones if not specified
@@ -2354,10 +2355,10 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Returns the properties of <typeparamref name="T"/> that aren't read as columns of its table: those marked
         /// <see cref="NotMappedAttribute"/>, those with a remote attribute, and those with neither a
-        /// <see cref="ColumnAttribute"/> nor an entry in the column-name cache. Before <typeparamref name="T"/> is
-        /// discovered that is normally every convention-mapped property (an inherited member's entry can already
-        /// exist from a sibling type's discovery), so callers cache the set only for discovered types
-        /// (<see cref="UnmappedPropertiesFor{T}"/>).
+        /// <see cref="ColumnAttribute"/> nor an entry in the column-name cache, which is keyed
+        /// <c>DeclaringType.Name + "." + Name</c>, so another type's discovery can supply an entry. Before
+        /// <typeparamref name="T"/> is discovered that set can include convention-mapped properties, so callers
+        /// cache it only for discovered types (<see cref="UnmappedPropertiesFor{T}"/>).
         /// </summary>
         /// <typeparam name="T">The type whose unmapped properties are requested.</typeparam>
         /// <param name="type">The CLR type, always <c>typeof(T)</c> (the parameter fits the cache's value factory).</param>
@@ -2389,8 +2390,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// this class that needs that set calls this helper rather than <c>_unmappedPropertiesCache</c> directly.
         /// Once <typeparamref name="T"/> is discovered (in <c>_mappedTypes</c>) it returns the cached set, computing and
         /// caching it on first use. Before that it returns the set computed without caching: until discovery, a
-        /// convention-mapped property with no entry in the column-name cache counts as unmapped (normally every such
-        /// property; an inherited member's entry can already exist from a sibling type's discovery), and a cached set
+        /// convention-mapped property counts as unmapped unless its column-name cache key
+        /// (<c>DeclaringType.Name + "." + Name</c>) was already written by another type's discovery, and a cached set
         /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2).
         /// </summary>
         protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
