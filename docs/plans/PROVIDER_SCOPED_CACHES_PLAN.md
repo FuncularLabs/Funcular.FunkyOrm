@@ -8,7 +8,7 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 26. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 27. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
@@ -21,9 +21,11 @@
 > `0983f79`. Its verification (§9.18) found a §6 claim false in one case and three layout nits, fixed in `b4461cd`.
 > Its verification (§9.19) found that §6 pointed to outcomes the records don't hold, and three nits, fixed in
 > `6383857`. Its verification (§9.20) found six nits, addressed in `f028280`. Its verification (§9.21) found five
-> nits, addressed in `515531d`. Its verification (§9.22) found five nits; this revision's layer withdraws the
-> sentences they name, and is verified next.
+> nits, addressed in `515531d`. Its verification (§9.22) found five nits, addressed in `7f4846c`. Its verification
+> (§9.23) found three nits; this revision's layer answers them, and is verified next.
 > `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 27 — what changed:** the fix-verification of `515531d..7f4846c` (§9.23).
 
 > **Revision 26 — what changed:** the fix-verification of `f028280..515531d` (§9.22). §9.22 withdraws the five
 > sentences FVL-1 to FVL-5 name, quoting each, and writes no new description in their place. From rev 26 a review
@@ -1060,3 +1062,15 @@ it. What each verifier ran is in its report.
 | FVL-3 | nit | PLAN-GAP | §9.21's FVK-1 correction: "which was true" and "Only its lint claim, …, was wrong." | Withdrawn; the two quotations from `6383857` stand. |
 | FVL-4 | nit | PLAN-GAP | The rev 25 note: "§9.21 corrects §9.20 (FVK-1, FVK-2, FVK-3, FVK-5)." | Withdrawn. |
 | FVL-5 | nit | TEST-GAP | `515531d`'s message: "No other line changed. The edit script asserts it." | "The edit script asserts it" is withdrawn. |
+
+### 9.23 Fix-verification of `515531d..7f4846c`
+
+Verdict: NOT CLEAN. Three nits: PLAN-GAP 2, TEST-GAP 1. The FVM report marks FVL-1 to FVL-5 resolved, FVL-2 for
+its quoted sentence and FVL-4 for its named location. The FVL report marked FVK-2, FVK-4 and FVK-5 resolved, and
+FVK-1 and FVK-3 partial.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FVM-1 | nit | PLAN-GAP | §9.22's lead: "Each sentence named below is withdrawn; nothing replaces it." The rev 26 note: "withdraws the five sentences FVL-1 to FVL-5 name". `7f4846c`'s subject: "records give verdicts and locations only". | Withdrawn. |
+| FVM-2 | nit | PLAN-GAP | The rev 24 note: "§9.20 holds every correction, in the verifier's words." `515531d`'s subject: "§9.21 corrects §9.20 by quotation". | Withdrawn. |
+| FVM-3 | nit | TEST-GAP | `7f4846c`'s message: "Each quoted sentence is asserted present at the location §9.22 names." and "Deletions anywhere fail." | Withdrawn. |
