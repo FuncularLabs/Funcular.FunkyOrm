@@ -4,8 +4,10 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace Funcular.Data.Orm
 {
@@ -66,11 +68,13 @@ namespace Funcular.Data.Orm
         /// <item><see cref="DeletePredicateVerdict.Acceptable"/>: anything else.</item>
         /// </list>
         /// Parameter-free <c>bool</c> parts built from constants, field and property reads, casts, the logical
-        /// operators, comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c>, and a parameterless
-        /// <c>ToString()</c> on an enum or a sealed or value type of the core library (or a nullable one) are evaluated.
-        /// A part that calls any other method, a constructor, or an operator or conversion declared outside the core
-        /// library is never evaluated, and counts as unknown, as does a part whose evaluation throws. So no code outside
-        /// the core library runs, except property getters.
+        /// operators, comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c>, and <c>ToString()</c>
+        /// with no argument or a format string on an enum or a non-generic, sealed or value type of the core library (or
+        /// a nullable one) are evaluated, as C# evaluates them. A <c>Contains</c> whose search value is null, on a
+        /// receiver that isn't, counts as true, as every provider sends it as <c>LIKE '%%'</c>. A part that calls any
+        /// other method, a constructor, or an operator or conversion declared outside the core library is never
+        /// evaluated, and counts as unknown, as does any other part whose evaluation throws. So no code outside the core
+        /// library runs, except property getters.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <returns>The verdict.</returns>
@@ -149,9 +153,51 @@ namespace Funcular.Data.Orm
             }
             catch (InsufficientExecutionStackException)
             {
-                // Nested too deeply to parse on this thread: like any clause that doesn't parse, not a tautology.
+                // Nested too deeply for this thread's stack: parse it again on a thread with a large one.
+                return ParseOnLargeStack(tokens);
+            }
+        }
+
+        private const int LargeStackSize = 64 * 1024 * 1024;
+
+        /// <summary>
+        /// Folds <paramref name="tokens"/> on a new thread with a 64 MB stack, for a clause nested too deeply for the
+        /// calling thread's. A clause too deep even for that, or a platform that can't start the thread, gives false,
+        /// as a clause that doesn't parse does.
+        /// </summary>
+        private static bool ParseOnLargeStack(List<Token> tokens)
+        {
+            var result = false;
+            Exception? failure = null;
+            try
+            {
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        result = new ClauseParser(tokens).Parse() == Truth.True;
+                    }
+                    catch (InsufficientExecutionStackException)
+                    {
+                        result = false;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Raised again on the calling thread, as the parse would have raised it there; left here,
+                        // it would end the process.
+                        failure = ex;
+                    }
+                }, LargeStackSize);
+                thread.Start();
+                thread.Join();
+            }
+            catch (Exception ex) when (ex is PlatformNotSupportedException || ex is OutOfMemoryException)
+            {
                 return false;
             }
+            if (failure != null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            return result;
         }
 
         #region Expression tree
@@ -183,10 +229,17 @@ namespace Funcular.Data.Orm
             if (expression is ConstantExpression constant)
                 return FromValue(constant.Value);
             if (IsEvaluable(expression))
-                return Evaluate(expression);
+            {
+                var value = Evaluate(expression);
+                if (value != Truth.Unknown)
+                    return value;
+                // It threw or read null; its parts may still be known (a Contains of null), so fold them below.
+            }
 
             switch (expression.NodeType)
             {
+                case ExpressionType.Call:
+                    return IsContainsOfNull((MethodCallExpression)expression) ? Truth.True : Truth.Unknown;
                 case ExpressionType.Not:
                 {
                     var unary = (UnaryExpression)expression;
@@ -279,9 +332,9 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// The method calls every provider translates into SQL that uses only parameters when their operands are
-        /// parameter-free: <see cref="string"/>'s <c>Contains</c>, and a parameterless <c>ToString()</c> on an enum or on
-        /// a non-generic, sealed or value type of the core library, or a nullable one of those, so that no override
-        /// outside the core library runs.
+        /// parameter-free: <see cref="string"/>'s <c>Contains</c>, and <c>ToString()</c>, with no argument or a format
+        /// string, on an enum or on a non-generic, sealed or value type of the core library, or a nullable one of those,
+        /// so that no override outside the core library runs.
         /// </summary>
         private static bool IsEvaluableCall(MethodCallExpression call)
         {
@@ -290,8 +343,14 @@ namespace Funcular.Data.Orm
             var receiver = call.Object.Type;
             if (receiver == typeof(string) && call.Method.DeclaringType == typeof(string) && call.Method.Name == "Contains")
                 return true;
-            if (call.Method.Name != "ToString" || call.Arguments.Count != 0)
+            if (call.Method.Name != "ToString")
                 return false;
+            foreach (var parameter in call.Method.GetParameters())
+            {
+                // A format string only: an IFormatProvider argument could be the caller's own code.
+                if (parameter.ParameterType != typeof(string))
+                    return false;
+            }
             var type = Nullable.GetUnderlyingType(receiver) ?? receiver;
             return type.IsEnum
                    || (type.Assembly == CoreLibrary && !type.IsGenericType && (type.IsValueType || type.IsSealed));
@@ -320,19 +379,34 @@ namespace Funcular.Data.Orm
         private static bool IsCoreLibraryMethod(MethodInfo? method) =>
             method == null || method.DeclaringType?.Assembly == CoreLibrary;
 
-        private static Truth Evaluate(Expression expression)
+        private static Truth Evaluate(Expression expression) =>
+            TryRead(expression, out var value) ? FromValue(value) : Truth.Unknown;
+
+        private static bool TryRead(Expression expression, out object? value)
         {
             try
             {
                 var read = Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile();
-                return FromValue(read());
+                value = read();
+                return true;
             }
             catch (Exception)
             {
                 // A read that throws proves nothing; the translation reads it again and reports the error.
-                return Truth.Unknown;
+                value = null;
+                return false;
             }
         }
+
+        /// <summary>
+        /// True for a parameter-free <c>string.Contains</c> whose search value is null on a receiver that isn't: C#
+        /// throws, but every provider sends <c>LIKE '%%'</c>, which holds.
+        /// </summary>
+        private static bool IsContainsOfNull(MethodCallExpression call) =>
+            IsEvaluable(call) && call.Method.DeclaringType == typeof(string) && call.Method.Name == "Contains"
+            && call.Arguments[0].Type == typeof(string)
+            && TryRead(call.Object!, out var receiver) && receiver != null
+            && TryRead(call.Arguments[0], out var search) && search == null;
 
         private static Expression StripConvert(Expression expression)
         {
@@ -578,7 +652,29 @@ namespace Funcular.Data.Orm
             private readonly List<Token> _tokens;
             private int _position;
 
-            public ClauseParser(List<Token> tokens) => _tokens = tokens;
+            // For each '(' and CASE, the index of its ')' or END; -1 when it has none.
+            private readonly int[] _match;
+
+            public ClauseParser(List<Token> tokens)
+            {
+                _tokens = tokens;
+                _match = new int[tokens.Count];
+                var groups = new Stack<int>();
+                var cases = new Stack<int>();
+                for (var i = 0; i < tokens.Count; i++)
+                {
+                    _match[i] = -1;
+                    var token = tokens[i];
+                    if (token.Kind == TokenKind.Open)
+                        groups.Push(i);
+                    else if (token.Kind == TokenKind.Close && groups.Count > 0)
+                        _match[groups.Pop()] = i;
+                    else if (token.Is("CASE"))
+                        cases.Push(i);
+                    else if (token.Is("END") && cases.Count > 0)
+                        _match[cases.Pop()] = i;
+                }
+            }
 
             public Truth? Parse()
             {
@@ -681,31 +777,9 @@ namespace Funcular.Data.Orm
                 return _position - start == 3 ? Compare(_tokens[start], _tokens[start + 1], _tokens[start + 2]) : Truth.Unknown;
             }
 
-            private int MatchingClose(int open)
-            {
-                var depth = 0;
-                for (var i = open; i < _tokens.Count; i++)
-                {
-                    if (_tokens[i].Kind == TokenKind.Open)
-                        depth++;
-                    else if (_tokens[i].Kind == TokenKind.Close && --depth == 0)
-                        return i;
-                }
-                return -1;
-            }
+            private int MatchingClose(int open) => _match[open];
 
-            private int MatchingEnd(int caseIndex)
-            {
-                var depth = 0;
-                for (var i = caseIndex; i < _tokens.Count; i++)
-                {
-                    if (_tokens[i].Is("CASE"))
-                        depth++;
-                    else if (_tokens[i].Is("END") && --depth == 0)
-                        return i;
-                }
-                return -1;
-            }
+            private int MatchingEnd(int caseIndex) => _match[caseIndex];
 
             private static Truth Compare(Token left, Token op, Token right)
             {

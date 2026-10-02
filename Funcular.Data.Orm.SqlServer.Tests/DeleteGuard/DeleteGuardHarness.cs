@@ -150,6 +150,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 case "rolesContainsOr": return x => roles.Contains("admin") || x.Id == 2;
                 case "orToString": return x => x.Id == 2 || capturedS.ToString() == "s";
                 case "orContainsFalse": return x => x.Id == 2 || capturedS.Contains("z");
+                case "orToStringFormat": return x => x.Id == 2 || capturedA.ToString("D2") == "07";
+                case "orContainsNull": return x => x.Id == 2 || capturedS.Contains(capturedNull);
                 case "firstNameContainsB": return x => x.FirstName.Contains("b");
                 case "orArrayIndex": return x => x.Id == 2 || capturedArray[0] == 5;
                 case "orCoalesce": return x => x.Id == 2 || (capturedNullBool ?? true);
@@ -224,6 +226,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("orCapturedContains", "sync")] [DataRow("orCapturedContains", "async")]
         [DataRow("rolesContainsOr", "sync")] [DataRow("rolesContainsOr", "async")]
         [DataRow("orToString", "sync")] [DataRow("orToString", "async")]
+        [DataRow("orToStringFormat", "sync")] [DataRow("orToStringFormat", "async")]
+        [DataRow("orContainsNull", "sync")] [DataRow("orContainsNull", "async")]
         public async Task AlwaysTrue_IsRejected(string key, string path) =>
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key);
 

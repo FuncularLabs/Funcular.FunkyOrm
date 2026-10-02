@@ -77,6 +77,26 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             }
         }
 
+        public class Bag
+        {
+            public static int ContainsCalls;
+            public bool Contains(string value)
+            {
+                ContainsCalls++;
+                return true;
+            }
+        }
+
+        public class CountingProvider : IFormatProvider
+        {
+            public static int Calls;
+            public object GetFormat(Type formatType)
+            {
+                Calls++;
+                return null;
+            }
+        }
+
         public struct NamedValue
         {
             public static int ToStringCalls;
@@ -117,6 +137,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly NamedValue capturedNamedValue = new NamedValue();
         private readonly int? capturedNullableA = 7;
         private readonly NamedValue? capturedNullableNamedValue = new NamedValue();
+        private readonly DateTime capturedDate = new DateTime(2020, 1, 5);
+        private readonly Bag capturedBag = new Bag();
+        private readonly CountingProvider capturedProvider = new CountingProvider();
+        private readonly KeyValuePair<string, Named> capturedPair = new KeyValuePair<string, Named>("k", new Named());
 
         private Dictionary<string, LambdaExpression> Predicates()
         {
@@ -184,6 +208,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["orObjectToString"] = P(x => x.Id == 2 || capturedNamed.ToString() == "x"),
                 ["orStructToString"] = P(x => x.Id == 2 || capturedNamedValue.ToString() == "x"),
                 ["orNullableStructToString"] = P(x => x.Id == 2 || capturedNullableNamedValue.ToString() == "x"),
+                // Fix-verification FV1 (rev 10): a format string; a null search value; shapes section 6 discloses;
+                // calls that would run user code.
+                ["orToStringFormat"] = P(x => x.Id == 2 || capturedA.ToString("D2") == "07"),
+                ["orDateFormat"] = P(x => x.Id == 2 || capturedDate.ToString("yyyy-MM-dd") == "2020-01-05"),
+                ["orContainsNull"] = P(x => x.Id == 2 || capturedS.Contains(capturedNull)),
+                ["orContainsNullOrdinal"] = P(x => x.Id == 2 || capturedS.Contains(capturedNull, StringComparison.Ordinal)),
+                ["orNullContainsNull"] = P(x => x.Id == 2 || capturedNull.Contains(capturedNull)),
+                ["orContainsWildcard"] = P(x => x.Id == 2 || capturedS.Contains("_")),
+                ["orToStringLeadingZero"] = P(x => x.Id == 2 || capturedA.ToString() == "07"),
+                ["orToStringProvider"] = P(x => x.Id == 2 || capturedDate.ToString(capturedProvider) == "x"),
+                ["orUserContains"] = P(x => x.Id == 2 || capturedBag.Contains("admin")),
+                ["orPairToString"] = P(x => x.Id == 2 || capturedPair.ToString() == "x"),
                 // Convert, hand-built.
                 ["handConvert"] = Expression.Lambda<Func<GuardRow, bool>>(
                     Expression.OrElse(Expression.Equal(lambdaId, Expression.Constant(2)), convertedSelf), lambdaParameter),
@@ -264,6 +300,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orObjectToString", DeletePredicateVerdict.Acceptable)]
         [DataRow("orStructToString", DeletePredicateVerdict.Acceptable)]
         [DataRow("orNullableStructToString", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orToStringFormat", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orDateFormat", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orContainsNull", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orContainsNullOrdinal", DeletePredicateVerdict.AlwaysTrue)]
+        [DataRow("orNullContainsNull", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orContainsWildcard", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orToStringLeadingZero", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orToStringProvider", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orUserContains", DeletePredicateVerdict.Acceptable)]
+        [DataRow("orPairToString", DeletePredicateVerdict.Acceptable)]
         [DataRow("handConvert", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("condTrueSelf", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("condFalseSelf", DeletePredicateVerdict.AlwaysTrue)]
@@ -295,9 +341,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             W.Comparisons = 0;
             Named.ToStringCalls = 0;
             NamedValue.ToStringCalls = 0;
+            Bag.ContainsCalls = 0;
+            CountingProvider.Calls = 0;
             var predicates = Predicates();
             foreach (var key in new[] { "orMethod", "orNewHolder", "orWrapperConversion", "orUserOperator", "orObjectToString",
-                         "orStructToString", "orNullableStructToString" })
+                         "orStructToString", "orNullableStructToString", "orToStringProvider", "orUserContains",
+                         "orPairToString" })
                 DeletePredicateGuard.Classify(predicates[key]);
 
             Assert.AreEqual(0, _methodCalls, "Method() was called");
@@ -306,6 +355,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             Assert.AreEqual(0, W.Comparisons, "the user-defined operator == was called");
             Assert.AreEqual(0, Named.ToStringCalls, "a class's ToString() override was called");
             Assert.AreEqual(0, NamedValue.ToStringCalls, "a struct's ToString() override was called");
+            Assert.AreEqual(0, Bag.ContainsCalls, "a user class's Contains was called");
+            Assert.AreEqual(0, CountingProvider.Calls, "a user IFormatProvider was called");
         }
 
         [DataTestMethod]
@@ -456,14 +507,33 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         }
 
         /// <summary>
-        /// A clause nested too deeply for the parser's stack is one it can't parse: false, not a stack overflow that
-        /// ends the process. It runs on a 1 MB thread, the size of a default thread on Windows.
+        /// A clause nested more deeply than the calling thread's stack allows is still folded (parsed again on a large
+        /// stack), not a stack overflow that ends the process. It runs on a 1 MB thread, the size of a default thread
+        /// on Windows; the providers' visitors stop near 1,600 levels on such a thread.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow(20000, "OR", true)]
+        [DataRow(20000, "AND", false)]
+        public void HasLiteralTautology_DeeplyNested_StillFolds(int depth, string connective, bool expected)
+        {
+            var clause = new string('(', depth) + "t.id = @p " + connective + " NOT 1=0" + new string(')', depth);
+            Assert.AreEqual(expected, OnSmallThread(clause));
+        }
+
+        /// <summary>
+        /// A clause nested too deeply even for the large stack is one the parser can't parse: false, not a stack
+        /// overflow.
         /// </summary>
         [TestMethod]
-        public void HasLiteralTautology_TooDeeplyNested_ReturnsFalse()
+        public void HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse()
         {
-            const int depth = 20000;
+            const int depth = 300000;
             var clause = new string('(', depth) + "t.id = @p OR NOT 1=0" + new string(')', depth);
+            Assert.AreEqual(false, OnSmallThread(clause));
+        }
+
+        private static bool? OnSmallThread(string clause)
+        {
             bool? result = null;
             Exception error = null;
             var thread = new Thread(() =>
@@ -480,7 +550,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             thread.Start();
             thread.Join();
             Assert.IsNull(error, error?.ToString());
-            Assert.AreEqual(false, result);
+            return result;
         }
     }
 }
