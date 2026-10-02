@@ -63,7 +63,17 @@ namespace Funcular.Data.Orm
 
         public bool Contains(Type item) => item != null && _types.ContainsKey(item);
 
-        public void CopyTo(Type[] array, int arrayIndex) => _types.Keys.ToArray().CopyTo(array, arrayIndex);
+        /// <summary>
+        /// Copies a snapshot of the set, truncated to the space from <paramref name="arrayIndex"/> to the end of
+        /// <paramref name="array"/>. <c>ToArray</c>, <c>ToList</c> and <c>new List&lt;Type&gt;(set)</c> size the array from
+        /// <see cref="Count"/> first, so a type added in between must not make the copy throw (review HRA-4).
+        /// </summary>
+        public void CopyTo(Type[] array, int arrayIndex)
+        {
+            if (array == null) throw new ArgumentNullException(nameof(array));
+            var snapshot = _types.Keys.ToArray();
+            Array.Copy(snapshot, 0, array, arrayIndex, Math.Min(snapshot.Length, array.Length - arrayIndex));
+        }
 
         public bool Remove(Type item) => item != null && _types.TryRemove(item, out _);
 

@@ -304,16 +304,22 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
             }
         }
 
+        /// <summary>Review HRA-3: a value SQL Server's builder overflows on (<see cref="OverflowException"/>).</summary>
+        private const string OverflowingSqlServer = "SqlServer with an overflowing Connect Timeout and an explicit connection";
+
         public static IEnumerable<object[]> UnparseableProviders => new[]
         {
             new object[] { PostgreSqlKind }, new object[] { MySqlKind }, new object[] { "SqlServer with an explicit connection" },
+            new object[] { OverflowingSqlServer },
         };
 
         [DataTestMethod]
         [DynamicData(nameof(UnparseableProviders))]
         public void UnparseableConnectionString_IsHashed(string provider)
         {
-            var garbage = $"zz-psc-unparseable {Unique()}";
+            var garbage = provider == OverflowingSqlServer
+                ? $"Server=zz-psc-{Unique()};Connect Timeout=99999999999"
+                : $"zz-psc-unparseable {Unique()}";
             using var instance = provider == PostgreSqlKind ? new PostgreSqlOrmDataProvider(garbage)
                 : provider == MySqlKind ? (OrmDataProvider)new MySqlOrmDataProvider(garbage)
                 : new SqlServerOrmDataProvider(garbage, Track(new SqlConnection()));
@@ -433,6 +439,42 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 
             AssertOtherScope(toA, toB, $"{provider}: explicit connections to different databases, empty constructor string");
             AssertSameScope(toA, alsoToA, $"{provider}: explicit connections to one database, empty constructor string");
+        }
+
+        /// <summary>
+        /// Review HRA-6 (Guard): a constructor string of whitespace counts as empty, so the explicit connection supplies
+        /// the identity and connections to two databases don't share a scope.
+        /// </summary>
+        [DataTestMethod]
+        [DynamicData(nameof(AllProviders))]
+        public void WhitespaceConstructorString_ExplicitConnectionsToTwoDatabases_DoNotShare(string provider)
+        {
+            var server = Server(provider);
+            var databaseB = provider == SqliteKind ? Server(provider) : server;
+            var stringA = FakeConnectionString(provider, server, database: "zz_psc_db_a");
+            var stringB = FakeConnectionString(provider, databaseB, database: "zz_psc_db_b");
+
+            using var toA = Create(provider, "   ", Track(Connection(provider, stringA)));
+            using var toB = Create(provider, "   ", Track(Connection(provider, stringB)));
+
+            AssertOtherScope(toA, toB, $"{provider}: explicit connections to different databases, whitespace constructor string");
+        }
+
+        /// <summary>
+        /// Review HRA-6 (Guard): an explicit connection's relative data source resolves as the constructor string's
+        /// does, so an empty constructor string with a connection to a relative path shares that path's scope.
+        /// </summary>
+        [TestMethod]
+        public void SqliteExplicitConnection_RelativeDataSource_SharesTheConstructorStringsScope()
+        {
+            var relative = $"zz_psc_rel_{Unique()}.db";
+            _sqliteProbePaths.Add(Path.GetFullPath(relative));
+            var connectionString = $"Data Source={relative}";
+
+            using var byString = new SqliteOrmDataProvider(connectionString);
+            using var byConnection = new SqliteOrmDataProvider(string.Empty, Track(new SqliteConnection(connectionString)));
+
+            AssertSameScope(byString, byConnection, "SQLite: one relative data source, by constructor string and by explicit connection");
         }
 
         [Table("zz_psc_mapped_marker")]

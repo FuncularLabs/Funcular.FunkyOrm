@@ -64,9 +64,13 @@ namespace Funcular.Data.Orm
         /// <summary>
         /// This instance's cache scope. Resolved on first cache use, after the constructor has set the dialect. Under
         /// a race the factory can run more than once, but one scope is published, and registered scopes come from the
-        /// registry's <c>GetOrAdd</c>, so every run yields the same set (D8).
+        /// registry's <c>GetOrAdd</c>, so every run yields the same set (D8). Reading a resolved scope allocates nothing:
+        /// the factory delegate is created only by <see cref="ResolveCacheScope"/> (review HRA-5).
         /// </summary>
-        internal CacheScope CacheScope =>
+        internal CacheScope CacheScope => Volatile.Read(ref _cacheScope) ?? ResolveCacheScope();
+
+        /// <summary>Resolves and publishes this instance's cache scope on first use (D8).</summary>
+        private CacheScope ResolveCacheScope() =>
             LazyInitializer.EnsureInitialized(ref _cacheScope,
                 () => CacheScopeRegistry.GetOrAdd(GetType(), CacheScopeDialectType, CacheScopeIdentity))!;
 

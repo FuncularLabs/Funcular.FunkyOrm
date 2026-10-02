@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Funcular.Data.Orm;
 
 namespace Funcular.Data.Orm.Tests.Caching
@@ -63,6 +64,7 @@ namespace Funcular.Data.Orm.Tests.Caching
             public ConcurrentDictionary<string, string> Columns { get; set; }
             public ConcurrentDictionary<Type, ICollection<PropertyInfo>> Unmapped { get; set; }
             public ICollection<Type> Mapped { get; set; }
+            public ConcurrentDictionary<string, Delegate> Mappers { get; set; }
         }
 
         /// <summary>Drops <c>zz_psc_linq</c> if it exists, creates it and seeds the three rows.</summary>
@@ -217,6 +219,60 @@ namespace Funcular.Data.Orm.Tests.Caching
             finally
             {
                 DropLinqTable();
+            }
+        }
+
+        /// <summary>
+        /// Review HRA-2: a provider in a new scope maps rows, which builds that scope's mapper, and is dropped. The test
+        /// keeps the scope's mapper cache, as the registry keeps a registered scope; nothing in it may hold the provider,
+        /// so a full GC collects the provider.
+        /// </summary>
+        [TestMethod]
+        public void DroppedProvider_AfterMappingRows_IsCollected_WhileItsScopeLives()
+        {
+            RequireDatabase();
+            try
+            {
+                CreateLinqTable();
+                var (dropped, mappers) = MapRowsThenDrop();
+                for (var i = 0; i < 3 && dropped.IsAlive; i++)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                }
+                Assert.IsFalse(dropped.IsAlive, "the scope's mapper cache keeps the dropped provider reachable");
+                GC.KeepAlive(mappers);
+            }
+            finally
+            {
+                DropLinqTable();
+            }
+        }
+
+        /// <summary>
+        /// Creates a provider in a new scope, maps the rows through it and disposes it. Returns a weak reference to the
+        /// provider and its scope's mapper cache, which now holds the mapper this provider built. Not inlined, so no
+        /// local of the caller holds the provider.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private (WeakReference Provider, ConcurrentDictionary<string, Delegate> Mappers) MapRowsThenDrop()
+        {
+            var provider = CreateUniqueScopeProvider();
+            try
+            {
+                var mappers = CachesOf(provider).Mappers;
+                var prefix = typeof(ReplayRow).FullName + "|";
+                Assert.IsFalse(mappers.Keys.Any(k => k.StartsWith(prefix, StringComparison.Ordinal)),
+                    "the new scope has no ReplayRow mapper yet");
+                Assert.AreEqual(3, provider.GetList<ReplayRow>().Count, "the provider maps the rows");
+                Assert.IsTrue(mappers.Keys.Any(k => k.StartsWith(prefix, StringComparison.Ordinal)),
+                    "mapping the rows built the scope's ReplayRow mapper");
+                return (new WeakReference(provider), mappers);
+            }
+            finally
+            {
+                provider.Dispose();
             }
         }
 

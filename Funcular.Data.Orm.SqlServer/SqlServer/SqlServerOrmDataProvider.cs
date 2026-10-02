@@ -1863,11 +1863,41 @@ namespace Funcular.Data.Orm.SqlServer
 
                     var setter = GetOrCreateSetter(p);
                     var propertyType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
-                    return new { Ordinal = ordinal, Setter = setter, Type = propertyType, IsEnum = propertyType.IsEnum };
+                    return new ReaderColumnMapping(ordinal, setter, propertyType);
                 })
                 .Where(m => m != null)
                 .ToArray();
 
+            return ComposeReaderMapper<T>(mappings);
+        }
+
+        /// <summary>
+        /// One column a reader-to-entity mapper reads: its ordinal, the property's setter and the property's type. Holds
+        /// nothing of the provider (review HRA-2).
+        /// </summary>
+        private sealed class ReaderColumnMapping
+        {
+            internal ReaderColumnMapping(int ordinal, Action<object, object> setter, Type type)
+            {
+                Ordinal = ordinal;
+                Setter = setter;
+                Type = type;
+                IsEnum = type.IsEnum;
+            }
+
+            internal int Ordinal { get; }
+            internal Action<object, object> Setter { get; }
+            internal Type Type { get; }
+            internal bool IsEnum { get; }
+        }
+
+        /// <summary>
+        /// The mapper for <paramref name="mappings"/>. Built in a static method so that its closure holds only
+        /// <paramref name="mappings"/>: a lambda built in <see cref="BuildDataReaderMapper{T}"/> shares that method's
+        /// closure, which holds this provider, and the scope's mapper cache would keep the provider alive (review HRA-2).
+        /// </summary>
+        private static Func<SqlDataReader, T> ComposeReaderMapper<T>(ReaderColumnMapping[] mappings) where T : class, new()
+        {
             return r =>
             {
                 var entity = new T();
@@ -2466,13 +2496,22 @@ namespace Funcular.Data.Orm.SqlServer
                     builder.Remove("Password");
                     return builder.ConnectionString;
                 }
-                catch (Exception ex) when (ex is ArgumentException || ex is FormatException ||
-                                           ex is KeyNotFoundException || ex is InvalidOperationException)
+                catch (Exception ex) when (!IsFatal(ex))
                 {
                     return source;
                 }
             }
         }
+
+        /// <summary>
+        /// The exceptions that parsing a connection string for the cache-scope identity must not swallow: the runtime's
+        /// own failures. After any other exception the string is used as given, so the identity never makes an operation
+        /// fail (review HRA-3; <see cref="SqlConnectionStringBuilder"/> throws <see cref="OverflowException"/> on an
+        /// out-of-range number).
+        /// </summary>
+        private static bool IsFatal(Exception ex) =>
+            ex is OutOfMemoryException || ex is StackOverflowException || ex is AccessViolationException ||
+            ex is System.Threading.ThreadAbortException;
 
         /// <summary>The runtime type of <see cref="Dialect"/> (D1).</summary>
         protected override Type CacheScopeDialectType => Dialect.GetType();

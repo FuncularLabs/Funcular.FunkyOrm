@@ -45,7 +45,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
             return new LinqCaches
             {
                 Tables = p.ScopeTableNames, Columns = p.ScopeColumnNames, Unmapped = p.ScopeUnmappedProperties,
-                Mapped = p.ScopeMappedTypes
+                Mapped = p.ScopeMappedTypes, Mappers = p.ScopeEntityMappers
             };
         }
     }
@@ -98,7 +98,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
             return new LinqCaches
             {
                 Tables = p.ScopeTableNames, Columns = p.ScopeColumnNames, Unmapped = p.ScopeUnmappedProperties,
-                Mapped = p.ScopeMappedTypes
+                Mapped = p.ScopeMappedTypes, Mappers = p.ScopeEntityMappers
             };
         }
     }
