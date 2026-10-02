@@ -8,7 +8,7 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 24. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 25. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
@@ -20,9 +20,12 @@
 > pre-existing defect in §6. Its verification (§9.17) found a wrong citation and an over-broad §6 entry, fixed in
 > `0983f79`. Its verification (§9.18) found a §6 claim false in one case and three layout nits, fixed in `b4461cd`.
 > Its verification (§9.19) found that §6 pointed to outcomes the records don't hold, and three nits, fixed in
-> `6383857`. Its verification (§9.20) found six nits; this revision's layer restores the records edited in revs 22–23
-> and corrects them in §9.20, and is verified next.
+> `6383857`. Its verification (§9.20) found six nits, addressed in `f028280`. Its verification (§9.21) found five
+> nits; this revision's layer answers them in §9.21 and §6, and is verified next.
 > `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 25 — what changed:** the fix-verification of `6383857..f028280` (§9.21). §9.21 corrects §9.20 (FVK-1,
+> FVK-2, FVK-3, FVK-5). §6's pointer is open-ended (FVK-4).
 
 > **Revision 24 — what changed:** the fix-verification of `b4461cd..6383857` (§9.20). Review records (§9) and
 > revision notes are history and are no longer edited in place: each says what was found or changed at the time.
@@ -683,7 +686,7 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
 - **SQLite URI memory names and `file::memory:`** are turned into rooted paths by the existing
   `ResolveConnectionString` (E15). Pre-existing.
 - **Date-part translation in WHERE** (pre-existing; found during this review, OBS-1) is outside this change. The
-  SQLite probes are recorded in §9.16–§9.19. The owner placed its fix in 3.10.0, before the beta (decision
+  SQLite probes are recorded from §9.16 onward. The owner placed its fix in 3.10.0, before the beta (decision
   2026-10-02, given in chat); its plan isn't written yet. *(rev 20; reworded in revs 21–22; a pointer since rev
   23)*
 
@@ -1026,3 +1029,16 @@ rows edited in revs 22–23 are restored (rev 24 note). The corrections below ar
 three revisions (`be8de82`, `0983f79`, `b4461cd`). §9.19's tail sends the `List<T>.Contains`
 `NullReferenceException` to the date-part task; the verifier found it isn't specific to date parts
 (`List<long>.Contains(x.Qty)` with an `int` `Qty` throws it too).
+
+### 9.21 Fix-verification of `6383857..f028280` (non-author; the restorations compared byte for byte; SQLite net8.0 re-run of the date-part probes; render and byte checks)
+
+FVJ-1, FVJ-3, FVJ-4, FVJ-5 and FVJ-6 hold; FVJ-2 is partial. The four restorations are byte-identical to their
+originals. Verdict: NOT CLEAN. Blame: PLAN-GAP 5.
+
+| # | Sev | Blame | Finding | Correction |
+|---|---|---|---|---|
+| FVK-1 | nit | PLAN-GAP | §9.20's FVJ-2 row and `f028280`'s message say `6383857` claimed that pointing notes were marked. | `6383857`'s message says "The rev 22 note and §9.17's FVG-2 row are marked where they pointed at removed content.", which was true. Only its lint claim, "outside §9, no line points to engine outcomes or describes the date-part mechanism;", was wrong. |
+| FVK-2 | nit | PLAN-GAP | §9.20 says every FVJ finding was in a record or note edited after it was written. | FVJ-1, FVJ-3 and FVJ-6 were; FVJ-2, FVJ-4 and FVJ-5 were in text as first written. |
+| FVK-3 | nit | PLAN-GAP | §9.20's heading, its setups line and `f028280`'s message describe the FVJ verifier's method more broadly than it was. | The FVJ verifier re-ran the `Contains` and comparison probes on SQLite net8.0, and took the FVG-2 setup from the §9.17 verifier's report. |
+| FVK-4 | nit | PLAN-GAP | §6 pointed to §9.16–§9.19; corrections now sit in later records. | §6 says "from §9.16 onward". |
+| FVK-5 | nit | PLAN-GAP | `f028280`'s message says "CRLF 1029 of 1029, no bare CR;" | The file had 1028 CRLF line endings. |
