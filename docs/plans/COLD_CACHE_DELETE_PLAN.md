@@ -19,11 +19,13 @@
 >   - every expected-red row is red for its stated reason;
 >   - the guard rows, the no-match row and the SQLite execution row are green;
 >   - with the class included, only expected-red rows fail in the four full suites.
-> - The rev 5 reviewer's own faithful D1–D3 turned every row green, and killed every §4.2 mutant on the providers
->   listed.
+> - The rev 5 reviewer's own rows and faithful D1–D3: every row turned green, and every §4.2 mutant was killed on
+>   its listed providers except "D3 before the guard", which survived a guard row on a never-created table with a
+>   type-only assertion (§9.5 G1). The implementer's guard rows kill it (§9.6).
 
 > **Revision 9 — what changed (re-check J1–J2):** documents only. The guard-coverage bullet takes the reviewer's
-> text verbatim (J1); the Status block is split so each bullet keeps its own subject (J2).
+> text verbatim (J1); the Status block is split so each bullet keeps its own subject (J2). The rev 5 reviewer's
+> bullet now states its one exception (found by the author).
 
 > **Revision 8 — what changed (re-check I1–I3):** documents only. The guard-line clause (I1); the Status bullet
 > scoped to what was run (I2); H2's deferral tracked in Task 2 (I3).
