@@ -8,8 +8,20 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-02):** rev 2. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings; rev 2 answers them and
-> is re-reviewed next. Nothing is implemented.
+> **Status (2026-10-02):** rev 3. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
+> (`79069dd`). Its re-review (§9.2) found 9; rev 3 answers them and is re-reviewed next. Nothing is implemented.
+
+> **Revision 3 — what changed (Task 0 re-review, T1-1…T1-9):**
+> - D3 is a three-valued fold over the WHERE clause's tokens, so a true literal term rejects only when it makes the
+>   whole clause true: `c.ParentId == p && !keepIds.Contains(c.Id)` with `keepIds` empty is accepted again, and
+>   `NOT (1=0 AND …)` is rejected. Any `1=1` outside quotes stays rejected, as today (T1-1, T1-4).
+> - D1: `DeletePredicateGuard` is public, like `ScalarProjectionGuard`; no `InternalsVisibleTo` (T1-2).
+> - D2 evaluates property reads from any assembly, as the visitor does, and never calls a method, a user-defined
+>   operator or conversion, or a constructor; rows for an instance-property flag (T1-3).
+> - Mutation rows and their killers corrected (T1-5); a row for the `Convert` rule (T1-6); a documents row (T1-7);
+>   citations and the missing-table row's assertions corrected (T1-8, T1-9).
+> - From rev 3 the review records (§9) and revision notes are history and aren't edited in place; corrections go in
+>   the latest record (§9.2 corrects the rev 2 note).
 
 > **Revision 2 — what changed (Task 0, T0-1…T0-11):**
 > - D2 evaluates no node that carries a user-defined method (T0-6), and treats any parameter of the entity type as
@@ -84,13 +96,15 @@ So:
   `true_up`, a PascalCase `TrueUpAmount`, a table whose name contains `True`. Since 3.10.0's `Contains` fix this is
   case-insensitive on every build. The filed task also named `1<2`/`1>0` inside comparisons like `score1 < 20`; the
   probe shows they don't occur, because the right side is always a parameter.
-- **The docs over-claim:** `Usage.md:1346-1348`, `README.md:41` and `docs/architecture/AI_ARCHITECTURE_AND_DESIGN.md:33`
-  say `x.Id == x.Id` is blocked, and the architecture doc says the guard "analyzes the expression tree". Neither
-  holds today on PostgreSQL, MySQL and SQLite.
+- **The docs over-claim:** `Usage.md:1346-1348` and `docs/architecture/AI_ARCHITECTURE_AND_DESIGN.md:33` say
+  `x.Id == x.Id` is blocked, and the architecture doc says the guard "analyzes the expression tree". Neither holds
+  today on PostgreSQL, MySQL and SQLite. `README.md:41` says the guard blocks `1=1`.
 
 **Assembly names (T0-5).** The SQL Server provider's assembly is `Funcular.Data.Orm`
 (`Funcular.Data.Orm.SqlServer.csproj:7`); PostgreSQL, MySQL and SQLite use their project names. Core's
-`InternalsVisibleTo("Funcular.Data.Orm.SqlServer")` (`Core/AssemblyInfo.cs:3`) names no assembly.
+`InternalsVisibleTo("Funcular.Data.Orm.SqlServer")` (`Core/AssemblyInfo.cs:3`) names no assembly. Granting
+`InternalsVisibleTo` to the real names breaks the build: the providers' `protected override`s of Core's
+`protected internal virtual` members fail with CS0507 (seven sites, and one in `ProviderScopedCacheTests`; §9.2 T1-2).
 
 **Existing tests that pin the guard** (AC6):
 - `SqlDataProviderIntegrationTests.Delete_TrivialWhereClause_ThrowsException` (`x => true` and `x => 1 < 2`: "must
@@ -107,13 +121,14 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
 
 ## 2. Decisions
 
-- **D1 — An expression-tree guard in Core.** A new internal static class `DeletePredicateGuard`
-  (`Funcular.Data.Orm.Core/DeletePredicateGuard.cs`) classifies the predicate before translation:
-  `internal static DeletePredicateVerdict Classify(LambdaExpression predicate)`, with
-  `DeletePredicateVerdict { Acceptable, NoColumn, SelfReference, AlwaysTrue }`, and
-  `internal static void Validate(LambdaExpression predicate)`, which throws `InvalidOperationException` with the
-  existing message for each rejection. Core gains `InternalsVisibleTo` for `Funcular.Data.Orm` (the SQL Server
-  provider), `Funcular.Data.Orm.PostgreSql`, `Funcular.Data.Orm.MySql` and `Funcular.Data.Orm.Sqlite`.
+- **D1 — A public expression-tree guard in Core** (rev 3, T1-2). A new public static class `DeletePredicateGuard`
+  (`Funcular.Data.Orm.Core/DeletePredicateGuard.cs`, namespace `Funcular.Data.Orm`), like the existing public
+  `ScalarProjectionGuard` and `QueryOperatorPolicy`, classifies the predicate before translation:
+  `public static DeletePredicateVerdict Classify(LambdaExpression predicate)`, with the public enum
+  `DeletePredicateVerdict { Acceptable, NoColumn, SelfReference, AlwaysTrue }`;
+  `public static void Validate(LambdaExpression predicate)`, which throws `InvalidOperationException` with the
+  existing message for each rejection; and `public static bool HasLiteralTautology(string whereClause)` (D3). A
+  custom provider can call them. No `InternalsVisibleTo` is added. The Changelog lists them under "New public API".
 - **D2 — Classification rules.** The **root** is any `ParameterExpression` whose type is the entity type, as the
   visitors accept (T0-7). A **member chain** is a run of member reads ending at a root, through `Convert`.
   1. **NoColumn** when the body has no member chain. Covers `x => true`, `x => 1 < 2`, `x => "abc" == "abc"`, a
@@ -121,11 +136,12 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
   2. Otherwise fold the body to **True / False / Unknown**:
      - a `bool` constant is its value;
      - a parameter-free `bool` subtree built only from constants, field and property reads (rooted at a constant or
-       static), `Convert`/`ConvertChecked`, `Not`, `AndAlso`/`OrElse`/`And`/`Or`, the six comparisons and
-       `Conditional` is compiled and evaluated, provided that **no node in it carries a method** other than one
-       declared in the core library's assembly (`typeof(object).Assembly`: `string`, `decimal`, `DateTime`, …).
-       Any other parameter-free subtree is Unknown: the guard never invokes a user method, a user-defined operator or
-       conversion, or a constructor (T0-6). An evaluation that throws is Unknown.
+       static; a property of any assembly), `Convert`/`ConvertChecked`, `Not`, `AndAlso`/`OrElse`/`And`/`Or`, the
+       six comparisons and `Conditional` is compiled and evaluated, provided that **no operator or conversion node in
+       it carries a method** other than one declared in the core library's assembly (`typeof(object).Assembly`:
+       `string`, `decimal`, `DateTime`, …). A subtree with a method call or a constructor is Unknown. So the guard
+       reads properties, as the visitor does, and never calls a method, a user-defined operator or conversion, or a
+       constructor (T0-6; reworded in rev 3, T1-3). An evaluation that throws is Unknown.
      - `Not` inverts; `AndAlso`/`And` on `bool` is False if either side is False, True if both are True, else
        Unknown; `OrElse`/`Or` on `bool` is True if either side is True, False if both are False, else Unknown;
      - `Conditional` folds to its known branch when the test is known, else to the branches' shared known value,
@@ -139,19 +155,20 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
      self-referencing column expression."; AlwaysTrue "Delete operation requires a non-trivial WHERE clause."
   4. Unknown or False: **Acceptable**. `x.Id == x.Id && x.Id == 2` is accepted (True ∧ Unknown), as it deletes what
      `x.Id == 2` does.
-- **D3 — A token-aware SQL check replaces the substring list.** `internal static bool HasLiteralTautology(string
-  whereClause)` in `DeletePredicateGuard`:
-  - drop quoted segments (`'…'` with `''` escapes, `"…"`, `[…]`, `` `…` ``);
-  - find comparisons of two numeric literals (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=`) that are a **whole boolean
-    term**: preceded, ignoring whitespace, by the start of the text, `(`, `AND` or `OR`, with any number of `NOT`s
-    between; followed by the end of the text, `)`, `AND` or `OR` (keywords case-insensitive, whole words) (T0-2);
-  - return true if any such term holds after applying its `NOT`s (`1=1`, `1 < 2`, `NOT 1=0`), false otherwise
-    (`1=0`, `NOT 1=1`).
+- **D3 — A token-aware SQL check replaces the substring list** (rewritten in rev 3, T1-1, T1-4).
+  `HasLiteralTautology(string whereClause)` returns true when either holds:
+  1. **A `1=1` outside quotes:** the tokens `1`, `=`, `1` (whitespace allowed between them), not glued to a word
+     character, `@`, `$`, `.` or `:`. This is the visitor's emission for a parameter-free `new` (`VisitNew`), and is
+     rejected wherever it sits, as today, including `1=1 = @p` and `CASE WHEN 1=1 THEN`.
+  2. **The clause folds to True.** Quoted segments (`'…'` with `''` escapes, `"…"`, `[…]`, `` `…` ``) become
+     opaque tokens. The text is parsed as `or := and (OR and)*`, `and := not (AND not)*`, `not := NOT not |
+     primary`, `primary := '(' or ')' | a run of other tokens`, with keywords case-insensitive and whole words. A
+     primary that is exactly `<number> <op> <number>` (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=`) is True or False;
+     any other primary (a column comparison, a parameter, `CASE … END`, arithmetic) is Unknown. `NOT`, `AND` and `OR`
+     use three-valued logic.
 
-  It is the backstop for parameter-free subtrees D2 doesn't evaluate (the visitor's `1=1`) and for a negated empty
-  `Contains` (`OR NOT 1=0`). A literal next to arithmetic or inside `CASE WHEN … THEN` is not a whole term, so a
-  `[SqlExpression]` like `CASE WHEN {Id} * 100 > 50 THEN 1 ELSE 0 END` isn't flagged. A true term anywhere is
-  rejected, even inside `AND` (conservative, as today).
+  So `(t.id = @p OR NOT 1=0)` and `NOT (1=0 AND t.id = @p)` are rejected, while `(t.parent_id = @p AND NOT 1=0)`
+  (the empty `keepIds` idiom), `(1=0 OR t.id = @p)` and `CASE WHEN {Id} * 100 > 50 THEN 1 ELSE 0 END = @p` are not.
 - **D4 — Kept as they are** (owner's brief): check 1 (empty), check 3 (both self-reference regexes) and check 4
   (column reference). D2 is the real self-reference detection; the regexes stay as a second line.
 - **D5 — Order in each Delete/DeleteAsync by predicate:** transaction guard → null guard →
@@ -173,14 +190,14 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
   - The 3.10 Changed bullet about the netstandard2.0/net48 guard becoming case-insensitive is deleted, with the
     Fixed line's pointer to it: the guard no longer calls `Contains`.
   - Scoped to "a predicate the guard accepts" (T0-3): the Changelog Changed bullet on the missing-table error
-    (`Changelog.md:178-181`), SQL Server's XML doc on DeleteAsync/Delete (`SqlServerOrmDataProvider.cs:270-272` and its
-    sync twin), and the cold-cache plan's D1 error-shape sentence.
+    (`Changelog.md:178-181`), SQL Server's XML doc on DeleteAsync (`SqlServerOrmDataProvider.cs:270-272`; the sync
+    Delete's doc has no such sentence, T1-8), and the cold-cache plan's D1 error-shape sentence.
   - SQL Server's XML doc comments on Delete/DeleteAsync, `Usage.md:314, 1346-1348`, `README.md:41` and
     `docs/architecture/AI_ARCHITECTURE_AND_DESIGN.md:33` describe what the guard rejects, and don't claim that every
     always-true predicate is (T0-9). `docs/ai-instructions/FUNKYORM_AI_INSTRUCTIONS.md:149` stays true.
   - The provider-scoped caches plan's §4.2 note on the guard's reach and its §4.4 net48 line get a pointer here.
-- **D8 — `DeleteGuardCaseTests` (net48) is inverted:** its three rows delete exactly the matching row. They become
-  net48's instance of AC3.
+- **D8 — `DeleteGuardCaseTests` (net48) is inverted:** its three rows delete exactly the matching row, and its class
+  summary, which describes the old rejection, is rewritten (T1-8). They become net48's instance of AC3.
 
 ## 3. Acceptance criteria
 
@@ -188,23 +205,27 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
   is sent and before `T` is discovered, a predicate that D2 folds to True, with no row deleted:
   - a self-comparison of a member chain by `==`, `>=` or `<=`, also through `Convert`, and the negation of one by
     `!=`, `>` or `<` (SelfReference message);
-  - any other body that folds to True: a disjunction with a `true` literal, a captured or static `true`, or a
-    parameter-free comparison that holds; the De Morgan forms (`!(x.Id != x.Id && …)`,
-    `!(x.Id != x.Id || x.Id > x.Id)`); a Conditional whose chosen or shared branch is True (AlwaysTrue message).
+  - any other body that folds to True: a disjunction with a `true` literal, a captured or static `true`, a `true`
+    property of a captured object (`request.IncludeAll`), or a parameter-free comparison that holds; the De Morgan
+    forms (`!(x.Id != x.Id && …)`, `!(x.Id != x.Id || x.Id > x.Id)`); a Conditional whose chosen or shared branch is
+    True (AlwaysTrue message).
 - **AC2 — Parameter-free predicates keep their message.** `x => true`, `x => 1 < 2`, `x => "abc" == "abc"`, a captured
   `true`, and `x => false` are rejected with "must reference at least one column…", on all four providers, sync and
   async.
 - **AC3 — Identifiers containing `true` are accepted.** A predicate on a convention column `true_up`, or on a table
   named `zz_dg_TrueUp`, deletes exactly the matching rows on all four providers on net8.0, sync and async. On net48,
   SQL Server, a PascalCase column `TrueUpAmount` and a table named `zz_guard_TrueUp` do too (D8).
-- **AC4 — Literal tautologies in the SQL are rejected.** A translated WHERE clause containing a true literal
-  comparison that is a whole boolean term (D3) is rejected with the AlwaysTrue message; a false one, or one inside
-  arithmetic or `CASE`, isn't. Integration: `x.Id == 2 || new Holder().Flag` (the visitor's `1=1`) and
-  `x.Id == 2 || !emptyIds.Contains(x.Id)` (`OR NOT 1=0`) are rejected, and `emptyIds.Contains(x.Id) || x.Id == 2`
-  (`1=0`) deletes exactly row 2, on all four providers, sync and async.
+- **AC4 — Literal tautologies in the SQL are rejected.** A translated WHERE clause that contains a `1=1` outside
+  quotes, or that folds to True (D3), is rejected with the AlwaysTrue message; one that folds to False or Unknown
+  isn't. Integration, on all four providers, sync and async:
+  - rejected: `x.Id == 2 || new Holder().Flag` and `x.Id == 2 || new Holder().Flag == true` (the visitor's `1=1`);
+    `x.Id == 2 || !emptyIds.Contains(x.Id)` (`OR NOT 1=0`); `!(emptyIds.Contains(x.Id) && x.Id == 2)`
+    (`NOT (1=0 AND …)`);
+  - accepted, deleting exactly row 2: `emptyIds.Contains(x.Id) || x.Id == 2` (`1=0 OR …`).
 - **AC5 — Legitimate predicates are unaffected.** Equality, `&&`/`||` of column comparisons, a list `Contains`,
-  `StartsWith`, `x.Id == x.Id && x.Id == 2`, and a `[SqlExpression]` member with arithmetic next to a literal
-  comparison each delete exactly the matching rows, on all four providers, sync and async.
+  `StartsWith`, `x.Id == x.Id && x.Id == 2`, a `[SqlExpression]` member with arithmetic next to a literal
+  comparison, and the empty-exclusion idiom `!emptyIds.Contains(x.Id) && x.Id == 2` (either order; `AND NOT 1=0`)
+  each delete exactly the matching rows, on all four providers, sync and async.
 - **AC6 — The existing guard tests pass unchanged** (§1).
 - **AC7 — The documents of D7 are true.**
 - **AC8 — No regression:** SqlServer.Tests, PostgreSql.Tests, MySql.Tests, Sqlite.Tests, DotNet9 and net48 pass;
@@ -223,10 +244,10 @@ SR = SelfReference, AT = AlwaysTrue, NC = NoColumn, OK = Acceptable.
 
 | AC | Test | Class at the seam |
 |---|---|---|
-| AC1, AC2, AC5 | `Classify_ReturnsTheVerdict`, one DataRow per shape. Self-comparisons: `x.Id == x.Id` SR, `x.Id >= x.Id` SR, `x.Id <= x.Id` SR, `x.Id != x.Id` OK, `x.Id > x.Id` OK, `x.Id < x.Id` OK, `!(x.Id != x.Id)` SR, `!(x.Id > x.Id)` SR, `(long)x.Id == (long)x.Id` SR, `(int?)x.Id == (int?)x.Id` SR, `x.Name == x.Name` SR, `x.Id == x.Other` OK. Or: `x.Id == 2 \|\| true` AT, `\|\| capturedTrue` AT, `\|\| StaticFlags.On` AT, `\|\| DateTime.Now > DateTime.MinValue` AT, `\|\| capturedA == capturedA` AT, `\|\| capturedNull == null` AT, `\|\| capturedS == "s"` AT, `\|\| capturedFalse` OK, `x.Id == 2 \| true` AT (non-short-circuit). And: `x.Id == 2 && true` OK, `x.Id == x.Id && x.Id == 2` OK, `x.Id == x.Id \|\| x.Id == 2` AT, `x.Id == 2 & false` OK. De Morgan: `!(x.Id != x.Id && x.Id == 2)` AT, `!(x.Id != x.Id \|\| x.Id > x.Id)` AT, `!(x.Id == 2 && capturedFalse)` AT. Conditional: `capturedTrue ? x.Id == x.Id : x.Id == 2` AT, `capturedFalse ? x.Id == 2 : x.Id == x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id >= x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id == 2` OK. Not evaluated: `x.Id == 2 \|\| new Holder().Flag` OK, `\|\| Method()` OK, `\|\| (bool)capturedWrapper` OK (user `explicit operator bool`), `\|\| capturedW == capturedW2` OK (user `operator ==`), `\|\| capturedObj.Throws` OK (the read throws). Roots: a hand-built lambda whose body uses another parameter of the entity type, `x'.Id == 2` OK and `x'.Id == x'.Id` SR. Parameter-free: `true`, `1 < 2`, `"abc" == "abc"`, `capturedTrue`, `false` NC. | Red for the SR, AT and NC rows (the seam returns OK); Guard for the OK rows |
-| AC1 | `Classify_NeverInvokesUserCode` (counters on `Method()`, the `Holder` constructor, the user `explicit operator bool` and the user `operator ==`, each in a disjunction; every count stays 0) | Guard |
+| AC1, AC2, AC5 | `Classify_ReturnsTheVerdict`, one DataRow per shape. Self-comparisons: `x.Id == x.Id` SR, `x.Id >= x.Id` SR, `x.Id <= x.Id` SR, `x.Id != x.Id` OK, `x.Id > x.Id` OK, `x.Id < x.Id` OK, `!(x.Id != x.Id)` SR, `!(x.Id > x.Id)` SR, `(long)x.Id == (long)x.Id` SR, `(int?)x.Id == (int?)x.Id` SR, `x.Name == x.Name` SR, `x.Id == x.Other` OK. Or: `x.Id == 2 \|\| true` AT, `\|\| capturedTrue` AT, `\|\| StaticFlags.On` AT, `\|\| DateTime.Now > DateTime.MinValue` AT, `\|\| capturedA == capturedA` AT, `\|\| capturedNull == null` AT, `\|\| capturedS == "s"` AT, `\|\| capturedFalse` OK, `x.Id == 2 \| true` AT (non-short-circuit). And: `x.Id == 2 && true` OK, `x.Id == x.Id && x.Id == 2` OK, `x.Id == x.Id \|\| x.Id == 2` AT, `x.Id == 2 & false` OK. De Morgan: `!(x.Id != x.Id && x.Id == 2)` AT, `!(x.Id != x.Id \|\| x.Id > x.Id)` AT, `!(x.Id == 2 && capturedFalse)` AT. Property reads: `x.Id == 2 \|\| request.IncludeAll` AT (an instance property of a captured object). Convert: a hand-built `x.Id == 2 \|\| Convert(Convert(x.Id == x.Id, bool?), bool)` AT. Conditional: `capturedTrue ? x.Id == x.Id : x.Id == 2` AT, `capturedFalse ? x.Id == 2 : x.Id == x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id >= x.Id` AT, `x.Flag ? x.Id == x.Id : x.Id == 2` OK. Not evaluated: `x.Id == 2 \|\| new Holder().Flag` OK, `\|\| Method()` OK, `\|\| (bool)capturedWrapper` OK (user `explicit operator bool`), `\|\| capturedW == capturedW2` OK (user `operator ==`), `\|\| capturedObj.Throws` OK (the read throws). Roots: a hand-built lambda whose body uses another parameter of the entity type, `x'.Id == 2` OK and `x'.Id == x'.Id` SR. Parameter-free: `true`, `1 < 2`, `"abc" == "abc"`, `capturedTrue`, `false` NC. | Red for the SR, AT and NC rows (the seam returns OK); Guard for the OK rows |
+| AC1 | `Classify_NeverCallsMethodsOperatorsOrConstructors` (counters on `Method()`, the `Holder` constructor, the user `explicit operator bool` and the user `operator ==`, each in a disjunction; every count stays 0) | Guard |
 | AC1, AC2 | `Validate_ThrowsTheMessageOfEachVerdict` [NoColumn, SelfReference, AlwaysTrue: exact message; Acceptable: no throw] | Red for the three rejections; the Acceptable row is a Guard |
-| AC4 | `HasLiteralTautology_FindsOnlyTrueWholeTerms`. True: `1=1`, `1 = 1`, `(t.id = @p__linq__0 OR 1=1)`, `1 < 2`, `2 >= 1`, `1.5 > 1`, `1 != 2`, `t.id = @p OR NOT 1=0`, `NOT NOT 1=1`, `(1=1)`. False: `1=0`, `1 <> 1`, `NOT 1=1`, `t.col1 = 1`, `t.col1=1`, `@p__linq__1 = 1`, `$1 = 1`, `'1=1'`, `"1"=1`, `[1]=1`, `` `1`=1 ``, `t.c = 'a''1=1'`, `t.a * 100 > 50`, `t.a - 1 >= 0`, `5 < 10 * t.a`, `CASE WHEN t.a - 1 >= 0 THEN 1 ELSE 0 END = @p`, `CASE WHEN 1 = 1 THEN 1 END = @p` | Red for the true rows (the seam returns false); Guard for the false rows |
+| AC4 | `HasLiteralTautology_ReturnsTheRuleOrTheFold`. True by the `1=1` rule: `1=1`, `1 = 1`, `(t.id = @p__linq__0 AND 1=1)`, `1=1 = @p`, `CASE WHEN 1 = 1 THEN 1 END = @p`. True by the fold: `1 < 2`, `2 >= 1`, `1.5 > 1`, `1 != 2`, `(2 > 1)`, `NOT NOT 2 > 1`, `t.id = @p OR NOT 1=0`, `NOT (1=0 AND t.id = @p)`. False: `1=0`, `1 <> 1`, `NOT 2 > 1`, `(1=0 OR t.id = @p)`, `(t.parent_id = @p AND NOT 1=0)`, `(NOT 1=0 AND t.x = @p)`, `2 > 1 AND t.id = @p`, `t.col1=1`, `t.col1 = 1`, `@p__linq__1=1`, `$1=1`, `'1=1'`, `t.c = 'x OR 1=1 OR y'`, `[a OR 1=1 OR b] = @p`, `"1"=1`, `` `1`=1 ``, `t.c = 'a''1=1'`, `t.a * 100 > 50`, `t.a - 1 >= 0`, `5 < 10 * t.a`, `CASE WHEN t.a - 1 >= 0 THEN 1 ELSE 0 END = @p` | Red for the true rows (the seam returns false); Guard for the false rows |
 
 **Integration, a shared harness `Funcular.Data.Orm.SqlServer.Tests/DeleteGuard/DeleteGuardHarness.cs`, compiled into
 SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Tests, as `LinqScopeHarness` is.**
@@ -235,33 +256,37 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
   case (MySQL on Linux CI has `lower_case_table_names=0`). The tables are dropped in `finally`. Each call runs in its
   own transaction.
 - A rejected call asserts the exact message, that no `DELETE` was logged, and that all rows remain, counted through
-  the provider inside the transaction before the rollback.
+  the provider inside the transaction before the rollback. The missing-table row can't count rows: it drops its table
+  if it exists first, and asserts the message, that no `DELETE` was logged, and that the type is still undiscovered
+  (T1-9).
 - An accepted call asserts the deleted count and the surviving ids.
 - Every row has a `sync`/`async` DataRow.
 
 | AC | Test | SQL Server | PostgreSQL | MySQL | SQLite | Class at the seam |
 |---|---|---|---|---|---|---|
 | AC1 | `SelfComparison_IsRejected` [`x.FirstName == x.FirstName`, `x.Id >= x.Id`, `x.Id <= x.Id`, `!(x.Id != x.Id)`, `(long)x.Id == (long)x.Id`] | ✓ | ✓ | ✓ | ✓ | Red on PostgreSQL, MySQL and SQLite (rows deleted); on SQL Server Red for `!(x.Id != x.Id)` only (its regex catches the others, `(long)` included, since the visitor drops `Convert`) |
-| AC1 | `AlwaysTrue_IsRejected` [`x.Id == 2 \|\| true`, `\|\| capturedTrue`, `\|\| StaticFlags.On`, `\|\| capturedA == capturedA`, `\|\| capturedNull == null`, `!(x.Id != x.Id && x.Id == 2)`, `!(x.Id != x.Id \|\| x.Id > x.Id)`] | ✓ | ✓ | ✓ | ✓ | Red: rows deleted, or on SQL Server for the bare-parameter forms a `SqlException`, not the message |
+| AC1 | `AlwaysTrue_IsRejected` [`x.Id == 2 \|\| true`, `\|\| capturedTrue`, `\|\| StaticFlags.On`, `\|\| request.IncludeAll`, `\|\| capturedA == capturedA`, `\|\| capturedNull == null`, `!(x.Id != x.Id && x.Id == 2)`, `!(x.Id != x.Id \|\| x.Id > x.Id)`] | ✓ | ✓ | ✓ | ✓ | Red: rows deleted, or on SQL Server for the bare-parameter forms a `SqlException`, not the message |
 | AC1 | `RejectedOnAMissingTable_ReportsTheGuardNotDiscovery` [`x.Id == x.Id`, `x.Id == 2 \|\| true`] on a cold type whose table doesn't exist (T0-3) | ✓ | ✓ | ✓ | ✓ | Red (discovery's error, or `SqliteException`, is thrown first) |
 | AC2 | `ParameterFree_IsRejectedAsNoColumn` [`true`, `1 < 2`, `"abc" == "abc"`, `capturedTrue`, `false`] | ✓ | ✓ | ✓ | ✓ | Guard |
 | AC3 | `IdentifierContainingTrue_IsAccepted` [`x.TrueUp == 1` (column `true_up`), the `zz_dg_TrueUp` table's `x.Amount == 5`] | ✓ | ✓ | ✓ | ✓ | Red (rejected as trivial) |
-| AC4 | `LiteralTautologyInSql_IsRejected` [`x.Id == 2 \|\| new Holder().Flag`, `x.Id == 2 \|\| !emptyIds.Contains(x.Id)`] | ✓ | ✓ | ✓ | ✓ | Guard for `1=1` (the substring list catches it); Red for `NOT 1=0` (rows deleted) |
-| AC4, AC5 | `NonTrivialPredicates_DeleteTheMatchingRows` [`x.Id == 2`; `x.Id == 2 && x.FirstName == "b"`; `x.Id == 1 \|\| x.Id == 2`; `ids.Contains(x.Id)`; `x.FirstName.StartsWith("b")`; `x.Id == x.Id && x.Id == 2`; `emptyIds.Contains(x.Id) \|\| x.Id == 2`; `x.Big == 1 && x.Id == 2` with `[SqlExpression("CASE WHEN {Id} * 100 > 50 THEN 1 ELSE 0 END")] Big`] | ✓ | ✓ | ✓ | ✓ | Guard |
+| AC4 | `LiteralTautologyInSql_IsRejected` [`x.Id == 2 \|\| new Holder().Flag`, `x.Id == 2 \|\| new Holder().Flag == true`, `x.Id == 2 \|\| !emptyIds.Contains(x.Id)`, `!(emptyIds.Contains(x.Id) && x.Id == 2)`] | ✓ | ✓ | ✓ | ✓ | Guard for the two `1=1` rows (the substring list catches them); Red for the two `NOT` rows (rows deleted) |
+| AC4, AC5 | `NonTrivialPredicates_DeleteTheMatchingRows` [`x.Id == 2`; `x.Id == 2 && x.FirstName == "b"`; `x.Id == 1 \|\| x.Id == 2`; `ids.Contains(x.Id)`; `x.FirstName.StartsWith("b")`; `x.Id == x.Id && x.Id == 2`; `emptyIds.Contains(x.Id) \|\| x.Id == 2`; `!emptyIds.Contains(x.Id) && x.Id == 2`; `x.Id == 2 && !emptyIds.Contains(x.Id)`; `x.Big == 1 && x.Id == 2` with `[SqlExpression("CASE WHEN {Id} * 100 > 50 THEN 1 ELSE 0 END")] Big`] | ✓ | ✓ | ✓ | ✓ | Guard |
 | AC3 | `DeleteGuardCaseTests` (net48, D8): `TrueUpAmount == 5` sync and async, and the `zz_guard_TrueUp` table, each delete exactly row 1 | ✓ (net48) | — | — | — | Red (rejected as trivial) |
 | AC6 | the existing tests of §1 | ✓ (and net48) | ✓ (cold-cache) | ✓ (cold-cache) | ✓ | Guard |
+| AC7 | Task 4's review checks Task 3's diff against D7's list and a grep of every document for descriptions of the guard (T1-7) | — | — | — | — | — |
 | AC8 | the suites, DotNet9, net48 | ✓ | ✓ | ✓ | ✓ | — |
 
-`Holder`, `Method()`, `StaticFlags`, the wrappers and the captured values are members of the test classes;
-`Holder.Flag` and `StaticFlags.On` return true, `capturedObj.Throws` throws, and the user operators count their calls.
+`Holder`, `Method()`, `StaticFlags`, `request`, the wrappers and the captured values are members of the test classes.
+`Holder.Flag`, the static property `StaticFlags.On` and the instance property `request.IncludeAll` return true;
+`capturedObj.Throws` throws; the user operators count their calls.
 
 ### 4.2 Interface coverage
 
 | Member | Tests |
 |---|---|
-| `DeletePredicateGuard.Classify` | `Classify_ReturnsTheVerdict`, `Classify_NeverInvokesUserCode` |
+| `DeletePredicateGuard.Classify` | `Classify_ReturnsTheVerdict`, `Classify_NeverCallsMethodsOperatorsOrConstructors` |
 | `DeletePredicateGuard.Validate` | `Validate_ThrowsTheMessageOfEachVerdict`; every harness row |
-| `DeletePredicateGuard.HasLiteralTautology` | `HasLiteralTautology_FindsOnlyTrueWholeTerms`; `LiteralTautologyInSql_IsRejected`; the `emptyIds` and `[SqlExpression]` rows |
+| `DeletePredicateGuard.HasLiteralTautology` | `HasLiteralTautology_ReturnsTheRuleOrTheFold`; `LiteralTautologyInSql_IsRejected`; the `emptyIds` and `[SqlExpression]` rows |
 | `DeletePredicateVerdict` | `Classify_ReturnsTheVerdict` |
 | Each provider's `Delete<T>(Expression)` and `DeleteAsync<T>(Expression)` | the harness rows, `sync` and `async` |
 | SQL Server `ValidateDeleteWhereClause<T>` (new) | the SQL Server harness rows; AC6 |
@@ -290,15 +315,20 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 | Root by parameter identity instead of type | Classify's hand-built lambda rows |
 | Parameter-free evaluation limited to literals | `\|\| capturedTrue`, `\|\| capturedA == capturedA` rows |
 | Static-rooted reads not evaluated | `\|\| StaticFlags.On` rows; Classify `DateTime.Now > DateTime.MinValue` |
-| The method restriction removed, or limited to comparisons | `Classify_NeverInvokesUserCode` (the conversion and operator counters) |
-| Parameter-free evaluation invokes methods or `new` | `Classify_NeverInvokesUserCode` |
+| Property getters treated as methods (not evaluated) | `\|\| request.IncludeAll` rows (Classify and harness); `\|\| StaticFlags.On` rows |
+| `Convert` on `bool`/`bool?` not folded | Classify's hand-built `Convert(Convert(…, bool?), bool)` row |
+| The method restriction removed, or limited to comparisons | `Classify_NeverCallsMethodsOperatorsOrConstructors` (the conversion and operator counters) |
+| Parameter-free evaluation invokes methods or `new` | `Classify_NeverCallsMethodsOperatorsOrConstructors` |
 | The NoColumn check after the fold, or removed | `ParameterFree_IsRejectedAsNoColumn` (message); AC6's SQL Server test |
 | SelfReference and AlwaysTrue messages swapped | the message assertions of both rejection rows |
-| `HasLiteralTautology` ignores the token boundary | its `t.col1 = 1` and `@p__linq__1 = 1` rows |
-| `HasLiteralTautology` ignores the whole-term rule | its arithmetic and `CASE` rows; the `[SqlExpression]` harness row |
-| `HasLiteralTautology` ignores `NOT` | its `NOT 1=1` and `t.id = @p OR NOT 1=0` rows; the `!emptyIds.Contains` harness row |
-| `HasLiteralTautology` rejects every literal comparison | its `1=0` row; the `emptyIds` harness row |
-| `HasLiteralTautology` keeps quoted segments | its `'1=1'` and `[1]=1` rows |
+| D3's `1=1` rule dropped | its `1=1 = @p`, `CASE WHEN 1 = 1 …` and `(… AND 1=1)` rows; the `new Holder().Flag == true` harness row |
+| D3's `1=1` rule ignores the token boundary | its `t.col1=1`, `@p__linq__1=1` and `$1=1` rows |
+| D3 keeps quoted segments | its `t.c = 'x OR 1=1 OR y'`, `[a OR 1=1 OR b] = @p` and `'1=1'` rows |
+| D3 rejects any true term, not the fold (true inside `AND` rejects) | its `(t.parent_id = @p AND NOT 1=0)`, `(NOT 1=0 AND t.x = @p)` and `2 > 1 AND t.id = @p` rows; the `!emptyIds.Contains(x.Id) && x.Id == 2` harness rows |
+| D3's fold ignores `NOT` | its `NOT 2 > 1` and `t.id = @p OR NOT 1=0` rows; the `\|\| !emptyIds.Contains` harness row |
+| D3's `NOT` doesn't apply to a parenthesised group | its `NOT (1=0 AND t.id = @p)` row; the `!(emptyIds.Contains(x.Id) && x.Id == 2)` harness row |
+| D3 counts a literal next to arithmetic as a term | its `t.a * 100 > 50` and `5 < 10 * t.a` rows; the `[SqlExpression]` harness row |
+| D3 rejects every literal comparison | its `1=0` and `(1=0 OR t.id = @p)` rows; the `emptyIds.Contains(x.Id) \|\| x.Id == 2` harness row |
 | `HasLiteralTautology` not called (per provider) | `LiteralTautologyInSql_IsRejected` (on PostgreSQL, MySQL and SQLite the kept regex reports SelfReference for `1=1`, which fails the message assertion; on SQL Server the delete runs) |
 | The old substring list kept | `IdentifierContainingTrue_IsAccepted`; `DeleteGuardCaseTests` |
 
@@ -313,9 +343,9 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 ## 5. Tasks
 
 1. **Task 0 — Test-plan review** (non-author) to CLEAN.
-2. **Task 1 — The seam and the red tests.** Commit `DeletePredicateGuard` with `Classify` returning Acceptable,
-   `Validate` doing nothing and `HasLiteralTautology` returning false, the `InternalsVisibleTo` grants, and the
-   tests of §4.1. Run each row alone and record its class and message. Record the coverage baselines.
+2. **Task 1 — The seam and the red tests.** Commit the public `DeletePredicateGuard` with `Classify` returning
+   Acceptable, `Validate` doing nothing and `HasLiteralTautology` returning false, and the tests of §4.1. Run each row
+   alone and record its class and message. Record the coverage baselines.
 3. **Task 2 — D1–D6 and D8.** Green; the §4.3 mutations, each run; suites; coverage.
 4. **Task 3 — Documents (D7).**
 5. **Task 4 — Hostile review and fix-verification** to CLEAN; then merge `development/3.10` (after
@@ -333,13 +363,18 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - **The double read** (T0-6). A property on a captured object is read once by the guard and again by the visitor. If
   its value changes between the reads, an Acceptable verdict can still send `OR @p` with a true value; D3 doesn't see
   parameters.
-- **`[SqlExpression]` text is the user's SQL.** A fragment that is always true (for example `TRUE`) isn't detected.
+- **A core-library property can run user code.** D2 reads properties; `Lazy<bool>.Value` on a captured `Lazy` runs
+  the user's factory during classification (the Task 0 re-review, §9.2).
+- **`[SqlExpression]` text is the user's SQL.** A fragment that is always true (for example `TRUE`) isn't detected;
+  one containing `1=1` is rejected by D3's rule, as today.
+- **D3's parser doesn't know `BETWEEN` or SQL comments.** `x BETWEEN 1 AND 2` reads its `AND` as a logical one, and a
+  `--` comment isn't skipped. FunkyORM emits neither; a `[SqlExpression]` could.
 - **SQL NULL semantics.** `x.A == x.A` excludes rows where `A` is NULL; it's still rejected, as no one writes it as a
   filter.
 - **A bare `bool` parameter in SQL Server's WHERE** (`x.Id == 2 || false`, `&& true`) is invalid SQL there
   (pre-existing translation limit); the guard doesn't change it.
 - **The column-reference check** (check 4) stays substring-based and can over-accept.
-- **The dead `InternalsVisibleTo("Funcular.Data.Orm.SqlServer")`** in Core is left as it is.
+- **The dead `InternalsVisibleTo("Funcular.Data.Orm.SqlServer")`** in Core is left as it is; D1 adds no grants.
 - **Date-part translation in WHERE** is a separate pre-existing defect (provider-scoped caches plan §6, OBS-1); the
   owner placed its fix in 3.10.0 (decision 2026-10-02, given in chat), and its plan isn't written yet.
 
@@ -364,3 +399,25 @@ passed the existing guard and cold-cache tests on all four providers. Blame: TES
 | T0-9 | low | PLAN-GAP | P ∨ ¬P, `OR NOT 1=0`, and arithmetic or `Equals` self-comparisons aren't detected and weren't recorded. | D3 counts `NOT` (so `OR NOT 1=0` is rejected); the rest in §6; D7's documents don't over-claim. |
 | T0-10 | nit | TEST-GAP | AC7 (one SQL Server method) was structural; its named proof couldn't fail. | D6 is a refactor checked in the diff; the AC is removed. |
 | T0-11 | nit | PLAN-GAP | The AC6 list named an EF wrapper test, missed net48's async test and the cold-cache classes; `Validate_ThrowsTheMessageOfEachVerdict`'s Acceptable row is a Guard. | Corrected. |
+
+### 9.2 Task 0 re-review of rev 2 (`79069dd`; non-author; a seam export and a prototype of rev 2's D1–D6 on all eight paths with mutation switches; every §4.1 row on all four providers, sync and async, at both; the §4.3 mutations)
+
+T0-1, T0-2, T0-3, T0-4, T0-7, T0-8, T0-10 and T0-11 are resolved; T0-5, T0-6 and T0-9 are partial. At the seam, 76 of
+76 DB-free rows and every harness class matched the matrix; on the prototype every row passed; 28 of 30 mutations were
+killed by the named rows. Verdict: NOT CLEAN. Blame: AC-GAP 2, TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 3.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T1-1 | high | AC-GAP | Rev 2's D3 rejected any true literal term, so `c.ParentId == p && !keepIds.Contains(c.Id)` with `keepIds` empty (`AND NOT 1=0`), which deletes the right rows today, was rejected on all four providers. | D3 folds the whole clause; AC5 and harness rows for the idiom in both orders; HasLiteralTautology rows; a mutation row. |
+| T1-2 | medium | PLAN-GAP | D1's `InternalsVisibleTo` grants fail to compile: CS0507 at seven provider overrides and one test override. | `DeletePredicateGuard` is public; no grants. |
+| T1-3 | medium | TEST-GAP | D2 didn't say whether property getters count as methods, and no row could tell the readings apart; under one reading `\|\| request.IncludeAll` deleted every row. | D2 reads properties and calls no method, user operator or conversion, or constructor; `request.IncludeAll` rows; `StaticFlags.On` is a property; a mutation row; the counter test is renamed. |
+| T1-4 | low | AC-GAP | `NOT (1=0 AND t.id = @p)` deleted every row past rev 2's D3, and the visitor's `1=1` in non-term positions (`1=1 = @p`, `CASE WHEN 1=1`) slipped past it. | D3's fold applies `NOT` to groups, and its `1=1` rule rejects `1=1` anywhere, as today; rows for both. |
+| T1-5 | low | TEST-GAP | The quoted-segments and token-boundary mutation rows named killers that can't kill them. | New killer rows for each. |
+| T1-6 | nit | TEST-GAP | D2's `Convert` rule had no row. | A hand-built Classify row. |
+| T1-7 | nit | HOUSE-RULE | AC7 (documents) had no matrix row. The rev 2 note's "AC7 becomes a refactor note" means rev 1's AC7. | A Task 4 review row. |
+| T1-8 | nit | PLAN-GAP | D7 cited a missing-table sentence in the sync Delete's doc that doesn't exist; §1 grouped `README.md:41` with documents about `x.Id == x.Id`; D8 left the test class summary unchanged. | Corrected. |
+| T1-9 | nit | PLAN-GAP | The missing-table row couldn't count rows, and didn't drop its table first. | Its assertions are stated; it drops the table first. |
+
+The reviewer also wrote to the author's worktree by mistake: a relative path added a UTF-8 BOM to
+`Funcular.Data.Orm.SqlServer/SqlServer/SqlServerOrmDataProvider.cs` there, and nothing else. It isn't part of any
+commit.
