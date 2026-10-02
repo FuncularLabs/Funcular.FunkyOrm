@@ -8,7 +8,7 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 23. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 24. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
@@ -19,9 +19,15 @@
 > exception is narrower than written and a test comment unscoped, fixed in `be8de82`, which also recorded a
 > pre-existing defect in §6. Its verification (§9.17) found a wrong citation and an over-broad §6 entry, fixed in
 > `0983f79`. Its verification (§9.18) found a §6 claim false in one case and three layout nits, fixed in `b4461cd`.
-> Its verification (§9.19) found that §6 pointed to outcomes the records don't hold; this revision's layer moves
-> the date-part detail out of this plan and is verified next.
+> Its verification (§9.19) found that §6 pointed to outcomes the records don't hold, and three nits, fixed in
+> `6383857`. Its verification (§9.20) found six nits; this revision's layer restores the records edited in revs 22–23
+> and corrects them in §9.20, and is verified next.
 > `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 24 — what changed:** the fix-verification of `b4461cd..6383857` (§9.20). Review records (§9) and
+> revision notes are history and are no longer edited in place: each says what was found or changed at the time.
+> The rows and notes edited in revs 22–23 (§9.17's FVG-2 row, §9.18's prose and FVH-1 row, the rev 22 note) are
+> restored to the text they were written with, and §9.20 holds every correction, in the verifier's words.
 
 > **Revision 23 — what changed:** the fix-verification of `0983f79..b4461cd` (§9.19). The date-part defect isn't
 > this change's subject, and four rounds of rewording it each introduced the next findings, so §6 keeps only a
@@ -29,8 +35,7 @@
 > (FVI-3). The Status chain names `be8de82` (FVI-4). The detail goes to the date-part task.
 
 > **Revision 22 — what changed:** the fix-verification of `be8de82..0983f79` (§9.18). §6's date-part entry keeps
-> only the mechanism and points to the records for each engine's outcome (FVH-1; rev 23: the records hold SQLite
-> only, §9.19 FVI-1). The Status block's last line is
+> only the mechanism and points to the records for each engine's outcome (FVH-1). The Status block's last line is
 > back in it (FVH-2). §9.17's heading is one line (FVH-3). §4.2's FVC-1 sub-bullet is rewrapped (FVH-4).
 
 > **Revision 21 — what changed:** the fix-verification of `8d20875..be8de82` (§9.17). §6's date-part entry is
@@ -679,7 +684,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   `ResolveConnectionString` (E15). Pre-existing.
 - **Date-part translation in WHERE** (pre-existing; found during this review, OBS-1) is outside this change. The
   SQLite probes are recorded in §9.16–§9.19. The owner placed its fix in 3.10.0, before the beta (decision
-  2026-10-02, given in chat); its plan isn't written yet. *(rev 20; cut to a pointer in rev 23, §9.19)*
+  2026-10-02, given in chat); its plan isn't written yet. *(rev 20; reworded in revs 21–22; a pointer since rev
+  23)*
 
 ## 9. Review dispositions
 
@@ -960,7 +966,7 @@ two text nits. Blame: PLAN-GAP 2.
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
 | FVG-1 | nit | PLAN-GAP | `be8de82`'s message says that 32674c7 and 69ba3bb said 'CRLF in the working tree'. Neither did; the only commit that said it is `8d20875`. | Corrected here: that sentence should name `8d20875`. The message isn't amended, because `be8de82` is the base of `fix/delete-guard-trivial-predicates`, which is under review. |
-| FVG-2 | nit | PLAN-GAP | §6 said a non-nullable date part "in a WHERE predicate is dropped". Inside `Contains`, a date part of either kind (nullable included) becomes a column named after the part and fails loudly (`no such column: …year`). *(Rev 23: the probes are in §9.18 and §9.19.)* | §6 and the OBS-1 row say "comparison"; §6 adds the `Contains` failure and the engines' different outcomes, as the verifier's inference. *(Both left §6 in revs 22–23.)* |
+| FVG-2 | nit | PLAN-GAP | §6 said a non-nullable date part "in a WHERE predicate is dropped". Inside `Contains`, a date part of either kind (nullable included) becomes a column named after the part and fails loudly (`no such column: …year`). | §6 and the OBS-1 row say "comparison"; §6 adds the `Contains` failure and the engines' different outcomes, as the verifier's inference. |
 
 ### 9.18 Fix-verification of `be8de82..0983f79` (non-author; git show of each cited commit; SQLite probes of `Contains` over a date part, with and without a column of that name; rewraps diffed word by word; byte counts; a net48 build)
 
@@ -968,11 +974,11 @@ FVG-1 holds. FVG-2 is partial (FVH-1). The rewraps changed no words; the byte co
 clean. Verdict: NOT CLEAN. Blame: PLAN-GAP 4, all introduced by `0983f79`. This is the third documents-only round
 whose fix introduced the next findings, so rev 22 cuts claims back instead of rewording them, and the author lints
 each documents layer before committing it: headings on one line, the Status block's last line, changed lines
-other than headings and table rows within 120 characters.
+within the file's width.
 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
-| FVH-1 | low | PLAN-GAP | §6 said a date part inside `Contains` always fails with a missing-column error. SQLite probe, with the entity mapping a `Year` property to a `year` column: `years.Contains(x.PostedAt.Year)` returned and deleted the wrong row; `new long[]{…}.Contains(x.PostedAt.Year)` threw `NotSupportedException`. *(Rev 23: setup stated instead of rules; §9.19 FVI-3.)* | §6 keeps the mechanism and points to the records for each outcome. *(Rev 23: cut to a pointer; §9.19 FVI-1.)* |
+| FVH-1 | low | PLAN-GAP | §6 said a date part inside `Contains` always fails with a missing-column error. With a column of that name (`year`) the statement silently filters or deletes by that column (SQLite probe: `years.Contains(x.PostedAt.Year)` deleted the wrong row); a converted item is rejected as unsupported. | §6 keeps the mechanism and points to the records for each outcome. |
 | FVH-2 | nit | PLAN-GAP | Rev 21's note was inserted above the Status block's last line, so that line read as part of the note. | The line is back in the Status block; the §6 entry is credited to `be8de82`. |
 | FVH-3 | nit | PLAN-GAP | §9.17's heading ran onto a second line, which renders as a paragraph. | One line. |
 | FVH-4 | nit | PLAN-GAP | Rev 21's rewrap left a 173-character line in §4.2's FVC-1 sub-bullet. | Rewrapped to 120, word for word. |
@@ -992,3 +998,31 @@ introduced the next findings.
 
 The date-part detail, these probes and the `List<T>.Contains` `NullReferenceException` go to the date-part task,
 which owns that defect.
+
+### 9.20 Fix-verification of `b4461cd..6383857` (non-author; each record row checked against the recorded probe's source in the earlier verifiers' transcripts; a SQLite re-run of every probe; render and byte checks)
+
+FVI-2 and FVI-4 hold; FVI-1 and FVI-3 are partial. Verdict: NOT CLEAN. Blame: PLAN-GAP 6. Every finding was in a
+record or note edited after it was written, so from rev 24 the records and revision notes are append-only, and the
+rows edited in revs 22–23 are restored (rev 24 note). The corrections below are the verifier's.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVJ-1 | nit | PLAN-GAP | Rev 23's FVH-1 row gave the `long[]` probe the `Year`-mapping setup; it ran on `Ledger`, whose table has no `year` column. | The row is restored to its rev 22 text; the setups are below. |
+| FVJ-2 | nit | PLAN-GAP | The rev 21 note still describes §6's engine outcomes, unmarked, against `6383857`'s claims that pointing notes were marked and that no line outside §9 points to engine outcomes. | Revision notes are history: the rev 21 note says what rev 21 did, which was true then. `6383857`'s two claims were wrong about it (not amended). |
+| FVJ-3 | nit | PLAN-GAP | Rev 23 replaced the FVG-2 row's counter-case tag with a pointer, so "fails loudly" read as a rule again. | The row is restored to its rev 21 text; the setup is below. |
+| FVJ-4 | nit | PLAN-GAP | §9.19's FVI-2 row gives no setup for "returned the wrong row". | The setup is below. |
+| FVJ-5 | nit | PLAN-GAP | `b4461cd`'s message says each engine's outcome stays in the review records; the records hold SQLite only. | Recorded here (not amended). |
+| FVJ-6 | nit | PLAN-GAP | Rev 23 edited §9.18's lint sentence in place without a tag. | Restored to its rev 22 text. |
+
+**Probe setups, as the verifier recorded them from the probes' sources:**
+- §9.17 FVG-2: "The §9.17 verifier's probe ran on `zz_psfg_Ledger`, which had no `year` column (its report: "no
+  such column: zz_psfg_Ledger.year")."
+- §9.18 FVH-1: "`years.Contains(x.PostedAt.Year)` returned and deleted the wrong row. With an entity and table
+  without `year`: `new long[]{…}.Contains(x.PostedAt.Year)` threw `NotSupportedException`." The first probe used
+  `Fiscal { Id, PostedAt, int Year }` on `zz_psfh_fiscal`.
+- §9.19 FVI-2: "probe F7 ran on `zz_psfi_fiscal`, which has a `year` column that the entity doesn't map."
+
+**Other corrections.** The rev 23 note's "four rounds of rewording it" counts one too many: the §6 entry existed in
+three revisions (`be8de82`, `0983f79`, `b4461cd`). §9.19's tail sends the `List<T>.Contains`
+`NullReferenceException` to the date-part task; the verifier found it isn't specific to date parts
+(`List<long>.Contains(x.Qty)` with an `int` `Qty` throws it too).
