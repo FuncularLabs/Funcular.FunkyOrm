@@ -2029,12 +2029,10 @@ Each task lists the tests it turns green. Every implementation task starts with 
 - **MySQL `Delete<T>(predicate)` on a cold column cache** throws "Expression type Parameter is not supported" for
   an inherited member (`PersonBase.LastName`). The same happens on `master`, so it's pre-existing (v3). Effect on
   this branch: `MySqlOrderByQualificationTests`' two `ProjectScorecard` tests fail when run alone, in cleanup; they
-  pass with their class. Follow-up issue: the fix is on `fix/mysql-delete-cold-cache`
-  (`docs/plans/COLD_CACHE_DELETE_PLAN.md`).
-  - *(Rev 44, N1)* The MySQL harness now discovers `Person` in `TestInitialize`. Those two tests, plus
-    `Last_AfterComputedOrderBy_InvertsComputedTerm` and the rev 39 `DateTimeOffset` test, pass when run alone.
-  - They no longer reproduce the defect. The cold-cache plan's AC4 (these two tests, run alone, as the fix's
-    evidence on this branch) must be restated at its merge; its own `ColdCacheDeleteTests` rows carry the proof.
+  pass with their class. *(Fixed: `fix/mysql-delete-cold-cache`, `docs/plans/COLD_CACHE_DELETE_PLAN.md`, merged into
+  `fix/provider-scoped-caches` at `f73823c`.)*
+  - *(Rev 44, N1)* A MySQL harness warm-up of `Person` was added as a workaround. The merge removed it, so the three
+    tests it was added for again exercise the fix: each passes alone, and fails alone with the fix's D1 removed.
 - SQLite provider state isn't safe for concurrent execution from one root. Sequential reuse is fixed by D11.
 - Unordered default paging hard-codes `id`, which is wrong for entities whose key column isn't `id`.
   `Single*` without user `Skip`/`Take` no longer routes through it (row limit). With user paging it still

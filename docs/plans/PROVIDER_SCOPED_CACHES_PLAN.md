@@ -8,10 +8,14 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-01):** rev 13. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 14. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
-> review (§9.11) is in progress; this revision records the tests/prose lens and its fixes. `GeneralExtensions.cs`
+> review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
+> `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`; fix-verification is next. `GeneralExtensions.cs`
 > coverage is the owner's call (§4.2).
+
+> **Revision 14 — what changed:** the code lens's findings and dispositions (§9.11); Task 5's merge of the cold-cache
+> fix recorded.
 
 > **Revision 13 — what changed:** the tests/prose review's findings HRB-1…HRB-9 (§9.11). The Changelog drops a Fixed
 > bullet that no FunkyORM path could reach, and its headline names this change. Over-broad comments are scoped. The
@@ -555,6 +559,13 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
        vacuously *(rev 7, R6-3; rev 8, R7-3: one instance, so no self-check is needed)*.
 
      It then re-runs the whole cold-cache class on every provider, not only the AC6 helper rows.
+   - **Done, rev 14:** `fix/mysql-delete-cold-cache` (`150078d`) merged here at `f73823c` (HRA-1), with the helper on
+     the scope and every cold-cache observer reading through the provider under test. The cross-scope replay row
+     was red before the merge and green after. All 54 cold rows pass alone. The SQLite snake_case rows that plan
+     deferred are added (`d3a9b2d`).
+   - Suites at `cd40661`: SqlServer.Tests 1010, PostgreSql.Tests 785, MySql.Tests 738, Sqlite.Tests 797, DotNet9 5,
+     net48 76; Sqlite.Tests 800 at `d3a9b2d`. Coverage after the fix layer: `CacheScope.cs` 100 %, `OrmDataProvider.cs`
+     90 %, the four providers 87.47–91.41 %; `GeneralExtensions.cs` unchanged (owner's call).
 
 ## 6. Out of scope (recorded)
 
@@ -763,3 +774,17 @@ The code lens runs in parallel; its findings are recorded with their own fix lay
 | HRB-8 | nit | HOUSE-RULE | `ConcurrentTypeSet`'s collection members and `CacheScopeKey.Equals(object)` had no test. | `CacheScopeTypesTests`, with five killed mutants. |
 | HRB-9 | nit | PLAN-GAP | The Changelog headline didn't mention this change or its binary break. | One sentence added. |
 | HRB-10 | nit | PLAN-GAP | Historical provider plans still describe the removed statics. | Not annotated. The optional fix was skipped: the PostgreSQL plan isn't UTF-8, and the plans are historical. |
+
+### 9.11 (continued) Task 5 hostile review of `35c6477..2bbb7d9`: code lens (non-author; suites, net48, 34 §4.3 mutants and 11 own; probes for replay, retention, overflow, concurrency and allocation)
+
+Verdict: NOT CLEAN. Its re-verification of the claims held: suites, net48, rows alone, the M1 and per-site kills,
+identity and synonym behaviour, resolution timing, and stress tests of concurrent resolution and queries.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| HRA-1 | high | PLAN-GAP | The ship dependency R5 was recorded but not enforced before merge. A first `Delete<T>(predicate)` in a new scope left that scope unable to read `T` (PostgreSQL returned default-valued rows), once per scope instead of once per process. | Cold-cache fix merged at `f73823c`; a cross-scope replay row, red before and green after, on all four providers. |
+| HRA-2 | medium | HOUSE-RULE | Each registered scope's cached row mapper captured the provider instance that built it, which kept one instance per scope alive. | Mappers built by a static factory over the mappings only; a `WeakReference` collection row per provider, red before. |
+| HRA-3 | low | TEST-GAP | SQL Server's identity catch filter let `OverflowException` escape (`Connect Timeout=99999999999`), unlike 3.9.0. | Any non-fatal exception hashes the string as given, in all four getters and SQLite's source resolver; a DataRow, red before. |
+| HRA-4 | low | HOUSE-RULE | `ConcurrentTypeSet`: a caller's `Count` then `CopyTo` raced with a concurrent `Add`. | `CopyTo` copies a snapshot truncated to the space available; a stress row, red before. |
+| HRA-5 | low | OTHER | Every scope access allocated a delegate (once per materialized row). | A `Volatile.Read` fast path; a zero-allocation row, red before. |
+| HRA-6 | low | TEST-GAP | Two identity-source branches had no killing row. | Rows added; "unresolved" killed. "`IsNullOrWhiteSpace`→`IsNullOrEmpty`" killed on three providers, equivalent on SQLite (a whitespace string there is a per-instance scope either way). |

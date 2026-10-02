@@ -391,7 +391,18 @@ Local runs are recorded with their sha.
    - Changelog `8c855a7` and `2d2e439` (under `[Unreleased]` until the owner's Task 4 choice).
    - Hostile review §9.12: NOT CLEAN, no code defect. Its fix layer is `34dd5fc` (rev 13). Fix-verifications §9.14 and
      §9.15 found nits only, addressed in revs 14 and 15; §9.16–§9.18 found plan nits, addressed in revs 16–18.
-5. **Task 4 — Merge path (owner).** A merge to `master` runs `ci.yml`'s `publish` (NuGet push), so nothing lands on
+5. **Task 4 — Merge path (owner).** *(Recorded on `fix/provider-scoped-caches`: this branch was merged there at
+   `f73823c`, because that change makes the defect fire once per scope (its review HRA-1). The release choice below
+   is still the owner's: the same commits can also go to `master` as 3.9.1.)*
+   - Done in the merge: the D2 helper reads the instance's scope. The coldness observers read through the provider
+     under test. The rev 44 warm-up and the rev 43 M1 comment are removed, as is the 3.10 plan's §8 follow-up text.
+     The Changelog entries moved verbatim into `[3.10.0-beta1]`.
+   - AC4 as restated, executed: the four cold classes pass and fail with "No D1". The three MySQL tests pass alone
+     and fail alone with D1 removed.
+   - The SQLite snake_case AC8 and AC9 rows are added (`d3a9b2d`). They are red at `150078d` (no D5) and at `e15a9f7`
+     (no D1–D3), and green after; "No D1" and "No D3" kill them.
+
+   A merge to `master` runs `ci.yml`'s `publish` (NuGet push), so nothing lands on
    `master` without a release decision:
    - **(a)** 3.9.1: version bump, PR into `master`, publish; or
    - **(b)** merge it forward into `development/3.10` only.
