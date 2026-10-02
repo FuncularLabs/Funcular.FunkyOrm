@@ -8,13 +8,19 @@
 >   the beta PR.
 > - Supersedes the 3.10 plan's §8 entry "Static identifier caches are shared across providers".
 
-> **Status (2026-10-02):** rev 17. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
+> **Status (2026-10-02):** rev 18. Task 0 CLEAN at `1964b7e` (§9.10). Tasks 1–4 are done (§5): the seam `3bb2b58`,
 > the fix with the Task 1b tests `019636a`, the Core rows `3f16bed`, and the Changelog `d781e63`. Task 5's hostile
 > review (§9.11) found code defects (HRA-1…HRA-6) and prose findings (HRB-1…HRB-10). Their fix layers are
 > `e15a9f7`, `f73823c` (the cold-cache merge), `cd40661` and `d3a9b2d`. Their fix-verification (§9.12) found test
 > gaps and plan nits, fixed in `32674c7`. The verification of `854ef80..32674c7` (§9.13) found that the `Contains`
-> fix changes the delete guard on the netstandard2.0 and net48 builds; this revision's layer documents and pins it,
-> and is verified next. `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+> fix changes the delete guard on the netstandard2.0 and net48 builds, documented and pinned in `69ba3bb`. Its
+> verification (§9.14) found the table-name reach, a vacuous count and two wrong citations; this revision's layer
+> fixes them and is verified next. `GeneralExtensions.cs` is exempt from the coverage floor (owner decision, §4.2).
+
+> **Revision 18 — what changed:** the fix-verification of `32674c7..69ba3bb` (§9.14). §4.2 and the Changelog say a
+> table whose name contains `True` is affected too, and `DeleteGuardCaseTests` gains a table-name row (FVD-2). Its
+> rows count through the provider inside the transaction, which the rollback used to hide (FVD-3). The cold-cache
+> plan's SQLite citations point to the runs that were recorded (FVD-1).
 
 > **Revision 17 — what changed:** the fix-verification of `854ef80..32674c7` (§9.13). The `Contains` fix's effect
 > on the delete guard of the netstandard2.0 and net48 builds is recorded in §4.2, pinned by `DeleteGuardCaseTests`
@@ -443,9 +449,12 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   - *(Rev 17, §9.13 FVC-1.)* The fix reaches FunkyORM's own code on the netstandard2.0 and net48 builds, where
     `string` has no `Contains(string, StringComparison)` overload: each provider's delete guard calls it with
     `OrdinalIgnoreCase` to look for trivial patterns (`1=1`, `true`, …) in the WHERE clause. There the check is now
-    case-insensitive, as on net8.0, so a WHERE clause naming `TrueUpAmount` is rejected as trivial. Pinned by
-    `DeleteGuardCaseTests` (sync and async) in the net48 project; both rows are red with the old body ("No exception
-    thrown") and green with the fix. The Changelog states it under Changed. The guard's substring patterns also
+    case-insensitive, as on net8.0. The WHERE clause qualifies columns with the table name, so a column such as
+    `TrueUpAmount`, or a table whose name contains `True`, makes a predicate delete be rejected as trivial *(table:
+    rev 18, FVD-2)*. Pinned by `DeleteGuardCaseTests` in the net48 project: a column row, sync and async, and a
+    table-name row. All three are red with the old body ("No exception thrown") and green with the fix. Each counts
+    the rows through the provider inside its transaction, before the rollback, so "the delete runs, then the guard
+    throws" fails all three ("Expected:<2>. Actual:<1>") *(rev 18, FVD-3)*. The Changelog states it under Changed. The guard's substring patterns also
     reject legitimate predicates on every build (pre-existing); tightening them is the owner's call.
 
 ### 4.3 Mutations each key test must kill
@@ -866,4 +875,18 @@ passing. `21e5858`'s tests are red for two rows with the old body. Verdict: NOT 
 | # | Sev | Blame | Finding | Disposition |
 |---|---|---|---|---|
 | FVC-1 | low | AC-GAP | The `Contains` fix changes `Delete`/`DeleteAsync` by predicate on the netstandard2.0 (all four providers) and net48 (SQL Server) builds, where the delete guard's `Contains(…, OrdinalIgnoreCase)` binds to the extension. The trivial-pattern check became case-insensitive there: a net48 probe deleted a `TrueUpAmount == 5` row before and throws "Delete operation requires a non-trivial WHERE clause." after. It fails closed and matches net8.0, but nothing documented or tested it, and the author's check of call sites missed these. | §4.2 records the reach. `DeleteGuardCaseTests` (net48, sync and async), red with the old body and green with the fix. A Changelog Changed entry. The guard's over-broad substring patterns are pre-existing on every build; tightening them is the owner's call. |
-| FVC-2 | nit | PLAN-GAP | Rev 19 of the cold-cache plan widened AC8/AC9 to all four providers, but its §4.2 and §4.3 still scoped "No D3", "D3 in only one method", "D1 after `ResolveRemoteJoins`" and the AC9 member rows to the server providers. | That plan's rev 20, citing the non-author SQLite runs (§9.12's lenses and this one). |
+| FVC-2 | nit | PLAN-GAP | Rev 19 of the cold-cache plan widened AC8/AC9 to all four providers, but its §4.2 and §4.3 still scoped "No D3", "D3 in only one method", "D1 after `ResolveRemoteJoins`" and the AC9 member rows to the server providers. | That plan's rev 20; its citations are corrected in its rev 21 (§9.14 FVD-1). |
+
+### 9.14 Fix-verification of `32674c7..69ba3bb` (non-author; net48 red/green and suite; IL scan of every build; a SQLite netstandard2.0 runtime probe; the cold-cache SQLite mutants re-run)
+
+The net48 pin and the binding claim hold: every netstandard2.0 build and the net48 SQL Server build call
+`GeneralExtensions.Contains` from the guard; every net8.0 build calls the BCL overload. net48 78/78. On SQLite it
+re-ran, with outputs recorded: "No D3" kills both AC9 rows ("no such column: ZzProbePkId"); D3 kept only in
+`Delete` kills the async row, and only in `DeleteAsync` the sync row; "D1 after `ResolveRemoteJoins`" kills
+`GenerateWhereClause_Cold_RendersSnakeCaseColumns`. Verdict: NOT CLEAN. Blame: AC-GAP 1, TEST-GAP 1, PLAN-GAP 1.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| FVD-2 | low | AC-GAP | The Changelog and §4.2 described the guard change only through a column. The WHERE clause is table-qualified, so on netstandard2.0 and net48 a table whose name contains `True` now rejects predicate deletes whatever the column (net48 SQL Server and a SQLite netstandard2.0 probe on `zz_psfd_TrueUpLedger`, `Amount == 5`: deleted before, rejected after). | The Changelog and §4.2 say so; `Delete_OnATableNamedWithTrue_IsRejectedAsTrivial` (net48), red with the old body. |
+| FVD-3 | nit | TEST-GAP | `DeleteGuardCaseTests` counted rows after `RollbackTransaction()`, which undoes any delete, so "the delete runs, then the guard throws" passed. | Each row counts through the provider inside its transaction, before the rollback; that mutant fails all three rows. |
+| FVD-1 | nit | PLAN-GAP | Two of the cold-cache plan's rev 20 SQLite citations had no recorded run behind them: "No D3" cited the §9.12 tests/prose lens and §9.13, and "D1 after `ResolveRemoteJoins`" cited the §9.12 code lens. The saved artifacts hold no such runs; the run that killed "No D3" on SQLite was the §9.12 code lens. | Its rev 21 cites this verification's recorded runs for those two rows. The §9.13 FVC-2 disposition no longer names the runs. |
