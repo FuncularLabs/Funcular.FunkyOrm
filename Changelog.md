@@ -54,6 +54,25 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   in an instance method) was emitted as `NULL`. It's now the property's value, in the test and in the branches.
   The getter is now called while the query is translated (3.9.0 never called it), and one that throws is reported
   as `NotSupportedException`.
+- **Identifier caches were process-wide.** Table names, column names and the discovered and unmapped sets were
+  `static` on `OrmDataProvider`, shared by all four providers. Procedure names (SQL Server, MySQL) and compiled row
+  mappers were `static` per provider type. As a result:
+  - after SQL Server ran `Query<User>()`, PostgreSQL sent `[Key]`/`[User]` and failed with `42601`;
+  - for example, on SQLite, a second database of one provider type read the first one's table and column names, and
+    a column missing from the first came back `null` from the second;
+  - providers of one type with different dialect types shared names and row mappers: after a provider whose dialect
+    quotes every name built the mapper, the default provider read `Id = 0`;
+  - a procedure name resolved against one database answered for another.
+
+  Each provider instance now reads its own scope's caches: its runtime type, its dialect's runtime type and its
+  connection identity.
+- **Two entity types with the same simple name shared column-name cache entries.** The key was `TypeName.Property`.
+  It now uses the declaring type's full name, and keys compare ordinally, so `Outer_X.Thing` and `OuterX.Thing` no
+  longer collide.
+- **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
+  property whose column differs by underscores (`Label` → `la_bel`) is queryable.
+- **SQL Server: `ComputeColumnName` read a cache entry keyed by the bare property name,** which a same-named property
+  on another type could set. It no longer reads one.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -115,6 +134,38 @@ Other changes:
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
   such an entity already failed in 3.9.0.)
+- **Cache scopes.** The identity is the constructor's connection string (or, when that is empty, the supplied
+  connection's string) as the provider's builder writes it, with `Password` removed. So:
+  - strings that differ only in the password, under `Password` or a synonym the builder maps to it, share a scope;
+  - other differences (server, database, user, `Search Path`, `Options`, `Application Name`, a timeout) make another
+    scope;
+  - a string the builder rejects is used as given.
+
+  The registry stores the identity as a SHA-256 of its UTF-8 bytes and never removes a scope.
+- **Each new scope starts cold:** it discovers its tables and columns and builds its row mappers on first use. To vary
+  a session value without a new scope, use `AuditContext` (SQL Server, PostgreSQL, MySQL). Keep settings that change
+  name resolution, such as `search_path`, in the connection string: after a `SET`, the scope would hold another
+  schema's names. Each distinct `Application Name` or timeout value is its own scope.
+- **SQLite:** `:memory:`, `Mode=Memory` (shared cache included) and an empty data source get an unregistered scope per
+  provider instance. A provider created per operation on such a database repeats discovery each time.
+- **First cache use of each new built-in provider instance** parses its connection string with the provider's builder
+  once and, unless the scope is per-instance, computes one SHA-256.
+- **SQLite's SQL uses the database's spelling of convention-mapped columns** (`"country_0".name`, where 3.9.0 emitted
+  `.Name`).
+- **A custom SQLite dialect's `EncloseIdentifier` must leave an already-enclosed name unchanged** (`E(E(x)) = E(x)`).
+  SQLite passes cached, enclosed names through it again; a dialect that wraps unconditionally emits `[[Id]]` and fails.
+  SQLite's mapper strips a matching `"…"`, `[…]` or backtick pair from a cached name.
+- **Binary-breaking for `OrmDataProvider` subclasses:**
+  - removed: `_tableNames`, `_columnNames`, `_mappedTypes`, `_unmappedPropertiesCache`, and SQL Server's
+    `GetColumnOrdinals`;
+  - added: protected `TableNameCache`, `ColumnNameCache`, `UnmappedPropertyCache`, `MappedTypes`,
+    `EntityMapperCache` and `ProcedureNameCache`, plus `protected virtual` `CacheScopeIdentity` and
+    `CacheScopeDialectType`;
+  - providers' `GetUnmappedProperties<T>(Type)` are instance methods.
+
+  A direct subclass that doesn't override `CacheScopeIdentity` gets one scope per provider type.
+- **`ToDictionaryKey()`** returns `{DeclaringType.FullName}.{Name}`.
+- PostgreSql, MySql and Sqlite grant `InternalsVisibleTo` to `Funcular.Data.Orm.SqlServer.Tests`.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
