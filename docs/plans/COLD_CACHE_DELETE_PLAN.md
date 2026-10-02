@@ -8,12 +8,12 @@
 >   target `development/3.10`; see Task 4.
 > - Recorded in the 3.10 plan's §8, "MySQL `Delete<T>(predicate)` on a cold column cache".
 
-> **Status (2026-10-01):** rev 8, the test plan after the seventh Task 0 review (§9.7). The §9.6 reviewer ran the
-> implementer's own tests:
-> - every expected-red row was red at the seam for its stated reason, and every other row was green there;
-> - every row was green with a faithful D1–D3;
-> - every §4.2 mutant was killed on its listed providers;
-> - the §4.3 faithful-build numbers reproduced exactly.
+> **Status (2026-10-01):** rev 9, the test plan after the eighth Task 0 review (§9.8).
+> - The §9.6 reviewer ran the implementer's own tests:
+>   - every expected-red row was red at the seam for its stated reason, and every other row was green there;
+>   - every row was green with a faithful D1–D3;
+>   - every §4.2 mutant was killed on its listed providers;
+>   - the §4.3 faithful-build numbers reproduced exactly.
 > - Task 1 landed the pass-through seam at `dd121c5`. The rev 4 and rev 5 rows are written (uncommitted) and each
 >   was run alone there:
 >   - every expected-red row is red for its stated reason;
@@ -21,6 +21,9 @@
 >   - with the class included, only expected-red rows fail in the four full suites.
 > - The rev 5 reviewer's own faithful D1–D3 turned every row green, and killed every §4.2 mutant on the providers
 >   listed.
+
+> **Revision 9 — what changed (re-check J1–J2):** documents only. The guard-coverage bullet takes the reviewer's
+> text verbatim (J1); the Status block is split so each bullet keeps its own subject (J2).
 
 > **Revision 8 — what changed (re-check I1–I3):** documents only. The guard-line clause (I1); the Status bullet
 > scoped to what was run (I2); H2's deferral tracked in Task 2 (I3).
@@ -218,9 +221,10 @@
     `MySqlException` 1146, PostgreSQL `PostgresException` 42P01) instead of D3's `InvalidOperationException`.
 - **Not red at base:** the guard rows and the no-match row are green at `fae4472`.
   - The guard rows kill mutants (§4.2).
-  - Only SQL Server's async guard row also covers a line, its throw at `:337` *(rev 7, H1)*. Every other guard is
-    one line, except SQL Server's sync guard, whose throw `:894` is already covered at base by
-    `Delete_ById_ThrowsIfNoTransaction` *(rev 8, I1)*.
+  - Only SQL Server's async guard row covers a line no other row covers: its throw at `:337` *(rev 7, H1; rev 8,
+    I1)*. Every other guard's lines are reached by other rows too. A one-line guard is reached by any row that
+    calls the method (the AC9 rows, or SQLite's execution row). SQL Server's sync throw `:894` is covered at base
+    by `Delete_ById_ThrowsIfNoTransaction` *(rev 9, J1)*.
   - The no-match row only covers a line (§4.3).
   - The direct helper rows can fail only once the pass-through seam exists (`dd121c5`), since the helper
     (`protected internal`) doesn't exist at `fae4472` *(rev 5, F5)*.
@@ -307,7 +311,7 @@ Local runs are recorded with their sha.
 
 ## 5. Tasks
 
-1. **Task 0** — test-plan review: revs 1–7 NOT CLEAN (§9.1–§9.7). Rev 8 is re-checked on its diff.
+1. **Task 0** — test-plan review: revs 1–8 NOT CLEAN (§9.1–§9.8). Rev 9 is re-checked on its diff.
 2. **Task 1** — red tests (§4.1).
    - The pass-through seam is committed at `dd121c5`: `protected internal UnmappedPropertiesFor<T>()` at every listed
      site.
@@ -448,3 +452,12 @@ Verdict: NOT CLEAN on three nits, all in the rev 7 text. H1's measured claims ar
 | I1 | nit | PLAN-GAP | Fix-introduced: "`:337`, the only guard whose throw is on its own line" is false. SQL Server's sync guard throws on `:894`, already covered at base by `Delete_ById_ThrowsIfNoTransaction`. | The reviewer's wording. |
 | I2 | nit | PLAN-GAP | Fix-introduced. The Status bullet said every row was red at the seam (10 are green by design); it dropped "on the listed providers"; and it claimed the §4.3 base numbers were reproduced, though only the faithful-build numbers were. | The reviewer's wording. |
 | I3 | nit | PLAN-GAP | H2's deferral read as done, and §5's Task 2 didn't carry it. | "To be reworded"; Task 2 lists it. |
+
+### 9.8 Narrow re-check of rev 8 (`e4ce919..2aef8c6`; non-author; committed content and the §9.6 artifacts, read-only)
+
+Verdict: NOT CLEAN on two nits, both from rev 8's own rewording. I1–I3 resolved.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| J1 | nit | PLAN-GAP | Fix-introduced: "Only SQL Server's async guard row also covers a line" read as exclusive against base. The MySQL, PostgreSQL and SQLite guards run lines that are uncovered at base, though other rows reach them too. | The reviewer's replacement text, verbatim. |
+| J2 | nit | PLAN-GAP | Fix-introduced: the lead-in "The §9.6 reviewer ran …" was the parent of every Status bullet, including two that reviewer didn't run. | That reviewer's results are nested under their own bullet. |
