@@ -8,14 +8,20 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 8. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
-> Task 2 carries rev 6 (§5.2), Task 3 carries rev 7 (§5.3). Task 4's review of `ca82741..921c995` (§9.6) found 7;
-> this revision's fix layer answers them (§5.4), and its fix-verification is next.
+> **Status (2026-10-03):** rev 9. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
+> Task 2 carries rev 6 (§5.2), Task 3 carries rev 7 (§5.3). Task 4's review of `ca82741..921c995` (§9.6) found 7,
+> answered by `6014d8c` (rev 8, §5.4); its fix-verification (§9.7) found 2, answered by this revision's layer (§5.5);
+> fix-verification 2 is next.
 
 > **Owner directive (2026-10-03, answering T4-1 and T4-3):** stop accommodating edge-case parameters; reject a shape
 > that needs an operation or evaluation with `NotSupportedException` and require a plain value, whenever that
 > shortens the work. When a shape "worked" before, ask whether that meant it didn't throw or that it prevented a
 > wrong delete; for the first, reject it and say so in the Changelog.
+
+> **Revision 9 — what changed (Task 4 fix-verification 1, FV1-1, FV1-2):** the Changelog names the shapes that worked
+> before and now throw as examples, not a complete list, Guid among them, with the `Guid.Parse` advice there and in
+> Usage; D4 says its reason is what a cast would give (FV1-1). §5.4's coverage is re-measured on fresh builds
+> (FV1-2).
 
 > **Revision 8 — what changed (Task 4 round 1, T4-1…T4-7):** D5: the delete guard reads a self-comparison through
 > a no-argument `ToString()` (owner, T4-1), AC12 and rows. D4: `.Value.ToString()`'s message gives D4's rule where the
@@ -154,7 +160,7 @@ workaround this change removes.
     (U+2212 `−5` under fi-FI, sv-SE, nb-NO, eu-ES; a bidi mark under fa-IR, ar-SA, he-IL), and the documents say so.
   - A `string` column is sent as itself, as today.
   - Any other column type (`decimal`, `double`, `float`, `bool`, `DateTime`, `DateTimeOffset`, `DateOnly`, `TimeOnly`,
-    `Guid`, an enum, `char`, …) throws `NotSupportedException`: the database's text for it isn't .NET's (`1.50` vs a
+    `Guid`, an enum, `char`, …) throws `NotSupportedException`: a cast to text wouldn't give .NET's text (`1.50` vs a
     culture's `1,50` or a scale's `1.5`; `1` vs `True`; an upper-case Guid on SQL Server; an enum's number vs its
     name). The message starts "ToString() on a column of type" and says to compare the column's value; it differs
     from I1-6's rejection ("ToString() is translated only on a property of the entity…"), which the merged rows tell
@@ -166,8 +172,12 @@ workaround this change removes.
   - `x.N.Value.ToString()` on a nullable column throws `NullableExpressionException` (owner decision 2026-10-03,
     L0-2): with the guidance of `x.N.Value == 7` on an integer column with no argument, and otherwise with the rule
     above that rejects the property's own `ToString()` (rev 8, T4-2).
-  - A `char` column and a `string` column with an argument are rejected with the rest (D4 above). Both returned C#'s
-    rows on all four before; under the owner's directive they stay rejected, and the Changelog says so (rev 8, T4-3).
+  - A `char` column and a `string` column with an argument are rejected with the rest (D4 above). Before, the dropped
+    `ToString()` let the database compare the column's value with the text, and some of the shapes D4 rejects
+    returned C#'s rows: those two on all four, a `Guid` compared with its lower-case text, a `decimal` at its column's
+    scale and `ToString(CultureInfo.InvariantCulture)` on an integer on SQL Server, MySQL and SQLite, a `bool?` on SQL
+    Server (the Task 4 reviewer's probes at `ca82741`, §9.6, §9.7). Under the owner's directive they stay rejected; the
+    Changelog names them as examples, not a complete list (rev 8, T4-3; rev 9, FV1-1).
   - A receiver that isn't a column keeps today's translation here (I1-6 owns it).
   - The same rules hold in a projection.
   - The cast text lives in each translator, not in `ISqlDialect` (D1's note on public interfaces).
@@ -461,8 +471,17 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
   guard), each killed by the rows §4.3 names.
 - Suites, all passing: SqlServer.Tests 2020, PostgreSql.Tests 1157, MySql.Tests 1110, Sqlite.Tests 800, DotNet9 5,
   net48 79.
-- Coverage, the four suites under coverlet: `LikePattern.cs` 14 / 14; `DeletePredicateGuard.cs` 536 / 582
-  (92.10 %); the translators 259 / 273 (94.87 %), 259 / 270 (95.93 %), 259 / 270 (95.93 %) and 271 / 296 (91.55 %).
+- Coverage, the four suites under coverlet, every test project rebuilt first (rev 9, FV1-2: the first measurement
+  ran Sqlite.Tests on Task 2's binaries and the others on a build older than the commit, and the union inflated two
+  totals): `LikePattern.cs` 14 / 14; `DeletePredicateGuard.cs` 449 / 457 (98.25 %); the translators 259 / 273
+  (94.87 %), 259 / 270 (95.93 %), 259 / 270 (95.93 %) and 263 / 271 (97.05 %). In that run SqlServer.Tests had 3
+  failures, unnamed (the coverage run keeps no trx); a re-run at once passed 2020 / 2020, and the Task 4 reviewer saw
+  another process running the suites against the same databases in that window.
+
+### 5.5 Task 4, fix-verification 1 (the commit that carries rev 9)
+
+- FV1-1 is a document finding: the Changelog's "Changed" entry for `ToString()`, `Usage.md`'s advice and D4. FV1-2
+  corrects §5.4's record. No code or test changes.
 
 ## 6. Out of scope (recorded)
 
@@ -572,3 +591,13 @@ TEST-GAP 2, PLAN-GAP 3, OTHER 1.
 | T4-5 | nit | TEST-GAP | Two §4.3 variants survived | Two branch rows; mutations. |
 | T4-6 | low | PLAN-GAP | The cast can't use an index | Disclosed in the Changelog and Usage. |
 | T4-7 | nit | OTHER | §5.2: the PostgreSQL and MySQL `person` rows | Recorded. |
+
+### 9.7 Task 4 fix-verification 1 of `921c995..6014d8c` (non-author; suites rebuilt and re-run; coverage re-measured; 10 mutants of its own; the full probe set before and after the layer, and the "worked before" shapes at `ca82741`)
+
+Verdict: NOT CLEAN; one blocking finding and one record nit. T4-1, T4-2 and T4-4…T4-7 resolved; T4-3 partial
+(FV1-1). Blame: PLAN-GAP 1 (introduced by T4-3's fix), OTHER 1.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FV1-1 | low | PLAN-GAP | The Changelog's list of shapes that worked before; D4's Guid reason | Examples, not a complete list, Guid named, with `Guid.Parse` advice; D4's reason is the cast's text. |
+| FV1-2 | nit | OTHER | §5.4's coverage, from stale builds | Re-measured on rebuilt projects. |

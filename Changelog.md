@@ -237,15 +237,21 @@ Other changes:
   Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
   rejected, now with that message instead of "…must reference at least one column from the target table."
 - **`ToString()` on a property is translated only on an integer or `string` property, with no argument** (see
-  Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, …), and with any argument
-  (a format string or a format provider, `CultureInfo.InvariantCulture` included), it now throws
-  `NotSupportedException`, because the database's text isn't .NET's (`1.50` for a `DECIMAL(10,2)` holding `1.5m`,
-  `1` for `true`); compare the property's value instead. Before, these compared the column's value with the text (on
-  PostgreSQL a column that isn't text failed with `42883`), and in a projection a column that isn't text threw
-  `InvalidCastException` on SQL Server, PostgreSQL and MySQL and gave text unlike .NET's on SQLite. Some returned C#'s
-  rows and now throw: `x.Code.ToString(CultureInfo.InvariantCulture) == "7"` on SQL Server, MySQL and SQLite, and on
-  all four providers, in a WHERE clause and in a projection, `ToString()` on a `char` property and `ToString` with an
-  argument on a `string` property (`x.Name.ToString(CultureInfo.InvariantCulture)`).
+  Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, `char`, …), and with any
+  argument (a format string or a format provider, `CultureInfo.InvariantCulture` included, on a `string` property
+  too), it now throws `NotSupportedException`: a cast to text wouldn't give .NET's text (`1.50` for a
+  `DECIMAL(10,2)` holding `1.5m`, `1` for `true`). Compare the property's value instead; for a `Guid` key, write
+  `x.Id == Guid.Parse(idText)`. Before, the `ToString()` was dropped and the column's value compared with the text,
+  and some of these shapes returned C#'s rows; they now throw too. Among them (not a complete list):
+  - on all four providers: `ToString()` on a `char` property, and `ToString` with an argument on a `string`
+    property (`x.Name.ToString(CultureInfo.InvariantCulture)`), in a WHERE clause and in a projection;
+  - on SQL Server, MySQL and SQLite: `x.Id.ToString() == idText` on a `Guid` key compared with its lower-case text;
+    `x.Amount.ToString() == "1.50"` on a `decimal` at the column's scale (`== "1.5"` matched the same row, unlike C#);
+    `x.Code.ToString(CultureInfo.InvariantCulture) == "7"`;
+  - on SQL Server: `x.Flag.ToString() == "True"` on a `bool?`.
+
+  On PostgreSQL a column that isn't text failed with `42883`; in a projection such a column threw
+  `InvalidCastException` on SQL Server, PostgreSQL and MySQL and gave text unlike .NET's on SQLite.
 - **`x.N.Value.ToString()` on a nullable property throws `NullableExpressionException`**, as `x.N.Value == 7` does;
   SQL Server, MySQL and SQLite sent it as the column before. On an integer property the message says to write
   `x.N.ToString()`; on any other type, or with an argument, it says that `ToString()` isn't translated there either
