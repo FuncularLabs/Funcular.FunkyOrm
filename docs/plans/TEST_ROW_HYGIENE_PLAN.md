@@ -10,9 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 4. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 5. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
-> rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded in here. Task 1 is next.
+> rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
+> Rev 5 records Task 1 (§5); Task 2 is next.
+
+> **Revision 5 — what changed (Task 1):** §5 records Task 1's red and green runs and its mutations.
 
 > **Revision 4 — what changed (Task 0 re-review, T2-1, T2-2):** `SeedEmployerChain` takes a country-name prefix, so
 > the ordering test controls name order (T2-1). M14 names both sites and the exact mutant, and is reverted with a
@@ -379,6 +382,26 @@ the exact sha).
   - Green: implement D2/D3/D4; the cases pass on SQL Server, PostgreSQL and MySQL. Run M1–M8 and M12.
   - No existing test changes behaviour: nothing else calls the ledger yet, and the provider classes' fixtures aren't
     wired yet.
+  - **Record (the commit that carries rev 5):**
+    - Red: with the stubs, 6 of 6 failed on each provider (18). Green: 6 of 6 passed on each, guarded counts
+      unchanged around each run, and no other checkout's test host during the windows (§4.4). An earlier PostgreSQL
+      green attempt lost 2 cases to another session's suite writing during the window (`person` +81); rerun clean.
+    - Mutations, each in a window with unchanged counts and no other checkout's test host:
+
+      | Mutant | Provider | Failed (the named killer first) |
+      |---|---|---|
+      | M1 | SQL Server, PostgreSQL, MySQL | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt`, `Finish_AttemptsEveryDelete…` |
+      | M2 | SQL Server, PostgreSQL, MySQL | `Finish_DeletesTrackedRows_NewestFirst` |
+      | M3 | SQL Server | `Finish_AttemptsEveryDelete…` |
+      | M4 | PostgreSQL | `Finish_AttemptsEveryDelete…`; survives on SQL Server and MySQL, as §4.3 records |
+      | M5 | SQL Server | `Finish_Passes_WhenATrackedRowIsAlreadyGone` (and the three cases whose `finally` deletes an already-deleted row) |
+      | M6 (any table / no `Id`) | SQL Server | `Track_Rejects_AnEntityOutsideTheGuardedSet`, each |
+      | M7 | SQL Server | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt`, `Finish_AttemptsEveryDelete…` |
+      | M8 | SQL Server | `Tables_AreTheProvidersGuardedSet` |
+      | M12 | SQL Server | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt`, `Finish_AttemptsEveryDelete…` |
+
+      M7's and M12's mutant deletes were limited to `first_name LIKE 'ledger%'` (the cases' own markers), so a run
+      couldn't touch another writer's rows.
 - **Task 2 — SQL Server suite.**
   - Red 1: add the three wiring probes; run them. They fail (`Cleanup` doesn't fail yet).
   - Red 2: wire the D6 hooks (fixture, `SqlDataProviderIntegrationAsyncTests`, `StoredProcedureIntegrationTests`) and
