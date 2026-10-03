@@ -8,8 +8,15 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 3. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings, answered in rev 2
-> (`b58aea7`). Its re-review (§9.2) found 7; rev 3 answers them and is re-reviewed next. Nothing is implemented.
+> **Status (2026-10-03):** rev 4. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings, answered in rev 2
+> (`b58aea7`). Its re-review (§9.2) found 7, answered in rev 3 (`acb28e1`). Its re-review (§9.3) found 3; rev 4
+> answers them and is re-reviewed next. Nothing is implemented.
+
+> **Revision 4 — what changed (Task 0 re-review, L2-1…L2-3):** Task 4's merge notes: the column-test mutation stays
+> reachable after the merge and is killed by I1-6's rejection rows, so D4's message differs from I1-6's (L2-1); a
+> column's invariant text against a captured value's current-culture text is disclosed and pinned (L2-2); AC1's seam
+> class is the general rule (L2-3); I1-6's `AppendColumn` and `ToString_Column` test at the merge (from the I1-6
+> session).
 
 > **Revision 3 — what changed (Task 0 re-review, L1-1…L1-7):** AC10's row runs on all four providers with a shape
 > that holds on each (L1-1); Task 4's merge notes follow I1-6 as implemented, with the merged check order and the
@@ -123,8 +130,10 @@ method-call row uses it inside LIKE patterns", four copies) describes the workar
   - Any other column type (`decimal`, `double`, `float`, `bool`, `DateTime`, `DateTimeOffset`, `DateOnly`, `TimeOnly`,
     `Guid`, an enum, `char`, …) throws `NotSupportedException`: the database's text for it isn't .NET's (`1.50` vs a
     culture's `1,50` or a scale's `1.5`; `1` vs `True`; an upper-case Guid on SQL Server; an enum's number vs its
-    name). The message says to compare the column's value. The owner's "cast to text", narrowed to the types a cast
-    matches; the Task 0 reviewer confirmed the integer types at their bounds on all four (§9.1).
+    name). The message starts "ToString() on a column of type" and says to compare the column's value; it differs
+    from I1-6's rejection ("ToString() is translated only on a property of the entity…"), which the merged rows tell
+    apart (§5, §9.3). The owner's "cast to text", narrowed to the types a cast matches; the Task 0 reviewer confirmed
+    the integer types at their bounds on all four (§9.1).
   - `ToString` with any argument on a column (a format string, an `IFormatProvider`, `CultureInfo.InvariantCulture`)
     throws `NotSupportedException` (owner decision 2026-10-03, L0-7). `x.Code.ToString(CultureInfo.InvariantCulture)`
     worked on SQL Server, MySQL and SQLite and now throws; the Changelog says so.
@@ -149,7 +158,9 @@ method-call row uses it inside LIKE patterns", four copies) describes the workar
     `NullableExpressionException`; the SQL text carries `ESCAPE '!'`.
   - Changelog New public API: `LikePattern` in `Funcular.Data.Orm.Linq`.
   - `Usage.md` "The `LIKE` Clause" (`:517-530`): the value is matched literally, wildcards included; the SQL comments
-    show `ESCAPE '!'`; a column's `ToString()` is an integer column's text in the invariant form; the troubleshooting
+    show `ESCAPE '!'`; a column's `ToString()` is an integer column's text in the invariant form, so a value it is
+    compared with should be built with `CultureInfo.InvariantCulture` before the query (a captured
+    `n.ToString()` is formatted in the current culture, as C# does); the troubleshooting
     item 2 list stays true; `Usage.md:120`'s `.Value` rule now also covers `ToString()`.
   - The delete guard's caveat (Changelog Fixed, `Usage.md` item 4 Warning, `DELETE_GUARD_PLAN.md` §6) drops the
     unescaped-wildcard clause ("doesn't escape `%` or `_`"; §6's "`%`, `_` or `[`") and the `s.Contains("_")`
@@ -226,7 +237,7 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 
 | AC | Test | SQL Server | PostgreSQL | MySQL | SQLite | Class at the seam |
 |---|---|---|---|---|---|---|
-| AC1 | `ColumnStringMethods_QuerySelectsWhatCSharpSelects` [`Contains`: `_`, `%`, `[`, `]`, `!`, a backslash, `[x]`, `a_`, `x`, `""`; `StartsWith`: `a_`, `a%`, `a[`, `a!`, `a` and a backslash, `a`; `EndsWith`: `_b`, `%b`, `[b`, `!b`, a backslash and `b`, `b`; each as a literal (`…Lit`) and, for `_`, `%`, `[`, `!` and a backslash, as a captured variable (`…Cap`)] | ✓ | ✓ | ✓ | ✓ | Red where the seam's rows differ from C#'s: §1's shapes, `a_` on all four, `a[` and `[b` on SQL Server, `a` and a backslash on PostgreSQL and MySQL (`!` rows are Guard); Guard for the rest. Task 1 records each row's class |
+| AC1 | `ColumnStringMethods_QuerySelectsWhatCSharpSelects` [`Contains`: `_`, `%`, `[`, `]`, `!`, a backslash, `[x]`, `a_`, `x`, `""`; `StartsWith`: `a_`, `a%`, `a[`, `a!`, `a` and a backslash, `a`; `EndsWith`: `_b`, `%b`, `[b`, `!b`, a backslash and `b`, `b`; each as a literal (`…Lit`) and, for `_`, `%`, `[`, `!` and a backslash, as a captured variable (`…Cap`)] | ✓ | ✓ | ✓ | ✓ | Red where the seam's rows differ from C#'s (every row with `_`, `%` or `[`, and on PostgreSQL and MySQL a backslash, as §1 shows; `!` rows are Guard); Guard for the rest. Task 1 records each row's class |
 | AC1 | `ColumnStringMethods_DeleteDeletesWhatCSharpSelects` [`Contains` `_`, `%`, `[`, `!`, a backslash; `StartsWith("a%")`; `EndsWith` a backslash and `b`; `Contains("x")`; literal and captured] | ✓ | ✓ | ✓ | ✓ | Red as above |
 | AC2 | `CapturedStringContains_SelectsWhatCSharpSelects` [`_`, `%`, `[a]`, and `b` by Query only], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red for `_` and `%` on all four and `[a]` on SQL Server; Guard for the rest |
 | AC3 | `IntegerColumnToString_ComparesAsText` [each of `i8`…`u64` at its minimum and maximum; `code07`, `code7`, `ncodeEmpty`, `ncode7`, `longName`], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red: every integer row on PostgreSQL (42883); elsewhere `code07`, `ncodeEmpty` and each row whose text the database's conversion matches differently; `longName` Guard |
@@ -296,17 +307,24 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
    and I1-6 land there), re-run the suites, and merge into `development/3.10` before the beta PR. At that merge:
    - I1-6's D4 evaluates a captured string `Contains` in C#, so D3's captured-receiver escaping becomes unreachable;
      AC2's rows then pass through that path, and §4.3's "captured receiver not escaped" row is retired.
-   - I1-6's `ToString` branch (as implemented at `d37f719`) evaluates any row-independent receiver in C#, then sends
-     the rest to its column check, which throws `NotSupportedException` for a receiver that isn't `x.Prop`,
-     `x.N.Value` included. The merged order is: I1-6's evaluator; this branch's `.Value` check
-     (`NullableExpressionException`, the owner's decision); D4's cast or rejection for a column; I1-6's rejection
-     for anything else. AC11's `.Value` row pins the order.
-   - After the merge, AC10's `d` takes I1-6's evaluator, so D4's "a non-column keeps today's translation" no longer
-     applies: §4.3's "the column test accepts a captured member" row is retired, and AC10 stays as a row.
+   - I1-6's `ToString` branch (as implemented at `d37f719`) evaluates in C# every receiver the delete guard
+     evaluates, then sends the rest to its `AppendColumn`, which throws `NotSupportedException` for a receiver that
+     isn't `x.Prop`, `x.N.Value` included. The merged order is: I1-6's evaluator; this branch's `.Value` check
+     (`NullableExpressionException`, the owner's decision); D4's cast or rejection for a column (inside, or in place
+     of, `AppendColumn` for a property receiver); I1-6's rejection for anything else. AC11's `.Value` row pins the
+     order. I1-6's `ToString_Column` test, which pins `x.Id.ToString()` as the bare column, changes to the cast in
+     the merge commit.
+   - After the merge, AC10's `d` takes I1-6's evaluator. A captured value declared as `object`, an interface or a user
+     type still reaches the column test, so §4.3's "the column test accepts a captured member" row is killed by
+     I1-6's `Rejected_BeforeAnyCommand` rows for those receivers, which assert I1-6's message prefix; D4's message
+     stays distinct from it (§9.3).
    - I1-6 reads the `Contains` value at one site, so §4.3's two per-site rows become one.
-   - The merge commit adds a row to this branch's harness for `x.Code.ToString() == n.ToString()` with a captured
+   - The merge commit adds rows to this branch's harness for `x.Code.ToString() == n.ToString()` with a captured
      `int n` (Query, all four): on PostgreSQL the seam returns row 1 and this branch alone sends `text = integer`
-     (42883); it passes once I1-6's D7 evaluates the captured `ToString()` (§9.1, §9.2).
+     (42883); it passes once I1-6's D7 evaluates the captured `ToString()` (§9.1, §9.2). And, under the fi-FI current
+     culture, `x.Big.ToString() == negFive.ToString()` with `long negFive = -5`: the column's invariant `-5` doesn't
+     equal the captured `−5`, so it selects nothing on all four while C# selects the row; the row pins that
+     documented difference (D6, §9.3).
    - I1-6's D8 null branch runs before escaping.
 
 ## 6. Out of scope (recorded)
@@ -324,6 +342,10 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
     D4 evaluates a captured `Contains` in C#;
   - the `StringComparison` overloads of `Contains`/`StartsWith`/`EndsWith` are translated with their comparison
     dropped.
+- **A column's `ToString()` against a captured value's culture.** After the merge, a comparison of a column's
+  `ToString()` (invariant text, D4) with a captured value's `ToString()` (current culture, I1-6's D7) differs from C#
+  under a culture whose number text isn't invariant (§5, §9.3). I1-6 rejects `n.ToString(CultureInfo.InvariantCulture)`
+  (its D14), so the text is built before the query; D6 says so.
 - **A long pattern on SQL Server.** `LIKE` patterns are limited to 8,000 bytes there; escaping can double a value's
   length, so a value of many metacharacters (`Contains(new string('_', 3000))`) that worked at the seam fails with
   "String or binary data would be truncated" (§9.1).
@@ -372,3 +394,14 @@ L0-9 partial. Blame: AC-GAP 1, TEST-GAP 2, PLAN-GAP 4.
 | L1-5 | low | PLAN-GAP | §4.1 seam classes | Corrected. |
 | L1-6 | nit | PLAN-GAP | §6: `CHAR(n)` | Providers named. |
 | L1-7 | nit | PLAN-GAP | D6: `.Value.ToString()` | Said to have worked before. |
+
+### 9.3 Task 0 re-review of rev 3 (`acb28e1`; non-author; the column-test mutation on all four; a merged prototype of `fix/where-captured-values` at `d37f719` plus rev 3's D1–D4)
+
+Verdict: NOT CLEAN; two blocking findings and one nit. L1-1 and L1-3…L1-7 resolved; L1-2 partial. Blame: AC-GAP 1,
+PLAN-GAP 2.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| L2-1 | low | PLAN-GAP | §5 Task 4: the column-test row "retired" after the merge | Killed by I1-6's rejection rows; D4's message stays distinct; "every receiver the delete guard evaluates". |
+| L2-2 | low | AC-GAP | The merged column-versus-captured `ToString()` under a non-invariant culture | Disclosed in D6 and §6; a fi-FI merge-time row. |
+| L2-3 | nit | PLAN-GAP | §4.1: AC1's seam class | The general rule. |
