@@ -8,8 +8,14 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 2. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings; rev 2 answers them and
-> is re-reviewed next. Nothing is implemented.
+> **Status (2026-10-03):** rev 3. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings, answered in rev 2
+> (`b58aea7`). Its re-review (§9.2) found 7; rev 3 answers them and is re-reviewed next. Nothing is implemented.
+
+> **Revision 3 — what changed (Task 0 re-review, L1-1…L1-7):** AC10's row runs on all four providers with a shape
+> that holds on each (L1-1); Task 4's merge notes follow I1-6 as implemented, with the merged check order and the
+> rows that move (L1-2); AC11's assertion names the provider's exception type (L1-3); the fi-FI row is a pin, not a
+> killer (L1-4); seam classes corrected (L1-5); §6's `CHAR(n)` bullet names its providers (L1-6); D6 says
+> `.Value.ToString()` worked before (L1-7).
 
 > **Revision 2 — what changed (Task 0, L0-1…L0-15):** projections share the translator and get an AC, rows and
 > Changelog lines (L0-1); `.Value.ToString()` throws `NullableExpressionException` and every `ToString` argument on a
@@ -139,7 +145,8 @@ method-call row uses it inside LIKE patterns", four copies) describes the workar
   - Changelog Changed: `ToString()` on a column of any other type, and `ToString` with any argument on any column
     (including `CultureInfo.InvariantCulture`, which worked on SQL Server, MySQL and SQLite), now throw
     `NotSupportedException`; in a projection they threw `InvalidCastException` on three providers and gave .NET-unlike
-    text on SQLite; `x.N.Value.ToString()` throws `NullableExpressionException`; the SQL text carries `ESCAPE '!'`.
+    text on SQLite; `x.N.Value.ToString()`, which selected the right rows on SQL Server, MySQL and SQLite, throws
+    `NullableExpressionException`; the SQL text carries `ESCAPE '!'`.
   - Changelog New public API: `LikePattern` in `Funcular.Data.Orm.Linq`.
   - `Usage.md` "The `LIKE` Clause" (`:517-530`): the value is matched literally, wildcards included; the SQL comments
     show `ESCAPE '!'`; a column's `ToString()` is an integer column's text in the invariant form; the troubleshooting
@@ -176,10 +183,13 @@ method-call row uses it inside LIKE patterns", four copies) describes the workar
 - **AC9 — Projections.** In `Select(x => new LRow { Id = x.Id, Label = … })`, `x.Code.ToString()`,
   `x.NCode.ToString()`, `x.Name.Contains("_") ? "y" : "n"` and `x.Name.StartsWith("a%") ? "y" : "n"` give C#'s value
   for every row, and `x.Amount.ToString()` and `x.Code.ToString("D2")` throw `NotSupportedException`, on all four.
-- **AC10 — A non-column receiver keeps today's translation.** `x => x.Id == 2 && d.ToString() == "1.5"` with
-  `decimal d = 1.5m` selects row 2 on SQL Server, MySQL and SQLite, as today.
-- **AC11 — `.Value` and culture.** `x.NCode.Value.ToString() == "7"` throws `NullableExpressionException`; under the
-  fi-FI current culture `x.Big.ToString() == "-5"` still selects the `-5` row (the invariant text), on all four.
+- **AC10 — A non-column receiver keeps today's translation.** `x => x.Id == 2 && d.ToString() == d.ToString()` with
+  `decimal d = 1.5m` selects row 2 on all four, as today (the D4 column rules don't apply to `d`).
+- **AC11 — `.Value` and culture.** `x.NCode.Value.ToString() == "7"` throws the provider's
+  `NullableExpressionException` (each provider assembly defines its own: the row asserts the exception's full name,
+  that its assembly is the provider's, and its message; a base-type assertion would also accept the delete guard's
+  `InvalidOperationException`); under the fi-FI current culture `x.Big.ToString() == "-5"` still selects the `-5` row
+  (the invariant text), on all four.
 
 ## 4. Test plan
 
@@ -216,14 +226,14 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 
 | AC | Test | SQL Server | PostgreSQL | MySQL | SQLite | Class at the seam |
 |---|---|---|---|---|---|---|
-| AC1 | `ColumnStringMethods_QuerySelectsWhatCSharpSelects` [`Contains`: `_`, `%`, `[`, `]`, `!`, a backslash, `[x]`, `a_`, `x`, `""`; `StartsWith`: `a_`, `a%`, `a[`, `a!`, `a` and a backslash, `a`; `EndsWith`: `_b`, `%b`, `[b`, `!b`, a backslash and `b`, `b`; each as a literal (`…Lit`) and, for `_`, `%`, `[`, `!` and a backslash, as a captured variable (`…Cap`)] | ✓ | ✓ | ✓ | ✓ | Red for each row §1 shows wrong on that provider (`!` rows are Guard); Guard for the rest |
+| AC1 | `ColumnStringMethods_QuerySelectsWhatCSharpSelects` [`Contains`: `_`, `%`, `[`, `]`, `!`, a backslash, `[x]`, `a_`, `x`, `""`; `StartsWith`: `a_`, `a%`, `a[`, `a!`, `a` and a backslash, `a`; `EndsWith`: `_b`, `%b`, `[b`, `!b`, a backslash and `b`, `b`; each as a literal (`…Lit`) and, for `_`, `%`, `[`, `!` and a backslash, as a captured variable (`…Cap`)] | ✓ | ✓ | ✓ | ✓ | Red where the seam's rows differ from C#'s: §1's shapes, `a_` on all four, `a[` and `[b` on SQL Server, `a` and a backslash on PostgreSQL and MySQL (`!` rows are Guard); Guard for the rest. Task 1 records each row's class |
 | AC1 | `ColumnStringMethods_DeleteDeletesWhatCSharpSelects` [`Contains` `_`, `%`, `[`, `!`, a backslash; `StartsWith("a%")`; `EndsWith` a backslash and `b`; `Contains("x")`; literal and captured] | ✓ | ✓ | ✓ | ✓ | Red as above |
 | AC2 | `CapturedStringContains_SelectsWhatCSharpSelects` [`_`, `%`, `[a]`, and `b` by Query only], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red for `_` and `%` on all four and `[a]` on SQL Server; Guard for the rest |
 | AC3 | `IntegerColumnToString_ComparesAsText` [each of `i8`…`u64` at its minimum and maximum; `code07`, `code7`, `ncodeEmpty`, `ncode7`, `longName`], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red: every integer row on PostgreSQL (42883); elsewhere `code07`, `ncodeEmpty` and each row whose text the database's conversion matches differently; `longName` Guard |
 | AC4 | `OtherColumnToString_IsRejected` [`amount`, `flag`, `codeD2`, `codeInvariant`], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red (no exception, or 42883 on PostgreSQL) |
-| AC9 | `Projection_GivesCSharpsValue` [`codeToString`, `ncodeToString`, `containsUnderscore`, `startsWithAPercent`] and `Projection_OtherColumnToString_IsRejected` [`amount`, `codeD2`] | ✓ | ✓ | ✓ | ✓ | Red (`InvalidCastException` on three providers, wrong values on SQLite) |
-| AC10 | `NonColumnReceiver_KeepsTodaysTranslation` [`x.Id == 2 && d.ToString() == "1.5"`], Query | ✓ | — | ✓ | ✓ | Guard |
-| AC11 | `NullableValueToString_IsRejected` (Query and Delete) and `IntegerToString_IsInvariantUnderFiFi` (Query) | ✓ | ✓ | ✓ | ✓ | Red (`.Value` is cast or dropped today; fi-FI row is Red on PostgreSQL only) |
+| AC9 | `Projection_GivesCSharpsValue` [`codeToString`, `ncodeToString`, `containsUnderscore`, `startsWithAPercent`] and `Projection_OtherColumnToString_IsRejected` [`amount`, `codeD2`] | ✓ | ✓ | ✓ | ✓ | Red (`InvalidCastException` on three providers; on SQLite wrong values, except `codeToString`, a Guard there) |
+| AC10 | `NonColumnReceiver_KeepsTodaysTranslation` [`x.Id == 2 && d.ToString() == d.ToString()`], Query | ✓ | ✓ | ✓ | ✓ | Guard |
+| AC11 | `NullableValueToString_IsRejected` (Query and Delete) and `IntegerToString_IsInvariantUnderFiFi` (Query; a culture-invariance pin, not a mutation killer: the cast happens in SQL) | ✓ | ✓ | ✓ | ✓ | Red (`.Value` is dropped today); the fi-FI row is Red on PostgreSQL only |
 | AC6 | the existing tests of §1 | ✓ (and net48) | ✓ | ✓ | ✓ | Guard |
 | AC7 | Task 4's review checks Task 3's diff against D6 and greps every document for the string methods and `ToString` | — | — | — | — | — |
 | AC8 | the suites, DotNet9, net48; coverlet | ✓ | ✓ | ✓ | ✓ | — |
@@ -265,7 +275,6 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
 | `ToString` with an `IFormatProvider` accepted on a column (per provider) | [`codeInvariant`] |
 | `.Value.ToString()` accepted (per provider) | `NullableValueToString_IsRejected` |
 | The column test accepts a captured member (per provider) | `NonColumnReceiver_KeepsTodaysTranslation` |
-| The cast uses .NET's current culture instead of the database's text | `IntegerToString_IsInvariantUnderFiFi` |
 
 ### 4.4 Where each tier runs
 
@@ -287,9 +296,17 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
    and I1-6 land there), re-run the suites, and merge into `development/3.10` before the beta PR. At that merge:
    - I1-6's D4 evaluates a captured string `Contains` in C#, so D3's captured-receiver escaping becomes unreachable;
      AC2's rows then pass through that path, and §4.3's "captured receiver not escaped" row is retired.
-   - `x.Code.ToString() == n.ToString()` with a captured `int n`: on PostgreSQL the seam returns row 1 and this
-     branch alone sends `text = integer` (42883), until I1-6's D7 evaluates the captured `ToString()`; the merged
-     suites re-run that row (§9.1).
+   - I1-6's `ToString` branch (as implemented at `d37f719`) evaluates any row-independent receiver in C#, then sends
+     the rest to its column check, which throws `NotSupportedException` for a receiver that isn't `x.Prop`,
+     `x.N.Value` included. The merged order is: I1-6's evaluator; this branch's `.Value` check
+     (`NullableExpressionException`, the owner's decision); D4's cast or rejection for a column; I1-6's rejection
+     for anything else. AC11's `.Value` row pins the order.
+   - After the merge, AC10's `d` takes I1-6's evaluator, so D4's "a non-column keeps today's translation" no longer
+     applies: §4.3's "the column test accepts a captured member" row is retired, and AC10 stays as a row.
+   - I1-6 reads the `Contains` value at one site, so §4.3's two per-site rows become one.
+   - The merge commit adds a row to this branch's harness for `x.Code.ToString() == n.ToString()` with a captured
+     `int n` (Query, all four): on PostgreSQL the seam returns row 1 and this branch alone sends `text = integer`
+     (42883); it passes once I1-6's D7 evaluates the captured `ToString()` (§9.1, §9.2).
    - I1-6's D8 null branch runs before escaping.
 
 ## 6. Out of scope (recorded)
@@ -301,7 +318,7 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
     matches `a` under a case-insensitive one), as an equality does; SQLite's `LIKE` ignores the column's collation and
     is ASCII case-insensitive unless `PRAGMA case_sensitive_like` is on; C#'s `Contains` is ordinal;
   - SQL Server ignores trailing spaces in `=` (`N'7' = N'7 '` holds), so `x.I32.ToString() == "7 "` matches a row;
-  - a `CHAR(n)` column's padding breaks `EndsWith`;
+  - a `CHAR(n)` column's padding breaks `EndsWith` on SQL Server and PostgreSQL (MySQL and SQLite match);
   - under the `SQL_Latin1_General_CP1_CI_AS` collation a supplementary-plane character in a pattern matches every row
     (`Contains("😀")` returned all rows), so `x.Id == 2 || s.Contains("😀")` gets past the delete guard until I1-6's
     D4 evaluates a captured `Contains` in C#;
@@ -340,3 +357,18 @@ PLAN-GAP 6.
 | L0-13 | low | PLAN-GAP | §1: AC6's list; the cold-cache comments | Completed; D6 updates the comments. |
 | L0-14 | low | PLAN-GAP | D1: `const` | `static readonly`. |
 | L0-15 | nit | PLAN-GAP | D6's quotes; `Usage.md`'s SQL comments | Folded in. |
+
+### 9.2 Task 0 re-review of rev 2 (`b58aea7`; non-author; a new prototype of rev 2 with 29 mutation switches; 243 cells per provider at the seam and on the prototype)
+
+Verdict: NOT CLEAN; five blocking findings and two nits. L0-1, L0-2, L0-4…L0-8 and L0-10…L0-15 resolved; L0-3 and
+L0-9 partial. Blame: AC-GAP 1, TEST-GAP 2, PLAN-GAP 4.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| L1-1 | medium | AC-GAP | AC10 left PostgreSQL out, so the column-test mutation survived there | `d.ToString() == d.ToString()` on all four. |
+| L1-2 | medium | PLAN-GAP | §5 Task 4 against I1-6 as implemented (`d37f719`) | The merged check order; the rows that retire or merge; the mixed row added at the merge. |
+| L1-3 | low | TEST-GAP | AC11: four `NullableExpressionException` types | The assertion names the provider's type. |
+| L1-4 | low | TEST-GAP | §4.3: the fi-FI row killed nothing new | A pin; its §4.3 row removed. |
+| L1-5 | low | PLAN-GAP | §4.1 seam classes | Corrected. |
+| L1-6 | nit | PLAN-GAP | §6: `CHAR(n)` | Providers named. |
+| L1-7 | nit | PLAN-GAP | D6: `.Value.ToString()` | Said to have worked before. |
