@@ -8,9 +8,14 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 5. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings, answered in rev 2
-> (`b58aea7`). Its re-review (§9.2) found 7, answered in rev 3 (`acb28e1`). Its re-review (§9.3) found 3, answered in
-> rev 4 (`ead9710`). Its re-review (§9.4) found 2; rev 5 answers them and is re-reviewed next. Nothing is implemented.
+> **Status (2026-10-03):** rev 6. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5) after five rounds (§9.1–§9.5). Task 1's
+> seam is `049e45e` (§5.1). Task 2 is the commit that carries this revision (§5.2). Task 3, the documents, is next.
+
+> **Revision 6 — what changed (Task 2):** AC8 needs a DB-free class: the harness rows reach 73 % of the SQL Server
+> translator and 68–69 % of the others, the rest being branches this change doesn't touch, so
+> `TranslatorBranchTests` pins them (18 rows per provider) and §4.1, §4.2 and Task 4 name it. A projection row writes
+> a null label as `(null)`, so it can't pass for `""` (found at the seam, §5.1). Row 6 is inserted through a
+> parameter. §5.1, §5.2 and §9.5 record Tasks 0–2.
 
 > **Revision 5 — what changed (Task 0 re-review, L3-1, L3-2):** Task 4 lists the five I1-6 tests that pin the
 > unescaped `LIKE` text and change at the merge, and §1 says no test on this branch pins it (L3-1); AC1's seam class
@@ -252,11 +257,11 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 | AC11 | `NullableValueToString_IsRejected` (Query and Delete) and `IntegerToString_IsInvariantUnderFiFi` (Query; a culture-invariance pin, not a mutation killer: the cast happens in SQL) | ✓ | ✓ | ✓ | ✓ | Red (`.Value` is dropped today); the fi-FI row is Red on PostgreSQL only |
 | AC6 | the existing tests of §1 | ✓ (and net48) | ✓ | ✓ | ✓ | Guard |
 | AC7 | Task 4's review checks Task 3's diff against D6 and greps every document for the string methods and `ToString` | — | — | — | — | — |
-| AC8 | the suites, DotNet9, net48; coverlet | ✓ | ✓ | ✓ | ✓ | — |
+| AC8 | the suites, DotNet9, net48; coverlet; and `TranslatorBranchTests` (DB-free, in SqlServer.Tests, one class per provider calling its translator directly): collection `Contains` errors, rejected string-method arguments, `ToString` on a nested, computed or null receiver, and the date members (rev 6) | ✓ | ✓ | ✓ | ✓ | Guard: the branch rows pin today's translation |
 
 DDL per provider: `flag` is `BIT` (SQL Server), `BOOLEAN` (PostgreSQL), `TINYINT(1)` (MySQL), `INTEGER` (SQLite);
-`amount` is `DECIMAL(10,2)` (`NUMERIC` on SQLite); `name` is 40 characters wide; row 6's backslash is written so each
-dialect stores one backslash (MySQL `CONCAT('a', CHAR(92), 'b')`). `zz_lt_num`'s columns use each dialect's type that
+`amount` is `DECIMAL(10,2)` (`NUMERIC` on SQLite); `name` is 40 characters wide; every row is inserted through
+parameters, so each dialect stores row 6's one backslash as given. `zz_lt_num`'s columns use each dialect's type that
 holds the .NET type's range (an unsigned type wider where the dialect has none; SQLite `INTEGER`, `u64` up to
 `long.MaxValue`).
 
@@ -266,6 +271,7 @@ holds the .NET type's range (an unsigned type wider where the dialect has none; 
 |---|---|
 | `LikePattern.Escape`, `EscapeCharacter`, `EscapeClause` | `LikePatternTests` |
 | Each translator's `TranslateMethodCall` (string `Contains` at both value sites, `StartsWith`, `EndsWith`, `ToString`) | the harness rows on that provider, WHERE and projection |
+| Each translator's other `TranslateMethodCall` branches and `TranslateDateMember` (untouched; AC8) | `TranslatorBranchTests` (rev 6) |
 
 **Coverage.** Coverlet per project; a file's coverage is the distinct lines across every cobertura `<class filename>`
 element for it, unioned across the four suites. Baselines at `ca82741` are recorded before Task 2.
@@ -338,6 +344,55 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
      equal the captured `−5`, so it selects nothing on all four while C# selects the row; the row pins that
      documented difference (D6, §9.3).
    - I1-6's D8 null branch runs before escaping.
+   - `TranslatorBranchTests` (rev 6) pins today's rejection messages for string `Contains`/`StartsWith` arguments and
+     today's translation of a `ToString` receiver that isn't a column; where I1-6 translates or rejects those shapes
+     with its own messages, the merge commit updates the row, and the merged suites re-measure AC8.
+
+### 5.1 Task 1 (`049e45e`)
+
+- The seam commit holds `LikePattern` alone (`Escape` returns its value, `EscapeClause` is `""`). The §4.1 tests land
+  with Task 2, the change that turns them green, so each commit is green on its own.
+- Each §4.1 row ran alone at the seam, one test process per row: 949 runs, 13 DB-free and 234 in each harness class
+  (SQL Server, SQLite, PostgreSQL, MySQL), with no filter error. Each matched its class in §4.1, and each Red row
+  failed for its stated reason: wrong rows selected or deleted (the wildcard rows; `code07` and `ncodeEmpty`),
+  `42883` on PostgreSQL (every integer row, the fi-FI row, AC4 and AC11), `InvalidCastException` in a projection on
+  SQL Server, PostgreSQL and MySQL, and no rejection before the SQL ran (AC4, AC11). The integer rows §4.1 leaves to
+  be recorded (each type at its bounds, `code7`, `ncode7`) are Guard on SQL Server, MySQL and SQLite: those databases
+  compare the text with the integer as a number.
+- One row was corrected before it was classed: `Projection_GivesCSharpsValue` wrote a null label and `""` alike, so
+  `ncodeToString` passed on SQLite at the seam; it now writes `(null)` and is Red there, as §4.1 says.
+- Baselines at `ca82741`, the four suites under coverlet (§4.2), every suite passing (1418, 905, 858, 800):
+
+| File | Lines covered |
+|---|---|
+| `SqlExpressionTranslator.cs` | 154 / 231 (66.67 %) |
+| `PostgreSqlExpressionTranslator.cs` | 127 / 228 (55.70 %) |
+| `MySqlExpressionTranslator.cs` | 127 / 228 (55.70 %) |
+| `SqliteExpressionTranslator.cs` | 142 / 229 (62.01 %) |
+
+### 5.2 Task 2 (the commit that carries rev 6)
+
+- D1–D4 as written.
+- `TranslatorBranchTests` (rev 6) ran alone at the seam: 72 runs, all Guard.
+- Every §4.1 row passes: 13 DB-free, 234 in each harness class, and 72 branch rows.
+- Suites, all passing: SqlServer.Tests 1971, PostgreSql.Tests 1139, MySql.Tests 1092, Sqlite.Tests 800, DotNet9 5,
+  net48 79.
+- Coverage, the four suites under coverlet (§4.2):
+
+| File | Lines covered | Baseline (§5.1) |
+|---|---|---|
+| `LikePattern.cs` | 14 / 14 (100 %) | new |
+| `SqlExpressionTranslator.cs` | 251 / 265 (94.72 %) | 66.67 % |
+| `PostgreSqlExpressionTranslator.cs` | 251 / 262 (95.80 %) | 55.70 % |
+| `MySqlExpressionTranslator.cs` | 251 / 262 (95.80 %) | 55.70 % |
+| `SqliteExpressionTranslator.cs` | 255 / 263 (96.96 %) | 62.01 % |
+
+  Without `TranslatorBranchTests` the translators were at 73.21, 67.94, 67.94 and 69.20 %.
+- Mutations: 90 mutants for the §4.3 rows (each provider row on each provider; the integer-type row for each type on
+  each provider), each run against its provider's harness class (the `Escape` rows also against
+  `LikePatternTests`). Every one was killed, and in each the rows §4.3 names for it failed.
+- The existing SQL Server suite leaves 177 rows in `person` each run, at `ca82741` too; the rows this plan adds
+  write only `zz_lt_row` and `zz_lt_num`, which each row drops.
 
 ## 6. Out of scope (recorded)
 
@@ -427,3 +482,8 @@ Verdict: NOT CLEAN; one blocking finding and one nit. L2-1 and L2-2 resolved; L2
 |---|---|---|---|---|
 | L3-1 | low | PLAN-GAP | §5 Task 4 named one of the six I1-6 tests the merge changes; §1 "No test pins the `LIKE` text" | The five `LIKE` tests named; §1 qualified. |
 | L3-2 | nit | PLAN-GAP | §4.1: AC1's seam class put `[` rows Red on all four | `[` on SQL Server only. |
+
+### 9.5 Task 0 re-review of rev 5 (`288cda3`; non-author; a fresh merged prototype of `d37f719` plus rev 5's D1–D4; I1-6's `TranslatorDirectTests` on all four, as committed and with the described edit; the AC1 rule against 424 seam cells)
+
+Verdict: CLEAN. L3-1 and L3-2 resolved. One informational note: at the merge, `ToString_Column`'s new expectation
+differs per provider (the cast text), so the shared harness needs a per-provider hook for it.
