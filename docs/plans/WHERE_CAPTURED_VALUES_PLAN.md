@@ -9,10 +9,15 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 13. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
+> **Status (2026-10-03):** rev 14. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
 > Task 5's review of `35c6477..d37f719` found A1–A6, answered in `6d8842d` (rev 10); FV1 found B1–B4, answered in
-> `b4d614b` (rev 11); FV2 found C1–C4, answered in `54aed0d` (rev 12); FV3 found D1 and three nits, answered in this
-> revision's commit (documents only); FV4 by a non-author is next. Task 6 waits for the delete guard.
+> `b4d614b` (rev 11); FV2 found C1–C4, answered in `54aed0d` (rev 12); FV3 found D1 and three nits, answered in
+> `3068b52` (rev 13, documents); FV4 found E1, answered in this revision's commit (one test row); FV5 by a non-author
+> is next. Task 6 waits for the delete guard.
+>
+> **Revision 14 — what changed (FV4, E1):** a row pins that a row-independent `Contains`' collection read wraps a
+> database error (`CollectionContains_RowIndependentLazyDbException_Wrapped`, M50), and D9 cites it instead of a test
+> that pins only a null item.
 >
 > **Revision 13 — what changed (FV3, D1–D4; no production code):** the pass-through sentence (Changelog, D9, AC8) is
 > narrowed to a collection whose item is an entity property; a row-independent `Contains`' collection read is wrapped
@@ -336,7 +341,8 @@ So, on every provider and path:
   exception with one inside, and a `NotSupportedException` from the collection's enumeration pass through unchanged:
   a query used as the collection runs there, as in 3.9.0. FV2-C2 pins that anything else is still wrapped. Rev 13,
   FV3-D1: a collection that `RowIndependentEvaluator` reads for a row-independent `Contains` is wrapped like any
-  value, database errors included, as `TryTranslateContains_Throwing_WrapsInNotSupported` pins.)
+  value, database errors included, as `CollectionContains_RowIndependentLazyDbException_Wrapped` pins (rev 14,
+  FV4-E1; M50).)
 - **D10 — One public Core helper**, `Funcular.Data.Orm.Linq.RowIndependentEvaluator`, which the four translators call
   (precedents: `ScalarProjectionGuard`, `QueryOperatorPolicy`). It evaluates by interpretation
   (`Compile(preferInterpretation: true)`) where the runtime has it, so the span rewrite runs on every platform and a
@@ -555,7 +561,7 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | AC8 | `Rejected_BeforeAnyCommand` (Q, D) | `throwingItem` (S17; inner `NullReferenceException`); `throwingCollection` (R1: `nullRequest.Ids.Contains(x.Id)`; inner `NullReferenceException`); `nullStringToString` (`x.Code == nullFilter.ToString()`; rev 10: D16's message, no inner exception) | red (S17 wrong rows; R1 `TargetInvocationException`; `t.code = NULL` returns {}) |
 | AC8 | `All_UnknownCountsAsSatisfied` (`query`, rev 11, A1/B1) | `allIdPositive` true; `allNotIdsX` false; `allNullableNotEqual` (`x.NullableId != 5`) true; `allNotNullableEquals` (`!(x.NullableId == 5)`) true — C#'s answers; `allNullableGreaterThanZero` true (Known issue: C# false; the row asserts it differs from C#); `allContainsNull`, `allNotContainsNull`, `allOrContainsNull`, `allRowIndependentNull` true (D8: C# throws) | red at `6d8842d` (rev 10's `CASE`): the last seven false |
 | AC8 | `WhereThenAll_MatchesCSharp` (`query`, rev 11, B4) | `Where(x => x.Id > 1)` then `allNullableNotEqual` true, `allIdPositive` true, `allNotIdsX` false | red at `6d8842d`: `allNullableNotEqual` false |
-| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `_LazyThrowingCollection_NotSupportedWithInner` (rev 10, A3: `ids.Select(i => i / zero)`; inner `DivideByZeroException`), `_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` (rev 11, B3), `_LazyExceptionWithNonDbInner_NotSupportedWithInner` (rev 12, C2), `ToString_NullStringReceiver_NotSupported` (rev 10: D16's message); `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
+| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `_LazyThrowingCollection_NotSupportedWithInner` (rev 10, A3: `ids.Select(i => i / zero)`; inner `DivideByZeroException`), `_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` (rev 11, B3), `_LazyExceptionWithNonDbInner_NotSupportedWithInner` (rev 12, C2), `_RowIndependentLazyDbException_Wrapped` (rev 14, E1), `ToString_NullStringReceiver_NotSupported` (rev 10: D16's message); `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
 | AC9 | Task 6 rows in `CapturedValueHarness` | `Delete_AlwaysTrueAfterEvaluation_IsRejected` (D): `orPresent`, `orNotAbsent`, `orNullItem`, `orComparerSet` → the guard's message, nothing deleted; `andPresent` stays in `Delete_DeletesWhatCSharpSelects`; `orCapturedContainsNull` (`x.Id == 2 \|\| s.Contains(nullFilter)`) → deletes {2} once Task 6 has handled `IsContainsOfNull` | Task 6 |
 | AC10 | `Query_ReturnsWhatCSharpSelects` (Q), `Delete_DeletesWhatCSharpSelects` (D) | `idsX` {1,2}; `notIdsX` {3}; `nullableX` {1}; `emptyX` {} (Q only: the guards reject `1=0` alone); `startsWithX` {1}; `containsX` (`x.Name.Contains("mm")`) {3}; `arrayX` {1,2} | green, must stay green |
 | AC10 | `TranslatorDirectHarness` | `CollectionContains_EmptyCollection_OneEqualsZero`, `_NullValuesSkipped` (N1's `IN` list), `_ConstantCollection_In`, `_ImplicitUnary_In`, `_ImplicitCall_In`; `StringContains_ConstantValue`; `StartsWith_Column`, `EndsWith_Column`; `ToString_Column`; `DateMember_YearMonthDay`, `_OtherPart_NotSupported`, `_NotAValueChain_NotSupported`; `UnsupportedMethod_NotSupported` | new (pin today's output) |
@@ -636,8 +642,9 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | M46 | The pass-through misses a `DbException` inside another exception | `_LazyExceptionWithDbInner_PassesThrough` |
 | M48 | Every `InvalidOperationException` passes through (FV2's OWN-10) | `_LazyExceptionWithNonDbInner_NotSupportedWithInner` |
 | M49 | Any exception with an inner exception passes through (FV2's OWN-11) | `_LazyExceptionWithNonDbInner_NotSupportedWithInner` |
+| M50 | `RowIndependentEvaluator.Evaluate` lets a database error through (FV4's OWN-14) | `CollectionContains_RowIndependentLazyDbException_Wrapped` |
 
-M1, M9, M11, M14, M15, M20, M26, M30, M31, M35, M38, (rev 10) M41–M44 and (rev 11) M40r, M43, M45–M47 and (rev 12) M48, M49 are run on each
+M1, M9, M11, M14, M15, M20, M26, M30, M31, M35, M38, (rev 10) M41–M44 and (rev 11) M40r, M43, M45–M47, (rev 12) M48, M49 and (rev 14) M50 are run on each
 provider; the others on SQL Server, with M2, M3 and M7 also on
 SQLite (its C# 14 binding).
 
@@ -894,6 +901,12 @@ name the pass-through.
 named but overstated the rest (D1). No production code changed in `54aed0d` or in rev 13's commit; rev 13 is documents
 and one test comment. FV3 found the cumulative branch otherwise clean (code, tests, Usage).
 
+**FV4 — fix-verification of `3068b52` (2026-10-03).** D1–D4 held: the narrowed sentence is true on all four providers
+on both paths (the IN path's pass-through, the row-independent path's wrap), including a user lazy collection's own
+`NotSupportedException`. E1: the wrap D1 documents had no row; `CollectionContains_RowIndependentLazyDbException_Wrapped`
+added (green at `3068b52`; it pins behaviour a mutation could lose). M50 killed on all four providers by that row
+alone; `CapturedValues` 219/219 per provider (SQL Server 218 + 1 skipped).
+
 ---
 
 ## 7. Risks
@@ -1096,3 +1109,11 @@ Blame: AC-GAP 1, OTHER 3.
 | D2 | nit | OTHER (doc) | The Changed lead-in said every bullet throws `NotSupportedException`; the `.Value` bullet throws `NullableExpressionException`. | "(unless noted)". |
 | D3 | nit | OTHER (comment) | The C2 row's comment said only a database error passes through. | "a database error or a NotSupportedException". |
 | D4 | nit | OTHER (doc) | A user lazy collection's own `NotSupportedException` comes out raw; the main sentence implied a wrap. | Folded into D1's sentence ("a `NotSupportedException` thrown while the collection is enumerated"). |
+
+FV4 — fix-verification of `54aed0d..3068b52` (non-author; the narrowed sentence probed on both paths on all four
+providers, U1–U8 and E01–E12; OWN-14 run). Verdict: NOT CLEAN, E1 blocking (one row); cumulative otherwise clean.
+Blame: TEST-GAP 1.
+
+| # | Sev | Blame | Finding | Disposition (rev 14) |
+|---|---|---|---|---|
+| E1 | low | TEST-GAP (fix-introduced, D1's) | The row-independent wrap of a database error, newly documented, had no row; D9 cited `TryTranslateContains_Throwing_WrapsInNotSupported`, which pins a null item. OWN-14 (`Evaluate` lets a `DbException` through) survived. | `CollectionContains_RowIndependentLazyDbException_Wrapped`; M50; D9's citation corrected. |

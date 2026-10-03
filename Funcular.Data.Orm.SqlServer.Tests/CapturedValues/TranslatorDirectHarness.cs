@@ -391,6 +391,17 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         }
 
         [TestMethod]
+        public void CollectionContains_RowIndependentLazyDbException_Wrapped()
+        {
+            // A collection read to answer a Contains before the query is wrapped like any value, database errors included
+            // (D9); only the IN path's enumeration lets a database error through.
+            var lazy = ids.Select(i => i == 1 ? throw new FakeDbException() : i);
+            var ex = Assert.ThrowsException<NotSupportedException>(() => Translate(Call(() => lazy.Contains(5))));
+            StringAssert.StartsWith(ex.Message, CouldNotEvaluateMessage);
+            Assert.IsInstanceOfType(ex.InnerException, typeof(FakeDbException));
+        }
+
+        [TestMethod]
         public void CollectionContains_LazyNotSupported_PassesThrough()
         {
             var lazy = ids.Select(i => i == 1 ? throw new NotSupportedException("the nested query's own message") : i);
