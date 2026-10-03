@@ -2,12 +2,31 @@ using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects.Person;
+using Funcular.Data.Orm.Tests.Shared;
+using Npgsql;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests
 {
     [TestClass]
     public class PostgreSqlDataProviderIntegrationTests : PostgreSqlTestFixture
     {
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var guid = Guid.NewGuid().ToString();
+            var person = new Person { FirstName = guid, LastName = guid, UniqueId = Guid.NewGuid() };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new NpgsqlConnection(_connectionString),
+                "person", person.Id);
+        }
+
+        /// <summary>Inserts and tracks a person built inline.</summary>
+        private void InsertPerson(Person person)
+        {
+            _provider.Insert(person);
+            Track(person);
+        }
+
         #region Get Tests
 
         [TestMethod]
@@ -83,6 +102,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 UniqueId = Guid.NewGuid()
             };
             _provider.Insert(newPerson);
+            Track(newPerson);
             var updatedCount = _provider.Query<Person>().Count();
             Assert.AreEqual(initialCount + 1, updatedCount);
         }
@@ -102,6 +122,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 UniqueId = Guid.NewGuid()
             };
             var result = _provider.Insert(newPerson);
+            Track(newPerson);
             Assert.IsNotNull(result);
             Assert.IsInstanceOfType(result, typeof(int));
             Assert.AreEqual(newPerson.Id, (int)result);
@@ -191,7 +212,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            _provider.Insert(new Person { FirstName = "Unique", LastName = "Person", UniqueId = Guid.NewGuid() });
+            InsertPerson(new Person { FirstName = "Unique", LastName = "Person", UniqueId = Guid.NewGuid() });
             var result = _provider.Query<Person>().Where(x => x.FirstName == guid && x.LastName == guid).ToList();
             Assert.IsFalse(result.Any());
         }
@@ -201,9 +222,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            _provider.Insert(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
 
             var lastNames = new List<string> { "Smith", "Johnson" };
             var result = _provider.Query<Person>()
@@ -218,9 +239,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            _provider.Insert(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
 
             var lastNames = new[] { "Smith", "Johnson" };
             var result = _provider.Query<Person>()
@@ -243,8 +264,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            _provider.Insert(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
             var result = _provider.Query<Person>().Where(x => x.FirstName == guid && x.LastName.StartsWith("J")).ToList();
             Assert.IsTrue(result.Any() && result.All(x => x.LastName.StartsWith("J")));
         }
@@ -254,8 +275,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            _provider.Insert(new Person { LastName = "Jones", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Jones", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
             var result = _provider.Query<Person>().Where(x => x.FirstName == guid && x.LastName.EndsWith("s")).ToList();
             Assert.IsTrue(result.Any() && result.All(x => x.LastName.EndsWith("s")));
         }
@@ -265,8 +286,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             OutputTestMethodName();
             var guid = Guid.NewGuid().ToString();
-            _provider.Insert(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
-            _provider.Insert(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Johnson", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
+            InsertPerson(new Person { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" });
             var result = _provider.Query<Person>().Where(x => x.FirstName == guid && x.LastName.Contains("on")).ToList();
             Assert.IsTrue(result.Any() && result.All(x => x.LastName.Contains("on")));
         }
@@ -527,6 +548,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             {
                 var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
                 _provider.Insert(person);
+                Track(person);
 
                 person.FirstName = "Updated-" + Guid.NewGuid();
                 _provider.Update(person);
@@ -548,6 +570,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             _provider.BeginTransaction();
             var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
             _provider.Insert(person);
+            Track(person);
             _provider.CommitTransaction();
             var committedPerson = _provider.Get<Person>(person.Id);
             Assert.IsNotNull(committedPerson);
@@ -560,6 +583,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             _provider.BeginTransaction();
             var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
             _provider.Insert(person);
+            Track(person);
             var addedPerson = _provider.Get<Person>(person.Id);
             Assert.IsNotNull(addedPerson);
             _provider.RollbackTransaction();
@@ -574,10 +598,13 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             _provider.BeginTransaction();
             var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
             _provider.Insert(person);
+            Track(person);
             var address = new Address { Line1 = "Test St", City = "TestCity", StateCode = "TC", PostalCode = "12345" };
             _provider.Insert(address);
+            Track(address);
             var link = new PersonAddress { PersonId = person.Id, AddressId = address.Id };
             _provider.Insert(link);
+            Track(link);
             Assert.IsNotNull(_provider.Get<Person>(person.Id));
             Assert.IsNotNull(_provider.Get<Address>(address.Id));
             Assert.IsNotNull(_provider.Get<PersonAddress>(link.Id));

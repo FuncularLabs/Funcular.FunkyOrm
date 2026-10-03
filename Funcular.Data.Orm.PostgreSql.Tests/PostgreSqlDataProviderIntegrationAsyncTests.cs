@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Objects.Person;
+using Funcular.Data.Orm.Tests.Shared;
 using Npgsql;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests
@@ -13,6 +14,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         private string _connectionString;
         public PostgreSqlOrmDataProvider _provider;
         private readonly StringBuilder _sb = new();
+        private TestRowLedger _rows;
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
             => Debug.WriteLine($"\r\nTest: {callerMemberName}");
@@ -27,10 +29,18 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             {
                 Log = s => { Debug.WriteLine(s); _sb.AppendLine(s); }
             };
+            _rows = TestRowLedger.Begin(() => new NpgsqlConnection(_connectionString), TestRowLedger.PostgreSqlTables);
         }
 
         [TestCleanup]
-        public void Cleanup() => _provider?.Dispose();
+        public void Cleanup()
+        {
+            _provider?.Dispose();
+            _rows?.Finish();
+        }
+
+        /// <summary>Records a row this test inserted, for <see cref="Cleanup"/> to delete.</summary>
+        private void Track(object entity) => _rows.Track(entity);
 
         private void TestConnection()
         {
@@ -49,6 +59,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 DateUtcCreated = dateUtcCreated ?? DateTime.UtcNow, DateUtcModified = dateUtcModified ?? DateTime.UtcNow
             };
             await _provider.InsertAsync(person);
+            Track(person);
             return person.Id;
         }
 
@@ -56,6 +67,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             var address = new Address { Line1 = line1, Line2 = line2, City = city, StateCode = stateCode, PostalCode = postalCode };
             await _provider.InsertAsync(address);
+            Track(address);
             return address.Id;
         }
 
@@ -63,6 +75,17 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             var link = new PersonAddress { PersonId = personId, AddressId = addressId };
             await _provider.InsertAsync(link);
+            Track(link);
+        }
+
+        [TestMethod]
+        public async Task Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var guid = Guid.NewGuid().ToString();
+            var person = new Person { FirstName = guid, LastName = guid, UniqueId = Guid.NewGuid() };
+            await _provider.InsertAsync(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new NpgsqlConnection(_connectionString),
+                "person", person.Id);
         }
 
         [TestMethod]
@@ -106,6 +129,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             var initialCount = _provider.Query<Person>().Count();
             var newPerson = new Person { FirstName = guid, LastName = guid, UniqueId = Guid.NewGuid() };
             await _provider.InsertAsync(newPerson);
+            Track(newPerson);
             var updatedCount = _provider.Query<Person>().Count();
             Assert.AreEqual(initialCount + 1, updatedCount);
         }
@@ -152,6 +176,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             _provider.BeginTransaction();
             var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
             await _provider.InsertAsync(person);
+            Track(person);
             _provider.CommitTransaction();
             var committedPerson = await _provider.GetAsync<Person>(person.Id);
             Assert.IsNotNull(committedPerson);
@@ -204,6 +229,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             {
                 var person = new Person { FirstName = Guid.NewGuid().ToString(), LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
                 await _provider.InsertAsync(person);
+                Track(person);
 
                 person.FirstName = "Updated-" + Guid.NewGuid();
                 await _provider.UpdateAsync(person);

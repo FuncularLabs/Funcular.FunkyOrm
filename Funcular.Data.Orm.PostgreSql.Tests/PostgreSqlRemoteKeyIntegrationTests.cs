@@ -15,6 +15,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
 
             var country = new CountryEntity { Name = "TestCountry_" + Guid.NewGuid() };
             await _provider.InsertAsync(country);
+            Track(country);
 
             var address = new AddressEntity
             {
@@ -22,6 +23,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 CountryId = country.Id
             };
             await _provider.InsertAsync(address);
+            Track(address);
 
             var org = new OrganizationEntity
             {
@@ -29,12 +31,14 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 HeadquartersAddressId = address.Id
             };
             await _provider.InsertAsync(org);
+            Track(org);
 
             var person = new PersonEntity
             {
                 FirstName = "John", LastName = "Doe", EmployerId = org.Id
             };
             await _provider.InsertAsync(person);
+            Track(person);
 
             var fetchedPerson = await _provider.GetAsync<PersonDetailEntity>(person.Id);
 
@@ -54,12 +58,14 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 HeadquartersAddressId = null
             };
             await _provider.InsertAsync(org);
+            Track(org);
 
             var person = new PersonEntity
             {
                 FirstName = "Jane", LastName = "Doe", EmployerId = org.Id
             };
             await _provider.InsertAsync(person);
+            Track(person);
 
             var fetchedPerson = await _provider.GetAsync<PersonDetailEntity>(person.Id);
 

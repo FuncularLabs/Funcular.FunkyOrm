@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 6. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 7. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (§5); Task 3 is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (§5); Task 4 is next.
+
+> **Revision 7 — what changed (Task 3):** §5 records Task 3.
 
 > **Revision 6 — what changed (Task 2):** §5 records Task 2's red steps, green run, measurements and mutations.
 
@@ -433,6 +435,20 @@ the exact sha).
       clean for `Funcular.Data.Orm.SqlServer`.
 - **Task 3 — PostgreSQL suite.** The same steps for its six classes, three probes and seven AC6 tests, without
   `Cleanup_Passes…`, the RCSI read and M13 (SQL Server only); it runs M9–M11 and M14.
+  - **Record (the commit that carries rev 7):**
+    - Red 1: the three probes failed; counts unchanged. Red 2: the probes passed; one test per §1.1 class failed in
+      cleanup (`Get_WithExistingId_ReturnsPerson`, `…_Async`, `Count_FilteredByRemoteProperty_MatchesMaterialized`,
+      `RemoteKey_OuterJoin_NullHandling`, `ExecNonQuery_OutputParam_BackPopulated`,
+      `Insert_EntityWithComputedColumn_Succeeds`), leaving 10 rows: person 5, address 1, organization 3, country 1.
+      Red 3: the six chain tests failed against the stub; `Count_NoFilter…` passed; counts unchanged.
+    - Green: the suite passed, 769 of 769, every guarded count unchanged (it added 87 `person` rows before). Each
+      §1.1 class plus `PostgreSqlRemoteKeyWhereTests` and `PostgreSqlRemoteKeyReverseTests`, alone: all passed,
+      counts unchanged (44, 14, 14, 2, 7, 32, 2, 4 tests).
+    - The 13 inline `_provider.Insert(new Person { … })` calls in `PostgreSqlDataProviderIntegrationTests` go
+      through a class-local `InsertPerson` that inserts and tracks (D7's rule, for inserts with no variable).
+    - Mutations: M9 is Red 3. M10 at each of the three hook sites (Begin, Finish): each probe failed. M11:
+      `Get_WithExistingId_ReturnsPerson` failed, leaving its 1 row. M14: `Count_NoFilter…` failed; library restored,
+      `git status` clean for `Funcular.Data.Orm.PostgreSql`.
 - **Task 4 — MySQL suite.** The same steps for its five classes and one probe (no AC6 tests on `development/3.10`).
 - **Task 5 — net48.** Link `TestRowLedger.cs` in the csproj `<Compile>` list; the two probes first (red), then the
   hooks and `Track` calls; run the playlist classes and measure. Measure DotNet9 once (§1.2).
