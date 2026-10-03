@@ -26,7 +26,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
         }
 
         protected override string RowDdl =>
-            $"CREATE TABLE {RowTable} (id INT PRIMARY KEY, name NVARCHAR(40) NULL, code INT NOT NULL, ncode INT NULL, " +
+            $"CREATE TABLE {RowTable} (id INT PRIMARY KEY, name NVARCHAR(40) NULL, code INT NOT NULL, ncode INT NULL, namount DECIMAL(10,2) NULL, " +
             "big BIGINT NOT NULL, amount DECIMAL(10,2) NOT NULL, flag BIT NOT NULL)";
 
         protected override string NumDdl =>
@@ -73,7 +73,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
         }
 
         protected override string RowDdl =>
-            $"CREATE TABLE {RowTable} (id INTEGER PRIMARY KEY, name TEXT NULL, code INTEGER NOT NULL, ncode INTEGER NULL, " +
+            $"CREATE TABLE {RowTable} (id INTEGER PRIMARY KEY, name TEXT NULL, code INTEGER NOT NULL, ncode INTEGER NULL, namount NUMERIC NULL, " +
             "big INTEGER NOT NULL, amount NUMERIC NOT NULL, flag INTEGER NOT NULL)";
 
         protected override string NumDdl =>

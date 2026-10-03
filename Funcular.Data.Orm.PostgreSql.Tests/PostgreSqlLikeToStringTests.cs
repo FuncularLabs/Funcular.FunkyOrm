@@ -33,7 +33,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         }
 
         protected override string RowDdl =>
-            $"CREATE TABLE {RowTable} (id INT PRIMARY KEY, name VARCHAR(40) NULL, code INT NOT NULL, ncode INT NULL, " +
+            $"CREATE TABLE {RowTable} (id INT PRIMARY KEY, name VARCHAR(40) NULL, code INT NOT NULL, ncode INT NULL, namount NUMERIC(10,2) NULL, " +
             "big BIGINT NOT NULL, amount NUMERIC(10,2) NOT NULL, flag BOOLEAN NOT NULL)";
 
         protected override string NumDdl =>

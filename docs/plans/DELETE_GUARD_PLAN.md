@@ -211,7 +211,8 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
        else Unknown;
      - `Convert` on a `bool`/`bool?` folds its operand;
      - a comparison of two structurally equal member chains (same members in order; roots of the entity type) is
-       True for `==`, `>=`, `<=` and False for `!=`, `>`, `<`;
+       True for `==`, `>=`, `<=` and False for `!=`, `>`, `<`; since `LIKE_ESCAPING_TOSTRING_PLAN.md`'s T4-1 a chain
+       is also read through an outermost `ToString()` with no argument;
      - everything else is Unknown.
   3. If the fold is True: **SelfReference** when the body's top node, after stripping `Not` and `Convert`, is such a
      self-comparison; otherwise **AlwaysTrue**. Messages: SelfReference "Delete operation WHERE clause cannot be a

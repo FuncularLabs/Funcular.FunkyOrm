@@ -61,7 +61,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         }
 
         protected override string RowDdl =>
-            $"CREATE TABLE {RowTable} (id INT PRIMARY KEY, name VARCHAR(40) NULL, code INT NOT NULL, ncode INT NULL, " +
+            $"CREATE TABLE {RowTable} (id INT PRIMARY KEY, name VARCHAR(40) NULL, code INT NOT NULL, ncode INT NULL, namount DECIMAL(10,2) NULL, " +
             "big BIGINT NOT NULL, amount DECIMAL(10,2) NOT NULL, flag TINYINT(1) NOT NULL)";
 
         protected override string NumDdl =>

@@ -228,7 +228,8 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         /// lambda's parameter), an integer column is sent as its text in the invariant form (a nullable one as <c>''</c>
         /// for null, as <c>int?.ToString()</c> gives), a string column as itself; any other column type, and any argument
         /// (a format or a format provider), throws <see cref="NotSupportedException"/>, because the database's text isn't
-        /// .NET's. <c>x.N.Value.ToString()</c> throws <see cref="Funcular.Data.Orm.Exceptions.NullableExpressionException"/>.
+        /// .NET's. <c>x.N.Value.ToString()</c> throws <see cref="Funcular.Data.Orm.Exceptions.NullableExpressionException"/>,
+        /// whose message gives the rule above where the property's own <c>ToString()</c> isn't translated either.
         /// Any other receiver is translated as itself.
         /// </summary>
         private void TranslateToString(
@@ -242,10 +243,19 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                 Nullable.GetUnderlyingType(nullableMember.Type) != null)
             {
                 var propName = nullableMember.Member.Name;
-                throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(
-                    $"Do not use '.Value' on nullable property '{propName}' in LINQ expressions. " +
-                    $"FunkyORM automatically unwraps nullable types. " +
-                    $"Use '{propName}' directly (e.g., p.{propName}.ToString() instead of p.{propName}.Value.ToString()).");
+                var underlying = Nullable.GetUnderlyingType(nullableMember.Type);
+                // The advice holds only where D4 translates the property's ToString(): an integer, with no argument.
+                var notTranslated = node.Arguments.Count > 0
+                    ? $"ToString() on a column of type {underlying.Name} isn't translated with an argument (a format or a format provider)"
+                    : !IsIntegerType(underlying)
+                        ? $"ToString() on a column of type {underlying.Name} isn't translated, because the database's text for it isn't .NET's"
+                        : null;
+                throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(notTranslated == null
+                    ? $"Do not use '.Value' on nullable property '{propName}' in LINQ expressions. " +
+                      $"FunkyORM automatically unwraps nullable types. " +
+                      $"Use '{propName}' directly (e.g., p.{propName}.ToString() instead of p.{propName}.Value.ToString())."
+                    : $"Do not use '.Value' on nullable property '{propName}' in LINQ expressions. " +
+                      $"FunkyORM automatically unwraps nullable types, but {notTranslated}; compare the column's value instead: {node}");
             }
 
             if (node.Object is MemberExpression member && member.Expression is ParameterExpression &&

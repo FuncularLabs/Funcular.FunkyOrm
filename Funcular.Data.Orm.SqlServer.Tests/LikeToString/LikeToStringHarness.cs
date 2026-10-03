@@ -33,11 +33,21 @@ namespace Funcular.Data.Orm.Tests.LikeToString
 
         public const string NullableExpressionExceptionName = "Funcular.Data.Orm.Exceptions.NullableExpressionException";
 
+        public const string SelfReferenceMessage = "Delete operation WHERE clause cannot be a self-referencing column expression.";
+
         /// <summary>The message for <c>x.NCode.Value.ToString()</c> (D4; the guidance of <c>x.N.Value == 7</c>).</summary>
         public const string NullableValueToStringMessage =
             "Do not use '.Value' on nullable property 'NCode' in LINQ expressions. " +
             "FunkyORM automatically unwraps nullable types. " +
             "Use 'NCode' directly (e.g., p.NCode.ToString() instead of p.NCode.Value.ToString()).";
+
+        /// <summary>
+        /// The start of the message for <c>.Value.ToString()</c> where D4 doesn't translate the property's
+        /// <c>ToString()</c> either: a non-integer type, or an argument (T4-2).
+        /// </summary>
+        public static string NullableValueNotTranslatedPrefix(string property, string rule) =>
+            $"Do not use '.Value' on nullable property '{property}' in LINQ expressions. " +
+            $"FunkyORM automatically unwraps nullable types, but {rule}; compare the column's value instead: ";
 
         [Table(RowTable)]
         public class LtRow
@@ -46,6 +56,7 @@ namespace Funcular.Data.Orm.Tests.LikeToString
             public string Name { get; set; }
             public int Code { get; set; }
             public int? NCode { get; set; }
+            public decimal? NAmount { get; set; }
             public long Big { get; set; }
             public decimal Amount { get; set; }
             public bool Flag { get; set; }
@@ -68,7 +79,7 @@ namespace Funcular.Data.Orm.Tests.LikeToString
 
         public static readonly LtRow[] RowSeed =
         {
-            new LtRow { Id = 1, Name = "a_b", Code = 7, NCode = 7, Big = -5, Amount = 1.50m, Flag = true },
+            new LtRow { Id = 1, Name = "a_b", Code = 7, NCode = 7, NAmount = 1.50m, Big = -5, Amount = 1.50m, Flag = true },
             new LtRow { Id = 2, Name = "axb", Code = 70, NCode = null, Big = 5, Amount = 2.00m },
             new LtRow { Id = 3, Name = "a%b", Code = 5, NCode = null, Big = 10, Amount = 3.00m },
             new LtRow { Id = 4, Name = "a[b", Code = 0, NCode = 0, Big = 0, Amount = 4.00m },
@@ -164,6 +175,12 @@ namespace Funcular.Data.Orm.Tests.LikeToString
                 case "codeD2": return x => x.Code.ToString("D2") == "07";
                 case "codeInvariant": return x => x.Code.ToString(CultureInfo.InvariantCulture) == "7";
                 case "ncodeValue": return x => x.NCode.Value.ToString() == "7";
+                case "namountValue": return x => x.NAmount.Value.ToString() == "1.50";
+                case "ncodeValueD2": return x => x.NCode.Value.ToString("D2") == "07";
+                case "nameInvariant": return x => x.Name.ToString(CultureInfo.InvariantCulture) == "a_b";
+                case "codeSelf": return x => x.Code.ToString() == x.Code.ToString();
+                case "ncodeSelf": return x => x.NCode.ToString() == x.NCode.ToString();
+                case "nameSelf": return x => x.Name.ToString() == x.Name;
                 case "bigMinusFive": return x => x.Big.ToString() == "-5";
                 default: throw new ArgumentException($"Unknown predicate {key}.", nameof(key));
             }
@@ -254,12 +271,24 @@ namespace Funcular.Data.Orm.Tests.LikeToString
 
         public static IEnumerable<object[]> OtherToStringRows()
         {
-            foreach (var key in new[] { "amount", "flag", "codeD2", "codeInvariant" })
+            foreach (var key in new[] { "amount", "flag", "codeD2", "codeInvariant", "nameInvariant" })
                 foreach (var path in Paths)
                     yield return new object[] { key, path };
         }
 
-        public static IEnumerable<object[]> AllPathRows() => Paths.Select(p => new object[] { p });
+        public static IEnumerable<object[]> ToStringSelfRows()
+        {
+            foreach (var key in new[] { "codeSelf", "ncodeSelf", "nameSelf" })
+                foreach (var path in DeletePaths)
+                    yield return new object[] { key, path };
+        }
+
+        public static IEnumerable<object[]> NullableValueRows()
+        {
+            foreach (var key in new[] { "ncodeValue", "namountValue", "ncodeValueD2" })
+                foreach (var path in Paths)
+                    yield return new object[] { key, path };
+        }
 
         public static IEnumerable<object[]> QueryPathRows() => QueryPaths.Select(p => new object[] { p });
 
@@ -384,15 +413,32 @@ namespace Funcular.Data.Orm.Tests.LikeToString
         public async Task NonColumnReceiver_KeepsTodaysTranslation(string path) =>
             await AssertSelects(NonColumnReceiver(1.5m), RowSeed, path, "d.ToString() == d.ToString()");
 
+        // T4-1: the delete guard rejects a self-comparison through a no-argument ToString() on every provider.
+        [DataTestMethod]
+        [DynamicData(nameof(ToStringSelfRows), DynamicDataSourceType.Method)]
+        public async Task ToStringSelfComparison_DeleteIsRejected(string key, string path)
+        {
+            var exception = await AssertRejected(RowToString(key), path, key);
+            Assert.AreEqual(typeof(InvalidOperationException), exception.GetType(), $"{key} {path}: {exception}");
+            Assert.AreEqual(SelfReferenceMessage, exception.Message, $"{key} {path}");
+        }
+
         // AC11
         [DataTestMethod]
-        [DynamicData(nameof(AllPathRows), DynamicDataSourceType.Method)]
-        public async Task NullableValueToString_IsRejected(string path)
+        [DynamicData(nameof(NullableValueRows), DynamicDataSourceType.Method)]
+        public async Task NullableValueToString_IsRejected(string key, string path)
         {
-            var exception = await AssertRejected(RowToString("ncodeValue"), path, "ncodeValue");
+            var exception = await AssertRejected(RowToString(key), path, key);
             Assert.AreEqual(NullableExpressionExceptionName, exception.GetType().FullName, $"{path}: {exception}");
             Assert.AreEqual(ProviderAssembly, exception.GetType().Assembly, $"{path}: the exception's assembly");
-            Assert.AreEqual(NullableValueToStringMessage, exception.Message, path);
+            if (key == "ncodeValue")
+                Assert.AreEqual(NullableValueToStringMessage, exception.Message, path);
+            else if (key == "namountValue")
+                StringAssert.StartsWith(exception.Message, NullableValueNotTranslatedPrefix("NAmount",
+                    "ToString() on a column of type Decimal isn't translated, because the database's text for it isn't .NET's"), path);
+            else
+                StringAssert.StartsWith(exception.Message, NullableValueNotTranslatedPrefix("NCode",
+                    "ToString() on a column of type Int32 isn't translated with an argument (a format or a format provider)"), path);
         }
 
         // AC11
@@ -440,8 +486,8 @@ namespace Funcular.Data.Orm.Tests.LikeToString
             Execute(connection, NumDdl);
             foreach (var row in RowSeed)
                 Execute(connection,
-                    $"INSERT INTO {RowTable} (id, name, code, ncode, big, amount, flag) VALUES (@id, @name, @code, @ncode, @big, @amount, @flag)",
-                    ("@id", row.Id), ("@name", row.Name), ("@code", row.Code), ("@ncode", row.NCode), ("@big", row.Big),
+                    $"INSERT INTO {RowTable} (id, name, code, ncode, namount, big, amount, flag) VALUES (@id, @name, @code, @ncode, @namount, @big, @amount, @flag)",
+                    ("@id", row.Id), ("@name", row.Name), ("@code", row.Code), ("@ncode", row.NCode), ("@namount", row.NAmount), ("@big", row.Big),
                     ("@amount", row.Amount), ("@flag", ToDb(nameof(LtRow.Flag), row.Flag)));
             foreach (var row in NumSeed())
                 Execute(connection,

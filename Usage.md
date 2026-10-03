@@ -131,7 +131,7 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
         .ToList();
     ```
 
-    The same goes for `ToString()`: `p.HospitalId.Value.ToString()` throws `NullableExpressionException`. Write `p.HospitalId.ToString()`, whose text is `""` when the value is null.
+    The same goes for `ToString()`: `p.HospitalId.Value.ToString()` throws `NullableExpressionException`. On an integer property like this one, write `p.HospitalId.ToString()`, whose text is `""` when the value is null; on other types `ToString()` isn't translated (see [The `LIKE` Clause](#the-like-clause)).
 
     When using `List<int>.Contains()` with a nullable entity property, cast the list to match the nullable type rather than unwrapping the property:
 
@@ -536,7 +536,7 @@ var underscored = provider.Query<Person>()
     .ToList();
 ```
 
-`ToString()` on an integer property (`sbyte` through `ulong`, nullable or not) compares the column's text: `p => p.Id.ToString() == "42"`, and a null value's text is `""`, as in C#. The text is the invariant form (`-5`), while .NET formats a number in the current culture (`−5`, with U+2212, under fi-FI), so build the text you compare it with using `CultureInfo.InvariantCulture` before the query. On a string property, `ToString()` is the property itself. On a property of any other type, or with an argument (`ToString("D2")`, `ToString(CultureInfo.InvariantCulture)`), it throws `NotSupportedException`: compare the property's value instead.
+`ToString()` on an integer property (`sbyte` through `ulong`, nullable or not) compares the column's text: `p => p.Id.ToString() == "42"`, and a null value's text is `""`, as in C#. The text is the invariant form (`-5`), while .NET formats a number in the current culture (`−5`, with U+2212, under fi-FI), so build the text you compare it with using `CultureInfo.InvariantCulture` before the query. The comparison is on the cast text, so it can't use an index on the column; where that matters, parse the text in C# and compare the integer. On a string property, `ToString()` is the property itself. On a property of any other type (a `char` included), or with an argument (`ToString("D2")`, `ToString(CultureInfo.InvariantCulture)`, on a string property too), it throws `NotSupportedException`: compare the property's value instead.
 
 ### Advanced: Ternary Operators
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
@@ -1355,7 +1355,7 @@ You tried to call `.Delete()` without starting a transaction.
 ### 4. "A WHERE clause (predicate) is required for deletes"
 You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also stop a predicate that plainly matches every row, before the DELETE is sent, with one of these messages:
 *   **"Delete operation WHERE clause must reference at least one column from the target table."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`). The provider's own check can also give it once the WHERE clause is built, when that clause names no column of the table, for example a predicate on a remote property only.
-*   **"Delete operation WHERE clause cannot be a self-referencing column expression."**: it compares a column with itself (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`).
+*   **"Delete operation WHERE clause cannot be a self-referencing column expression."**: it compares a column with itself (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`).
 *   **"Delete operation requires a non-trivial WHERE clause."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null), or with a `Contains` on a captured string that holds (`x => roles.Contains("admin") || x.OwnerId == me`); or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
 
 The first two messages usually come before any SQL runs, and so does the third. Some come only once the WHERE clause is built: the third for the negated-`Contains` shape and for a literal `1=1` in the SQL (such as `x => x.Id == id || new Settings().Flag`), and the first from the provider's own check. For those, on a type's first use its columns are discovered first, and if its table doesn't exist you get that error instead.

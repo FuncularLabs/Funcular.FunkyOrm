@@ -22,6 +22,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
         public class TbChild
         {
             public string Name { get; set; }
+            public string Value { get; set; }
         }
 
         public class TbRow
@@ -53,6 +54,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
         }
 
         private readonly List<int> ids = new List<int> { 1, 2 };
+
+        private string CapturedProperty { get; } = "p";
 
         #region Provider seam
 
@@ -175,6 +178,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
         [TestMethod]
         public void ToString_NestedMemberReceiver_KeepsTodaysTranslation() =>
             Assert.AreEqual("c.Child", TranslateCall(CallOf(x => x.Child.Name.ToString())).Sql);
+
+        [TestMethod]
+        public void ToString_ChildPropertyNamedValue_IsNotTheNullableRule() =>
+            Assert.AreEqual("c.Child", TranslateCall(CallOf(x => x.Child.Value.ToString())).Sql);
+
+        [TestMethod]
+        public void ToString_CapturedPropertyReceiver_IsAParameterNotAColumn()
+        {
+            var result = TranslateCall(CallOf(x => CapturedProperty.ToString()));
+            Assert.AreEqual(1, result.Names.Length, result.Sql);
+            Assert.AreEqual(result.Names[0], result.Sql);
+        }
 
         [TestMethod]
         public void ToString_ComputedReceiver_IsRejected() =>

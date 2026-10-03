@@ -83,7 +83,8 @@ subclasses.
   that type afterwards. SQL Server and MySQL.
 - **`Delete`/`DeleteAsync` by predicate accepted predicates that match every row, and rejected some that don't.**
   All four providers:
-  - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`), their negations (`!(x.Id != x.Id)`), and
+  - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`, also through `ToString()`:
+    `x.Code.ToString() == x.Code.ToString()`), their negations (`!(x.Id != x.Id)`), and
     disjunctions with an always-true operand (`x.Id == 2 || true`, a captured or static `true`, a `true` property of
     a captured object, a comparison of constants and captured values that holds, such as `filter == null` with
     `filter` null, or a captured string's `Contains`, or the `ToString()` (with no argument or a format string) of a
@@ -119,7 +120,9 @@ subclasses.
   property (`sbyte` through `ulong`, nullable or not) it's now the column's text, `""` for null as in C#; on a
   `string` property it's the column, as before. The text is the invariant form (`-5`), which can differ from .NET's
   current culture (`−5`, with U+2212, under fi-FI): build text you compare it with using
-  `CultureInfo.InvariantCulture`. Other `ToString()` calls on a property now throw (see Changed).
+  `CultureInfo.InvariantCulture`. The comparison is on the cast text, so it can't use an index on the column; where
+  that matters, parse the text in C# and compare the integer. Other `ToString()` calls on a property now throw (see
+  Changed).
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -237,12 +240,16 @@ Other changes:
   Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, …), and with any argument
   (a format string or a format provider, `CultureInfo.InvariantCulture` included), it now throws
   `NotSupportedException`, because the database's text isn't .NET's (`1.50` for a `DECIMAL(10,2)` holding `1.5m`,
-  `1` for `true`); compare the property's value instead. Before, these compared the column's value with the text
-  (on PostgreSQL they failed with `42883`), and `x.Code.ToString(CultureInfo.InvariantCulture) == "7"` worked on SQL
-  Server, MySQL and SQLite; in a projection they threw `InvalidCastException` on SQL Server, PostgreSQL and MySQL and
-  gave text unlike .NET's on SQLite.
+  `1` for `true`); compare the property's value instead. Before, these compared the column's value with the text (on
+  PostgreSQL a column that isn't text failed with `42883`), and in a projection a column that isn't text threw
+  `InvalidCastException` on SQL Server, PostgreSQL and MySQL and gave text unlike .NET's on SQLite. Some returned C#'s
+  rows and now throw: `x.Code.ToString(CultureInfo.InvariantCulture) == "7"` on SQL Server, MySQL and SQLite, and on
+  all four providers, in a WHERE clause and in a projection, `ToString()` on a `char` property and `ToString` with an
+  argument on a `string` property (`x.Name.ToString(CultureInfo.InvariantCulture)`).
 - **`x.N.Value.ToString()` on a nullable property throws `NullableExpressionException`**, as `x.N.Value == 7` does;
-  write `x.N.ToString()`. It selected the right rows on SQL Server, MySQL and SQLite before.
+  SQL Server, MySQL and SQLite sent it as the column before. On an integer property the message says to write
+  `x.N.ToString()`; on any other type, or with an argument, it says that `ToString()` isn't translated there either
+  (see the entry above).
 - **The SQL of a string `Contains`, `StartsWith` or `EndsWith` ends with `ESCAPE '!'`**, and its value has `%`, `_`,
   `[` and `!` prefixed by `!`. Code that reads the SQL text, such as a `Log` callback, sees the new form.
 

@@ -59,8 +59,8 @@ namespace Funcular.Data.Orm
         /// <item><see cref="DeletePredicateVerdict.NoColumn"/>: the body reads no member of the entity parameter
         /// (<c>x =&gt; true</c>, <c>x =&gt; 1 &lt; 2</c>, a captured <c>bool</c>).</item>
         /// <item><see cref="DeletePredicateVerdict.SelfReference"/>: the body always holds and is a comparison of a
-        /// member with itself by <c>==</c>, <c>&gt;=</c> or <c>&lt;=</c> (also through a cast), or the negation of one by
-        /// <c>!=</c>, <c>&gt;</c> or <c>&lt;</c>.</item>
+        /// member with itself by <c>==</c>, <c>&gt;=</c> or <c>&lt;=</c> (also through a cast or a <c>ToString()</c> with no
+        /// argument), or the negation of one by <c>!=</c>, <c>&gt;</c> or <c>&lt;</c>.</item>
         /// <item><see cref="DeletePredicateVerdict.AlwaysTrue"/>: the body always holds otherwise, for example a
         /// disjunction with a <c>true</c> literal, a captured or static <c>true</c>, a <c>true</c> property of a captured
         /// object, a comparison of constants and captured values that holds, or a <c>Contains</c> on a captured string
@@ -427,13 +427,16 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// The members of a chain of reads that ends at a parameter of the entity type, through casts, outermost
-        /// first; null when <paramref name="expression"/> isn't one.
+        /// The members of a chain of reads that ends at a parameter of the entity type, through casts and an outermost
+        /// <c>ToString()</c> with no argument, outermost first; null when <paramref name="expression"/> isn't one.
         /// </summary>
         private static List<MemberInfo>? MemberChain(Expression expression, Type entityType)
         {
             var members = new List<MemberInfo>();
             var current = StripConvert(expression);
+            if (current is MethodCallExpression call && call.Method.Name == nameof(ToString) && call.Object != null
+                && call.Arguments.Count == 0)
+                current = StripConvert(call.Object);
             while (current is MemberExpression member && member.Expression != null)
             {
                 members.Add(member.Member);

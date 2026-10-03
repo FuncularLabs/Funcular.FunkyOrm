@@ -165,6 +165,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["longSelf"] = P(x => (long)x.Id == (long)x.Id),
                 ["nullableSelf"] = P(x => (int?)x.Id == (int?)x.Id),
                 ["nameSelf"] = P(x => x.Name == x.Name),
+                // A self-comparison through a no-argument ToString() (LIKE_ESCAPING_TOSTRING_PLAN.md, T4-1).
+                ["idToStringSelf"] = P(x => x.Id.ToString() == x.Id.ToString()),
+                ["nameToStringSelf"] = P(x => x.Name.ToString() == x.Name),
+                ["idToStringSelfNe"] = P(x => x.Id.ToString() != x.Id.ToString()),
+                ["idToStringOther"] = P(x => x.Id.ToString() == x.Other.ToString()),
+                ["idToStringFormatSelf"] = P(x => x.Id.ToString("D2") == x.Id.ToString("D2")),
                 ["idOther"] = P(x => x.Id == x.Other),
                 // Or.
                 ["orTrue"] = P(x => x.Id == 2 || true),
@@ -264,6 +270,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("longSelf", DeletePredicateVerdict.SelfReference)]
         [DataRow("nullableSelf", DeletePredicateVerdict.SelfReference)]
         [DataRow("nameSelf", DeletePredicateVerdict.SelfReference)]
+        [DataRow("idToStringSelf", DeletePredicateVerdict.SelfReference)]
+        [DataRow("nameToStringSelf", DeletePredicateVerdict.SelfReference)]
+        [DataRow("idToStringSelfNe", DeletePredicateVerdict.Acceptable)]
+        [DataRow("idToStringOther", DeletePredicateVerdict.Acceptable)]
+        [DataRow("idToStringFormatSelf", DeletePredicateVerdict.Acceptable)]
         [DataRow("idOther", DeletePredicateVerdict.Acceptable)]
         [DataRow("orTrue", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("orCapturedTrue", DeletePredicateVerdict.AlwaysTrue)]

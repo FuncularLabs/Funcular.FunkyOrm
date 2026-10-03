@@ -8,9 +8,21 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 7. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5) after five rounds (§9.1–§9.5). Task 1's
-> seam is `049e45e` (§5.1), Task 2 carries rev 6 (§5.2), and Task 3 is the commit that carries this revision (§5.3).
-> Task 4, the hostile review, is next.
+> **Status (2026-10-03):** rev 8. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
+> Task 2 carries rev 6 (§5.2), Task 3 carries rev 7 (§5.3). Task 4's review of `ca82741..921c995` (§9.6) found 7;
+> this revision's fix layer answers them (§5.4), and its fix-verification is next.
+
+> **Owner directive (2026-10-03, answering T4-1 and T4-3):** stop accommodating edge-case parameters; reject a shape
+> that needs an operation or evaluation with `NotSupportedException` and require a plain value, whenever that
+> shortens the work. When a shape "worked" before, ask whether that meant it didn't throw or that it prevented a
+> wrong delete; for the first, reject it and say so in the Changelog.
+
+> **Revision 8 — what changed (Task 4 round 1, T4-1…T4-7):** D5: the delete guard reads a self-comparison through
+> a no-argument `ToString()` (owner, T4-1), AC12 and rows. D4: `.Value.ToString()`'s message gives D4's rule where the
+> property's own `ToString()` isn't translated either (T4-2), AC11 rows. The Changelog says what worked before and now
+> throws: `char`, and an argument on a `string` property, both kept rejected under the directive (T4-3); a row for
+> the latter (T4-4). Two branch rows (T4-5). The cast can't use an index, disclosed (T4-6). §5.2's `person` record
+> (T4-7). Task 4's merge notes follow I1-6's withdrawal of captured-`ToString` evaluation.
 
 > **Revision 7 — what changed (Task 3):** §5.3 records the documents. D6's edit to the delete guard plan's §6 keeps a
 > sentence naming the wildcard shape and this plan, so the record of what the reviews saw stays.
@@ -151,13 +163,20 @@ workaround this change removes.
   - `ToString` with any argument on a column (a format string, an `IFormatProvider`, `CultureInfo.InvariantCulture`)
     throws `NotSupportedException` (owner decision 2026-10-03, L0-7). `x.Code.ToString(CultureInfo.InvariantCulture)`
     worked on SQL Server, MySQL and SQLite and now throws; the Changelog says so.
-  - `x.N.Value.ToString()` on a nullable column throws `NullableExpressionException` with the same guidance as
-    `x.N.Value == 7` (owner decision 2026-10-03, L0-2).
+  - `x.N.Value.ToString()` on a nullable column throws `NullableExpressionException` (owner decision 2026-10-03,
+    L0-2): with the guidance of `x.N.Value == 7` on an integer column with no argument, and otherwise with the rule
+    above that rejects the property's own `ToString()` (rev 8, T4-2).
+  - A `char` column and a `string` column with an argument are rejected with the rest (D4 above). Both returned C#'s
+    rows on all four before; under the owner's directive they stay rejected, and the Changelog says so (rev 8, T4-3).
   - A receiver that isn't a column keeps today's translation here (I1-6 owns it).
   - The same rules hold in a projection.
   - The cast text lives in each translator, not in `ISqlDialect` (D1's note on public interfaces).
-- **D5 — The delete guard.** Its code doesn't change here. Its prose about wildcards changes (D6); its captured-value
-  prose, `IsContainsOfNull` and the tripwire comment are I1-6's. Its `HasLiteralTautology` reads the new fragments
+- **D5 — The delete guard.** One change to its code (owner decision 2026-10-03, T4-1): its member chain reads
+  through an outermost `ToString()` with no argument, so `x.Code.ToString() == x.Code.ToString()` and
+  `x.Name.ToString() == x.Name` are self-comparisons (SelfReference) on all four providers. Before, only SQL Server's
+  SQL-text regex caught them, and PostgreSQL, MySQL and SQLite deleted every row. Its prose about wildcards changes
+  (D6); its captured-value prose, `IsContainsOfNull` and the tripwire comment are I1-6's. Its `HasLiteralTautology`
+  reads the new fragments
   (`… ESCAPE '!' OR NOT 1=0`, `CAST(…) … OR NOT 1=0`) correctly, and its C# evaluation of a captured `Contains`
   agrees with the escaped SQL for every metacharacter (§9.1).
 - **D6 — Documents.**
@@ -197,7 +216,8 @@ workaround this change removes.
   on all four (PostgreSQL included, with no 42883).
 - **AC4 — Other `ToString()` on a column is rejected.** `x.Amount.ToString() == "1.50"` (decimal),
   `x.Flag.ToString() == "True"` (bool), `x.Code.ToString("D2") == "07"` and
-  `x.Code.ToString(CultureInfo.InvariantCulture) == "7"` throw `NotSupportedException` before the SELECT or DELETE is
+  `x.Code.ToString(CultureInfo.InvariantCulture) == "7"` and `x.Name.ToString(CultureInfo.InvariantCulture) == "a_b"`
+  (rev 8) throw `NotSupportedException` before the SELECT or DELETE is
   sent (a delete logs no DELETE and leaves every row), by `Query` and `Delete`, sync and async, on all four.
 - **AC5 — `LikePattern`.** `Escape` escapes exactly `!`, `%`, `_` and `[`, leaves every other character, and returns
   null for null and `""` for `""`; `EscapeCharacter` and `EscapeClause` are as D1 states.
@@ -213,8 +233,14 @@ workaround this change removes.
 - **AC11 — `.Value` and culture.** `x.NCode.Value.ToString() == "7"` throws the provider's
   `NullableExpressionException` (each provider assembly defines its own, SQL Server's being `Funcular.Data.Orm`: the
   row asserts the exception's full name, that its assembly is the provider's, and its message; a base-type assertion
-  would also accept the delete guard's `InvalidOperationException`); under the fi-FI current culture
-  `x.Big.ToString() == "-5"` still selects the `-5` row (the invariant text), on all four.
+  would also accept the delete guard's `InvalidOperationException`); `x.NAmount.Value.ToString() == "1.50"` (a
+  `decimal?`) and `x.NCode.Value.ToString("D2") == "07"` throw it too, with D4's rule in the message (rev 8); under the
+  fi-FI current culture `x.Big.ToString() == "-5"` still selects the `-5` row (the invariant text), on all four.
+- **AC12 — A self-comparison through `ToString()` deletes nothing** (rev 8, T4-1). `Delete` and `DeleteAsync` of
+  `x.Code.ToString() == x.Code.ToString()`, `x.NCode.ToString() == x.NCode.ToString()` and
+  `x.Name.ToString() == x.Name` throw the SelfReference message, log no DELETE and leave every row, on all four; the
+  guard classifies `x.Id.ToString() != x.Id.ToString()`, `x.Id.ToString() == x.Other.ToString()` and
+  `x.Id.ToString("D2") == x.Id.ToString("D2")` as Acceptable.
 
 ## 4. Test plan
 
@@ -255,13 +281,14 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 | AC1 | `ColumnStringMethods_DeleteDeletesWhatCSharpSelects` [`Contains` `_`, `%`, `[`, `!`, a backslash; `StartsWith("a%")`; `EndsWith` a backslash and `b`; `Contains("x")`; literal and captured] | ✓ | ✓ | ✓ | ✓ | Red as above |
 | AC2 | `CapturedStringContains_SelectsWhatCSharpSelects` [`_`, `%`, `[a]`, and `b` by Query only], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red for `_` and `%` on all four and `[a]` on SQL Server; Guard for the rest |
 | AC3 | `IntegerColumnToString_ComparesAsText` [each of `i8`…`u64` at its minimum and maximum; `code07`, `code7`, `ncodeEmpty`, `ncode7`, `longName`], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red: every integer row on PostgreSQL (42883); elsewhere `code07`, `ncodeEmpty` and each row whose text the database's conversion matches differently; `longName` Guard |
-| AC4 | `OtherColumnToString_IsRejected` [`amount`, `flag`, `codeD2`, `codeInvariant`], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red (no exception, or 42883 on PostgreSQL) |
+| AC4 | `OtherColumnToString_IsRejected` [`amount`, `flag`, `codeD2`, `codeInvariant`, `nameInvariant` (rev 8)], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red (no exception, or 42883 on PostgreSQL); `nameInvariant` Guard at Task 2 |
 | AC9 | `Projection_GivesCSharpsValue` [`codeToString`, `ncodeToString`, `containsUnderscore`, `startsWithAPercent`] and `Projection_OtherColumnToString_IsRejected` [`amount`, `codeD2`] | ✓ | ✓ | ✓ | ✓ | Red (`InvalidCastException` on three providers; on SQLite wrong values, except `codeToString`, a Guard there) |
 | AC10 | `NonColumnReceiver_KeepsTodaysTranslation` [`x.Id == 2 && d.ToString() == d.ToString()`], Query | ✓ | ✓ | ✓ | ✓ | Guard |
-| AC11 | `NullableValueToString_IsRejected` (Query and Delete) and `IntegerToString_IsInvariantUnderFiFi` (Query; a culture-invariance pin, not a mutation killer: the cast happens in SQL) | ✓ | ✓ | ✓ | ✓ | Red (`.Value` is dropped today); the fi-FI row is Red on PostgreSQL only |
+| AC11 | `NullableValueToString_IsRejected` [`ncodeValue`; `namountValue`, `ncodeValueD2` (rev 8)] (Query and Delete) and `IntegerToString_IsInvariantUnderFiFi` (Query; a culture-invariance pin, not a mutation killer: the cast happens in SQL) | ✓ | ✓ | ✓ | ✓ | Red (`.Value` is dropped today); the fi-FI row is Red on PostgreSQL only; the rev 8 rows Red at Task 2 (the message) |
+| AC12 | `ToStringSelfComparison_DeleteIsRejected` [`codeSelf`, `ncodeSelf`, `nameSelf`], Delete; and `Classify_ReturnsTheVerdict` [`idToStringSelf`, `nameToStringSelf` SR; `idToStringSelfNe`, `idToStringOther`, `idToStringFormatSelf` OK] (rev 8) | ✓ | ✓ | ✓ | ✓ | Red at Task 2 on PostgreSQL, MySQL and SQLite (the delete ran) and for the two SR rows; Guard on SQL Server and for the OK rows |
 | AC6 | the existing tests of §1 | ✓ (and net48) | ✓ | ✓ | ✓ | Guard |
 | AC7 | Task 4's review checks Task 3's diff against D6 and greps every document for the string methods and `ToString` | — | — | — | — | — |
-| AC8 | the suites, DotNet9, net48; coverlet; and `TranslatorBranchTests` (DB-free, in SqlServer.Tests, one class per provider calling its translator directly): collection `Contains` errors, rejected string-method arguments, `ToString` on a nested, computed or null receiver, and the date members (rev 6) | ✓ | ✓ | ✓ | ✓ | Guard: the branch rows pin today's translation |
+| AC8 | the suites, DotNet9, net48; coverlet; and `TranslatorBranchTests` (DB-free, in SqlServer.Tests, one class per provider calling its translator directly): collection `Contains` errors, rejected string-method arguments, `ToString` on a nested, computed or null receiver, and the date members (rev 6); a child's property named `Value`, and a property of the enclosing object (rev 8, T4-5) | ✓ | ✓ | ✓ | ✓ | Guard: the branch rows pin today's translation |
 
 DDL per provider: `flag` is `BIT` (SQL Server), `BOOLEAN` (PostgreSQL), `TINYINT(1)` (MySQL), `INTEGER` (SQLite);
 `amount` is `DECIMAL(10,2)` (`NUMERIC` on SQLite); `name` is 40 characters wide; every row is inserted through
@@ -300,7 +327,13 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
 | `ToString` with a format string accepted on a column (per provider) | [`codeD2`] |
 | `ToString` with an `IFormatProvider` accepted on a column (per provider) | [`codeInvariant`] |
 | `.Value.ToString()` accepted (per provider) | `NullableValueToString_IsRejected` |
-| The column test accepts a captured member (per provider) | `NonColumnReceiver_KeepsTodaysTranslation` |
+| The column test accepts a captured member (per provider) | `NonColumnReceiver_KeepsTodaysTranslation` (a closure field) |
+| The column test accepts a property of a constant, keeping the property test (per provider; rev 8) | `ToString_CapturedPropertyReceiver_IsAParameterNotAColumn` |
+| An argument accepted on a `string` column (per provider; rev 8) | [`nameInvariant`] |
+| The `.Value` rule without its `Nullable` test (per provider; rev 8) | `ToString_ChildPropertyNamedValue_IsNotTheNullableRule` |
+| The `.Value` message ignores an argument / a non-integer type (per provider; rev 8) | [`ncodeValueD2`] / [`namountValue`] |
+| The guard doesn't read a self-comparison through `ToString()` (rev 8) | `Classify` [`idToStringSelf`, `nameToStringSelf`]; `ToStringSelfComparison_DeleteIsRejected` |
+| The guard reads through `ToString` with an argument too (rev 8) | `Classify` [`idToStringFormatSelf`] |
 
 ### 4.4 Where each tier runs
 
@@ -322,35 +355,36 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
    and I1-6 land there), re-run the suites, and merge into `development/3.10` before the beta PR. At that merge:
    - I1-6's D4 evaluates a captured string `Contains` in C#, so D3's captured-receiver escaping becomes unreachable;
      AC2's rows then pass through that path, and §4.3's "captured receiver not escaped" row is retired.
-   - I1-6's `ToString` branch (as implemented at `d37f719`) evaluates in C# every receiver the delete guard
-     evaluates, then sends the rest to its `AppendColumn`, which throws `NotSupportedException` for a receiver that
-     isn't `x.Prop`, `x.N.Value` included. The merged order is: I1-6's evaluator; this branch's `.Value` check
-     (`NullableExpressionException`, the owner's decision); D4's cast or rejection for a column (inside, or in place
-     of, `AppendColumn` for a property receiver); I1-6's rejection for anything else. AC11's `.Value` row pins the
-     order. I1-6's `ToString_Column` test, which pins `x.Id.ToString()` as the bare column, changes to the cast in
-     the merge commit.
+   - I1-6's Task 5 fix layer (reported by its session on 2026-10-03, under the owner's directive; re-check against its
+     verified sha at the merge) withdraws its evaluation of a captured `ToString()`: a `ToString()` that doesn't read
+     the row throws `NotSupportedException` ("ToString() is translated only on a property of the entity; for a value
+     that doesn't read the row, compute the string before the query: "), and its `ToString` branch is its
+     `AppendColumn` of the receiver. The merged order is: this branch's `.Value` check (`NullableExpressionException`,
+     the owner's decision); D4's cast or rejection for a column (inside, or in place of, `AppendColumn` for a property
+     receiver); I1-6's rejection for anything else. AC11's `.Value` rows pin the order. I1-6's `ToString_Column`
+     test, which pins `x.Id.ToString()` as the bare column, changes to the cast in the merge commit.
    - I1-6's `TranslatorDirectHarness` (as implemented at `d37f719`) pins the unescaped `LIKE` text in five more tests:
      `StringContains_ConstantValue`, `StringContains_CapturedThisPropertyValue`, `StartsWith_Column`,
      `EndsWith_Column` and `StartsWith_CapturedThisPropertyArgument`. The merge commit appends `ESCAPE '!'` to their
      expected SQL; their values have no metacharacters, so the parameters don't change. The harness is compiled into
      all four test projects, so with `ToString_Column` the merge commit changes six tests on each provider (§9.4).
      I1-6's `LIKE NULL` tests don't change: its null branch runs before escaping.
-   - After the merge, AC10's `d` takes I1-6's evaluator. A captured value declared as `object`, an interface or a user
-     type still reaches the column test, so §4.3's "the column test accepts a captured member" row is killed by
-     I1-6's `Rejected_BeforeAnyCommand` rows for those receivers (`userTypeToString`, `objectDeclaredToString`,
-     `objectHoldingStringToString`, `interfaceHoldingStringToString`), which assert I1-6's message prefix; D4's
-     message stays distinct from it (§9.3).
+   - After the merge, AC10's `d.ToString()` throws I1-6's `NotSupportedException`, so AC10's row becomes a rejection
+     row in the merge commit. Every captured receiver reaches I1-6's rejection, so §4.3's "the column test accepts a
+     captured member" rows are killed by I1-6's `Rejected_BeforeAnyCommand` rows, which assert I1-6's message prefix;
+     D4's message stays distinct from it (§9.3).
    - I1-6 reads the `Contains` value at one site, so §4.3's two per-site rows become one.
-   - The merge commit adds rows to this branch's harness for `x.Code.ToString() == n.ToString()` with a captured
-     `int n` (Query, all four): on PostgreSQL the seam returns row 1 and this branch alone sends `text = integer`
-     (42883); it passes once I1-6's D7 evaluates the captured `ToString()` (§9.1, §9.2). And, under the fi-FI current
-     culture, `x.Big.ToString() == negFive.ToString()` with `long negFive = -5`: the column's invariant `-5` doesn't
-     equal the captured `−5`, so it selects nothing on all four while C# selects the row; the row pins that
-     documented difference (D6, §9.3).
+   - The merge commit adds rejection rows to this branch's harness for `x.Code.ToString() == n.ToString()` with a
+     captured `int n`, and for `x.Big.ToString() == negFive.ToString()` with `long negFive = -5` under the fi-FI
+     culture (Query, all four): each throws I1-6's `NotSupportedException`. The culture difference of §9.3 then can't
+     arise, so D6's merge-time sentence becomes "a captured value's `ToString()` is rejected: compute the string before
+     the query", and §6's culture bullet is retired.
    - I1-6's D8 null branch runs before escaping.
    - `TranslatorBranchTests` (rev 6) pins today's rejection messages for string `Contains`/`StartsWith` arguments and
-     today's translation of a `ToString` receiver that isn't a column; where I1-6 translates or rejects those shapes
-     with its own messages, the merge commit updates the row, and the merged suites re-measure AC8.
+     today's translation of a `ToString` receiver that isn't a column (nested, computed, null, captured property, a
+     child's `Value`); where I1-6 translates or rejects those shapes with its own messages, the merge commit updates
+     the row, and the merged suites re-measure AC8.
+   - The guard change of D5 (T4-1) is in `MemberChain`; I1-6's guard edits are elsewhere in the file.
 
 ### 5.1 Task 1 (`049e45e`)
 
@@ -395,8 +429,9 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
 - Mutations: 90 mutants for the §4.3 rows (each provider row on each provider; the integer-type row for each type on
   each provider), each run against its provider's harness class (the `Escape` rows also against
   `LikePatternTests`). Every one was killed, and in each the rows §4.3 names for it failed.
-- The existing SQL Server suite leaves 177 rows in `person` each run, at `ca82741` too; the rows this plan adds
-  write only `zz_lt_row` and `zz_lt_num`, which each row drops.
+- The existing suites leave rows in `person` each run, at `ca82741` too (SQL Server 177, PostgreSQL 87, MySQL 59, as
+  the Task 4 reviewer measured; T4-7); the rows this plan adds write only `zz_lt_row` and `zz_lt_num`, which each
+  row drops.
 
 ### 5.3 Task 3 (the commit that carries rev 7)
 
@@ -415,6 +450,19 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
   true. The MySQL instructions' "use `LIKE` with `CONCAT()` patterns" was already loose for `Contains`, whose pattern
   is built in the parameter; it is unchanged.
 - The sentence that a captured `n.ToString()` is formatted in the current culture is the merge's (D6, Task 4).
+
+### 5.4 Task 4, round 1 (the commit that carries rev 8)
+
+- Each finding's rows were written first and run against Task 2's code: T4-2's AC11 rows failed on the message
+  (`namountValue`, `ncodeValueD2`, all paths, all four); T4-1's `Classify` SR rows returned Acceptable, and AC12's
+  Delete rows deleted on PostgreSQL, MySQL and SQLite (Guard on SQL Server); T4-4's and T4-5's rows pass there, as they
+  pin rejections and translations Task 2 already has, and are the killers of the reviewer's surviving mutants.
+- Mutations: the reviewer's survivors and the new rows, 22 mutants (§4.3's rev 8 rows: five per provider, two in the
+  guard), each killed by the rows §4.3 names.
+- Suites, all passing: SqlServer.Tests 2020, PostgreSql.Tests 1157, MySql.Tests 1110, Sqlite.Tests 800, DotNet9 5,
+  net48 79.
+- Coverage, the four suites under coverlet: `LikePattern.cs` 14 / 14; `DeletePredicateGuard.cs` 536 / 582
+  (92.10 %); the translators 259 / 273 (94.87 %), 259 / 270 (95.93 %), 259 / 270 (95.93 %) and 271 / 296 (91.55 %).
 
 ## 6. Out of scope (recorded)
 
@@ -509,3 +557,18 @@ Verdict: NOT CLEAN; one blocking finding and one nit. L2-1 and L2-2 resolved; L2
 
 Verdict: CLEAN. L3-1 and L3-2 resolved. One informational note: at the merge, `ToString_Column`'s new expectation
 differs per provider (the cast text), so the shared harness needs a per-provider hook for it.
+
+### 9.6 Task 4 review of `ca82741..921c995` (non-author; suites re-run; coverage recomputed; 17 §4.3 mutant kinds and 4 of its own; probes of every entry point, modes and collations on all four)
+
+Verdict: NOT CLEAN; five blocking findings and two nits. The core change held everywhere it probed. Blame: AC-GAP 1,
+TEST-GAP 2, PLAN-GAP 3, OTHER 1.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| T4-1 | low | PLAN-GAP | D5: a self-comparison through `ToString()` passed the guard on PostgreSQL, MySQL and SQLite | Owner: reject it as a self-comparison. The guard reads through a no-argument `ToString()`; AC12; rows; mutations; the Changelog and Usage. |
+| T4-2 | low | AC-GAP | D4: `.Value.ToString()`'s advice where the property's `ToString()` isn't translated | The message gives D4's rule there; AC11 rows; the Changelog qualified. |
+| T4-3 | low | PLAN-GAP | The Changelog's "Before" sentence; `char` and a `string` with an argument worked on all four | Owner's directive: both stay rejected; the Changelog says they worked and now throw. |
+| T4-4 | low | TEST-GAP | An argument on a `string` column unpinned | `nameInvariant`; mutation. |
+| T4-5 | nit | TEST-GAP | Two §4.3 variants survived | Two branch rows; mutations. |
+| T4-6 | low | PLAN-GAP | The cast can't use an index | Disclosed in the Changelog and Usage. |
+| T4-7 | nit | OTHER | §5.2: the PostgreSQL and MySQL `person` rows | Recorded. |
