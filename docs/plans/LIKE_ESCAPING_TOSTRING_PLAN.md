@@ -16,7 +16,7 @@
 > reachable after the merge and is killed by I1-6's rejection rows, so D4's message differs from I1-6's (L2-1); a
 > column's invariant text against a captured value's current-culture text is disclosed and pinned (L2-2); AC1's seam
 > class is the general rule (L2-3); I1-6's `AppendColumn` and `ToString_Column` test at the merge (from the I1-6
-> session).
+> session); AC11 names the SQL Server provider's assembly (the reviewer's note).
 
 > **Revision 3 — what changed (Task 0 re-review, L1-1…L1-7):** AC10's row runs on all four providers with a shape
 > that holds on each (L1-1); Task 4's merge notes follow I1-6 as implemented, with the merged check order and the
@@ -158,10 +158,10 @@ method-call row uses it inside LIKE patterns", four copies) describes the workar
     `NullableExpressionException`; the SQL text carries `ESCAPE '!'`.
   - Changelog New public API: `LikePattern` in `Funcular.Data.Orm.Linq`.
   - `Usage.md` "The `LIKE` Clause" (`:517-530`): the value is matched literally, wildcards included; the SQL comments
-    show `ESCAPE '!'`; a column's `ToString()` is an integer column's text in the invariant form, so a value it is
-    compared with should be built with `CultureInfo.InvariantCulture` before the query (a captured
-    `n.ToString()` is formatted in the current culture, as C# does); the troubleshooting
-    item 2 list stays true; `Usage.md:120`'s `.Value` rule now also covers `ToString()`.
+    show `ESCAPE '!'`; a column's `ToString()` is an integer column's text in the invariant form, so text it's
+    compared with is built with `CultureInfo.InvariantCulture` before the query (the merge with I1-6 adds that a
+    captured `n.ToString()` is formatted in the current culture, as C# does); the troubleshooting item 2 list stays
+    true; `Usage.md:120`'s `.Value` rule now also covers `ToString()`.
   - The delete guard's caveat (Changelog Fixed, `Usage.md` item 4 Warning, `DELETE_GUARD_PLAN.md` §6) drops the
     unescaped-wildcard clause ("doesn't escape `%` or `_`"; §6's "`%`, `_` or `[`") and the `s.Contains("_")`
     example; at the merge with I1-6, whichever lands second reconciles the shared sentences.
@@ -197,10 +197,10 @@ method-call row uses it inside LIKE patterns", four copies) describes the workar
 - **AC10 — A non-column receiver keeps today's translation.** `x => x.Id == 2 && d.ToString() == d.ToString()` with
   `decimal d = 1.5m` selects row 2 on all four, as today (the D4 column rules don't apply to `d`).
 - **AC11 — `.Value` and culture.** `x.NCode.Value.ToString() == "7"` throws the provider's
-  `NullableExpressionException` (each provider assembly defines its own: the row asserts the exception's full name,
-  that its assembly is the provider's, and its message; a base-type assertion would also accept the delete guard's
-  `InvalidOperationException`); under the fi-FI current culture `x.Big.ToString() == "-5"` still selects the `-5` row
-  (the invariant text), on all four.
+  `NullableExpressionException` (each provider assembly defines its own, SQL Server's being `Funcular.Data.Orm`: the
+  row asserts the exception's full name, that its assembly is the provider's, and its message; a base-type assertion
+  would also accept the delete guard's `InvalidOperationException`); under the fi-FI current culture
+  `x.Big.ToString() == "-5"` still selects the `-5` row (the invariant text), on all four.
 
 ## 4. Test plan
 
@@ -316,8 +316,9 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
      the merge commit.
    - After the merge, AC10's `d` takes I1-6's evaluator. A captured value declared as `object`, an interface or a user
      type still reaches the column test, so §4.3's "the column test accepts a captured member" row is killed by
-     I1-6's `Rejected_BeforeAnyCommand` rows for those receivers, which assert I1-6's message prefix; D4's message
-     stays distinct from it (§9.3).
+     I1-6's `Rejected_BeforeAnyCommand` rows for those receivers (`userTypeToString`, `objectDeclaredToString`,
+     `objectHoldingStringToString`, `interfaceHoldingStringToString`), which assert I1-6's message prefix; D4's
+     message stays distinct from it (§9.3).
    - I1-6 reads the `Contains` value at one site, so §4.3's two per-site rows become one.
    - The merge commit adds rows to this branch's harness for `x.Code.ToString() == n.ToString()` with a captured
      `int n` (Query, all four): on PostgreSQL the seam returns row 1 and this branch alone sends `text = integer`
