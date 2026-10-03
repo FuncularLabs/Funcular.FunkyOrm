@@ -9,9 +9,19 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-02):** rev 3. Task 0 review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
+> **Status (2026-10-03):** rev 4. Task 0 review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
 > (`3ea7234`) answered them with the owner's four decisions (D7, D8, D12, D13). Its re-review (§9.2) found 7, 2
-> blocking; rev 3 answers them. Task 0's next re-review follows.
+> blocking, answered in rev 3 (`1e990f3`). Its re-review (§9.3) found 6, 1 blocking; rev 4 answers them. Task 0's
+> next re-review follows.
+
+> **Revision 4 — what changed (Task 0 re-review, R3-1…R3-6):**
+> - A `ToString` is evaluated as a whole call, so a nullable with no value gives `""` and a null string throws per D9
+>   (R3-1); only the calls the delete guard evaluates are evaluated, so no comparison the guard can't see is sent
+>   (R3-5); a static `ToString` fails closed instead of leaking `ArgumentException` (R3-3); the current culture is
+>   pinned (R3-4).
+> - Every evaluation goes through one settable `Compiler`, with a counting test per member and a source scan (R3-2).
+> - The field-item check moves before the collection read; a non-enumerable value and each receiver get their own
+>   message (R3-6).
 
 > **Revision 3 — what changed (Task 0 re-review, R2-1…R2-7):**
 > - A `ToString(...)` that doesn't read the row is evaluated in C#, arguments included, and sent as the string C#
@@ -235,9 +245,18 @@ So, on every provider and path:
     literal. When its receiver or value is null it is sent as `NULL LIKE NULL`, which matches no row (D8). (Today a
     null receiver sends `NULL LIKE …`, which also matches no row; a null value sends `LIKE '%%'`, which matches every
     non-null receiver.)
-  - A `ToString(...)` whose receiver and arguments don't read the row is evaluated in C#, arguments (a format, a
-    provider) included, and sent as the string C# produces, as one parameter; a null receiver is sent as `NULL`, as
-    today. So `localInt.ToString() == "05"` compares `'5'` with `'05'` (N7), and `ToString("D2")` keeps its format (N4).
+  - A `ToString(...)` whose receiver and arguments don't read the row is evaluated in C# — the whole call, by
+    interpretation — and sent as the string C# produces, as one parameter, **when the delete guard would evaluate it
+    too** (rev 4, R3-5): an instance `ToString` with no argument or a format string, on a receiver declared as an enum
+    or as a non-generic, sealed or value type of the core library, or a nullable one of those (the guard's
+    `IsEvaluableCall`, `DeletePredicateGuard.cs:342-360` at `ca82741`). So `localInt.ToString() == "05"` compares
+    `'5'` with `'05'` (N7), `ToString("D2")` keeps its format (N4), a nullable with no value gives `""`, as C# does,
+    and a null string receiver throws per D9, as C# does (R3-1). It is evaluated in the current culture, as C#
+    evaluates it when the query is translated (R3-4).
+  - Any other `ToString` — on a user type, on a receiver declared as `object` or an interface, with an
+    `IFormatProvider`, or static (`Convert.ToString(…)`) — isn't evaluated: the guard couldn't see an always-true
+    comparison it makes (R3-5). It goes to §5.2 item 5's column-or-throw rule, so a row-independent one throws
+    `NotSupportedException` (D3: fail closed); today each fails or sends a wrong value.
   - A `ToString(...)` on a column: without arguments it is the column, as today (§8); with arguments it throws
     `NotSupportedException` (D3: fail closed).
   - Where the translator needs a value for a column receiver — string `Contains`', `StartsWith`'s and `EndsWith`'s
@@ -304,7 +323,9 @@ So, on every provider and path:
   doesn't read the row is sent as the string C# produces, arguments included. `x => x.Id == 2 || x.Name.Contains(Filter)`
   returns and deletes row 2 only; `x => x.Code == Code.ToString()` returns row 2;
   `x => x.Id == 2 || localInt.ToString() == "05"` and `x => x.Id == 2 || five.ToString("D2") == "5"` return and
-  delete row 2 only.
+  delete row 2 only. A nullable with no value gives `""`, as C# does: `x => x.Id == 2 || n.ToString() == null`
+  returns and deletes row 2 only. Only the `ToString` calls the delete guard evaluates are evaluated (D7); any other
+  `ToString` that doesn't read the row throws `NotSupportedException`.
 - **AC7.** A receiver of `ToString()` or of string `Contains` that reads the row through another member
   (`x.Name.Length`, `x.Child.Name`), and a `ToString(...)` with arguments on a column (`x.Id.ToString("D2")`), throw
   `NotSupportedException` instead of losing a member or an argument.
@@ -314,7 +335,7 @@ So, on every provider and path:
     string `Contains` that doesn't read the row, with a null receiver or value, matches no row (D7, D8);
   - a read or a call that throws while the predicate is translated (a null captured object, a throwing collection)
     throws `NotSupportedException` whose `InnerException` is the original exception, before any command is sent
-    (D9). Nothing is deleted.
+    (D9), including a `ToString()` on a null string. Nothing is deleted.
 - **AC9 (Task 6, with the delete-guard rewrite merged).** A delete whose evaluated `Contains` makes the predicate
   always true (`x.Id == 2 || ids.Contains(present.Id)`, `x.Id == 2 || !ids.Contains(absent.Id)`) is rejected with
   "Delete operation requires a non-trivial WHERE clause." and deletes nothing. In an `AND` it deletes what the rest
@@ -392,7 +413,7 @@ direct harness's entity adds a nullable date (`DateTime? Birth`), a `[NotMapped]
 
 Captured values, shared: `ids = {1, 2}`, `arr = new[] {1, 2}`, `absent` (Id 5, Code "a", Name "zeta", NullableId 5,
 Inner.Id 5, Ids {1, 2}), `present` (Id 1), `nullHolder` (NullableId null), `nullRequest = null`,
-`nullIdsHolder` (Ids null), `local = 5`, `localInt = 5`, `five = 5`, `codes = {"A"}`, `ci` (`HashSet`, OrdinalIgnoreCase, `{"A"}`),
+`nullIdsHolder` (Ids null), `local = 5`, `localInt = 5`, `five = 5`, `n = (int?)null`, `boxed = (object)5`, `settings` (a user type whose `ToString()` is `"on"`), `codes = {"A"}`, `ci` (`HashSet`, OrdinalIgnoreCase, `{"A"}`),
 `nulls = {null}`, `lengths = {4}`, `longs = {1L, 2L}`, `emptyIds = {}`, `s = "zeta"`, `nullFilter = null`,
 `needle` (Name "mm"), `bee` (Code "b"), `StaticHolder` (`Id = 5`, `Name = "alpha"`), and an instance `Holder`
 (`Filter = "zz"`, `Code = "b"`, `NullFilter = null`) whose instance methods return the predicates that read them (a
@@ -420,23 +441,24 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | AC3, AC8 | `Sql_RowIndependentContains_IsALiteral` (`query`) | `orAbsent` → `1=0`; `andPresent` → `NOT 1=0`; `andNotPresent` → `NOT NOT 1=0`; `andArrayPresent` → `NOT 1=0`; `orLocalReceiverCase` → `1=0`, one parameter (`x.Id == 2`'s) each; `optionalFilterNull` → `t.name LIKE NULL`; `optionalReceiverNull` → `NULL LIKE NULL` (one parameter: the `IS NULL` test's); `notContainsNullValue` → `NOT t.name LIKE NULL`; `orCapturedToString05` → a `string` parameter `"5"`; `orFormattedToString` → a `string` parameter `"05"` | red |
 | AC3 | `TranslatorDirectHarness` | `CollectionContains_RowIndependentItem_FalseSql`, `_TrueSql` (no parameter added); `CollectionContains_RowIndependent_ReadsCapturedValuesOnce`; `StringContains_RowIndependent_FalseSql`, `_TrueSql` | new |
 | AC4 | `Rejected_BeforeAnyCommand` (Q, D) | `nestedParamItem` (`ids.Contains(x.Child.Id)`); `lengthItem`; `convertItem` (`longs.Contains(x.Id)`); `emptyNestedParamItem` (`emptyIds.Contains(x.Child.Id)`); `nullCollection` (`nullIdsHolder.Ids.Contains(x.Id)`, D5) | red (S28 wrong rows; S21 server error; S22 NRE; `1=0` returns {}; `nullCollection` throws `NotSupportedException` today, "Unsupported member expression in Contains: x.Id" — red because the row asserts §5.3's prefix) |
-| AC4 | `TranslatorDirectHarness` | `CollectionContains_NestedParamItem_NotSupported`, `_NestedParamItemEmptyCollection_NotSupported`, `_ConvertedItem_NotSupported`, `_NestedParamItem_CollectionNotRead` (a counting getter stays at 0), `_ValueUnwrap_NullableExpressionException`, `_ValueUnwrapEmptyCollection_NullableExpressionException`, `_MemberItem_In`, `_FieldItem_InvalidOperation`, `_CollectionReadsRow_ParameterReferences` (`x.Tags.Contains(x.Id)`, message as today), `_RowIndependentItemRowCollection_NotSupported` (`x.Tags.Contains(5)`: D5's message) | new |
+| AC4 | `TranslatorDirectHarness` | `CollectionContains_NestedParamItem_NotSupported`, `_NestedParamItemEmptyCollection_NotSupported`, `_ConvertedItem_NotSupported`, `_NestedParamItem_CollectionNotRead` (a counting getter stays at 0), `_ValueUnwrap_NullableExpressionException`, `_ValueUnwrapEmptyCollection_NullableExpressionException`, `_MemberItem_In`, `_FieldItem_InvalidOperationBeforeCollectionRead`, `_CollectionReadsRow_ParameterReferences` (`x.Tags.Contains(x.Id)`, message as today), `_RowIndependentItemRowCollection_NotSupported` (`x.Tags.Contains(5)`: D5's message) | new |
 | AC5 | `Rejected_BeforeAnyCommand` (Q, D) | `startsWithCapturedReceiver` (S23); `endsWithCapturedReceiver` (S24); `startsWithLocalReceiver` (S26); `startsWithStaticReceiver` (`StaticHolder.Name.StartsWith("al")`); `startsWithNestedParamReceiver` (T5) | red (wrong rows, NRE) |
 | AC5 | `TranslatorDirectHarness` | `StartsWith_CapturedReceiver_NotSupported`, `_LocalReceiver_NotSupported`, `_StaticReceiver_NotSupported`, `_NestedParamReceiver_NotSupported`, `_MethodCallReceiver_NotSupported`, `CollectionContains_NullCollection_NotSupported`, `CollectionContains_NonEnumerableReceiver_NotSupported`, `CollectionContains_NonBoolCall_NotSupported` (no `ArgumentException` leaks) | new |
 | AC6 | `Query_ReturnsWhatCSharpSelects` (Q) | `containsThisFilter` (U1) {2}; `codeEqualsThisCodeToString` (U3) {2}; `containsNestedCaptured` (`x.Name.Contains(needle.Name)`) {3}; `startsWithThisFilter` (U2) {2}; `codeEqualsNestedToString` (`x.Code == bee.Code.ToString()`) {2}. No collation can change these answers. | red (U1, U3, T3, U2, T1) |
-| AC6 | `Query_ReturnsWhatCSharpSelects` (Q) | `orCapturedToString05` (N7: `x.Id == 2 \|\| localInt.ToString() == "05"`) {2}; `orPropertyToString05` (N8: `absent.Id.ToString() == "05"`) {2}; `orFormattedToString` (`x.Id == 2 \|\| five.ToString("D2") == "5"`) {2} | red (N7 and `orFormattedToString`: SQL Server, MySQL {1,2,3}, PostgreSQL error; N8 throws); SQLite N7 and `orFormattedToString`: luck — red: `Sql_…(orCapturedToString05)`, `Sql_…(orFormattedToString)` |
-| AC6 | `Delete_DeletesWhatCSharpSelects` (D) | `containsThisFilter` {2}; `startsWithThisFilter` {2}; `orCapturedToString05` {2}; `orPropertyToString05` {2}; `orFormattedToString` {2} | red (as the Query rows) |
-| AC6 | `TranslatorDirectHarness` | `StringContains_CapturedThisPropertyValue`, `_NestedCapturedValue`, `_StaticValue`, `_CapturedLocalValue`; `StartsWith_CapturedThisPropertyArgument`, `_NestedCapturedArgument`; `ToString_CapturedLocal_EvaluatedString` (`"5"`, a `string`), `_Constant_EvaluatedString`, `_Formatted_EvaluatedString` (`"05"`), `_CapturedThisProperty`, `_NestedCaptured`, `_Static`, `_NullReceiver_Null` | new |
+| AC6 | `Query_ReturnsWhatCSharpSelects` (Q) | `orCapturedToString05` (N7: `x.Id == 2 \|\| localInt.ToString() == "05"`) {2}; `orPropertyToString05` (N8: `absent.Id.ToString() == "05"`) {2}; `orFormattedToString` (`x.Id == 2 \|\| five.ToString("D2") == "5"`) {2}; `orNullableToStringIsNull` (`x.Id == 2 \|\| n.ToString() == null`, `int? n = null`) {2}; `orNullableToStringIsEmpty` (`x.Id == 2 \|\| n.ToString() == ""`) {1,2,3} | red (N7 and `orFormattedToString`: SQL Server, MySQL {1,2,3}, PostgreSQL error; N8 throws; `orNullableToStringIsNull` {1,2,3} and `orNullableToStringIsEmpty` {2} on all four, Task 0 reviewer executed); SQLite N7 and `orFormattedToString`: luck — red: `Sql_…(orCapturedToString05)`, `Sql_…(orFormattedToString)` |
+| AC6 | `Delete_DeletesWhatCSharpSelects` (D) | `containsThisFilter` {2}; `startsWithThisFilter` {2}; `orCapturedToString05` {2}; `orPropertyToString05` {2}; `orFormattedToString` {2}; `orNullableToStringIsNull` {2} (`orNullableToStringIsEmpty` is always true: Task 6's guard rows) | red (as the Query rows) |
+| AC6 | `TranslatorDirectHarness` | `StringContains_CapturedThisPropertyValue`, `_NestedCapturedValue`, `_StaticValue`, `_CapturedLocalValue`; `StartsWith_CapturedThisPropertyArgument`, `_NestedCapturedArgument`; `ToString_CapturedLocal_EvaluatedString` (`"5"`, a `string`), `_Constant_EvaluatedString`, `_Formatted_EvaluatedString` (`"05"`), `_CapturedThisProperty`, `_NestedCaptured`, `_StaticMemberReceiver`, `_NullableNoValue_EmptyString`, `_Enum_Name` | new |
 | AC7 | `Rejected_BeforeAnyCommand` (Q) | `codeEqualsLengthToString` (T2); `childNameContains` (T4); `columnToStringFormatted` (`x.Id.ToString("D2") == "02"`) | red (T2 sends `t.code = t.name`; T4 server error; the format is dropped, `t.id = '02'`) |
-| AC7 | `TranslatorDirectHarness` | `ToString_MemberOfMember_NotSupported`, `StringContains_ReceiverMemberOfMember_NotSupported`, `ToString_FieldOfParameter_NotSupported`, `ToString_OtherExpression_NotSupported`, `ToString_ColumnWithArguments_NotSupported`, `ToString_RowArgument_NotSupported` (`five.ToString(x.Code)`) | new |
+| AC6, D7 | `Rejected_BeforeAnyCommand` (Q, D) | `userTypeToString` (`x.Id == 2 \|\| settings.ToString() == "on"`); `objectDeclaredToString` (`\|\| boxed.ToString() == "5"`); `providerToString` (`\|\| five.ToString(CultureInfo.InvariantCulture) == "5"`); `staticConvertToString` (`x.Code == Convert.ToString(localInt)`) | red (user type: today a parameter-type error, not §5.3's prefix; `object` and provider: `5 = '5'`, wrong rows on SQL Server and MySQL; static: server syntax error) |
+| AC7 | `TranslatorDirectHarness` | `ToString_MemberOfMember_NotSupported`, `StringContains_ReceiverMemberOfMember_NotSupported`, `ToString_FieldOfParameter_NotSupported`, `ToString_OtherExpression_NotSupported`, `ToString_ColumnWithArguments_NotSupported`, `ToString_RowArgument_NotSupported` (`five.ToString(x.Code)`), `ToString_UserType_NotSupported`, `_ObjectDeclared_NotSupported`, `_FormatProvider_NotSupported`, `_Static_NotSupported` (no `ArgumentException` leaks) | new |
 | AC8 | `Query_ReturnsWhatCSharpSelects` (Q) | `optionalFilterNull` (O1) {1,2,3}; `optionalThisFilterNull` (O1 with `this.NullFilter`) {1,2,3}; `optionalStartsWithNull` (O4) {1,2,3}; `optionalReceiverNull` (`nullFilter == null \|\| nullFilter.Contains("a")`) {1,2,3}; `containsNullValue` (`x.Id == 2 \|\| x.Name.Contains(nullFilter)`, knownDivergence D8) {2}; `startsWithNullValue` (knownDivergence D8) {2}; `notContainsNullValue` (`x.Id == 2 \|\| !x.Name.Contains(nullFilter)`, knownDivergence D8) {2} (luck today, `NOT t.name LIKE '%%'` — red: `Sql_…(notContainsNullValue)`) | `optionalFilterNull`, `optionalThisFilterNull`, `optionalReceiverNull`: luck — red: `Sql_…(optionalFilterNull)`, `Sql_…(optionalReceiverNull)`; `optionalStartsWithNull` red (O4 throws); `containsNullValue` red (O5's `'%%'`); `startsWithNullValue` red (throws) |
 | AC8 | `Delete_DeletesWhatCSharpSelects` (D) | `containsNullValue` {2}; `startsWithNullValue` {2} | red |
-| AC8 | `Rejected_BeforeAnyCommand` (Q, D) | `throwingItem` (S17; inner `NullReferenceException`); `throwingCollection` (R1: `nullRequest.Ids.Contains(x.Id)`; inner `NullReferenceException`) | red (S17 wrong rows; R1 `TargetInvocationException`) |
-| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`; `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
+| AC8 | `Rejected_BeforeAnyCommand` (Q, D) | `throwingItem` (S17; inner `NullReferenceException`); `throwingCollection` (R1: `nullRequest.Ids.Contains(x.Id)`; inner `NullReferenceException`); `nullStringToString` (`x.Code == nullFilter.ToString()`; inner `NullReferenceException`) | red (S17 wrong rows; R1 `TargetInvocationException`; `t.code = NULL` returns {}) |
+| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `ToString_NullStringReceiver_NotSupportedWithInner`; `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryEvaluateToString_NullStringReceiver_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
 | AC9 | Task 6 rows in `CapturedValueHarness` | `Delete_AlwaysTrueAfterEvaluation_IsRejected` (D): `orPresent`, `orNotAbsent`, `orNullItem`, `orComparerSet` → the guard's message, nothing deleted; `andPresent` stays in `Delete_DeletesWhatCSharpSelects`; `orCapturedContainsNull` (`x.Id == 2 \|\| s.Contains(nullFilter)`) → deletes {2} once Task 6 has handled `IsContainsOfNull` | Task 6 |
 | AC10 | `Query_ReturnsWhatCSharpSelects` (Q), `Delete_DeletesWhatCSharpSelects` (D) | `idsX` {1,2}; `notIdsX` {3}; `nullableX` {1}; `emptyX` {} (Q only: the guards reject `1=0` alone); `startsWithX` {1}; `containsX` (`x.Name.Contains("mm")`) {3}; `arrayX` {1,2} | green, must stay green |
 | AC10 | `TranslatorDirectHarness` | `CollectionContains_EmptyCollection_OneEqualsZero`, `_NullValuesSkipped` (N1's `IN` list), `_ConstantCollection_In`, `_ImplicitUnary_In`, `_ImplicitCall_In`; `StringContains_ConstantValue`; `StartsWith_Column`, `EndsWith_Column`; `ToString_Column`; `DateMember_YearMonthDay`, `_OtherPart_NotSupported`, `_NotAValueChain_NotSupported`; `UnsupportedMethod_NotSupported` | new (pin today's output) |
-| AC11 | `RowIndependentEvaluatorTests` | `IsRowIndependent_Null_Throws`, `TryTranslateContains_Null_Throws`, `TryTranslateContains_NotABoolContains_Throws` (`string.IsNullOrEmpty`; a user `int Contains`), `TryTranslateContains_ReadsTheRow_ReturnsFalseWithoutEvaluating`, `TryEvaluateToString_Null_Throws`, `TryEvaluateToString_NotAToString_Throws` (a static method named `ToString`; one returning `object`), `TryEvaluateToString_ReadsTheRow_ReturnsFalse`, `TryReadValue_Null_Throws`, `TryReadValue_NotAChain_ReturnsFalse` (a method call, a chain on the parameter, a conversion), `Compile_WithoutInterpretation_Compiles` | new |
+| AC11 | `RowIndependentEvaluatorTests` | `IsRowIndependent_Null_Throws`, `TryTranslateContains_Null_Throws`, `TryTranslateContains_NotABoolContains_Throws` (`string.IsNullOrEmpty`; a user `int Contains`), `TryTranslateContains_ReadsTheRow_ReturnsFalseWithoutEvaluating`, `TryEvaluateToString_Null_Throws`, `TryEvaluateToString_NotAToString_Throws` (`GetHashCode`; a `ToString` returning `object`), `TryEvaluateToString_ReadsTheRow_ReturnsFalse`, `_UserType_ReturnsFalse`, `_ObjectDeclared_ReturnsFalse`, `_FormatProvider_ReturnsFalse`, `_Static_ReturnsFalse` (each evaluating nothing: a counting getter stays at 0), `TryReadValue_Null_Throws`, `TryReadValue_NotAChain_ReturnsFalse` (a method call, a chain on the parameter, a conversion), `Compile_WithoutInterpretation_Compiles`, `TryTranslateContains_UsesTheCompiler`, `TryEvaluateToString_UsesTheCompiler`, `TryReadValue_UsesTheCompiler` (a counting `Compiler`), `Compile_OnlyInTheSeam` (source scan of `RowIndependentEvaluator.cs`) | new |
 | AC12 | Task 4, checked in the diff by the reviewer | — | — |
 | AC13 | `Projection_GetsCSharpsValue` (`query`) | `labelAbsent` (`ids.Contains(absent.Id) ? "in" : "out"`) → 1:out, 2:out, 3:out; `labelX` (`ids.Contains(x.Id) ? …`) → 1:in, 2:in, 3:out; `flagAbsent` (`Flag = ids.Contains(absent.Id)`, where `SupportsPredicateAsValue`) → false ×3 | red (P1, P2); `labelX` green |
 | AC13 | `Rejected_BeforeAnyCommand` (`query`) | `labelNestedParam` (`ids.Contains(x.Child.Id) ? …`) | red (wrong labels) |
@@ -448,10 +470,11 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | `RowIndependentEvaluator.IsRowIndependent(Expression)` | `IsRowIndependent_ConstantAndCapturedChains_True`, `_ReadsTheParameter_False`, `_NestedLambdaParameter_True`, `_ParameterOutsideItsLambda_False`, `_Null_Throws` |
 | `RowIndependentEvaluator.TryTranslateContains(MethodCallExpression, out string)` | the AC2/AC3/AC8/AC11 rows above, plus `_CapturedItemAbsent_FalseSql`, `_CapturedItemPresent_TrueSql`, `_StringReceiverNull_UnknownSql`, `_StringValueNull_UnknownSql` |
 | `RowIndependentEvaluator.TryReadValue(Expression, out object)` | `TryReadValue_Constant`, `_NullConstant`, `_ClosureField`, `_CapturedThisProperty`, `_NestedProperty`, `_StaticProperty`, `_StaticField`, `_NotAChain_ReturnsFalse`, `_NullIntermediate_InnerIsNullReference`, `_NullNullableValue_InnerIsInvalidOperation`, `_ThrowingGetter_InnerIsTheOriginal`, `_Null_Throws` |
-| `RowIndependentEvaluator.TryEvaluateToString(MethodCallExpression, out string)` | `TryEvaluateToString_CapturedInt_CSharpString`, `_Formatted`, `_FormatAndProvider`, `_Enum`, `_NullReceiver_NullValue`, `_ReadsTheRow_ReturnsFalse`, `_Throwing_WrapsInNotSupported`, `_Null_Throws`, `_NotAToString_Throws` |
+| `RowIndependentEvaluator.TryEvaluateToString(MethodCallExpression, out string)` | `TryEvaluateToString_CapturedInt_CSharpString`, `_Formatted`, `_Enum`, `_NullableNoValue_EmptyString`, `_CurrentCulture` (a `decimal` under de-DE, restored in `finally`), `_NullStringReceiver_WrapsInNotSupported`, `_UserType_ReturnsFalse`, `_ObjectDeclared_ReturnsFalse`, `_FormatProvider_ReturnsFalse`, `_Static_ReturnsFalse`, `_ReadsTheRow_ReturnsFalse`, `_UsesTheCompiler`, `_Null_Throws`, `_NotAToString_Throws` |
 | `RowIndependentEvaluator.TrueSql`, `FalseSql`, `UnknownSql` (constants) | asserted by value in `_CapturedItemPresent_TrueSql`, `_CapturedItemAbsent_FalseSql`, `_StringReceiverNull_UnknownSql` |
 | `RowIndependentEvaluator.RewriteForEvaluation` (internal) | `RewriteForEvaluation_SpanBound_InterpretsWithoutSpan`, `_UserImplicitConversion_NotRewritten`, `_NotSpanBound_Unchanged` |
-| `RowIndependentEvaluator.Compile(LambdaExpression, MethodInfo)` (internal seam: the interpreting `Compile(bool)`, or null) | `Compile_WithInterpretation_Interprets` (the span call evaluates only after the rewrite), `Compile_WithoutInterpretation_Compiles` (null: `Compile()`) |
+| `RowIndependentEvaluator.Compile(LambdaExpression, MethodInfo)` (internal: the interpreting `Compile(bool)`, or null) | `Compile_WithInterpretation_Interprets` (the span call evaluates only after the rewrite), `Compile_WithoutInterpretation_Compiles` (null: `Compile()`) |
+| `RowIndependentEvaluator.Compiler` (internal, settable) | `TryTranslateContains_UsesTheCompiler`, `TryEvaluateToString_UsesTheCompiler`, `TryReadValue_UsesTheCompiler`, `Compile_OnlyInTheSeam` |
 | Each provider's `TranslateMethodCall` (changed) | `TranslatorDirectHarness` and `CapturedValueHarness` on that provider |
 | Each provider's `TranslateDateMember` (unchanged; in a touched file) | `DateMember_*` |
 
@@ -488,8 +511,13 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | M27 | A null search value sent as `1=0` instead of `LIKE NULL` | `Query_…(notContainsNullValue)`; `Sql_…(notContainsNullValue)` |
 | M28 | The compiler selection ignores a missing `Compile(bool)` | `Compile_WithoutInterpretation_Compiles` |
 | M29 | A column `ToString` with arguments translated as the column | `Rejected_…(columnToStringFormatted)`; `ToString_ColumnWithArguments_NotSupported` |
+| M30 | `ToString` evaluated for any receiver (no guard-mirroring check) | `Rejected_…(userTypeToString)`, `(objectDeclaredToString)`, `(providerToString)`; `TryEvaluateToString_UserType_ReturnsFalse` and its siblings |
+| M31 | A null receiver sent as `NULL` (rev 3's rule) | `Query_…(orNullableToStringIsNull)`, `(orNullableToStringIsEmpty)`; `TryEvaluateToString_NullableNoValue_EmptyString`; `Rejected_…(nullStringToString)` |
+| M32 | `ToString` evaluated in the invariant culture | `TryEvaluateToString_CurrentCulture` |
+| M33 | One evaluator member calls `lambda.Compile()` (or `Compile(true)`) directly | that member's `_UsesTheCompiler`; `Compile_OnlyInTheSeam` |
+| M34 | The field-item check after the collection read | `CollectionContains_FieldItem_InvalidOperationBeforeCollectionRead` |
 
-M1, M9, M11, M14, M15, M20, M26 and M29 are run on each provider; the others on SQL Server, with M2, M3 and M7 also on
+M1, M9, M11, M14, M15, M20, M26, M29, M30 and M31 are run on each provider; the others on SQL Server, with M2, M3 and M7 also on
 SQLite (its C# 14 binding).
 
 ### 4.5 Coverage
@@ -528,15 +556,19 @@ provider's test project, with that suite's database available. Per-file numbers 
   - the result gives `TrueSql` or `FalseSql`. Evaluation goes through `Compile` below; failures are wrapped per D9.
 
   Otherwise it returns `false` with `sql = ""`, having evaluated nothing.
-- `public static bool TryEvaluateToString(MethodCallExpression call, out string value)` — `call` must be an instance
-  method named `ToString` returning `string` (`ArgumentException` otherwise). When `IsRowIndependent(call)`: the
-  receiver is evaluated; a null receiver gives `value = null`; otherwise the method is invoked with its evaluated
-  arguments (a format, a provider) and `value` is the string C# produces. Returns `false` for a call that reads the
-  row. Failures are wrapped per D9.
-- `internal static Delegate Compile(LambdaExpression lambda, MethodInfo interpretingCompile)` — the seam:
+- `public static bool TryEvaluateToString(MethodCallExpression call, out string value)` — `call` must be a method
+  named `ToString` returning `string` (`ArgumentException` otherwise). When `IsRowIndependent(call)` and the call is
+  one D7 evaluates (an instance call, every parameter a `string`, the receiver's declared type an enum or a
+  non-generic, sealed or value type of the core library, or a nullable one), the whole call is evaluated and `value`
+  is the string C# produces (`""` for a nullable with no value). Otherwise it returns `false` with `value = null`,
+  having evaluated nothing. Failures (a null string receiver) are wrapped per D9.
+- `internal static Func<LambdaExpression, Delegate> Compiler` (settable; tests swap in a counting one and restore it)
+  — every evaluation in this class goes through it. Its default is `Compile(lambda, InterpretingCompile)`.
+- `internal static Delegate Compile(LambdaExpression lambda, MethodInfo interpretingCompile)` — the selection:
   `interpretingCompile` is `LambdaExpression.Compile(bool)`, found once by reflection
-  (`typeof(LambdaExpression).GetMethod("Compile", new[] { typeof(bool) })`), and invoked with `true`; when it is null
-  (.NET Framework 4.6.1–4.7.0), `lambda.Compile()`. Every evaluation in this class goes through it.
+  (`typeof(LambdaExpression).GetMethod("Compile", new[] { typeof(bool) })`) into `InterpretingCompile`, and invoked
+  with `true`; when it is null (.NET Framework 4.6.1–4.7.0), `lambda.Compile()`. No other line in the class calls
+  `Compile` (a source-scan test pins it, R3-2).
 - `public static bool TryReadValue(Expression expression, out object value)` — a `ConstantExpression`, or a chain of
   `MemberExpression`s over fields and properties ending at a `ConstantExpression` or a static member, is evaluated
   by interpretation, so a null link throws what C# throws (`NullReferenceException`; `InvalidOperationException` for
@@ -550,17 +582,20 @@ provider's test project, with that suite's database available. Per-file numbers 
 
 ### 5.2 Each translator (four copies, identical apart from dialect)
 
-1. **`ToString`** — first `TryEvaluateToString` (D7): a call that doesn't read the row is sent as one `string`
-   parameter, or `NULL` for a null receiver. Otherwise a call with arguments throws (D3), and a parameterless one's
-   receiver goes through `TranslateExpression` (item 5).
+1. **`ToString`** — when the call returns `string`, first `TryEvaluateToString` (D7): an evaluated call is sent as
+   one `string` parameter. Otherwise a call with arguments, or a static one, throws (D3), and a parameterless
+   instance call's receiver goes through `TranslateExpression` (item 5), which gives the column or throws.
 2. **String `Contains`** — first `TryTranslateContains` (D4, D7): a call that doesn't read the row is sent as its
    literal. Otherwise the value is checked first: `TryReadValue` (D7), else `NotSupportedException`
-   ("Unsupported expression in string Contains: …", as today). Then the receiver goes through `TranslateExpression`.
+   ("Unsupported expression in string Contains: …", which replaces today's two texts, "Unsupported member expression
+   …" and "Unsupported expression type …"). Then the receiver goes through `TranslateExpression`.
    A null value sends `<receiver> LIKE NULL` (D8); otherwise `'%' + value + '%'` as one parameter, as today.
 3. **Collection `Contains`** — after the collection expression is found (`:90-115`, unchanged), in D5's order:
-   `TryTranslateContains` for a `bool` call; the `.Value` check; the item check; the collection read (a compile
-   failure keeps "parameter references"; an invocation failure is wrapped per D9); a null collection; the empty
-   short-circuit and the `IN` list as today.
+   `TryTranslateContains` for a `bool` call; the `.Value` check; the item check (a member of the lambda parameter
+   that isn't a property throws today's `InvalidOperationException` here, before the collection is read, R3-6a); the
+   collection read (a compile failure keeps "parameter references"; an invocation failure is wrapped per D9); a null
+   collection, and a value that isn't enumerable (a captured non-collection type with its own `Contains`, R3-6b),
+   each with its own message; the empty short-circuit and the `IN` list as today.
 4. **`StartsWith`/`EndsWith`** — `"Contains"` leaves the method-name check and its pattern branch is deleted (D6). The
    receiver must be a `MemberExpression` whose expression is a `ParameterExpression`, else
    `NotSupportedException`. The argument: `TryReadValue` (D7), else today's "Unsupported …" message; a null value
@@ -576,8 +611,10 @@ provider's test project, with that suite's database available. Per-file numbers 
 |---|---|
 | D5: an item that reads the row other than through a property of the entity, or a row-independent item with a collection that reads the row | `Collection Contains is translated only as <property> IN (<values>), with a property of the entity as its item and a collection that doesn't read the row: <call>` |
 | D5: a null collection | `The collection of Contains is null: <call>` |
+| D5: a value that isn't enumerable | `Contains is translated only on a collection: <call>` |
 | D6: a `StartsWith`/`EndsWith` receiver | `<Method>() is translated only on a property of the entity: <call>` |
-| AC7: a `ToString()` or string `Contains` receiver; a column `ToString` with arguments | `<Method>() is translated only on a property of the entity without arguments, or on a value that doesn't read the row: <call>` |
+| AC7: a string `Contains` receiver | `Contains() is translated only on a property of the entity, or on a value that doesn't read the row: <call>` |
+| AC7, D7: a `ToString` that is neither evaluated nor a parameterless call on a property of the entity | `ToString() is translated only on a property of the entity without arguments, or on a value of a core or enum type that doesn't read the row: <call>` |
 | D9 | `Could not evaluate expression: <node>` (with `InnerException`) |
 | unchanged | a collection that reads the row with a property item: `Collection Contains with parameter references is not supported: …`; `.Value`: today's `NullableExpressionException` text |
 
@@ -589,17 +626,17 @@ provider's test project, with that suite's database available. Per-file numbers 
   code. Rounds until CLEAN; dispositions in §9.
 - **Task 1 — Core helper, red → green.** `RowIndependentEvaluator` as a stub (members throw
   `NotImplementedException`) and `RowIndependentEvaluatorTests`; record the red run; implement; green on net8 and
-  net48. Mutations M4–M8, M12, M13, M16, M23, M25 and M28 (helper side).
+  net48. Mutations M4–M8, M12, M13, M16, M23, M25, M28 and M30–M33 (helper side).
 - **Task 2 — Translator harnesses, red.** `TranslatorDirectHarness` and `CapturedValueHarness`, their four derived
   classes in their own projects, and the csproj links. Record the red run on all four providers against §4.2's
   "red at `35c6477`" column: every red row fails, every luck and AC10 row passes.
 - **Task 3 — Translators, green.** §5.2 in all four providers. All four suites green, net48 included; coverage
-  ≥ 85 % per touched file (§4.5); mutations M1–M29 executed and recorded.
+  ≥ 85 % per touched file (§4.5); mutations M1–M34 executed and recorded.
 - **Task 4 — Documents.** Changelog `[3.10.0-beta1]`: Fixed (I1-6 in WHERE, counts and projections; captured
   properties; the receivers and the dropped member; a row-independent string `Contains` answered as C# answers it;
   a captured `ToString(...)` sent as the string C# produces, format included; `x.Name.Contains(null)` no longer
   matches every row), Changed (the shapes that now throw `NotSupportedException`, a column `ToString` with arguments
-  among them; a null search value matches no row, and `StartsWith`/`EndsWith` with one no longer throw; the
+  and a `ToString` the guard doesn't evaluate among them; a captured `ToString()` evaluated in the current culture; a null search value matches no row, and `StartsWith`/`EndsWith` with one no longer throw; the
   evaluator interprets where the runtime can), New public API
   (`RowIndependentEvaluator`). `Usage.md`: the `IN` clause (a value that isn't a column is answered before the
   query) and the `LIKE` clause (what a search value can be, a null one, receivers must be entity properties).
@@ -616,8 +653,11 @@ provider's test project, with that suite's database available. Per-file numbers 
     `Contains` as sent as a `LIKE` between two parameters (the collation case), a null search value as `LIKE '%%'`,
     and a `ToString()` value as sent raw; `DELETE_GUARD_PLAN.md` §6 (I1-6 fixed; the collation bullet fixed for
     `Contains`); the tripwire's doc comment (`StartsWith`/`EndsWith` now throw `NotSupportedException`).
-  - Add the AC9 rows; run all four suites; fix-verification of the merge. Only then may the branch merge into
-    `development/3.10`.
+  - **One `ToString` rule.** D7 mirrors the guard's `IsEvaluableCall`; after the merge both use one shared internal
+    predicate, and a test runs a table of `ToString` shapes through `DeletePredicateGuard.Classify` and
+    `RowIndependentEvaluator.TryEvaluateToString` and asserts they agree on which are evaluated, so they can't drift.
+  - Add the AC9 rows (and `orNullableToStringIsEmpty` as an always-true delete the guard rejects); run all four
+    suites; fix-verification of the merge. Only then may the branch merge into `development/3.10`.
 
 ---
 
@@ -665,7 +705,9 @@ provider's test project, with that suite's database available. Per-file numbers 
   follow-up, which the delete guard's tripwire would then need to see.
 - **A converted member as a `Contains` item** (`longs.Contains(x.Id)`, `{1}.Contains((int?)x.Id)`) now throws
   `NotSupportedException` (was `NullReferenceException`); supporting it is a feature.
-- **A null receiver of `ToString()`** is sent as NULL rather than throwing as C# would.
+- **`ToString` on receivers the delete guard doesn't evaluate** (a user type, a receiver declared as `object` or an
+  interface, an `IFormatProvider` argument, a static `Convert.ToString`) now throws `NotSupportedException` (D7);
+  evaluating them is a possible follow-up that the guard would have to learn first.
 - **A `[NotMapped]` member of the parameter** as an item or receiver is still sent as a column (a server error).
 - **`string.Contains(string, StringComparison)` with a column receiver** ignores the comparison; **`Enumerable.Contains(list,
   x.Code, comparer)`** ignores the comparer (the server's `IN` decides).
@@ -715,3 +757,16 @@ Verdict: NOT CLEAN, 2 blocking. Rev 1's dispositions held except T0-1 (the `ToSt
 | R2-5 | low | PLAN-GAP | `Compile(bool)` is missing on .NET Framework 4.6.1–4.7.0. | D10: found by reflection, `Compile()` otherwise; the `Compile` seam and its two tests; M28. |
 | R2-6 | low | AC-GAP | A negated null value wasn't pinned. | D8 and AC8 state it; `notContainsNullValue` and its SQL row; M27. |
 | R2-7 | nit | PLAN-GAP | (a) `SupportsPredicateAsValue` read as provider API; (b) D8's delete rows are unknown, not false. | (a) a harness virtual, §4.1; (b) §4.1's wording. |
+
+### 9.3 Task 0 re-review of rev 3 (`1e990f3`; non-author; string-parameter comparisons executed on all four servers, interpreted `Nullable` `ToString`, de-DE culture and `Convert.ToString` shapes executed, today's behaviour of the new rows executed on all four × five paths)
+
+Verdict: NOT CLEAN, 1 blocking. All seven R2 dispositions held. New: TEST-GAP 3, PLAN-GAP 3.
+
+| # | Sev | Blame | Finding | Disposition (rev 4) |
+|---|---|---|---|---|
+| R3-1 | medium | TEST-GAP | A null `ToString()` receiver sent as `NULL` contradicts C#: `((int?)null).ToString()` is `""`, a null string throws; `x.Id == 2 \|\| n.ToString() == null` selects and deletes every row (executed). | D7: the whole call is evaluated, so `""` and D9; the null-receiver tests replaced; rows `orNullableToStringIsNull`, `orNullableToStringIsEmpty`, `nullStringToString`; M31; §8 corrected. |
+| R3-2 | low | TEST-GAP | The interpreting seam was tested alone; a call site bypassing it passed every test (pattern 21). | The settable `Compiler`; `_UsesTheCompiler` per member; `Compile_OnlyInTheSeam`; M33. |
+| R3-3 | low | PLAN-GAP | A static `ToString` (`Convert.ToString`) would leak `ArgumentException` or reach `TranslateExpression(null)`. | `TryEvaluateToString` returns `false` for it; the translator throws §5.3's message; `staticConvertToString`, `ToString_Static_NotSupported`, `TryEvaluateToString_Static_ReturnsFalse`. |
+| R3-4 | low | TEST-GAP | "The string C# produces" depends on the culture; nothing pinned it. | D7 states it; `TryEvaluateToString_CurrentCulture`; M32; Task 4's `Usage.md` states it. |
+| R3-5 | low | PLAN-GAP | Evaluating a user type's `ToString` sends a comparison neither guard folds: a delete-every-row path. | D7 evaluates only what the guard evaluates (its `IsEvaluableCall`); the rest fails closed; rows `userTypeToString`, `objectDeclaredToString`, `providerToString`; M30; Task 6 shares one predicate; §8. |
+| R3-6 | nit | PLAN-GAP | (a) a field item threw after the collection read; (b) a captured non-enumerable got "is null"; (c) the receiver message said "without arguments" for `Contains`; (d) "as today" for a changed message. | (a) §5.2 item 3, `_FieldItem_InvalidOperationBeforeCollectionRead`, M34; (b) and (c) §5.3; (d) §5.2 item 2. |
