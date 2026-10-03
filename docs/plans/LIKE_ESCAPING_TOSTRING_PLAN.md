@@ -8,15 +8,20 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 9. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
+> **Status (2026-10-03):** rev 10. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
 > Task 2 carries rev 6 (§5.2), Task 3 carries rev 7 (§5.3). Task 4's review of `ca82741..921c995` (§9.6) found 7,
-> answered by `6014d8c` (rev 8, §5.4); its fix-verification (§9.7) found 2, answered by this revision's layer (§5.5);
-> fix-verification 2 is next.
+> answered by `6014d8c` (rev 8, §5.4); fix-verification 1 (§9.7) found 2, answered by `e36374e` (rev 9, §5.5);
+> fix-verification 2 (§9.8) found 4, answered by this revision's layer (§5.6); fix-verification 3 is next.
 
 > **Owner directive (2026-10-03, answering T4-1 and T4-3):** stop accommodating edge-case parameters; reject a shape
 > that needs an operation or evaluation with `NotSupportedException` and require a plain value, whenever that
 > shortens the work. When a shape "worked" before, ask whether that meant it didn't throw or that it prevented a
 > wrong delete; for the first, reject it and say so in the Changelog.
+
+> **Revision 10 — what changed (Task 4 fix-verification 2, FV2-1…FV2-4):** the `Guid` advice parses before the
+> query (FV2-1); the Changelog's Known issues disclose SQLite's `Guid`/`DateTime` WHERE binding, which the operator
+> plan's §8 records as the owner's open call (FV2-2); the decimal example is limited to SQL Server and MySQL, and a
+> projection on SQLite "could give" text unlike .NET's (FV2-3); §5.4's failure record (FV2-4).
 
 > **Revision 9 — what changed (Task 4 fix-verification 1, FV1-1, FV1-2):** the Changelog names the shapes that worked
 > before and now throw as examples, not a complete list, Guid among them, with the `Guid.Parse` advice there and in
@@ -174,9 +179,10 @@ workaround this change removes.
     above that rejects the property's own `ToString()` (rev 8, T4-2).
   - A `char` column and a `string` column with an argument are rejected with the rest (D4 above). Before, the dropped
     `ToString()` let the database compare the column's value with the text, and some of the shapes D4 rejects
-    returned C#'s rows: those two on all four, a `Guid` compared with its lower-case text, a `decimal` at its column's
-    scale and `ToString(CultureInfo.InvariantCulture)` on an integer on SQL Server, MySQL and SQLite, a `bool?` on SQL
-    Server (the Task 4 reviewer's probes at `ca82741`, §9.6, §9.7). Under the owner's directive they stay rejected; the
+    returned C#'s rows: those two on all four, a `Guid` compared with its lower-case text and
+    `ToString(CultureInfo.InvariantCulture)` on an integer on SQL Server, MySQL and SQLite, a `decimal` at its
+    column's scale on SQL Server and MySQL (SQLite's `NUMERIC` keeps no scale), a `bool?` on SQL Server (the Task 4
+    reviewer's probes at `ca82741`, §9.6–§9.8). Under the owner's directive they stay rejected; the
     Changelog names them as examples, not a complete list (rev 8, T4-3; rev 9, FV1-1).
   - A receiver that isn't a column keeps today's translation here (I1-6 owns it).
   - The same rules hold in a projection.
@@ -475,13 +481,20 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
   ran Sqlite.Tests on Task 2's binaries and the others on a build older than the commit, and the union inflated two
   totals): `LikePattern.cs` 14 / 14; `DeletePredicateGuard.cs` 449 / 457 (98.25 %); the translators 259 / 273
   (94.87 %), 259 / 270 (95.93 %), 259 / 270 (95.93 %) and 263 / 271 (97.05 %). In that run SqlServer.Tests had 3
-  failures, unnamed (the coverage run keeps no trx); a re-run at once passed 2020 / 2020, and the Task 4 reviewer saw
-  another process running the suites against the same databases in that window.
+  failures, unnamed (the coverage run keeps no trx) and unexplained; they didn't recur in three later runs (one by
+  the author, two with trx by the Task 4 reviewer), each of which added exactly the suite's 177 `person` rows. The
+  harnesses use fixed table names (`zz_lt_row`, `zz_lt_num`; the delete guard's `zz_dg_row`), so two sessions running
+  them against the same databases at once could collide (rev 10, FV2-4).
 
 ### 5.5 Task 4, fix-verification 1 (the commit that carries rev 9)
 
 - FV1-1 is a document finding: the Changelog's "Changed" entry for `ToString()`, `Usage.md`'s advice and D4. FV1-2
   corrects §5.4's record. No code or test changes.
+
+### 5.6 Task 4, fix-verification 2 (the commit that carries rev 10)
+
+- Documents only. The parse-first `Guid` form was executed by the Task 4 reviewer on SQL Server, PostgreSQL and
+  MySQL (one row, C#'s answer); on SQLite it finds no row FunkyORM wrote, the binding the Known issues entry names.
 
 ## 6. Out of scope (recorded)
 
@@ -601,3 +614,15 @@ Verdict: NOT CLEAN; one blocking finding and one record nit. T4-1, T4-2 and T4-4
 |---|---|---|---|---|
 | FV1-1 | low | PLAN-GAP | The Changelog's list of shapes that worked before; D4's Guid reason | Examples, not a complete list, Guid named, with `Guid.Parse` advice; D4's reason is the cast's text. |
 | FV1-2 | nit | OTHER | §5.4's coverage, from stale builds | Re-measured on rebuilt projects. |
+
+### 9.8 Task 4 fix-verification 2 of `6014d8c..e36374e` (non-author; every changed claim run at `ca82741` and at the current code on all four; SQLite's `Guid` storage and binding probed; SqlServer.Tests re-run twice with trx)
+
+Verdict: NOT CLEAN; three blocking findings and one record nit. FV1-2 resolved; FV1-1 partial. Blame: HOUSE-RULE 1
+(introduced by FV1-1's fix), PLAN-GAP 1, OTHER 2.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FV2-1 | medium | HOUSE-RULE | The Changelog's and Usage's `x.Id == Guid.Parse(idText)`: a method call, which throws on all four | Parse before the query. |
+| FV2-2 | medium | OTHER | SQLite binds a WHERE `Guid` in the driver's format (pre-existing; the operator plan's §8, the owner's open call) | Disclosed in the Changelog's Known issues; not fixed here, under the owner's directive. |
+| FV2-3 | low | PLAN-GAP | Two SQLite statements: projection text, the decimal example | "Could give"; the decimal example limited to SQL Server and MySQL; D4 mirrored. |
+| FV2-4 | nit | OTHER | §5.4 attributed the 3 failures to another process | Unexplained, not reproduced; the fixed table names noted. |

@@ -240,18 +240,20 @@ Other changes:
   Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, `char`, …), and with any
   argument (a format string or a format provider, `CultureInfo.InvariantCulture` included, on a `string` property
   too), it now throws `NotSupportedException`: a cast to text wouldn't give .NET's text (`1.50` for a
-  `DECIMAL(10,2)` holding `1.5m`, `1` for `true`). Compare the property's value instead; for a `Guid` key, write
-  `x.Id == Guid.Parse(idText)`. Before, the `ToString()` was dropped and the column's value compared with the text,
-  and some of these shapes returned C#'s rows; they now throw too. Among them (not a complete list):
+  `DECIMAL(10,2)` holding `1.5m`, `1` for `true`). Compare the property's value instead, computed before the query:
+  for a `Guid` key, `var id = Guid.Parse(idText);` and then `x => x.Id == id` (on SQLite see Known issues). Before,
+  the `ToString()` was dropped and the column's value compared with the text, and some of these shapes returned C#'s
+  rows; they now throw too. Among them (not a complete list):
   - on all four providers: `ToString()` on a `char` property, and `ToString` with an argument on a `string`
     property (`x.Name.ToString(CultureInfo.InvariantCulture)`), in a WHERE clause and in a projection;
-  - on SQL Server, MySQL and SQLite: `x.Id.ToString() == idText` on a `Guid` key compared with its lower-case text;
-    `x.Amount.ToString() == "1.50"` on a `decimal` at the column's scale (`== "1.5"` matched the same row, unlike C#);
-    `x.Code.ToString(CultureInfo.InvariantCulture) == "7"`;
+  - on SQL Server, MySQL and SQLite: `x.Id.ToString() == idText` on a `Guid` key compared with its lower-case text,
+    and `x.Code.ToString(CultureInfo.InvariantCulture) == "7"`;
+  - on SQL Server and MySQL: `x.Amount.ToString() == "1.50"` on a `decimal` at the column's scale (`== "1.5"` matched
+    the same row, unlike C#);
   - on SQL Server: `x.Flag.ToString() == "True"` on a `bool?`.
 
   On PostgreSQL a column that isn't text failed with `42883`; in a projection such a column threw
-  `InvalidCastException` on SQL Server, PostgreSQL and MySQL and gave text unlike .NET's on SQLite.
+  `InvalidCastException` on SQL Server, PostgreSQL and MySQL, and on SQLite could give text unlike .NET's.
 - **`x.N.Value.ToString()` on a nullable property throws `NullableExpressionException`**, as `x.N.Value == 7` does;
   SQL Server, MySQL and SQLite sent it as the column before. On an integer property the message says to write
   `x.N.ToString()`; on any other type, or with an argument, it says that `ToString()` isn't translated there either
@@ -266,6 +268,11 @@ Aggregates keep their 3.9 behavior in 3.10.0:
 - `Average` over a `decimal` or `float` column throws.
 - `Min`/`Max`/`Average` over a nullable column on an empty set throw instead of returning `null`.
 - Some `Min`/`Max` result types throw after the round-trip.
+
+Pre-existing, not yet scheduled: on SQLite, a `Guid` or `DateTime` in a WHERE clause is bound in Microsoft.Data.Sqlite's
+format, not the text FunkyORM stores (a lower-case `Guid`, `yyyy-MM-dd HH:mm:ss.fff`). So `x => x.Id == id` finds no
+row FunkyORM wrote when `id` has hex letters, and a date comparison can be off. `Get<T>(id)` finds the row. Before,
+`x.Id.ToString() == idText` happened to match on SQLite; it now throws (see Changed).
 
 ## [3.9.0] - 2026-07-06
 
