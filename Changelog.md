@@ -135,7 +135,8 @@ before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed 
 - **A value that throws while the predicate is translated** (a member of a null captured object,
   `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
   `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check in
-  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated.
+  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated. (A database
+  error, or a `NotSupportedException`, from a query used as the collection passes through unchanged, as in 3.9.0.)
 
 Other changes:
 
@@ -171,8 +172,8 @@ Other changes:
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
   such an entity already failed in 3.9.0.)
 
-### Known issues (fixes planned for 3.10.1)
-Aggregates keep their 3.9 behavior in 3.10.0:
+### Known issues
+Aggregates keep their 3.9 behavior in 3.10.0 (fixes planned for 3.10.1):
 - `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
   and SQLite.
 - `Average` over a `decimal` or `float` column throws.

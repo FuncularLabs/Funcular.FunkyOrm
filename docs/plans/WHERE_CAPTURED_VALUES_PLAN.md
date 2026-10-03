@@ -9,10 +9,15 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 11. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
-> Task 5's review of `35c6477..d37f719` found A1–A6, answered in `6d8842d` (rev 10); its fix-verification (FV1, §9.6)
-> found B1–B4 and three nits, answered in this revision's commit; FV2 by a non-author is next. Task 6 waits for the
-> delete guard.
+> **Status (2026-10-03):** rev 12. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
+> Task 5's review of `35c6477..d37f719` found A1–A6, answered in `6d8842d` (rev 10); FV1 found B1–B4, answered in
+> `b4d614b` (rev 11); FV2 found C1–C4, answered in this revision's commit; FV3 by a non-author is next. Task 6 waits
+> for the delete guard.
+>
+> **Revision 12 — what changed (FV2, C1–C4):** the Changelog, D9 and AC8 say a database error or a
+> `NotSupportedException` from a collection's enumeration passes through (C1); a row pins that any other exception,
+> inner exception or not, is still wrapped, with M48/M49 (C2); the Known issues heading no longer promises 3.10.1 for
+> the unscheduled `All` entry (C3); A1's record points to FV1-B1 (C4).
 >
 > **Revision 11 — what changed (FV1, B1–B4, N1–N3):** rev 10's `All` (`CASE WHEN (p) THEN 1 ELSE 0 END = 0`) made
 > `All(x => x.NullableId != 5)` false where C# and 3.9.0 say true (B1): no one negation is right for both kinds of
@@ -323,7 +328,9 @@ So, on every provider and path:
   `NotSupportedException("Could not evaluate expression: <node>")` — the visitor's message (`WhereClauseVisitor.cs:279`)
   — with the original exception as `InnerException` (unwrapped from `TargetInvocationException`), before any command
   is sent. A guarded shape (`req == null || ids.Contains(req.Id)` with `req` null) throws too, as the visitor's
-  `x.Id == filterId.Value` does today (§8).
+  `x.Id == filterId.Value` does today (§8). (Rev 11, FV1-B3: a `DbException`, an exception with one inside, and a
+  `NotSupportedException` from a collection's enumeration pass through unchanged: a query used as the collection runs
+  there, as in 3.9.0. FV2-C2 pins that anything else is still wrapped.)
 - **D10 — One public Core helper**, `Funcular.Data.Orm.Linq.RowIndependentEvaluator`, which the four translators call
   (precedents: `ScalarProjectionGuard`, `QueryOperatorPolicy`). It evaluates by interpretation
   (`Compile(preferInterpretation: true)`) where the runtime has it, so the span rewrite runs on every platform and a
@@ -416,7 +423,8 @@ So, on every provider and path:
     an unknown row counts as satisfying the predicate, as in 3.9.0 (rev 11, B1: a Known issue, pinned);
   - a read or a call that throws while the predicate is translated (a null captured object, a throwing collection,
     a lazy collection that throws while it is enumerated) throws `NotSupportedException` whose `InnerException` is
-    the original exception, before any command is sent (D9). Nothing is deleted. (A `ToString()` on a null string is
+    the original exception, before any command is sent (D9), except a database error or a `NotSupportedException`
+    from a collection's enumeration, which passes through unchanged (rev 11). Nothing is deleted. (A `ToString()` on a null string is
     D16's rejection, with no inner exception.)
 - **AC9 (Task 6, with the delete-guard rewrite merged).** A delete whose evaluated `Contains` makes the predicate
   always true (`x.Id == 2 || ids.Contains(present.Id)`, `x.Id == 2 || !ids.Contains(absent.Id)`) is rejected with
@@ -540,7 +548,7 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | AC8 | `Rejected_BeforeAnyCommand` (Q, D) | `throwingItem` (S17; inner `NullReferenceException`); `throwingCollection` (R1: `nullRequest.Ids.Contains(x.Id)`; inner `NullReferenceException`); `nullStringToString` (`x.Code == nullFilter.ToString()`; rev 10: D16's message, no inner exception) | red (S17 wrong rows; R1 `TargetInvocationException`; `t.code = NULL` returns {}) |
 | AC8 | `All_UnknownCountsAsSatisfied` (`query`, rev 11, A1/B1) | `allIdPositive` true; `allNotIdsX` false; `allNullableNotEqual` (`x.NullableId != 5`) true; `allNotNullableEquals` (`!(x.NullableId == 5)`) true — C#'s answers; `allNullableGreaterThanZero` true (Known issue: C# false; the row asserts it differs from C#); `allContainsNull`, `allNotContainsNull`, `allOrContainsNull`, `allRowIndependentNull` true (D8: C# throws) | red at `6d8842d` (rev 10's `CASE`): the last seven false |
 | AC8 | `WhereThenAll_MatchesCSharp` (`query`, rev 11, B4) | `Where(x => x.Id > 1)` then `allNullableNotEqual` true, `allIdPositive` true, `allNotIdsX` false | red at `6d8842d`: `allNullableNotEqual` false |
-| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `_LazyThrowingCollection_NotSupportedWithInner` (rev 10, A3: `ids.Select(i => i / zero)`; inner `DivideByZeroException`), `_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` (rev 11, B3), `ToString_NullStringReceiver_NotSupported` (rev 10: D16's message); `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
+| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `_LazyThrowingCollection_NotSupportedWithInner` (rev 10, A3: `ids.Select(i => i / zero)`; inner `DivideByZeroException`), `_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` (rev 11, B3), `_LazyExceptionWithNonDbInner_NotSupportedWithInner` (rev 12, C2), `ToString_NullStringReceiver_NotSupported` (rev 10: D16's message); `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
 | AC9 | Task 6 rows in `CapturedValueHarness` | `Delete_AlwaysTrueAfterEvaluation_IsRejected` (D): `orPresent`, `orNotAbsent`, `orNullItem`, `orComparerSet` → the guard's message, nothing deleted; `andPresent` stays in `Delete_DeletesWhatCSharpSelects`; `orCapturedContainsNull` (`x.Id == 2 \|\| s.Contains(nullFilter)`) → deletes {2} once Task 6 has handled `IsContainsOfNull` | Task 6 |
 | AC10 | `Query_ReturnsWhatCSharpSelects` (Q), `Delete_DeletesWhatCSharpSelects` (D) | `idsX` {1,2}; `notIdsX` {3}; `nullableX` {1}; `emptyX` {} (Q only: the guards reject `1=0` alone); `startsWithX` {1}; `containsX` (`x.Name.Contains("mm")`) {3}; `arrayX` {1,2} | green, must stay green |
 | AC10 | `TranslatorDirectHarness` | `CollectionContains_EmptyCollection_OneEqualsZero`, `_NullValuesSkipped` (N1's `IN` list), `_ConstantCollection_In`, `_ImplicitUnary_In`, `_ImplicitCall_In`; `StringContains_ConstantValue`; `StartsWith_Column`, `EndsWith_Column`; `ToString_Column`; `DateMember_YearMonthDay`, `_OtherPart_NotSupported`, `_NotAValueChain_NotSupported`; `UnsupportedMethod_NotSupported` | new (pin today's output) |
@@ -619,8 +627,10 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | M47 | `CASE` only when a `Where` precedes `All` (FV1's OWN-1, inverted) | `WhereThenAll_…(allNullableNotEqual)` |
 | M45 | The enumeration wrap catches everything (no pass-through) | `CollectionContains_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` |
 | M46 | The pass-through misses a `DbException` inside another exception | `_LazyExceptionWithDbInner_PassesThrough` |
+| M48 | Every `InvalidOperationException` passes through (FV2's OWN-10) | `_LazyExceptionWithNonDbInner_NotSupportedWithInner` |
+| M49 | Any exception with an inner exception passes through (FV2's OWN-11) | `_LazyExceptionWithNonDbInner_NotSupportedWithInner` |
 
-M1, M9, M11, M14, M15, M20, M26, M30, M31, M35, M38, (rev 10) M41–M44 and (rev 11) M40r, M43, M45–M47 are run on each
+M1, M9, M11, M14, M15, M20, M26, M30, M31, M35, M38, (rev 10) M41–M44 and (rev 11) M40r, M43, M45–M47 and (rev 12) M48, M49 are run on each
 provider; the others on SQL Server, with M2, M3 and M7 also on
 SQLite (its C# 14 binding).
 
@@ -867,6 +877,12 @@ N1–N3; `All`'s `CASE` form was B1, a fix-introduced regression. The layer, red
   188/188; `RowIndependentEvaluator.cs` 120/120.
 - **Mutations**, each on all four providers: M40r, M43, M45, M46, M47 — 20 of 20 killed, each by the rows §4.4 names.
 
+**FV2 — fix-verification of `b4d614b` (2026-10-03).** B1–B4 and N1–N3 held (`All` at `b4d614b` equals `35c6477` on
+every probed shape; the Known issue and its workaround executed on all four). C1–C4 answered in rev 12:
+`CollectionContains_LazyExceptionWithNonDbInner_NotSupportedWithInner` (green at `b4d614b`: it pins behaviour a
+mutation could lose); M48 and M49 each killed on all four providers by that row alone. The Changelog, D9 and AC8
+name the pass-through.
+
 ---
 
 ## 7. Risks
@@ -1021,7 +1037,7 @@ OTHER 1. The core fix (I1-6, captured properties, receivers, D4/D5/D7/D9) was ve
 
 | # | Sev | Blame | Finding | Disposition (rev 10) |
 |---|---|---|---|---|
-| A1 | medium | TEST-GAP | `All` is `NOT EXISTS(… WHERE NOT (p))`, so a row whose `p` is UNKNOWN counts as satisfying it: `All(x => !x.Name.Contains(nullFilter))` went from false to true; the D8 shapes return true against AC8 ("no row, negated or not"). No `All` row. | Fixed (D16, owner: fix `All`): `CASE WHEN (p) THEN 1 ELSE 0 END = 0` in the four LINQ providers, which also fixes `All` over a nullable column. `All_TreatsUnknownAsFailing` (7 rows); M40. Changelog Fixed entry. |
+| A1 | medium | TEST-GAP | `All` is `NOT EXISTS(… WHERE NOT (p))`, so a row whose `p` is UNKNOWN counts as satisfying it: `All(x => !x.Name.Contains(nullFilter))` went from false to true; the D8 shapes return true against AC8 ("no row, negated or not"). No `All` row. | Fixed (D16, owner: fix `All`): `CASE WHEN (p) THEN 1 ELSE 0 END = 0` in the four LINQ providers, which also fixes `All` over a nullable column. `All_TreatsUnknownAsFailing` (7 rows); M40. Changelog Fixed entry. (Superseded: FV1-B1, rev 11 — reverted to `NOT (p)`; a Known issue.) |
 | A2 | medium | AC-GAP | An evaluated captured `ToString()` compared with a column's raw `ToString()` changed type: `x.Kind.ToString() == one.ToString()` went from {1} to a SQL Server conversion error, MySQL's wrong row {4}, SQLite {}; PostgreSQL `x.Id.ToString() == n.ToString()` went from {1} to 42883. | Rejected (D16): no captured `ToString` is evaluated; the shape throws `NotSupportedException` before anything is sent. AC6 amended. Rows `intColumnToStringEqCaptured`, the moved evaluated rows, `labelFormatted`; M41, M42, M44. The {1} that 3.9.0 returned is disclosed under Changed. |
 | A3 | low | TEST-GAP | A lazy collection that throws while enumerated (`ids.Select(i => i / zero)`) leaked a bare `DivideByZeroException`: the enumeration was outside D9's wrapper. | Fixed: enumeration wrapped per D9. `CollectionContains_LazyThrowingCollection_NotSupportedWithInner`; M43. |
 | A4 | low | TEST-GAP | Removing `node.Type == typeof(string) &&` from the `ToString` branch survived: a user `new object ToString()` would leak `ArgumentException`. | The guard went with the evaluation (D16). `ToString_NonStringReturn_NotSupported` pins the rejection; M41 kills it. |
@@ -1045,3 +1061,15 @@ Verdict: NOT CLEAN, B1 and B2 blocking. Blame: AC-GAP 2, TEST-GAP 2, PLAN-GAP 1 
 | N1 | nit | PLAN-GAP | §4.4 had no M44 row; §4.2 didn't name `ToString_Captured_NothingRead`. | Added. |
 | N2 | nit | OTHER (comment) | `TranslateMethodCall`'s doc comment said every row-independent part is evaluated. | Reworded (×4): a `Contains` or a value; a captured `ToString()` is rejected. |
 | N3 | nit | OTHER (doc) | Usage's `ToString` sentence read as global; ORDER BY ternaries evaluate a captured `ToString()` in their own visitor (correctly). | Scoped to "in a predicate or a projection". |
+
+FV2 — fix-verification of `6d8842d..b4d614b` (non-author; FV1's `All` shapes re-run at `b4d614b` against
+`35c6477` on all four; the Known issue and its workaround executed; a dropped and a cold-missing table under a query
+used as the collection; M40r, M43, M45–M47 re-run on SQL Server and MySQL plus OWN-10…13). Verdict: NOT CLEAN, C1 and
+C2 blocking (small). Blame: AC-GAP 1, TEST-GAP 1, PLAN-GAP 1, OTHER 1.
+
+| # | Sev | Blame | Finding | Disposition (rev 12) |
+|---|---|---|---|---|
+| C1 | low | AC-GAP (fix-introduced, B3's) | The Changelog (and D9, AC8) still said a throwing lazy collection always gives "Could not evaluate expression"; at `b4d614b` a query collection's database error and a `NotSupportedException` pass through. | One clause in the Changelog; D9 and AC8 amended. |
+| C2 | low | TEST-GAP (fix-introduced, B3's) | OWN-10 (every `InvalidOperationException` passes) and OWN-11 (anything with an inner exception passes) survived: nothing pinned that a non-database exception with an inner one is still wrapped. | `CollectionContains_LazyExceptionWithNonDbInner_NotSupportedWithInner`; M48, M49. |
+| C3 | nit | OTHER (doc) | The unscheduled `All` entry sat under "Known issues (fixes planned for 3.10.1)". | Heading "Known issues"; "(fixes planned for 3.10.1)" moved to the aggregates lead-in (the sibling branch's form). |
+| C4 | nit | PLAN-GAP (record) | §9.6's A1 row still read "Fixed". | Points to FV1-B1. |
