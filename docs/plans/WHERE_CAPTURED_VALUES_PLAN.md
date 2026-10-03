@@ -9,7 +9,7 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 6. Task 0 review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
+> **Status (2026-10-03):** rev 7 (rev 6's wording nits F6-1, F6-2). Task 0 review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
 > (`3ea7234`) answered them with the owner's four decisions (D7, D8, D12, D13). Its re-review (§9.2) found 7, 2
 > blocking, answered in rev 3 (`1e990f3`). Its re-review (§9.3) found 6, 1 blocking, answered in rev 4 (`0755b99`).
 > Its re-review (§9.4) found 4, 2 blocking, answered in rev 5 (`6d06445`) with the owner's D14 and D15. Its re-review
@@ -666,7 +666,7 @@ provider's test project, with that suite's database available. Per-file numbers 
 | D5: a value that isn't enumerable | `Contains is translated only on a collection: <call>` |
 | D6: a `StartsWith`/`EndsWith` receiver | `<Method>() is translated only on a property of the entity: <call>` |
 | AC7: a string `Contains` receiver | `Contains() is translated only on a property of the entity, or on a value that doesn't read the row: <call>` |
-| AC7, D7, D14: a `ToString` that is neither evaluated nor a call on a property of the entity | `ToString() is translated only on a property of the entity, or on a captured value of a core or enum type read directly (at most a format string: no format provider, arithmetic, method call or indexer); compute the string before the query: <call>` |
+| AC7, D7, D14: a `ToString` that is neither evaluated nor a call on a property of the entity | `ToString() is translated only on a property of the entity, or on a captured value declared as an enum or a non-generic core type, read directly (at most a format string: no format provider, arithmetic, method call or indexer); compute the string before the query: <call>` |
 | D9 | `Could not evaluate expression: <node>` (with `InnerException`) |
 | unchanged | a collection that reads the row with a property item: `Collection Contains with parameter references is not supported: …`; `.Value`: today's `NullableExpressionException` text |
 
@@ -764,7 +764,7 @@ provider's test project, with that suite's database available. Per-file numbers 
   `NotSupportedException` (was `NullReferenceException`); supporting it is a feature.
 - **`ToString` the delete guard doesn't evaluate** (a user type, a receiver declared as `object` or an interface, an
   `IFormatProvider` argument, a static `Convert.ToString`, a receiver or argument built by arithmetic, an indexer, a
-  method call or `??`) now throws `NotSupportedException` (D7, D14), two shapes that work today among them;
+  method call or `??`) now throws `NotSupportedException` (D7, D14), three shapes that work today among them;
   evaluating more is a follow-up that the guard would have to learn first (one shared predicate, Task 6).
 - **A `[NotMapped]` member of the parameter** as an item or receiver is still sent as a column (a server error).
 - **`string.Contains(string, StringComparison)` with a column receiver** ignores the comparison; **`Enumerable.Contains(list,
@@ -854,4 +854,7 @@ Verdict: NOT CLEAN, none blocking. R4-1…R4-4 and D15's withdrawal verified. Ne
 | R5-2 | low | PLAN-GAP | A third shape working today breaks under D14: an interface-typed receiver holding a string. | Disclosed in D7, D14, AC6 and Task 4; row `interfaceHoldingStringToString`; M38. |
 | R5-3 | nit | PLAN-GAP | `CoreEvaluability.cs` missing from §4.5. | Added. |
 | R5-4 | nit | TEST-GAP | No evaluated cast receiver; dropping `Convert` from the copy would pass. | `TryEvaluateToString_CastReceiver_Evaluated`, `_UserConversionReceiver_ReturnsFalse`; M39. |
+
+Fix-verification of rev 6 (`fa7ed72`; non-author): R5-2…R5-4 closed, R5-1 mostly; two wording nits, F6-1 (§8 said
+"two" shapes) and F6-2 (§5.3's message didn't say "declared as" or "non-generic"), fixed in rev 7.
 
