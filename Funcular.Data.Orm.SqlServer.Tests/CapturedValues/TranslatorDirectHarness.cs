@@ -382,7 +382,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [TestMethod]
         public void CollectionContains_LazyExceptionWithNonDbInner_NotSupportedWithInner()
         {
-            // Only a database error passes through; any other exception, inner exception or not, is the caller's (D9).
+            // Only a database error or a NotSupportedException passes through; any other exception, inner exception
+            // or not, is the caller's (D9).
             var lazy = ids.Select(i => i == 1 ? throw new InvalidOperationException("caller's code", new FormatException()) : i);
             var ex = Assert.ThrowsException<NotSupportedException>(() => Translate(CallOnRow(x => lazy.Contains(x.Id))));
             StringAssert.StartsWith(ex.Message, CouldNotEvaluateMessage);

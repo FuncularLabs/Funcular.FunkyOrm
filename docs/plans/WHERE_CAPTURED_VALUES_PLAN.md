@@ -9,10 +9,14 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 12. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
+> **Status (2026-10-03):** rev 13. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
 > Task 5's review of `35c6477..d37f719` found A1–A6, answered in `6d8842d` (rev 10); FV1 found B1–B4, answered in
-> `b4d614b` (rev 11); FV2 found C1–C4, answered in this revision's commit; FV3 by a non-author is next. Task 6 waits
-> for the delete guard.
+> `b4d614b` (rev 11); FV2 found C1–C4, answered in `54aed0d` (rev 12); FV3 found D1 and three nits, answered in this
+> revision's commit (documents only); FV4 by a non-author is next. Task 6 waits for the delete guard.
+>
+> **Revision 13 — what changed (FV3, D1–D4; no production code):** the pass-through sentence (Changelog, D9, AC8) is
+> narrowed to a collection whose item is an entity property; a row-independent `Contains`' collection read is wrapped
+> like any value (D1). "(unless noted)" on the Changed lead-in (D2); a test comment (D3); D4 folded into D1's wording.
 >
 > **Revision 12 — what changed (FV2, C1–C4):** the Changelog, D9 and AC8 say a database error or a
 > `NotSupportedException` from a collection's enumeration passes through (C1); a row pins that any other exception,
@@ -328,9 +332,11 @@ So, on every provider and path:
   `NotSupportedException("Could not evaluate expression: <node>")` — the visitor's message (`WhereClauseVisitor.cs:279`)
   — with the original exception as `InnerException` (unwrapped from `TargetInvocationException`), before any command
   is sent. A guarded shape (`req == null || ids.Contains(req.Id)` with `req` null) throws too, as the visitor's
-  `x.Id == filterId.Value` does today (§8). (Rev 11, FV1-B3: a `DbException`, an exception with one inside, and a
-  `NotSupportedException` from a collection's enumeration pass through unchanged: a query used as the collection runs
-  there, as in 3.9.0. FV2-C2 pins that anything else is still wrapped.)
+  `x.Id == filterId.Value` does today (§8). (Rev 11, FV1-B3: on the `<property> IN (…)` path, a `DbException`, an
+  exception with one inside, and a `NotSupportedException` from the collection's enumeration pass through unchanged:
+  a query used as the collection runs there, as in 3.9.0. FV2-C2 pins that anything else is still wrapped. Rev 13,
+  FV3-D1: a collection that `RowIndependentEvaluator` reads for a row-independent `Contains` is wrapped like any
+  value, database errors included, as `TryTranslateContains_Throwing_WrapsInNotSupported` pins.)
 - **D10 — One public Core helper**, `Funcular.Data.Orm.Linq.RowIndependentEvaluator`, which the four translators call
   (precedents: `ScalarProjectionGuard`, `QueryOperatorPolicy`). It evaluates by interpretation
   (`Compile(preferInterpretation: true)`) where the runtime has it, so the span rewrite runs on every platform and a
@@ -424,7 +430,8 @@ So, on every provider and path:
   - a read or a call that throws while the predicate is translated (a null captured object, a throwing collection,
     a lazy collection that throws while it is enumerated) throws `NotSupportedException` whose `InnerException` is
     the original exception, before any command is sent (D9), except a database error or a `NotSupportedException`
-    from a collection's enumeration, which passes through unchanged (rev 11). Nothing is deleted. (A `ToString()` on a null string is
+    from the enumeration of a collection whose item is an entity property, which passes through unchanged (rev 11,
+    narrowed in rev 13). Nothing is deleted. (A `ToString()` on a null string is
     D16's rejection, with no inner exception.)
 - **AC9 (Task 6, with the delete-guard rewrite merged).** A delete whose evaluated `Contains` makes the predicate
   always true (`x.Id == 2 || ids.Contains(present.Id)`, `x.Id == 2 || !ids.Contains(absent.Id)`) is rejected with
@@ -883,6 +890,10 @@ every probed shape; the Known issue and its workaround executed on all four). C1
 mutation could lose); M48 and M49 each killed on all four providers by that row alone. The Changelog, D9 and AC8
 name the pass-through.
 
+**FV3 — fix-verification of `54aed0d`, and the cumulative branch (2026-10-03).** C2–C4 held; C1 held for the case it
+named but overstated the rest (D1). No production code changed in `54aed0d` or in rev 13's commit; rev 13 is documents
+and one test comment. FV3 found the cumulative branch otherwise clean (code, tests, Usage).
+
 ---
 
 ## 7. Risks
@@ -1073,3 +1084,15 @@ C2 blocking (small). Blame: AC-GAP 1, TEST-GAP 1, PLAN-GAP 1, OTHER 1.
 | C2 | low | TEST-GAP (fix-introduced, B3's) | OWN-10 (every `InvalidOperationException` passes) and OWN-11 (anything with an inner exception passes) survived: nothing pinned that a non-database exception with an inner one is still wrapped. | `CollectionContains_LazyExceptionWithNonDbInner_NotSupportedWithInner`; M48, M49. |
 | C3 | nit | OTHER (doc) | The unscheduled `All` entry sat under "Known issues (fixes planned for 3.10.1)". | Heading "Known issues"; "(fixes planned for 3.10.1)" moved to the aggregates lead-in (the sibling branch's form). |
 | C4 | nit | PLAN-GAP (record) | §9.6's A1 row still read "Fixed". | Points to FV1-B1. |
+
+FV3 — fix-verification of `b4d614b..54aed0d`, with a final pass over `35c6477..54aed0d` (non-author; the pass-through
+sentence probed on both `Contains` paths with a query collection on a dropped table, all four providers; M48 and M49
+re-run on three providers; suites re-run). Verdict: NOT CLEAN, D1 blocking (documents); cumulative otherwise clean.
+Blame: AC-GAP 1, OTHER 3.
+
+| # | Sev | Blame | Finding | Disposition (rev 13) |
+|---|---|---|---|---|
+| D1 | low | AC-GAP (fix-introduced, C1's wording, which FV2 proposed) | "A database error … from a query used as the collection passes through unchanged, as in 3.9.0" is false for a row-independent `Contains` (`q.AsEnumerable().Contains(5)`): `RowIndependentEvaluator` reads the collection and wraps it, where 3.9.0 threw it raw. | Documents narrowed (Changelog, D9, AC8): the pass-through holds when the item is an entity property; a collection read for a row-independent `Contains` is wrapped like any value. No code change (D16: no new shape accommodated). |
+| D2 | nit | OTHER (doc) | The Changed lead-in said every bullet throws `NotSupportedException`; the `.Value` bullet throws `NullableExpressionException`. | "(unless noted)". |
+| D3 | nit | OTHER (comment) | The C2 row's comment said only a database error passes through. | "a database error or a NotSupportedException". |
+| D4 | nit | OTHER (doc) | A user lazy collection's own `NotSupportedException` comes out raw; the main sentence implied a wrap. | Folded into D1's sentence ("a `NotSupportedException` thrown while the collection is enumerated"). |

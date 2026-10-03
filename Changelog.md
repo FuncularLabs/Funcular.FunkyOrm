@@ -112,7 +112,7 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
   projected key.
 
 Method calls in a predicate or a projection that can't be answered correctly now throw `NotSupportedException`
-before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed or returned wrong rows in 3.9.0:
+(unless noted) before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed or returned wrong rows in 3.9.0:
 - **A collection `Contains` whose item reads the row other than as an entity property**: `ids.Contains(x.Child.Id)`
   (3.9.0 silently used `x.Id`), `lengths.Contains(x.Name.Length)`, `longIds.Contains(x.Id)` with a `List<long>`.
   With an empty collection these returned no row in 3.9.0; they now throw whatever the collection holds. A null
@@ -135,8 +135,10 @@ before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed 
 - **A value that throws while the predicate is translated** (a member of a null captured object,
   `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
   `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check in
-  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated. (A database
-  error, or a `NotSupportedException`, from a query used as the collection passes through unchanged, as in 3.9.0.)
+  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated. When the item
+  is an entity property (`ids.Contains(x.Id)`), a database error or a `NotSupportedException` thrown while the
+  collection is enumerated (a query used as the collection, say) passes through unchanged, as in 3.9.0. A collection
+  read to answer a `Contains` before the query (an item that doesn't come from the row) is wrapped like any value.
 
 Other changes:
 
