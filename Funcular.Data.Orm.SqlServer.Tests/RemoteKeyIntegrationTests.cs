@@ -22,6 +22,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Create Country
             var country = new CountryEntity { Name = "TestCountry_" + Guid.NewGuid() };
             await _provider.InsertAsync(country);
+            Track(country);
             
             // Create Address
             var address = new AddressEntity 
@@ -33,6 +34,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 CountryId = country.Id 
             };
             await _provider.InsertAsync(address);
+            Track(address);
             
             // Create Organization
             var org = new OrganizationEntity 
@@ -41,6 +43,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 HeadquartersAddressId = address.Id
             };
             await _provider.InsertAsync(org);
+            Track(org);
             
             // Create Person
             var person = new PersonEntity 
@@ -50,6 +53,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 EmployerId = org.Id 
             };
             await _provider.InsertAsync(person);
+            Track(person);
             
             // Act
             var fetchedPerson = await _provider.GetAsync<PersonDetailEntity>(person.Id);
@@ -73,6 +77,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 HeadquartersAddressId = null
             };
             await _provider.InsertAsync(org);
+            Track(org);
             
             // Create Person
             var person = new PersonEntity 
@@ -82,6 +87,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 EmployerId = org.Id 
             };
             await _provider.InsertAsync(person);
+            Track(person);
             
             // Act
             var fetchedPerson = await _provider.GetAsync<PersonDetailEntity>(person.Id);

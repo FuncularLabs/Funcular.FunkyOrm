@@ -11,15 +11,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void CanFilterByRemoteKey()
         {
             // Arrange
-            // We need a person with a known Employer Country ID.
-            // Assuming the integration test data has some people.
-            // Let's fetch one first to get a valid ID.
-            var person = _provider.Query<PersonDetailEntity>().FirstOrDefault(p => p.EmployerHeadquartersCountryId != null);
-            
-            if (person == null)
-            {
-                Assert.Inconclusive("No person with EmployerHeadquartersCountryId found in test database.");
-            }
+            var seeded = SeedEmployerChain("WhereKey_");
+            var person = _provider.Query<PersonDetailEntity>()
+                .FirstOrDefault(p => p.Id == seeded.PersonId && p.EmployerHeadquartersCountryId != null);
+            Assert.IsNotNull(person, "The seeded person's EmployerHeadquartersCountryId should be populated.");
+            Assert.AreEqual(seeded.CountryId, person.EmployerHeadquartersCountryId);
 
             int targetCountryId = person.EmployerHeadquartersCountryId.Value;
 
@@ -30,7 +26,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .ToList();
 
             // Assert
-            Assert.IsTrue(results.Count > 0);
+            Assert.IsTrue(results.Any(p => p.Id == seeded.PersonId));
             Assert.IsTrue(results.All(p => p.EmployerHeadquartersCountryId == targetCountryId));
         }
 
@@ -38,12 +34,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public void CanFilterByRemoteProperty()
         {
             // Arrange
-            var person = _provider.Query<PersonDetailEntity>().FirstOrDefault(p => p.EmployerHeadquartersCountryName != null);
-            
-            if (person == null)
-            {
-                Assert.Inconclusive("No person with EmployerHeadquartersCountryName found in test database.");
-            }
+            var seeded = SeedEmployerChain("WhereProperty_");
+            var person = _provider.Query<PersonDetailEntity>()
+                .FirstOrDefault(p => p.Id == seeded.PersonId && p.EmployerHeadquartersCountryName != null);
+            Assert.IsNotNull(person, "The seeded person's EmployerHeadquartersCountryName should be populated.");
+            Assert.AreEqual(seeded.CountryName, person.EmployerHeadquartersCountryName);
 
             string targetCountryName = person.EmployerHeadquartersCountryName;
 
@@ -53,7 +48,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 .ToList();
 
             // Assert
-            Assert.IsTrue(results.Count > 0);
+            Assert.IsTrue(results.Any(p => p.Id == seeded.PersonId));
             Assert.IsTrue(results.All(p => p.EmployerHeadquartersCountryName == targetCountryName));
         }
     }

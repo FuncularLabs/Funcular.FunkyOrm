@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 5. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 6. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (§5); Task 2 is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (§5); Task 3 is next.
+
+> **Revision 6 — what changed (Task 2):** §5 records Task 2's red steps, green run, measurements and mutations.
 
 > **Revision 5 — what changed (Task 1):** §5 records Task 1's red and green runs and its mutations.
 
@@ -411,6 +413,24 @@ the exact sha).
     the chain but leaves `EmployerId` unset; those six fail. `Count_NoFilter…` is green here (M14 is its evidence).
   - Green: D7 `Track` calls and the real `SeedEmployerChain`. Run the suite; measure each §1.1 class and the suite
     (§4.4). Read `is_read_committed_snapshot_on`; run M9–M11, M13 and M14.
+  - **Record (the commit that carries rev 6):**
+    - Red 1: the three wiring probes failed; counts unchanged.
+    - Red 2: the probes and `Cleanup_Passes…` passed (4 of 4); one test per §1.1 class failed in cleanup:
+      `Get_WithExistingId_ReturnsPerson`, `Get_WithExistingId_ReturnsPerson_Async`,
+      `ExecProcedure_NoParams_ReturnsRows`, `Count_FilteredByRemoteProperty_MatchesMaterialized`,
+      `Query_Sum_ReturnsCorrectSum`, `RemoteKey_OuterJoin_NullHandling`, `CanFilterByReverseRemoteKey`. They left
+      16 rows: person 9, address 2, person_address 1, organization 2, country 2.
+    - Red 3: the six chain tests failed against the stub; `Count_NoFilter…` passed; counts unchanged (the failing
+      tests' tracked rows were deleted).
+    - Green: the suite (CI filter) passed, 895 of 895, every guarded count unchanged around the run (it added 177
+      `person` rows before). Each §1.1 class and `RemoteKeyWhereTests`, run alone: all passed, counts unchanged
+      (72, 21, 23, 12, 3, 2, 9, 2 tests).
+    - `is_read_committed_snapshot_on` is false locally.
+    - Mutations: M9 is Red 3. M10 (Begin or Finish removed at each of the three hook sites): each probe failed. M11:
+      `Get_WithExistingId_ReturnsPerson` failed and left its 1 `person` row. M13: `Cleanup_Passes…` failed after
+      2 m 30 s of lock-wait timeouts, run while every other FunkyORM session was idle (the mutant holds a `person`
+      row lock until its test host exits). M14: `Count_NoFilter…` failed; the library file restored, `git status`
+      clean for `Funcular.Data.Orm.SqlServer`.
 - **Task 3 — PostgreSQL suite.** The same steps for its six classes, three probes and seven AC6 tests, without
   `Cleanup_Passes…`, the RCSI read and M13 (SQL Server only); it runs M9–M11 and M14.
 - **Task 4 — MySQL suite.** The same steps for its five classes and one probe (no AC6 tests on `development/3.10`).

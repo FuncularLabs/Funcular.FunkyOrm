@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
+using Funcular.Data.Orm.Tests.Shared;
 using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer.Tests
@@ -13,6 +14,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         private string _connectionString;
         public required SqlServerOrmDataProvider _provider;
         private StringBuilder _sb = new();
+        private TestRowLedger _rows;
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {
@@ -35,13 +37,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                     _sb.AppendLine(s);
                 }
             };
+            _rows = TestRowLedger.Begin(() => new SqlConnection(_connectionString), TestRowLedger.SqlServerTables);
         }
 
         [TestCleanup]
         public void Cleanup()
         {
             _provider?.Dispose();
+            _rows?.Finish();
         }
+
+        /// <summary>Records a row this test inserted, for <see cref="Cleanup"/> to delete.</summary>
+        private void Track(object entity) => _rows.Track(entity);
 
         private void TestConnection()
         {
@@ -77,6 +84,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             };
 
             await _provider.InsertAsync(person);
+            Track(person);
             return person.Id;
         }
 
@@ -91,6 +99,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 PostalCode = postalCode
             };
             await _provider.InsertAsync(address);
+            Track(address);
             return address.Id;
         }
 
@@ -98,6 +107,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         {
             var link = new PersonAddress { PersonId = personId, AddressId = addressId };
             await _provider.InsertAsync(link);
+            Track(link);
+        }
+
+        [TestMethod]
+        public async Task Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var guid = Guid.NewGuid().ToString();
+            var person = new Person { FirstName = guid, LastName = guid, UniqueId = Guid.NewGuid() };
+            await _provider.InsertAsync(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new SqlConnection(_connectionString),
+                "person", person.Id);
         }
 
         [TestMethod]
@@ -149,6 +169,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 UniqueId = Guid.NewGuid()
             };
             await _provider.InsertAsync(newPerson);
+            Track(newPerson);
             var updatedCount = _provider.Query<Person>().Count();
             Assert.AreEqual(initialCount + 1, updatedCount);
         }
@@ -207,6 +228,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                     UniqueId = Guid.NewGuid()
                 };
                 await _provider.InsertAsync(person);
+                Track(person);
 
                 person.FirstName = "Updated-" + Guid.NewGuid();
                 await _provider.UpdateAsync(person);
@@ -235,6 +257,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 UniqueId = Guid.NewGuid()
             };
             await _provider.InsertAsync(person);
+            Track(person);
 
             _provider.CommitTransaction();
 
