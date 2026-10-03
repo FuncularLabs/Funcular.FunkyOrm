@@ -9,11 +9,15 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 7 (rev 6's wording nits F6-1, F6-2). Task 0 review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
+> **Status (2026-10-03):** rev 8. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Task 1 is done** (§6.1); Task 2
+> (the translator harnesses, red) is next.
+>
+> Task 0's history: the review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
 > (`3ea7234`) answered them with the owner's four decisions (D7, D8, D12, D13). Its re-review (§9.2) found 7, 2
 > blocking, answered in rev 3 (`1e990f3`). Its re-review (§9.3) found 6, 1 blocking, answered in rev 4 (`0755b99`).
 > Its re-review (§9.4) found 4, 2 blocking, answered in rev 5 (`6d06445`) with the owner's D14 and D15. Its re-review
-> (§9.5) found 4, none blocking; rev 6 answers them. A fix-verification of rev 6's edits follows; then Task 1.
+> (§9.5) found 4, none blocking, answered in rev 6 (`fa7ed72`); its fix-verification found two wording nits, fixed in
+> rev 7, whose verification is CLEAN.
 
 > **Revision 6 — what changed (Task 0 re-review, R5-1…R5-4):** §5.3's `ToString` message names what D14 rejects
 > (R5-1); D14 discloses a third shape that works today, an interface-typed value holding a string, with a row (R5-2);
@@ -715,6 +719,28 @@ provider's test project, with that suite's database available. Per-file numbers 
   - Add the AC9 rows (and `orNullableToStringIsEmpty` as an always-true delete the guard rejects); run all four
     suites; fix-verification of the merge. Only then may the branch merge into `development/3.10`.
 
+### 6.1 Task records
+
+**Task 1 — Core helper (2026-10-03).** Files: `Funcular.Data.Orm.Core/Linq/CoreEvaluability.cs` (the guard's predicate,
+copied verbatim from `ca82741`), `Funcular.Data.Orm.Core/Linq/RowIndependentEvaluator.cs`,
+`Funcular.Data.Orm.SqlServer.Tests/Linq/RowIndependentEvaluatorTests.cs` (linked into the net48 project).
+- **Red** (the members stubbed with `NotImplementedException`): 63 of 65 failed. The two that passed are expected:
+  `Compile_InterpretingCompile_IsFound` (a field, not a stub) and `CoreEvaluability_MatchesTheGuardsTable` (the copied
+  predicate, already in place).
+- **Green:** 68 of 68 on net8.0; 61 of 61 on net48 (the `#if NET` span and `StringComparison` tests excluded), with
+  the existing linked `QueryOperatorPolicyTests` (69 in all). The whole SqlServer.Tests suite: 953 passed (885 + 68).
+- **Added while implementing** (author-found): `TryTranslateContains_StringInvokeThrows_InnerIsTheOriginal`, because
+  M13 would otherwise survive (the interpreter surfaces a getter's exception unwrapped, so only the reflection `Invoke`
+  path wraps); `RewriteForEvaluation_UnaryImplicitForm_Rewritten`, `_SpanNotFromAConversion_Unchanged` and a
+  `CoreEvaluability` row for another instance call, for coverage.
+- **Mutations** (each applied alone, the class's tests run, the source restored and checked): M4, M5, M5b (the
+  nested lambda's parameters left declared after it), M6, M7, M8, M12, M13, M16, M23, M25, M28, M30, M31, M32, M33,
+  M35, M36, M37, M39a (`Convert` dropped), M39b (a user conversion treated as core) — all 21 killed, each by the tests
+  §4.4 names.
+- **Coverage** (cobertura, SqlServer.Tests): `RowIndependentEvaluator.cs` 131/131, `CoreEvaluability.cs` 49/49.
+- **Not verified:** .NET Framework 4.6.1–4.7.0 (no runtime here), where `InterpretingCompile` is null and the
+  `Compile()` path runs; that path is covered on net8 by `Compile_WithoutInterpretation_Compiles`.
+
 ---
 
 ## 7. Risks
@@ -856,5 +882,6 @@ Verdict: NOT CLEAN, none blocking. R4-1…R4-4 and D15's withdrawal verified. Ne
 | R5-4 | nit | TEST-GAP | No evaluated cast receiver; dropping `Convert` from the copy would pass. | `TryEvaluateToString_CastReceiver_Evaluated`, `_UserConversionReceiver_ReturnsFalse`; M39. |
 
 Fix-verification of rev 6 (`fa7ed72`; non-author): R5-2…R5-4 closed, R5-1 mostly; two wording nits, F6-1 (§8 said
-"two" shapes) and F6-2 (§5.3's message didn't say "declared as" or "non-generic"), fixed in rev 7.
+"two" shapes) and F6-2 (§5.3's message didn't say "declared as" or "non-generic"), fixed in rev 7. Its verification of
+rev 7 (`33b96cf`; non-author): **CLEAN** — Task 0 is complete.
 
