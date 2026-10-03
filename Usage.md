@@ -546,8 +546,8 @@ var scots = provider.Query<Person>()
 ```
 
 The search value can be a literal, a local, a property of an object you hold (including `this`) or a static
-member; FunkyORM reads it before the query. A `null` value matches no row, negated or not, so an optional filter
-works:
+member; FunkyORM reads it before the query. A `null` value matches no row, negated or not (except inside `All`: see
+the Changelog's Known issues), so an optional filter works:
 
 ```csharp
 // When filter is null, every row is returned; otherwise the rows whose LastName contains it.
@@ -561,9 +561,9 @@ from the row (`role.Contains("admin")`) is answered before the query, as C# woul
 null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
 property throw `NotSupportedException` — test the value in C# before the query instead.
 
-`ToString()` is translated only on a property of the entity. On anything else — a local, a constant, a property of
-an object you hold, with or without a format — it throws `NotSupportedException`: compute the string before the
-query and compare with that.
+In a predicate or a projection, `ToString()` is translated only on a property of the entity. On anything else — a
+local, a constant, a property of an object you hold, with or without a format — it throws `NotSupportedException`:
+compute the string before the query and compare with that.
 
 ```csharp
 // Not a.PostalCode == zip.ToString("D5"): that throws.

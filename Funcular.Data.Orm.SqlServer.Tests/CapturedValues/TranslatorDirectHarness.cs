@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
@@ -125,6 +126,11 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         public static class StaticHolder
         {
             public static string Name => "alpha";
+        }
+
+        public class FakeDbException : DbException
+        {
+            public FakeDbException() : base("server error") { }
         }
 
         public class OddToString
@@ -354,6 +360,31 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             var ex = Assert.ThrowsException<NotSupportedException>(() => Translate(CallOnRow(x => lazy.Contains(x.Id))));
             StringAssert.StartsWith(ex.Message, CouldNotEvaluateMessage);
             Assert.IsInstanceOfType(ex.InnerException, typeof(DivideByZeroException));
+        }
+
+        // FV1-B3: a FunkyORM query used as the collection runs a query while it is enumerated; a database error, or the
+        // query's own NotSupportedException, comes out as it would have without the wrap.
+        [TestMethod]
+        public void CollectionContains_LazyDbException_PassesThrough()
+        {
+            var lazy = ids.Select(i => i == 1 ? throw new FakeDbException() : i);
+            Assert.ThrowsException<FakeDbException>(() => Translate(CallOnRow(x => lazy.Contains(x.Id))));
+        }
+
+        [TestMethod]
+        public void CollectionContains_LazyExceptionWithDbInner_PassesThrough()
+        {
+            var lazy = ids.Select(i => i == 1 ? throw new InvalidOperationException("query failed", new FakeDbException()) : i);
+            var ex = Assert.ThrowsException<InvalidOperationException>(() => Translate(CallOnRow(x => lazy.Contains(x.Id))));
+            Assert.IsInstanceOfType(ex.InnerException, typeof(FakeDbException));
+        }
+
+        [TestMethod]
+        public void CollectionContains_LazyNotSupported_PassesThrough()
+        {
+            var lazy = ids.Select(i => i == 1 ? throw new NotSupportedException("the nested query's own message") : i);
+            var ex = Assert.ThrowsException<NotSupportedException>(() => Translate(CallOnRow(x => lazy.Contains(x.Id))));
+            Assert.AreEqual("the nested query's own message", ex.Message);
         }
 
         [TestMethod]

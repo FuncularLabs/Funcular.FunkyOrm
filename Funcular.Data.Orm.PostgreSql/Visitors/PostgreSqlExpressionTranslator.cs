@@ -31,10 +31,11 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
             "ToString() is translated only on a property of the entity; for a value that doesn't read the row, compute the string before the query: ";
 
         /// <summary>
-        /// Translates a method call expression into SQL, appending the result to the provided StringBuilder. A part
-        /// that doesn't read the row is evaluated as C# does (<see cref="RowIndependentEvaluator"/>); a receiver or a
-        /// collection item is a column only when it is a property of the lambda parameter
-        /// (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md, §5.2).
+        /// Translates a method call expression into SQL, appending the result to the provided StringBuilder. A
+        /// <c>Contains</c> or a value that doesn't read the row is evaluated as C# does
+        /// (<see cref="RowIndependentEvaluator"/>); a captured <c>ToString()</c> is rejected; a receiver or a collection
+        /// item is a column only when it is a property of the lambda parameter (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md,
+        /// §5.2).
         /// </summary>
         /// <param name="node">The method call expression to translate.</param>
         /// <param name="commandTextBuilder">The StringBuilder to append the SQL to.</param>
@@ -181,13 +182,16 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
                         throw new NotSupportedException(NotACollectionMessage + node);
                     }
 
-                    // A lazy collection runs the caller's code here; what it throws is reported as the read is (D9).
+                    // A lazy collection runs the caller's code here; what it throws is reported as the read is (D9). A query
+                    // used as the collection runs a query here: a database error, or the query's own NotSupportedException,
+                    // passes through unchanged.
                     List<object> values;
                     try
                     {
                         values = collection.Cast<object>().Where(v => v != null).ToList();
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (!(ex is NotSupportedException)
+                        && !(ex is System.Data.Common.DbException) && !(ex.InnerException is System.Data.Common.DbException))
                     {
                         throw new NotSupportedException("Could not evaluate expression: " + collectionExpression, ex);
                     }

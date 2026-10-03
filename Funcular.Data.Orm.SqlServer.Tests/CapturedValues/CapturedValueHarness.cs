@@ -239,7 +239,9 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                 case "throwingCollection": return x => nullRequest.Ids.Contains(x.Id);
                 case "nullStringToString": return x => x.Code == nullFilter.ToString();
                 case "intColumnToStringEqCaptured": return x => x.Id.ToString() == localInt.ToString();
-                // A1: All with SQL's unknown.
+                // A1, FV1-B1: All with SQL's unknown, in both directions.
+                case "allNullableNotEqual": return x => x.NullableId != 5;
+                case "allNotNullableEquals": return x => !(x.NullableId == 5);
                 case "allNotContainsNull": return x => !x.Name.Contains(nullFilter);
                 case "allContainsNull": return x => x.Name.Contains(nullFilter);
                 case "allOrContainsNull": return x => x.Id == 2 || x.Name.Contains(nullFilter);
@@ -714,27 +716,44 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         #endregion
 
-        #region All (A1)
+        #region All (A1, FV1-B1)
 
         /// <summary>
-        /// All treats a row whose predicate is unknown in SQL as failing, as C# fails it (or throws): a null search value
-        /// (D8) or a nullable column compared with a value. Translated as NOT EXISTS(... WHERE NOT (p)), an unknown row
-        /// counted as satisfied.
+        /// All is NOT EXISTS(... WHERE NOT (p)), as in 3.9.0, so a row whose predicate SQL finds unknown (null) counts as
+        /// satisfying it. That is C#'s answer when the null makes p true in C# (<c>x.NullableId != 5</c>), and a known
+        /// divergence when it makes p false (<c>x.NullableId &gt; 0</c>, the Changelog's Known issues) or C# throws (D8's
+        /// null search value). No single negation is right for both; the fix belongs to the comparisons' null handling.
         /// </summary>
         [DataTestMethod]
-        [DataRow("allNotContainsNull", false, "D8")]
-        [DataRow("allContainsNull", false, "D8")]
-        [DataRow("allOrContainsNull", false, "D8")]
-        [DataRow("allRowIndependentNull", false, "D8")]
-        [DataRow("allNullableGreaterThanZero", false, null)]
         [DataRow("allIdPositive", true, null)]
         [DataRow("allNotIdsX", false, null)]
-        public void All_TreatsUnknownAsFailing(string key, bool expected, string knownDivergence)
+        [DataRow("allNullableNotEqual", true, null)]
+        [DataRow("allNotNullableEquals", true, null)]
+        [DataRow("allNullableGreaterThanZero", true, "KnownIssue")]
+        [DataRow("allContainsNull", true, "D8")]
+        [DataRow("allNotContainsNull", true, "D8")]
+        [DataRow("allOrContainsNull", true, "D8")]
+        [DataRow("allRowIndependentNull", true, "D8")]
+        public void All_UnknownCountsAsSatisfied(string key, bool expected, string knownDivergence)
         {
             var predicate = Predicate(key);
             if (knownDivergence == null)
                 Assert.AreEqual(expected, Rows.All(predicate.Compile()), key + ": the DataRow disagrees with LINQ to objects");
+            else if (knownDivergence == "KnownIssue")
+                Assert.AreNotEqual(expected, Rows.All(predicate.Compile()), key + ": a known issue must differ from LINQ to objects");
             WithTable((provider, log) => Assert.AreEqual(expected, provider.Query<CvRow>().All(predicate), key));
+        }
+
+        /// <summary>The same with a Where before All, which takes another branch of the provider's All (FV1-B4).</summary>
+        [DataTestMethod]
+        [DataRow("allNullableNotEqual", true)]
+        [DataRow("allIdPositive", true)]
+        [DataRow("allNotIdsX", false)]
+        public void WhereThenAll_MatchesCSharp(string key, bool expected)
+        {
+            var predicate = Predicate(key);
+            Assert.AreEqual(expected, Rows.Where(r => r.Id > 1).All(predicate.Compile()), key + ": the DataRow disagrees with LINQ to objects");
+            WithTable((provider, log) => Assert.AreEqual(expected, provider.Query<CvRow>().Where(x => x.Id > 1).All(predicate), key));
         }
 
         #endregion

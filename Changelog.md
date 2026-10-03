@@ -75,13 +75,11 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
 - **A string `Contains` that doesn't read the row** (`s.Contains("ZETA")`) was compared by the server, whose
   collation could find it true where C# finds it false (deleting every row on SQL Server, MySQL and SQLite). It's
   now answered as C# answers it, except that a null string or search value matches no row (C# would throw).
-- **`All` counted a row whose predicate is unknown in SQL as satisfying it.** `All(x => x.NullableId > 0)` returned
-  `true` when a `NullableId` was null, where C# returns `false`; so did `All` over a null search value (below). A row
-  now satisfies `All` only when its predicate is true.
 - **A null search value** (`x.Name.Contains(filter)` with `filter == null`) sent `LIKE '%%'`, which matched, and
   deleted, every row with a non-null value. A null value for `Contains`, `StartsWith` or `EndsWith` now matches no
-  row, negated or not. The optional-filter idiom `filter == null || x.Name.Contains(filter)` still returns every row,
-  and the same idiom with `StartsWith`/`EndsWith` no longer throws.
+  row, negated or not (inside `All`, see Known issues). The optional-filter idiom
+  `filter == null || x.Name.Contains(filter)` still returns every row, and the same idiom with `StartsWith`/`EndsWith`
+  no longer throws.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -131,7 +129,8 @@ before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed 
   `ToString()` that reads the row through another member (`x.Name.Length.ToString()`). 3.9.0 sent a captured value
   unconverted, which returned the right rows only when the value already was the text compared (an `object` or
   interface variable holding a string, `s.ToString(CultureInfo.InvariantCulture)`) or when it was
-  compared with a column's own `ToString()` (`x.Id.ToString() == id.ToString()`, also with an enum). Those throw
+  compared with a column's own `ToString()` (`x.Id.ToString() == id.ToString()`; also with an enum, except on
+  PostgreSQL, where that threw). Those throw
   now too. Compute the string before the query: `var code = id.ToString("D2");`, then `x.Code == code`.
 - **A value that throws while the predicate is translated** (a member of a null captured object,
   `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
@@ -179,6 +178,13 @@ Aggregates keep their 3.9 behavior in 3.10.0:
 - `Average` over a `decimal` or `float` column throws.
 - `Min`/`Max`/`Average` over a nullable column on an empty set throw instead of returning `null`.
 - Some `Min`/`Max` result types throw after the round-trip.
+
+Not yet scheduled:
+- **`All` counts a row whose predicate SQL finds null (unknown) as satisfying it**, as 3.9.0 does. That's C#'s answer
+  when the null makes the predicate true (`All(x => x.NullableId != 5)`), but not when it makes it false:
+  `All(x => x.NullableId > 0)` returns `true` when a `NullableId` is null, where C# returns `false`. `All` over a null
+  search value (`All(x => x.Name.Contains(filter))` with `filter == null`) returns `true`, where C# throws. Test the
+  null yourself: `All(x => x.NullableId != null && x.NullableId > 0)`.
 
 ## [3.9.0] - 2026-07-06
 

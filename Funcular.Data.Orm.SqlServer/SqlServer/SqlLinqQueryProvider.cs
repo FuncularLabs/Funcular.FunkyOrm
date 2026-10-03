@@ -647,8 +647,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                     if (hasPredicate)
                     {
-                        // A row disproves All unless its predicate is true; NOT (p) would skip a row whose p is unknown (null).
-                        combinedWhere += $"CASE WHEN ({modifiedWhereClause}) THEN 1 ELSE 0 END = 0";
+                        combinedWhere += $"NOT ({modifiedWhereClause})";
                     }
                     if (!string.IsNullOrEmpty(combinedWhere))
                     {

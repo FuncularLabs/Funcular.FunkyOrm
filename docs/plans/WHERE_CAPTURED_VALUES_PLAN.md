@@ -9,9 +9,17 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 10. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
-> Task 5's review of `35c6477..d37f719` found A1–A6 (§9.6); the fix layer answering them is in this revision's commit,
-> and its fix-verification by a non-author is next. Task 6 waits for the delete guard.
+> **Status (2026-10-03):** rev 11. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
+> Task 5's review of `35c6477..d37f719` found A1–A6, answered in `6d8842d` (rev 10); its fix-verification (FV1, §9.6)
+> found B1–B4 and three nits, answered in this revision's commit; FV2 by a non-author is next. Task 6 waits for the
+> delete guard.
+>
+> **Revision 11 — what changed (FV1, B1–B4, N1–N3):** rev 10's `All` (`CASE WHEN (p) THEN 1 ELSE 0 END = 0`) made
+> `All(x => x.NullableId != 5)` false where C# and 3.9.0 say true (B1): no one negation is right for both kinds of
+> null. `All` is back to 3.9.0's `NOT (p)`; its divergence is a Known issue, pinned in both directions, and the fix
+> (null-aware comparisons) goes to the main session, as the owner allowed. A database error or a `NotSupportedException`
+> from a collection's enumeration passes through D9's wrap (B3). A `Where(…).All(…)` row (B4); the Changelog's enum
+> claim corrected (B2); M44's row and nits (N1–N3).
 >
 > **Revision 10 — what changed (Task 5, A1–A6; the owner's directive D16):** a `ToString()` of anything but an entity
 > property is now rejected, never evaluated (D16 replaces D7's `ToString` part and D14); `TryEvaluateToString` and
@@ -358,8 +366,12 @@ So, on every provider and path:
     executed);
   - `RowIndependentEvaluator.TryEvaluateToString` and `CoreEvaluability` are deleted (unshipped, so no public API is
     lost); Task 6 no longer shares a `ToString` predicate with the guard;
-  - `All` (A1) is fixed rather than scoped: `NOT EXISTS(… WHERE CASE WHEN (p) THEN 1 ELSE 0 END = 0)`, so a row whose
-    predicate is unknown (D8's null search value, a nullable column) fails `All`, as C# fails it;
+  - `All` (A1): rev 10 translated it as `NOT EXISTS(… WHERE CASE WHEN (p) THEN 1 ELSE 0 END = 0)`, which FV1 found
+    wrong for the other kind of null (B1: `All(x => x.NullableId != 5)`, C# true, became false). An unknown row is a
+    C# true for `!=` and a negated comparison and a C# false for `>` or `==`, so no wrapper is right for both. Rev 11
+    keeps 3.9.0's `NOT (p)`, records the divergence under Known issues, pins both directions, and hands the real fix
+    (comparisons that are C#-faithful about null) to the main session, the owner's alternative ("fix All's
+    translation, or tell the main session to"); that session filed it as a task for the owner to start;
   - for later edge-case findings on this branch the default is to reject the shape, without asking the owner again,
     and to disclose what it breaks.
 
@@ -400,8 +412,8 @@ So, on every provider and path:
 - **AC8.** Nulls and failures:
   - a null value for string `Contains`, `StartsWith` or `EndsWith` with a column receiver matches no row, negated or
     not; the guarded idiom (`filter == null || x.Name.Contains(filter)`, also with `StartsWith`) returns every row; a
-    string `Contains` that doesn't read the row, with a null receiver or value, matches no row (D7, D8); in `All`
-    too, such a row fails the predicate (rev 10, A1);
+    string `Contains` that doesn't read the row, with a null receiver or value, matches no row (D7, D8). Inside `All`
+    an unknown row counts as satisfying the predicate, as in 3.9.0 (rev 11, B1: a Known issue, pinned);
   - a read or a call that throws while the predicate is translated (a null captured object, a throwing collection,
     a lazy collection that throws while it is enumerated) throws `NotSupportedException` whose `InnerException` is
     the original exception, before any command is sent (D9). Nothing is deleted. (A `ToString()` on a null string is
@@ -516,7 +528,7 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | AC6 | `Query_ReturnsWhatCSharpSelects` (Q) | `containsThisFilter` (U1) {2}; `containsNestedCaptured` (`x.Name.Contains(needle.Name)`) {3}; `startsWithThisFilter` (U2) {2}. No collation can change these answers. (Rev 10: `codeEqualsThisCodeToString` (U3) and `codeEqualsNestedToString` (T1) move to D16's rejection row.) | red (U1, T3, U2) |
 | AC6, D16 | (rev 10) the evaluated-`ToString` rows `orCapturedToString05` (N7), `orPropertyToString05` (N8), `orFormattedToString`, `orNullableToStringIsNull`, `orNullableToStringIsEmpty` leave `Query_…`/`Delete_…` for D16's rejection row below | were red at `35c6477` (wrong rows); red again at `d37f719` (evaluated) |
 | AC6 | `Delete_DeletesWhatCSharpSelects` (D) | `containsThisFilter` {2}; `startsWithThisFilter` {2} | red (as the Query rows) |
-| AC6 | `TranslatorDirectHarness` | `StringContains_CapturedThisPropertyValue`, `_NestedCapturedValue`, `_StaticValue`, `_CapturedLocalValue`; `StartsWith_CapturedThisPropertyArgument`, `_NestedCapturedArgument`; (rev 10, D16:) `ToString_CapturedLocal_NotSupported`, `_Constant_NotSupported`, `_Formatted_NotSupported`, `_CapturedThisProperty_NotSupported`, `_NestedCaptured_NotSupported`, `_StaticMemberReceiver_NotSupported`, `_NullableNoValue_NotSupported`, `_Enum_NotSupported`, `_NonStringReturn_NotSupported` (A4: a user `new object ToString()`) | new; rev 10 red at `d37f719` (evaluated) |
+| AC6 | `TranslatorDirectHarness` | `StringContains_CapturedThisPropertyValue`, `_NestedCapturedValue`, `_StaticValue`, `_CapturedLocalValue`; `StartsWith_CapturedThisPropertyArgument`, `_NestedCapturedArgument`; (rev 10, D16:) `ToString_CapturedLocal_NotSupported`, `_Constant_NotSupported`, `_Formatted_NotSupported`, `_CapturedThisProperty_NotSupported`, `_NestedCaptured_NotSupported`, `_StaticMemberReceiver_NotSupported`, `_NullableNoValue_NotSupported`, `_Enum_NotSupported`, `_NonStringReturn_NotSupported` (A4: a user `new object ToString()`), `ToString_Captured_NothingRead` (a counting getter stays at 0: nothing is evaluated) | new; rev 10 red at `d37f719` (evaluated) |
 | AC7 | `Rejected_BeforeAnyCommand` (Q) | `codeEqualsLengthToString` (T2); `childNameContains` (T4) | red (T2 sends `t.code = t.name`; T4 server error) |
 | AC6, D7 → D16 | `Rejected_BeforeAnyCommand` (Q, D) | `userTypeToString` (`x.Id == 2 \|\| settings.ToString() == "on"`); `objectDeclaredToString` (`\|\| boxed.ToString() == "5"`); `providerToString` (`\|\| five.ToString(CultureInfo.InvariantCulture) == "5"`); `staticConvertToString` (`x.Code == Convert.ToString(localInt)`); `orArithmeticToString` (`x.Id == 2 \|\| (five + 1).ToString() == "6"`); `orIndexToString` (`\|\| arr[0].ToString() == "1"`); `orMethodToString` (`\|\| Seven().ToString() == "7"`); `orCoalesceToString` (`\|\| (n ?? 7).ToString() == "7"`); `orStructToString` (a user struct); `orNullableStructToString`; `orSealedClassToString` (a sealed user class); `orPairToString` (`KeyValuePair<int,int>`) — each C# true, so a translation would delete every row | red (user type: today a parameter-type error, not §5.3's prefix; `object` and provider: `5 = '5'`, wrong rows on SQL Server and MySQL; static: server syntax error; arithmetic, indexer, method, `??`: today's "Expression type … is not supported", not §5.3's prefix) |
 | D14 → D16 | `Rejected_BeforeAnyCommand` (Q, D) | `objectHoldingStringToString` (`x.Code == objStr.ToString()`, `objStr = (object)"b"`); `providerStringToString` (`x.Code == sB.ToString(CultureInfo.InvariantCulture)`, `sB = "b"`); `interfaceHoldingStringToString` (`x.Code == ifaceStr.ToString()`, `IComparable ifaceStr = "b"`) | today {2}, C#'s answer — red because the owner chose to reject them (D14) |
@@ -526,8 +538,9 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | AC8 | `Query_ReturnsWhatCSharpSelects` (Q) | `optionalFilterNull` (O1) {1,2,3}; `optionalThisFilterNull` (O1 with `this.NullFilter`) {1,2,3}; `optionalStartsWithNull` (O4) {1,2,3}; `optionalReceiverNull` (`nullFilter == null \|\| nullFilter.Contains("a")`) {1,2,3}; `containsNullValue` (`x.Id == 2 \|\| x.Name.Contains(nullFilter)`, knownDivergence D8) {2}; `startsWithNullValue` (knownDivergence D8) {2}; `notContainsNullValue` (`x.Id == 2 \|\| !x.Name.Contains(nullFilter)`, knownDivergence D8) {2} (luck today, `NOT t.name LIKE '%%'` — red: `Sql_…(notContainsNullValue)`) | `optionalFilterNull`, `optionalThisFilterNull`, `optionalReceiverNull`: luck — red: `Sql_…(optionalFilterNull)`, `Sql_…(optionalReceiverNull)`; `optionalStartsWithNull` red (O4 throws); `containsNullValue` red (O5's `'%%'`); `startsWithNullValue` red (throws) |
 | AC8 | `Delete_DeletesWhatCSharpSelects` (D) | `containsNullValue` {2}; `startsWithNullValue` {2} | red |
 | AC8 | `Rejected_BeforeAnyCommand` (Q, D) | `throwingItem` (S17; inner `NullReferenceException`); `throwingCollection` (R1: `nullRequest.Ids.Contains(x.Id)`; inner `NullReferenceException`); `nullStringToString` (`x.Code == nullFilter.ToString()`; rev 10: D16's message, no inner exception) | red (S17 wrong rows; R1 `TargetInvocationException`; `t.code = NULL` returns {}) |
-| AC8 | `All_TreatsUnknownAsFailing` (`query`, rev 10, A1) | `allNotContainsNull`, `allContainsNull`, `allOrContainsNull`, `allRowIndependentNull` (each D8: false, C# throws); `allNullableGreaterThanZero` (`x.NullableId > 0`) false; `allIdPositive` true; `allNotIdsX` false (the last two pin `All` where nothing is unknown) | red at `d37f719`: the first five true |
-| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `_LazyThrowingCollection_NotSupportedWithInner` (rev 10, A3: `ids.Select(i => i / zero)`; inner `DivideByZeroException`), `ToString_NullStringReceiver_NotSupported` (rev 10: D16's message); `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
+| AC8 | `All_UnknownCountsAsSatisfied` (`query`, rev 11, A1/B1) | `allIdPositive` true; `allNotIdsX` false; `allNullableNotEqual` (`x.NullableId != 5`) true; `allNotNullableEquals` (`!(x.NullableId == 5)`) true — C#'s answers; `allNullableGreaterThanZero` true (Known issue: C# false; the row asserts it differs from C#); `allContainsNull`, `allNotContainsNull`, `allOrContainsNull`, `allRowIndependentNull` true (D8: C# throws) | red at `6d8842d` (rev 10's `CASE`): the last seven false |
+| AC8 | `WhereThenAll_MatchesCSharp` (`query`, rev 11, B4) | `Where(x => x.Id > 1)` then `allNullableNotEqual` true, `allIdPositive` true, `allNotIdsX` false | red at `6d8842d`: `allNullableNotEqual` false |
+| AC8 | `TranslatorDirectHarness`, `RowIndependentEvaluatorTests` | `StringContains_NullValue_LikeNull` (constant and captured null), `StartsWith_NullArgument_LikeNull`, `EndsWith_NullArgument_LikeNull`, `StringContains_RowIndependentNullReceiver_Unknown`, `_RowIndependentNullValue_Unknown`, `CollectionContains_ThrowingCollection_NotSupportedWithInner`, `_LazyThrowingCollection_NotSupportedWithInner` (rev 10, A3: `ids.Select(i => i / zero)`; inner `DivideByZeroException`), `_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` (rev 11, B3), `ToString_NullStringReceiver_NotSupported` (rev 10: D16's message); `TryTranslateContains_Throwing_WrapsInNotSupported`, `TryReadValue_NullIntermediate_InnerIsNullReference`, `TryReadValue_NullNullableValue_InnerIsInvalidOperation`, `TryReadValue_ThrowingGetter_InnerIsTheOriginal` | new |
 | AC9 | Task 6 rows in `CapturedValueHarness` | `Delete_AlwaysTrueAfterEvaluation_IsRejected` (D): `orPresent`, `orNotAbsent`, `orNullItem`, `orComparerSet` → the guard's message, nothing deleted; `andPresent` stays in `Delete_DeletesWhatCSharpSelects`; `orCapturedContainsNull` (`x.Id == 2 \|\| s.Contains(nullFilter)`) → deletes {2} once Task 6 has handled `IsContainsOfNull` | Task 6 |
 | AC10 | `Query_ReturnsWhatCSharpSelects` (Q), `Delete_DeletesWhatCSharpSelects` (D) | `idsX` {1,2}; `notIdsX` {3}; `nullableX` {1}; `emptyX` {} (Q only: the guards reject `1=0` alone); `startsWithX` {1}; `containsX` (`x.Name.Contains("mm")`) {3}; `arrayX` {1,2} | green, must stay green |
 | AC10 | `TranslatorDirectHarness` | `CollectionContains_EmptyCollection_OneEqualsZero`, `_NullValuesSkipped` (N1's `IN` list), `_ConstantCollection_In`, `_ImplicitUnary_In`, `_ImplicitCall_In`; `StringContains_ConstantValue`; `StartsWith_Column`, `EndsWith_Column`; `ToString_Column`; `DateMember_YearMonthDay`, `_OtherPart_NotSupported`, `_NotAValueChain_NotSupported`; `UnsupportedMethod_NotSupported` | new (pin today's output) |
@@ -551,7 +564,7 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | `RowIndependentEvaluator.Compiler` (internal, settable) | `TryTranslateContains_UsesTheCompiler`, `TryReadValue_UsesTheCompiler`, `Compile_OnlyInTheSeam` |
 | Each provider's `TranslateMethodCall` (changed) | `TranslatorDirectHarness` and `CapturedValueHarness` on that provider |
 | Each provider's `TranslateDateMember` (unchanged; in a touched file) | `DateMember_*` |
-| Each provider's LINQ query provider, `All` (rev 10, A1; in a touched file) | `All_TreatsUnknownAsFailing` on that provider; the provider's existing `All` tests |
+| Each provider's LINQ query provider, `All` | (rev 11: unchanged from `35c6477` again; `All_UnknownCountsAsSatisfied` and `WhereThenAll_MatchesCSharp` pin it) |
 
 ### 4.4 Mutations each key test must kill (run them; record the result in §5)
 
@@ -597,19 +610,24 @@ Integration rows are `CapturedValueHarness` methods, run on all four providers (
 | M38 | A captured `ToString` sent as today's raw value (the compatible policy D14 rejected; rev 10: as M41) | `Rejected_…(objectHoldingStringToString)`, `(providerStringToString)`, `(interfaceHoldingStringToString)` |
 | M39 | ~~`CoreEvaluability` drops `Convert` (or treats a user conversion as core)~~ | retired in rev 10: D16 deleted `CoreEvaluability` |
 
-| M40 | `All` translated as `NOT (p)` again (each provider's LINQ provider) | `All_…(allNullableGreaterThanZero)`, `(allContainsNull)`, `(allNotContainsNull)`, `(allOrContainsNull)`, `(allRowIndependentNull)` |
+| M40 | ~~`All` translated as `NOT (p)` again~~ | retired in rev 11: `NOT (p)` is the translation again (B1) |
 | M41 | A captured `ToString` receiver sent as its raw value (3.9.0's shape) | `Rejected_…(orCapturedToString05)`, `(codeEqualsNestedToString)`, `(intColumnToStringEqCaptured)`; `ToString_CapturedLocal_NotSupported`, `_StaticMemberReceiver_NotSupported`, `_NonStringReturn_NotSupported` |
 | M42 | A row-independent `ToString` evaluated as C# does (rev 9's D7, without the guard's predicate) | `Rejected_…(orFormattedToString)`, `(orNullableToStringIsEmpty)`; `Projection_Rejected_…(labelFormatted)`; `ToString_Formatted_NotSupported`, `_Enum_NotSupported`, `_Constant_NotSupported` |
 | M43 | The collection's enumeration outside D9's wrapper again | `CollectionContains_LazyThrowingCollection_NotSupportedWithInner` |
+| M44 | The receiver read (evaluated), then rejected anyway | `ToString_Captured_NothingRead` |
+| M40r | `All` as rev 10's `CASE WHEN (p) THEN 1 ELSE 0 END = 0` | `All_…(allNullableNotEqual)`, `(allNotNullableEquals)`; `WhereThenAll_…(allNullableNotEqual)` |
+| M47 | `CASE` only when a `Where` precedes `All` (FV1's OWN-1, inverted) | `WhereThenAll_…(allNullableNotEqual)` |
+| M45 | The enumeration wrap catches everything (no pass-through) | `CollectionContains_LazyDbException_PassesThrough`, `_LazyExceptionWithDbInner_PassesThrough`, `_LazyNotSupported_PassesThrough` |
+| M46 | The pass-through misses a `DbException` inside another exception | `_LazyExceptionWithDbInner_PassesThrough` |
 
-M1, M9, M11, M14, M15, M20, M26, M30, M31, M35, M38 and (rev 10) M40–M43 are run on each provider; the others on SQL Server, with M2, M3 and M7 also on
+M1, M9, M11, M14, M15, M20, M26, M30, M31, M35, M38, (rev 10) M41–M44 and (rev 11) M40r, M43, M45–M47 are run on each
+provider; the others on SQL Server, with M2, M3 and M7 also on
 SQLite (its C# 14 binding).
 
 ### 4.5 Coverage
 
 Touched files must reach **≥ 85 %** line coverage (cobertura `line-rate`, coverlet already referenced by all four
-test projects): the four `*ExpressionTranslator.cs` (baseline §1.2: 63.6 / 58.5 / 49.1 / 36.8 %), the four
-`*LinqQueryProvider.cs` (rev 10, A1) and Core's `RowIndependentEvaluator.cs` (new; measured from SqlServer.Tests;
+test projects): the four `*ExpressionTranslator.cs` (baseline §1.2: 63.6 / 58.5 / 49.1 / 36.8 %), Core's `RowIndependentEvaluator.cs` (new; measured from SqlServer.Tests;
 `CoreEvaluability.cs` until rev 10 deleted it). Each translator is measured from its own
 provider's test project, with that suite's database available. Per-file numbers go into §5 and the PR.
 
@@ -676,7 +694,9 @@ provider's test project, with that suite's database available. Per-file numbers 
    `TryTranslateContains` for a `bool` call; the `.Value` check; the item check (a member of the lambda parameter
    that isn't a property throws today's `InvalidOperationException` here, before the collection is read, R3-6a); the
    collection read (a compile failure keeps "parameter references"; an invocation failure, and from rev 10 (A3) an
-   exception while the collection is enumerated, is wrapped per D9); a null
+   exception while the collection is enumerated, is wrapped per D9, except a `DbException`, one with a `DbException`
+   inside, and a `NotSupportedException`, which pass through: a query used as the collection runs here, rev 11, B3); a
+   null
    collection, and a value that isn't enumerable (a captured non-collection type with its own `Contains`, R3-6b),
    each with its own message; the empty short-circuit and the `IN` list as today.
 4. **`StartsWith`/`EndsWith`** — `"Contains"` leaves the method-name check and its pattern branch is deleted (D6). The
@@ -687,8 +707,7 @@ provider's test project, with that suite's database available. Per-file numbers 
    member of the lambda parameter that is a property is its column; anything else (a member that isn't a property,
    which today appends nothing; a member of a member; any other node) throws `NotSupportedException` (AC7) instead of
    recursing. Its constant and captured-member branches become unreachable and are removed.
-6. **`All`** (rev 10, A1; each provider's LINQ query provider, not the translator) — the predicate is negated as
-   `CASE WHEN (p) THEN 1 ELSE 0 END = 0` instead of `NOT (p)`, so a row whose `p` is unknown is a counterexample.
+6. **`All`** — rev 10's `CASE` form is withdrawn (rev 11, B1); each LINQ provider's `All` is as at `35c6477`.
 
 ### 5.3 Messages (the rejection rows assert these prefixes)
 
@@ -836,6 +855,18 @@ troubleshooting item 2 ("Could not evaluate expression").
   providers 91.0 / 94.2 / 93.2 / 93.2 % (SQL Server, SQLite, PostgreSQL, MySQL); `RowIndependentEvaluator.cs`
   120/120 from SqlServer.Tests.
 
+**FV1 — fix-verification of `6d8842d` and its fix layer (2026-10-03).** The non-author pass (§9.6) found B1–B4 and
+N1–N3; `All`'s `CASE` form was B1, a fix-introduced regression. The layer, red first:
+- **Red** (harness edits only, production as at `6d8842d`): 11 of 217 `CapturedValues` tests failed on each
+  provider: the seven `All` rows `CASE` gets wrong, `WhereThenAll_…(allNullableNotEqual)`, and the three
+  pass-through rows.
+- **Green:** 217 of 217 on each provider (SQL Server's bare-`bool` projection inconclusive). The four LINQ
+  providers are byte-identical to `d37f719` (and `35c6477`) again.
+- **Whole suites:** SQL Server 1146 passed and 1 skipped, SQLite 1005, PostgreSQL 977, MySQL 929 (+8 each: two
+  `All` rows net, three `WhereThenAll_…`, three pass-through). Coverage: the four translators 188/188, 189/189, 188/188,
+  188/188; `RowIndependentEvaluator.cs` 120/120.
+- **Mutations**, each on all four providers: M40r, M43, M45, M46, M47 — 20 of 20 killed, each by the rows §4.4 names.
+
 ---
 
 ## 7. Risks
@@ -853,13 +884,7 @@ troubleshooting item 2 ("Could not evaluate expression").
   rejected although its SQL would remove only what the rest of the predicate selects (it fails closed).
 - **Evaluation cost.** A row-independent `Contains` and each captured value are interpreted once per translation; no
   code is generated.
-- **`All`'s plan (rev 10, A1).** `CASE WHEN (p) THEN 1 ELSE 0 END = 0` can't use an index on `p`'s column the way
-  `NOT (p)` could (`NOT (x.Id > 5)` as a seek on `id <= 5`), so a server may scan where it sought. Not measured.
-  The owner asked for `All` to be fixed (D16); this form is the Task 5 reviewer's recommendation. Writing the
-  negation per shape would keep the seek, at the cost of the per-shape work D16 declines.
-- **.NET 10's `MemoryExtensions.Contains(span, value, comparer)`** isn't rewritten; interpreted, it reports "Could
-  not evaluate expression". The test projects target net8.0.
-
+- (Rev 10's `All` plan risk is gone with its `CASE` form, rev 11.)
 ---
 
 ## 8. Out of scope (recorded, not fixed here)
@@ -897,6 +922,12 @@ troubleshooting item 2 ("Could not evaluate expression").
   fails with D5's message (§5.3) instead of today's "parameter references".
 - **A `bool` projection of a predicate on SQL Server** (`Flag = ids.Contains(x.Id)`, or any comparison) is a syntax
   error there, as today.
+- **`All` over a predicate SQL finds unknown** (rev 11, B1): counted as satisfied, as in 3.9.0 — C#'s answer for `!=`
+  and a negated comparison on a null, not for `>`/`==` (`All(x => x.NullableId > 0)` is true with a null, C# false)
+  nor for D8's null search value (C# throws). The fix is C#-faithful null handling in the comparisons (`<>` on a
+  nullable as `(c <> v OR c IS NULL)`, and the same under `NOT`), which also fixes WHERE's
+  `Count(x => x.NullableId != 5)` (3 where C# says 4). Handed to the main session, which filed it as a task for the
+  owner to start (new scope in the four `WhereClauseVisitor`s); a Changelog Known issue.
 - **Date parts on non-nullable members** — the date-part plan.
 
 ---
@@ -999,3 +1030,18 @@ OTHER 1. The core fix (I1-6, captured properties, receivers, D4/D5/D7/D9) was ve
 
 Propagation: A1 and A3 are their rows; A2's class (an AC that permitted a type change) is closed by D16's rule rather
 than a narrower AC; A5's corrections are in the documents.
+
+FV1 — fix-verification of `d37f719..6d8842d` (non-author; `All` probed at `35c6477`, `d37f719` and `6d8842d` on all
+four providers against LINQ to objects, with null `code`, `nullable_id` and a LEFT JOIN miss; the rejection, the
+lazy wrap and the Changelog's 3.9.0 claims executed; M40–M44 re-run on three providers, plus its own mutations).
+Verdict: NOT CLEAN, B1 and B2 blocking. Blame: AC-GAP 2, TEST-GAP 2, PLAN-GAP 1 (N1), OTHER 2 (N2, N3).
+
+| # | Sev | Blame | Finding | Disposition (rev 11) |
+|---|---|---|---|---|
+| B1 | medium | AC-GAP (fix-introduced, A1's) | `CASE WHEN (p) … = 0` made `All` false where C# and 3.9.0 say true when a null makes `p` true in C# but unknown in SQL: `x.NullableId != 5`, `x.Code != "zz"`, `!(x.Code == "zz")`, `!(x.NullableId > 100)`, a ternary `!=`, a `[RemoteProperty]` `!=` over a LEFT JOIN miss — all four providers. | Reverted to `NOT (p)` (3.9.0); the other direction (`> 0`, D8) is a Known issue, handed to the main session (§8, D16). `All_UnknownCountsAsSatisfied` pins both directions; M40r. |
+| B2 | low | TEST-GAP (AC12) | Changelog: "also with an enum" — at `35c6477` PostgreSQL threw (`InvalidCastException`) on the enum form. | "also with an enum, except on PostgreSQL, where that threw". |
+| B3 | low | AC-GAP (fix-introduced, A3's) | The enumeration wrap also wrapped a FunkyORM `IQueryable` collection's server error (`DbException`, or SQL Server's `InvalidOperationException` around one) and its own `NotSupportedException`, hiding them from retry policies and callers. | A `DbException`, an exception with one inside, and a `NotSupportedException` pass through; three direct rows; M45, M46. |
+| B4 | low | TEST-GAP | FV1's mutation (`NOT (p)` only when a `Where` precedes) survived the whole SQL Server suite: no `Where(…).All(…)` row. | `WhereThenAll_MatchesCSharp`; M47 (the inverse, now that `NOT (p)` is the translation). |
+| N1 | nit | PLAN-GAP | §4.4 had no M44 row; §4.2 didn't name `ToString_Captured_NothingRead`. | Added. |
+| N2 | nit | OTHER (comment) | `TranslateMethodCall`'s doc comment said every row-independent part is evaluated. | Reworded (×4): a `Contains` or a value; a captured `ToString()` is rejected. |
+| N3 | nit | OTHER (doc) | Usage's `ToString` sentence read as global; ORDER BY ternaries evaluate a captured `ToString()` in their own visitor (correctly). | Scoped to "in a predicate or a projection". |
