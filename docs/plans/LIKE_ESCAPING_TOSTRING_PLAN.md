@@ -11,12 +11,17 @@
 > **Status (2026-10-03):** rev 10. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
 > Task 2 carries rev 6 (§5.2), Task 3 carries rev 7 (§5.3). Task 4's review of `ca82741..921c995` (§9.6) found 7,
 > answered by `6014d8c` (rev 8, §5.4); fix-verification 1 (§9.7) found 2, answered by `e36374e` (rev 9, §5.5);
-> fix-verification 2 (§9.8) found 4, answered by this revision's layer (§5.6); fix-verification 3 is next.
+> fix-verification 2 (§9.8) found 4, answered by `5ec8ca8` (rev 10, §5.6); fix-verification 3 (§9.9) found 1,
+> answered by this revision's layer; fix-verification 4 is next.
 
 > **Owner directive (2026-10-03, answering T4-1 and T4-3):** stop accommodating edge-case parameters; reject a shape
 > that needs an operation or evaluation with `NotSupportedException` and require a plain value, whenever that
 > shortens the work. When a shape "worked" before, ask whether that meant it didn't throw or that it prevented a
 > wrong delete; for the first, reject it and say so in the Changelog.
+
+> **Revision 11 — what changed (Task 4 fix-verification 3, FV3-1):** the Changelog's Known issues heading drops
+> "(fixes planned for 3.10.1)", which now leads the aggregates paragraph alone, so it doesn't cover the unscheduled
+> SQLite item.
 
 > **Revision 10 — what changed (Task 4 fix-verification 2, FV2-1…FV2-4):** the `Guid` advice parses before the
 > query (FV2-1); the Changelog's Known issues disclose SQLite's `Guid`/`DateTime` WHERE binding, which the operator
@@ -626,3 +631,12 @@ Verdict: NOT CLEAN; three blocking findings and one record nit. FV1-2 resolved; 
 | FV2-2 | medium | OTHER | SQLite binds a WHERE `Guid` in the driver's format (pre-existing; the operator plan's §8, the owner's open call) | Disclosed in the Changelog's Known issues; not fixed here, under the owner's directive. |
 | FV2-3 | low | PLAN-GAP | Two SQLite statements: projection text, the decimal example | "Could give"; the decimal example limited to SQL Server and MySQL; D4 mirrored. |
 | FV2-4 | nit | OTHER | §5.4 attributed the 3 failures to another process | Unexplained, not reproduced; the fixed table names noted. |
+
+### 9.9 Task 4 fix-verification 3 of `e36374e..5ec8ca8` (non-author; every changed claim run on SQLite at the current code and at `ca82741`, with a `Guid` key FunkyORM wrote)
+
+Verdict: NOT CLEAN; one blocking finding. FV2-1…FV2-4 resolved (FV2-2 as a disclosure). Blame: PLAN-GAP 1
+(introduced by FV2-2's fix).
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FV3-1 | low | PLAN-GAP | The Changelog's "Known issues (fixes planned for 3.10.1)" heading over the unscheduled SQLite paragraph | Plain heading; "(fixes planned for 3.10.1)" on the aggregates lead-in. |

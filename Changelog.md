@@ -261,8 +261,8 @@ Other changes:
 - **The SQL of a string `Contains`, `StartsWith` or `EndsWith` ends with `ESCAPE '!'`**, and its value has `%`, `_`,
   `[` and `!` prefixed by `!`. Code that reads the SQL text, such as a `Log` callback, sees the new form.
 
-### Known issues (fixes planned for 3.10.1)
-Aggregates keep their 3.9 behavior in 3.10.0:
+### Known issues
+Aggregates keep their 3.9 behavior in 3.10.0 (fixes planned for 3.10.1):
 - `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
   and SQLite.
 - `Average` over a `decimal` or `float` column throws.
