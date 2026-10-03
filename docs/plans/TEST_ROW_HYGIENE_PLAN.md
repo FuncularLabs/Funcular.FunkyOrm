@@ -10,8 +10,20 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 2. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
-> findings, all accepted and answered here. Task 0 re-review of rev 2 is next.
+> **Status (2026-10-03):** rev 3. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered here.
+> Re-review of rev 3 is next.
+
+> **Revision 3 — what changed (Task 0 re-review, T1-1…T1-7):**
+> - D8's AC6 tests keep their original remote predicates and add the test's own ids to them; the ordering test also
+>   checks the seeded names come back in name order, seeded so that name order differs from id order (T1-1).
+> - `Count_NoFilter…` is green at Red 3; its killer is the library mutation M14, run locally and reverted (T1-2).
+> - M13 depends on locking READ COMMITTED (§1.3); `Cleanup_Passes…` moves to Red 2 with M13 as its red evidence
+>   (T1-3).
+> - Contract rows use per-run names; M7 and M12 run only on the `*TestRowLedgerTests` classes (T1-4). The contract's
+>   own entity types carry no `…Id` property but `Id` (T1-5).
+> - net48's coverage exemption awaits the owner's approval (T1-6). Row budgets corrected; `MySqlTestRowLedgerTests`
+>   has its own hooks (T1-7).
 
 > **Revision 2 — what changed (Task 0, T0-1…T0-13):**
 > - AC3's test leaves an untracked exact copy of a tracked row, inserted after it; new mutation M12 (a name or marker
@@ -119,6 +131,13 @@ per run, PostgreSQL +87 and MySQL +59.
 - **Entities carry `[Table]`** (`System.ComponentModel.DataAnnotations.Schema`), inherited by the `Domain.Objects`
   types, and one non-hidden `int Id`, in all four suites. Every provider's test domain has a person type with
   `EmployerId` and an organization type; MySQL's has no person_address or country type.
+- **Locking READ COMMITTED on SQL Server.** A database built from `integration_test_db.sql` has
+  `READ_COMMITTED_SNAPSHOT` off (the default; the script doesn't set it), so a statement on another connection waits
+  on an open transaction's row locks. M13's kill depends on this; Task 2 reads `is_read_committed_snapshot_on` for
+  the local database before running M13 (§4.3).
+- **The ORM's remote-path resolver scans the test assembly** (`RemotePathResolver.cs:363`) and treats an
+  `int`/`int?` property ending in `Id` as a foreign key (`:280-345`). Test-only types added by this plan therefore
+  carry no such property except `Id`.
 - **Identity values aren't reused** within a run: no suite reseeds (no `CHECKIDENT`, `TRUNCATE`, `setval` or
   `AUTO_INCREMENT=`), so a tracked id can't come to name another writer's row.
 - **Tests that pass only because of leaked rows** (`integration_test_data.sql` seeds no organization or country, and
@@ -203,14 +222,21 @@ per run, PostgreSQL +87 and MySQL +59.
 - **D8 — Tests that read leaked rows seed their own (§1.3).** A fixture helper `SeedEmployerChain()` (SQL Server and
   PostgreSQL) inserts and tracks country → address → organization → person and returns the person's id and the
   country's id and name. `RemoteFeaturesTests.SeedForwardRemoteChain` is replaced by it.
-  - Each `IsPopulated` / `CanFilterBy` / `RemoteKeyWhere` test seeds a chain, reads its own person by id, and
-    asserts the remote values equal what it seeded; filters then use those values. The `Assert.Inconclusive`
-    branches go.
-  - `OrderBy_RemoteProperty_OrdersByJoinedColumn` seeds two chains, filters to those two people, asserts
-    `Assert.AreEqual(2, …Count)` for both orders, then that DESC is ASC reversed. The `if (asc.Count >= 2)` goes.
+  - Each `IsPopulated` / `CanFilterBy` / `RemoteKeyWhere` test seeds a chain and keeps its original remote
+    predicate, ANDed with its own person's id: for example
+    `FirstOrDefault(p => p.Id == seeded.PersonId && p.EmployerHeadquartersCountryId != null)`. It asserts the remote
+    values equal what it seeded, and its filter step then uses those values as before. These are the suites' only
+    `[RemoteKey] != null` predicates and `FirstOrDefault` with a remote predicate, so they stay. The
+    `Assert.Inconclusive` branches go.
+  - `OrderBy_RemoteProperty_OrdersByJoinedColumn` seeds two chains whose country names sort opposite to their ids
+    (the second seeded sorts first), filters with
+    `(p.Id == a || p.Id == b) && p.EmployerHeadquartersCountryName != null`, asserts both orders return 2 rows, that
+    ASC returns the two seeded names in name order, and that DESC is ASC reversed. The `if (asc.Count >= 2)` goes.
   - `Count_NoFilter_OnReverseEntity_MatchesBaseCount` seeds one country, one address and two people each linked to
     that address (all tracked). It keeps its whole-table equality, and adds that the reverse entity's count filtered
-    to that country's id is 1 (a fan-out join would make it 2).
+    to that country's id is 1. An own-column filter doesn't add the fan-out join (`SqlLinqQueryProvider.cs:734-746`
+    matches only the remote member's aliased column), so 1 is right; an always-join regression makes it 2. It
+    doesn't use `SeedEmployerChain`, so it is green at Red 3; M14 is its killer.
 - **D9 — Documents.** The Changelog gets one line under 3.10.0-beta1 › Changed ("tests only"). `TestRowLedger` and
   each fixture's XML doc state the rule (track every insert into a guarded table). No contributor guide covers
   integration tests today; none is added.
@@ -239,9 +265,12 @@ The contract cases live in `Funcular.Data.Orm.SqlServer.Tests/Shared/TestRowLedg
 PostgreSQL and MySQL projects). Each provider has a `[TestClass]` that derives from its fixture
 (`SqlServerTestRowLedgerTests`, `PostgreSqlTestRowLedgerTests`, `MySqlTestRowLedgerTests`), so it gets the fixture's
 connection string and provider, and the fixture's own check confirms that each case removed everything it inserted.
-Each `[TestMethod]` there is a one-line call into the cases, passing a connection factory and two insert helpers
-through that provider's ORM: an organization, and a person with an optional employer. Every case deletes, in
-`finally`, every row it inserted, by id, children first.
+`MySqlTestRowLedgerTests` has its own `[TestInitialize]`/`[TestCleanup]` calling `InitProvider`/`DisposeProvider`,
+like every MySQL class. Each `[TestMethod]` there is a one-line call into the cases, passing a connection factory and
+two insert helpers through that provider's ORM: an organization, and a person with an optional employer. Every case
+names its rows with a fresh guid marker and deletes, in `finally`, every row it inserted, by id, children first. The
+cases' own entity types (`[Table("not_guarded")]` with `Id`; `[Table("person")]` with only `FirstName`) carry no
+other `…Id` property (§1.3).
 
 | AC | Test (project) | What it proves |
 |---|---|---|
@@ -257,7 +286,7 @@ through that provider's ORM: an organization, and a person with an optional empl
 | AC5 | `Finish_Passes_WhenATrackedRowIsAlreadyGone` (each provider) | A row the test deleted itself isn't a failure |
 | AC5 | `Cleanup_Passes_WhenTheTestLeftATransactionOpen` (SQL Server fixture, in `SqlDataProviderIntegrationTests`) | Begins a transaction, inserts and tracks a person, calls `Cleanup`: it passes, because dispose rolls back before `Finish` reads |
 | AC5 | Placement: `Finish` in `[TestCleanup]` (§1.3: MSTest runs it after a failed test) | Cleanup on failure |
-| AC6 | SQL Server `RemoteFeaturesTests` (4 tests), `RemoteKeyWhereTests` (2), `RemoteKeyReverseTests.Count_NoFilter…` (1); PostgreSQL equivalents (4 + 2 + 1) | Each asserts its own seeded values; fails when the seed is removed or stubbed (M9) |
+| AC6 | SQL Server `RemoteFeaturesTests` (4 tests), `RemoteKeyWhereTests` (2), `RemoteKeyReverseTests.Count_NoFilter…` (1); PostgreSQL equivalents (4 + 2 + 1) | Each asserts its own seeded values with its original remote predicate; the six chain tests fail when the seed is removed or stubbed (M9), `Count_NoFilter…` under M14 |
 | AC7 | Review check: `git diff --stat origin/development/3.10` touches only `*.Tests*` projects, `docs/`, `Changelog.md` | No library change |
 
 ### 4.2 Interface coverage
@@ -283,9 +312,11 @@ provider and calls `TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, …)`.
 Coverage: `TestRowLedger.cs`, `TestRowLedgerCases.cs` and the touched fixtures at ≥ 85 % line rate, from
 `dotnet test <project> --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.IncludeTestAssembly=true`
 for SQL Server, PostgreSQL and MySQL (the helpers live in the test assemblies, which coverlet skips by default).
-Per-file `line-rate` from each cobertura file goes in §5. net48 is exempt: the old-style project has no coverlet,
-its suite is opt-in, the shared files' coverage comes from the net8 runs, and its own edits are hook lines and
-`Track` calls whose execution the probes and the check prove.
+Per-file `line-rate` from each cobertura file goes in §5. net48: the house rule says a touched test project without
+`coverlet.collector` gets it as part of the task. The plan proposes an exemption instead, **pending the owner's
+approval** (asked with the Task 5 handoff): the old-style project has no coverlet, its suite is opt-in, the shared
+files' coverage comes from the net8 runs, and its own edits are hook lines and `Track` calls whose execution the
+probes and the check prove. If the owner declines, Task 5 adds `coverlet.collector` and collects through vstest.
 
 ### 4.3 Mutations each key test must kill
 
@@ -303,11 +334,14 @@ its suite is opt-in, the shared files' coverage comes from the net8 runs, and it
 | M10 | `Finish` or `Begin` removed from a hook (each of the 9 hook sites) | that site's wiring probe |
 | M11 | A `Track` call removed: from `InsertTestPerson` (SQL Server, PostgreSQL fixtures); after the direct insert in `MySqlDataProviderIntegrationTests.Insert_AssignsIdentity_AndGetRoundTrips` (MySQL has no helper) | the D4 check fails `Get_WithExistingId_ReturnsPerson` (SQL Server, PostgreSQL) and `Insert_AssignsIdentity_AndGetRoundTrips` (MySQL) |
 | M12 | `Finish` also deletes rows whose first and last name match a tracked row's | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt` (P2 must survive) |
-| M13 | The SQL Server fixture calls `Finish` before disposing the provider | `Cleanup_Passes_WhenTheTestLeftATransactionOpen` (the count waits on the open transaction's lock and times out) |
+| M13 | The SQL Server fixture calls `Finish` before disposing the provider | `Cleanup_Passes_WhenTheTestLeftATransactionOpen` (the delete and the count wait on the open transaction's lock and time out). Needs locking READ COMMITTED (§1.3): if the local database has `READ_COMMITTED_SNAPSHOT` on, M13 runs on LocalDB, or is recorded as surviving locally |
+| M14 | Library, local only and reverted: `ResolveAggregateJoins` (`SqlLinqQueryProvider.cs`, and PostgreSQL's) returns the remote join clauses with no reference or reverse check | `Count_NoFilter_OnReverseEntity_MatchesBaseCount` (the filtered count becomes 2, or the reverse check is skipped) |
 
-Mutation runs: M1–M8 and M12 leave nothing (each case's `finally` deletes all it inserted). M9, M10, M11 and M13 run
-one named test each; M10 leaves nothing (the probe deletes its row), M11 leaves the one row that test inserts, M9 and
-M13 leave at most four (§4.4).
+Mutation runs: M1–M8 and M12 leave nothing (each case's `finally` deletes all it inserted). M7 and M12 change what
+`Finish` deletes, so they run only with a filter that selects the `*TestRowLedgerTests` classes, whose rows carry
+per-run guid names: run anywhere else, M12 would delete rows earlier runs left. M9 to M11, M13 and M14 run one
+named test each. M9, M10, M13 and M14 leave nothing (M9's rows are tracked, the probe deletes its row, M13's insert
+is rolled back); M11 leaves the one row that test inserts (§4.4).
 
 ### 4.4 Where each tier runs, and how counts are measured
 
@@ -324,8 +358,8 @@ M13 leave at most four (§4.4).
   4. Read the counts again; record both in §5. Any difference is investigated before the next run.
 - **Red runs leave rows by design.** Tasks 2–5's red step runs one leaking test per affected class with the check
   wired and tracking not yet added. The chosen test and the rows it leaves are recorded in §5: one to four for most
-  classes, seven for `MySqlJsonAndComputedTests` (its `Seed` adds six). Those rows, and the mutation-run rows of
-  §4.3, are not deleted afterwards (D3).
+  classes, six for `MySqlJsonAndComputedTests` (its `Seed`; most of its tests add nothing more). Those rows, and the
+  mutation-run rows of §4.3, are not deleted afterwards (D3).
 
 ## 5. Tasks
 
@@ -341,14 +375,14 @@ the exact sha).
   - No existing test changes behaviour: nothing else calls the ledger yet, and the provider classes' fixtures aren't
     wired yet.
 - **Task 2 — SQL Server suite.**
-  - Red 1: add the three wiring probes and `Cleanup_Passes_WhenTheTestLeftATransactionOpen`; run them. The wiring
-    probes fail (`Cleanup` doesn't fail yet).
-  - Red 2: wire the D6 hooks (fixture, `SqlDataProviderIntegrationAsyncTests`, `StoredProcedureIntegrationTests`).
+  - Red 1: add the three wiring probes; run them. They fail (`Cleanup` doesn't fail yet).
+  - Red 2: wire the D6 hooks (fixture, `SqlDataProviderIntegrationAsyncTests`, `StoredProcedureIntegrationTests`) and
+    add `Cleanup_Passes_WhenTheTestLeftATransactionOpen` (it needs the fixture's `Track`; its red evidence is M13).
     The probes pass; one leaking test from each of the seven §1.1 classes fails in cleanup; record each.
-  - Red 3: write the seven AC6 tests against a `SeedEmployerChain` stub that inserts and tracks the chain but leaves
-    `EmployerId` unset; they fail.
+  - Red 3: write the seven AC6 tests, the six chain tests against a `SeedEmployerChain` stub that inserts and tracks
+    the chain but leaves `EmployerId` unset; those six fail. `Count_NoFilter…` is green here (M14 is its evidence).
   - Green: D7 `Track` calls and the real `SeedEmployerChain`. Run the suite; measure each §1.1 class and the suite
-    (§4.4). Run M9–M11 and M13.
+    (§4.4). Read `is_read_committed_snapshot_on`; run M9–M11, M13 and M14.
 - **Task 3 — PostgreSQL suite.** The same steps for its six classes, three probes and seven AC6 tests.
 - **Task 4 — MySQL suite.** The same steps for its five classes and one probe (no AC6 tests on `development/3.10`).
 - **Task 5 — net48.** Link `TestRowLedger.cs` in the csproj `<Compile>` list; the two probes first (red), then the
@@ -401,3 +435,18 @@ Verdict: 2 blocking, 11 non-blocking. All accepted; rev 2 answers them.
 | T0-11 | Non-blocking | D7 read as covering clean classes | D7 limited to §1.1 classes and helpers | PLAN-GAP |
 | T0-12 | Non-blocking | No-`Id` branch untested; removing `Begin` not a mutation; pin test mapped to AC4 | `Track_Rejects…` covers both; M10 includes `Begin`; pin maps to AC1/D5 | TEST-GAP |
 | T0-13 | Non-blocking | "Four" Delete-without-transaction tests (five, plus net48); `OrderBy…` at line 52 | Corrected (§1.3) | PLAN-GAP |
+
+### 9.2 Task 0 re-review of rev 2 (`307af68`; non-author; the rev 1→2 diff and the library code behind each changed claim; no database)
+
+Verdict: 1 blocking, 6 non-blocking; T0-1, T0-7…T0-13 confirmed resolved, T0-2…T0-6 partly (answered below). All
+accepted; rev 3 answers them.
+
+| ID | Severity | Finding | Disposition | Blame |
+|---|---|---|---|---|
+| T1-1 | Blocking | (a) Reading the seeded person by id dropped the suites' only `[RemoteKey] != null` predicates and `FirstOrDefault` with a remote predicate (a weakening from rev 2's fix). (b) The ordering test, filtered by ids alone, passed under the stub (both names NULL) | D8 keeps each original predicate ANDed with the own-id filter; the ordering test filters on the name too, checks the seeded names in name order, seeded against id order | TEST-GAP |
+| T1-2 | Non-blocking | `Count_NoFilter…` design confirmed (an own-column filter doesn't join), but it is green at Red 3 and no mutation could fail it | Stated green at Red 3; library mutation M14, local and reverted | TEST-GAP |
+| T1-3 | Non-blocking | M13 needs locking READ COMMITTED; `Cleanup_Passes…` couldn't be red at Red 1 | §1.3 premise; RCSI read before M13; the probe moves to Red 2 with M13 as its red evidence | TEST-GAP |
+| T1-4 | Non-blocking | An M12 run could name-delete rows earlier runs left | Per-run guid names; M7 and M12 run only on the `*TestRowLedgerTests` classes | PLAN-GAP |
+| T1-5 | Non-blocking | New test types in the test assemblies join the remote-path resolver's scan | §1.3 and §4.1: they carry no `…Id` property but `Id` | PLAN-GAP |
+| T1-6 | Non-blocking | net48 coverage exemption contradicts the house rule without the owner's approval | Marked pending the owner's approval; coverlet added if declined (§4.2) | HOUSE-RULE |
+| T1-7 | Non-blocking | M9/M13 row budget wrong; `MySqlJsonAndComputedTests` is six; MySQL's ledger tests need their own hooks | Corrected (§4.3, §4.4, §4.1) | PLAN-GAP |
