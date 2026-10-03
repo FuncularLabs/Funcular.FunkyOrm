@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 8. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 9. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (§5); Task 5 is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (§5); Task 6 is next.
+
+> **Revision 9 — what changed (Task 5):** §5 records Task 5; §6 records the net48 `dotnet build` gap.
 
 > **Revision 8 — what changed (Task 4):** §5 records Task 4.
 
@@ -467,6 +469,21 @@ the exact sha).
       the insert in `Insert_AssignsIdentity_AndGetRoundTrips` removed): that test failed, leaving its 1 row.
 - **Task 5 — net48.** Link `TestRowLedger.cs` in the csproj `<Compile>` list; the two probes first (red), then the
   hooks and `Track` calls; run the playlist classes and measure. Measure DotNet9 once (§1.2).
+  - **Record (the commit that carries rev 9):**
+    - The net48 project is built with Visual Studio's MSBuild (`/restore`) and run with `vstest.console.exe`.
+      `dotnet build` builds it but leaves `System.Memory.dll` out of `bin\Debug`, so every test's `Setup` throws
+      `FileNotFoundException` (pre-existing; §6). The first Red 1 attempt ran on that output and was discarded.
+    - `TestRowLedger.cs` compiles on net48 (C# 7.3, MSTest 2.2.10).
+    - Red 1: both probes failed with "Cleanup passed although the test left a row in person."; counts unchanged.
+      Red 2: the probes passed; `Get_WithExistingId_ReturnsPerson` and `…_Async` failed in cleanup, leaving 2
+      `person` rows.
+    - Green: the two classes passed, 70 of 70 (51 and 19 alone), every guarded count unchanged; they added 101
+      `person` rows per run before.
+    - Mutations: M10 at both hook sites (Begin, Finish): each probe failed with the message above.
+    - The same message was confirmed for SQL Server, PostgreSQL and MySQL by re-running "fixture `Finish`
+      removed" on each (their Red 1 runs had recorded pass/fail only).
+    - DotNet9, measured once: 5 of 5 passed, counts unchanged; it leaves nothing.
+    - The net48 coverage exemption (§4.2) still awaits the owner's answer.
 - **Task 6 — documents.** D9's Changelog line and XML docs; this plan's §5 record.
 - **Task 7 — adversarial review (non-author)** of the cumulative diff, then fix-verification of each fix layer, then
   the push gate.
@@ -493,6 +510,8 @@ the exact sha).
 - **SQLite temp files:** eight classes delete their temp `.db` without clearing the connection pool first, and
   `SqliteAuditContextTests` never deletes its two.
 - **Fixed-name test tables** (`zz_*`, `funky_*`, `single_probe`) collide if two runs share a database.
+- **net48 under `dotnet build`:** the output lacks `System.Memory.dll`, so the suite can't run from it; Visual
+  Studio's MSBuild output can. Pre-existing; not changed here.
 
 ## 9. Review dispositions
 
