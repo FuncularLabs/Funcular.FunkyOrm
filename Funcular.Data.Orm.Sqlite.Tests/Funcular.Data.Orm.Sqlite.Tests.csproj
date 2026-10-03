@@ -36,4 +36,10 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The captured-value harnesses (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md, §4.1), shared with SqlServer.Tests. -->
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\CapturedValues\TranslatorDirectHarness.cs" Link="CapturedValues\TranslatorDirectHarness.cs" />
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\CapturedValues\CapturedValueHarness.cs" Link="CapturedValues\CapturedValueHarness.cs" />
+  </ItemGroup>
+
 </Project>

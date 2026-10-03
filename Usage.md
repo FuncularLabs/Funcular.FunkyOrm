@@ -495,6 +495,23 @@ var coastalPeople = provider.Query<Address>()
     .ToList();
 ```
 
+The item you test must be a property of the entity (`p.Id`, `a.StateCode`). When it doesn't come from the row at
+all — `allowedRoles.Contains(currentUser.Role)`, `ids.Contains(request.Id)`, a local or a constant — FunkyORM
+answers it before sending the query, exactly as C# would (with the collection's own `Contains` and comparer), and
+the condition becomes `1=0` (false) or `NOT 1=0` (true):
+
+```csharp
+// Admins see every project; everyone else sees only their own.
+// SQL, roughly: WHERE (owner_id = @p0 OR NOT 1=0) for an admin, WHERE (owner_id = @p0 OR 1=0) otherwise.
+var projects = provider.Query<Project>()
+    .Where(p => p.OwnerId == currentUser.Id || adminRoles.Contains(currentUser.Role))
+    .ToList();
+```
+
+An item that reads the row any other way — `ids.Contains(p.Address.Id)`, `lengths.Contains(p.Name.Length)`, or
+`longIds.Contains(p.Id)` with a `List<long>` against an `int` property — throws `NotSupportedException` before any
+query is sent.
+
 #### Chained Queries with Ordering and Paging
 You can chain multiple `Where` clauses, apply ordering, and paginate results for efficient data retrieval.
 
@@ -527,6 +544,27 @@ var scots = provider.Query<Person>()
     .Where(p => p.LastName.StartsWith("Mc"))
     .ToList();
 ```
+
+The search value can be a literal, a local, a property of an object you hold (including `this`) or a static
+member; FunkyORM reads it before the query. A `null` value matches no row, negated or not, so an optional filter
+works:
+
+```csharp
+// When filter is null, every row is returned; otherwise the rows whose LastName contains it.
+var people = provider.Query<Person>()
+    .Where(p => filter == null || p.LastName.Contains(filter))
+    .ToList();
+```
+
+Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
+from the row (`role.Contains("admin")`) is answered before the query, as C# would; `StartsWith` and `EndsWith` on
+anything but an entity property throw `NotSupportedException` — test the value in C# before the query instead.
+
+A captured `ToString()` (`p.Code == id.ToString("D2")`) is sent as the string C# produces, in the current culture,
+when the value is declared as an enum or a non-generic core type (`int`, `decimal`, `DateTime`, `Guid`, `string`,
+...) and is read directly, with at most a format string. Anything else — an `IFormatProvider` argument, a value
+declared as `object` or an interface, arithmetic or a method call in it — throws `NotSupportedException`; compute
+the string before the query (`var code = id.ToString(CultureInfo.InvariantCulture);`).
 
 ### Advanced: Ternary Operators
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
@@ -1336,7 +1374,8 @@ We try to give you helpful error messages. Here are some you might see and what 
 ### 2. "The expression ... is not supported in a Where clause"
 You tried to do something too fancy in your LINQ query that we can't translate to SQL.
 *   **Example**: `Where(p => p.FirstName.GetHashCode() == 123)`
-*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`). If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`) on entity properties. If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+*   **"Could not evaluate expression: ..."**: a value FunkyORM reads before the query threw — usually a member of a null captured object (`ids.Contains(request.Id)` with `request == null`). The original exception is the inner one. Both sides of `||` are translated, so a null check inside the predicate (`request == null || ids.Contains(request.Id)`) doesn't prevent it: check the object before building the query. (A null *value* is different: `filter == null || p.Name.Contains(filter)` works, because a null search value matches no row.)
 
 ### 3. "Delete operations must be performed within an active transaction"
 You tried to call `.Delete()` without starting a transaction.

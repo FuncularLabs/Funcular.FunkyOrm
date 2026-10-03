@@ -9,8 +9,8 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-03):** rev 8. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Task 1 is done** (§6.1); Task 2
-> (the translator harnesses, red) is next.
+> **Status (2026-10-03):** rev 9. **Task 0 is CLEAN** at rev 7 (`33b96cf`, §9.5). **Tasks 1–4 are done** (§6.1).
+> Task 5 (the hostile review of `35c6477..HEAD` by a non-author) is next; Task 6 waits for the delete guard.
 >
 > Task 0's history: the review of rev 1 (`8e2a392`, §9.1) found 15 findings, 6 blocking; rev 2
 > (`3ea7234`) answered them with the owner's four decisions (D7, D8, D12, D13). Its re-review (§9.2) found 7, 2
@@ -740,6 +740,53 @@ copied verbatim from `ca82741`), `Funcular.Data.Orm.Core/Linq/RowIndependentEval
 - **Coverage** (cobertura, SqlServer.Tests): `RowIndependentEvaluator.cs` 131/131, `CoreEvaluability.cs` 49/49.
 - **Not verified:** .NET Framework 4.6.1–4.7.0 (no runtime here), where `InterpretingCompile` is null and the
   `Compile()` path runs; that path is covered on net8 by `Compile_WithoutInterpretation_Compiles`.
+
+**Task 2 — Translator harnesses, red (2026-10-03).** Files: `Funcular.Data.Orm.SqlServer.Tests/CapturedValues/
+TranslatorDirectHarness.cs` and `CapturedValueHarness.cs` (linked into PostgreSql.Tests, MySql.Tests and
+Sqlite.Tests), and one `<Provider>CapturedValueTests.cs` per provider in its own project, each holding the direct
+and the integration class. Per the house rule the red tests land in the same commit as Task 3's change.
+- **Red** (Task 1 present, translators as at `35c6477`), failed / passed of 200 per provider: SQL Server 158 / 41
+  (and the bare-`bool` projection inconclusive), SQLite 155 / 45, PostgreSQL 157 / 43, MySQL 159 / 41. Every test
+  that passed is an AC10 pin or a row §4.2 marks luck: `andPresent`, `andNotPresent`, `andArrayPresent`,
+  `notContainsNullValue`, `optionalFilterNull`, `optionalThisFilterNull`, `optionalReceiverNull` everywhere;
+  `orCapturedToString05` and `orFormattedToString` on SQLite; `orLocalReceiverCase` on PostgreSQL. Every failure is
+  the defect (wrong rows, a column such as `value` or `ids`, a raw `int` where a string belongs, `'%%'`, today's
+  messages), none a harness error.
+- **Deviation from §4.2:** the two `Sql_…` rows for `orCapturedToString05` and `orFormattedToString` aren't written: a
+  logged parameter shows its value, not its type, so they couldn't fail. The red rows for SQLite's two luck rows are
+  the direct harness's `ToString_CapturedLocal_EvaluatedString` and `_Formatted_EvaluatedString`, which assert a
+  `string` parameter on every provider.
+- **Found while writing it** (a defect on `development/3.10`, not this branch's): SQLite stores discovered column names
+  under the type's short name (`ToDictionaryKey`) and reads them under its full name (Core's `GetCachedColumnName`),
+  so a namespaced entity's un-attributed `NullableId` never finds `nullable_id` (`no such column`). SQLite's own test
+  entities name every column, which hides it; `fix/provider-scoped-caches` fixes it (its Core lookup uses
+  `ToDictionaryKey`). The harness entity names its columns, so it runs on either base.
+- Added beyond §4.2 for coverage: `CollectionContains_LengthItem_NotSupported`,
+  `CollectionContains_StringAsCharSequence_NotSupported` (the exit when no collection is found).
+
+**Task 3 — Translators, green (2026-10-03).** The four `TranslateMethodCall`s are generated from one template, so they
+differ only in the parameter type and the `LIKE` concatenation; `TranslateExpression` is replaced by `AppendColumn`
+(column or throw) and `AppendParameter`.
+- **Green:** the direct harness 75 / 75 and the integration harness 126 / 126 on each provider (SQL Server's
+  bare-`bool` projection inconclusive by design). Whole suites: SQL Server 1152 passed and 1 inconclusive (885 at the
+  baseline, 68 from Task 1, 200 from the harnesses), SQLite 988 (788 + 200), PostgreSQL 960 (760 + 200), MySQL 912
+  (712 + 200).
+- **Coverage** (cobertura, each provider's own project): SQL Server 185/186, SQLite 186/187, PostgreSQL 185/186,
+  MySQL 185/186 lines (99.5 %, from 63.6 / 58.5 / 49.1 / 36.8 %); before `_StringAsCharSequence_` the one missed
+  line was the no-collection exit. Core, from SqlServer.Tests: 131/131 and 49/49.
+- **Mutations** (each applied alone, the provider's `CapturedValues` tests run, the failing tests read from a .trx so
+  a data row is named with its arguments, the source restored and checked): on every provider M1, M9, M11, M14,
+  M15, M20 (as M20v: the string branch's evaluation removed, since the parameter path it would fall back to no longer
+  exists), M26, M30, M31, M35 and M38; on SQL Server also M2, M3, M10a (the empty short-circuit first), M10b = M34
+  (the collection read before the item check), M17, M19, M21, M22 and M27; on SQLite also M2 and M24 (`LangVersion`
+  removed from Sqlite.Tests). All 55 killed, and every row §4.4 names as a killer failed under its mutation. (M29 is
+  withdrawn, D15.)
+
+**Task 4 — Documents (2026-10-03).** Changelog `[3.10.0-beta1]`: six Fixed entries, a Changed block (the shapes that
+now throw, the three that work today, the guarded-evaluation note) and `RowIndependentEvaluator` in the New public
+API entry. `Usage.md`: the `IN` clause (an item that isn't a column, with an example; items that throw), the `LIKE`
+clause (what a search value can be, the null rule and the optional-filter idiom, receivers, captured `ToString`), and
+troubleshooting item 2 ("Could not evaluate expression").
 
 ---
 

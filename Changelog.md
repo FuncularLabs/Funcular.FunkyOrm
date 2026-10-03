@@ -54,6 +54,31 @@ operators returned wrong results without an error in 3.9.0 and earlier. All four
   in an instance method) was emitted as `NULL`. It's now the property's value, in the test and in the branches.
   The getter is now called while the query is translated (3.9.0 never called it), and one that throws is reported
   as `NotSupportedException`.
+- **A collection `Contains` whose item doesn't come from the row** (`ids.Contains(request.Id)`, a local, a
+  constant, a static member) was translated as the entity's column of the same name: `x => x.Id == 2 ||
+  ids.Contains(request.Id)` selected, and deleted, rows 1 and 2 when `request.Id` was 5. It's now answered before the
+  query, as C# answers it (with the collection's own `Contains` and comparer, and with C# 14's span-based
+  `array.Contains`), and sent as `1=0` (false) or `NOT 1=0` (true). In `Where`, `Count`/`Any`/`All`, `Delete` and
+  SELECT projections, on all four providers.
+- **A property of a captured object used as a value** — the enclosing object's (`this`), a nested one, a static
+  one — was read as `null` or not at all: `x => x.Id == 2 || x.Name.Contains(Filter)` in an instance method sent
+  `LIKE '%%'` and selected, or deleted, every row with a non-null name. Search values of `Contains`, `StartsWith` and
+  `EndsWith` are now read as C# reads them.
+- **`StartsWith`/`EndsWith` on something other than an entity property** (`request.Name.StartsWith("al")`,
+  `x.Child.Name.StartsWith("a")`) were translated as the entity's `name` column, selecting and deleting the wrong
+  rows. They now throw (see Changed).
+- **A captured `ToString()` was sent as its raw value, without its format:** `x.Id == 2 || id.ToString() == "05"`
+  compared the number 5 with `'05'` and, on SQL Server and MySQL, selected and deleted every row; `ToString("D2")`
+  lost its format. It's now the string C# produces, in the current culture, format included, for a value declared as
+  an enum or a non-generic core type. `x.Code == x.Name.Length.ToString()` dropped `.Length` (`code = name`); it now
+  throws.
+- **A string `Contains` that doesn't read the row** (`s.Contains("ZETA")`) was compared by the server, whose
+  collation could find it true where C# finds it false (deleting every row on SQL Server, MySQL and SQLite). It's
+  now answered as C# answers it.
+- **A null search value** (`x.Name.Contains(filter)` with `filter == null`) sent `LIKE '%%'`, which matched, and
+  deleted, every row with a non-null value. A null value for `Contains`, `StartsWith` or `EndsWith` now matches no
+  row, negated or not. The optional-filter idiom `filter == null || x.Name.Contains(filter)` still returns every row,
+  and the same idiom with `StartsWith`/`EndsWith` no longer throws.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -85,13 +110,35 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
 - **`Last`/`LastOrDefault` after `Distinct()` with a custom projection** need an explicit `OrderBy` on a
   projected key.
 
+Method calls in a predicate or a projection that can't be answered correctly now throw `NotSupportedException`
+before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed or returned wrong rows in 3.9.0:
+- **A collection `Contains` whose item reads the row other than as an entity property**: `ids.Contains(x.Child.Id)`
+  (3.9.0 silently used `x.Id`), `lengths.Contains(x.Name.Length)`, `longIds.Contains(x.Id)` with a `List<long>`.
+  With an empty collection these returned no row in 3.9.0; they now throw whatever the collection holds. A null
+  collection (was `NullReferenceException`) and a captured non-collection type with its own `Contains` throw too.
+- **`StartsWith`/`EndsWith` whose receiver isn't an entity property** (a captured value, a local, a static member,
+  `x.Child.Name`).
+- **A `ToString()` that reads the row through another member** (`x.Name.Length.ToString()`), **and a captured
+  `ToString()` that FunkyORM doesn't evaluate**: on a user type, on a value declared as `object` or an interface,
+  with an `IFormatProvider` argument, `Convert.ToString(...)`, or with arithmetic, an indexer, a method call or `??`
+  in it. Three of these returned the right rows in 3.9.0 and now throw: an `object` or interface variable holding
+  a string (`x.Code == value.ToString()`) and `x.Code == s.ToString(CultureInfo.InvariantCulture)`. Compute the
+  string before the query: `var code = s.ToString(CultureInfo.InvariantCulture);`, then `x.Code == code`.
+- **A value that throws while the predicate is translated** (a member of a null captured object,
+  `ids.Contains(request.Id)` with `request == null`; `ToString()` on a null string) throws
+  `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check in
+  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated.
+
 Other changes:
 
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
   `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
   property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
   property. Their 3.9.0 constructor is unchanged, so code compiled against 3.9.0 keeps binding. Without a generator
-  a visitor still inlines values; MySQL's inline literal now also escapes backslashes.
+  a visitor still inlines values; MySQL's inline literal now also escapes backslashes. Also `RowIndependentEvaluator`
+  (`IsRowIndependent`, `TryTranslateContains`, `TryEvaluateToString`, `TryReadValue`, and the SQL it sends:
+  `TrueSql`, `FalseSql`, `UnknownSql`), which the four translators use and a custom provider can too. It evaluates
+  by interpretation where the runtime has it (.NET Framework 4.7.1 and later, .NET Core) and compiles otherwise.
 - **SQL Server: text in an ORDER BY ternary is now `nvarchar`**, like a WHERE string parameter; 3.9.0's literal was
   `varchar`. Text outside the database's code page now matches (`x.Name == "Ωmega" ? 0 : 1` matched no row before).
   When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
