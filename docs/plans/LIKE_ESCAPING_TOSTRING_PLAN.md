@@ -8,8 +8,12 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 6. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5) after five rounds (§9.1–§9.5). Task 1's
-> seam is `049e45e` (§5.1). Task 2 is the commit that carries this revision (§5.2). Task 3, the documents, is next.
+> **Status (2026-10-03):** rev 7. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5) after five rounds (§9.1–§9.5). Task 1's
+> seam is `049e45e` (§5.1), Task 2 carries rev 6 (§5.2), and Task 3 is the commit that carries this revision (§5.3).
+> Task 4, the hostile review, is next.
+
+> **Revision 7 — what changed (Task 3):** §5.3 records the documents. D6's edit to the delete guard plan's §6 keeps a
+> sentence naming the wildcard shape and this plan, so the record of what the reviews saw stays.
 
 > **Revision 6 — what changed (Task 2):** AC8 needs a DB-free class: the harness rows reach 73 % of the SQL Server
 > translator and 68–69 % of the others, the rest being branches this change doesn't touch, so
@@ -393,6 +397,24 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
   `LikePatternTests`). Every one was killed, and in each the rows §4.3 names for it failed.
 - The existing SQL Server suite leaves 177 rows in `person` each run, at `ca82741` too; the rows this plan adds
   write only `zz_lt_row` and `zz_lt_num`, which each row drops.
+
+### 5.3 Task 3 (the commit that carries rev 7)
+
+- D6's documents:
+  - the Changelog: two Fixed entries (the wildcard shapes; a property's `ToString()`), the delete guard's caveat without
+    the unescaped-wildcard clause and its `s.Contains("_")` example, three Changed entries (`ToString()` on other
+    properties or with an argument; `x.N.Value.ToString()`; the `ESCAPE '!'` text), and `LikePattern` in the
+    `Funcular.Data.Orm.Linq` API entry;
+  - `Usage.md`: "The `LIKE` Clause" (literal matching, `ESCAPE '!'` in the SQL comments, an underscore example, and a
+    property's `ToString()` with the invariant-text advice), the `.Value` item (`ToString()` too), and troubleshooting
+    item 4's Warning without the unescaped-wildcard clause and example; troubleshooting item 2 stays true;
+  - the delete guard plan's §6: the wildcard clause leaves the list of what the database does differently, and a
+    sentence names `s.Contains("_")` as the reviews' third shape and this plan as its fix;
+  - the four `ColdCacheDeleteTests` marker comments.
+- The other documents that mention the string methods (`README.md`, `Advanced.md`, `docs/ai-instructions/`) stay
+  true. The MySQL instructions' "use `LIKE` with `CONCAT()` patterns" was already loose for `Contains`, whose pattern
+  is built in the parameter; it is unchanged.
+- The sentence that a captured `n.ToString()` is formatted in the current culture is the merge's (D6, Task 4).
 
 ## 6. Out of scope (recorded)
 

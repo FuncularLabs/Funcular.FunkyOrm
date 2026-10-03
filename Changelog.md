@@ -100,13 +100,26 @@ subclasses.
   The checks evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a
   core type's `ToString()`, but no arithmetic and no other method call, and they catch these shapes, not every
   predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. They evaluate as C# does, and the
-  database can disagree: a captured string's `Contains` is sent as a `LIKE` between two parameters, which doesn't
-  escape `%` or `_` and compares under the database's default collation (on MySQL, the connection's), not a column's,
-  while SQLite's `LIKE` ignores the case of ASCII letters; and `ToString()` isn't sent at all. So
-  `x.Id == 2 || s.Contains("_")`, `x.Id == 2 || s.Contains("s")` with `s` "S" (on SQL Server, MySQL and SQLite), or
-  `capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL, still deletes every row. A value declared
-  as `object` or an interface isn't evaluated, whatever it holds: `x.Id == 2 || o.ToString() == "s"` with
-  `object o = "s"` still deletes every row.
+  database can disagree: a captured string's `Contains` is sent as a `LIKE` between two parameters, which compares
+  under the database's default collation (on MySQL, the connection's), not a column's, while SQLite's `LIKE` ignores
+  the case of ASCII letters; and a captured value's `ToString()` isn't sent at all. So `x.Id == 2 || s.Contains("s")`
+  with `s` "S" (on SQL Server, MySQL and SQLite), or `capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server
+  and MySQL, still deletes every row. A value declared as `object` or an interface isn't evaluated, whatever it holds:
+  `x.Id == 2 || o.ToString() == "s"` with `object o = "s"` still deletes every row.
+- **String `Contains`, `StartsWith` and `EndsWith` treated `%`, `_` and `[` in the value as wildcards.** The value
+  went into the `LIKE` pattern unescaped, so `x.Name.Contains("_")` matched every name of one character or more,
+  `x.Name.Contains("%")` every name, and on SQL Server `x.Name.Contains("[x]")` every name containing `x`; on
+  PostgreSQL and MySQL a backslash escaped the character after it, so `x.Name.EndsWith("\\b")` matched every name
+  ending in `b`. A `Delete` with such a predicate deleted those rows. The value is now matched literally on all four
+  providers, written in the predicate or captured, on a property and in `Contains` on a captured string, in a WHERE
+  clause and in a projection.
+- **A property's `ToString()` was dropped.** `x.Code.ToString() == "07"` compared the integer column with the text,
+  which matched `7` on SQL Server, MySQL and SQLite and failed on PostgreSQL (`42883`); in a projection
+  (`Label = x.Code.ToString()`) it threw `InvalidCastException` on SQL Server, PostgreSQL and MySQL. On an integer
+  property (`sbyte` through `ulong`, nullable or not) it's now the column's text, `""` for null as in C#; on a
+  `string` property it's the column, as before. The text is the invariant form (`-5`), which can differ from .NET's
+  current culture (`−5`, with U+2212, under fi-FI): build text you compare it with using
+  `CultureInfo.InvariantCulture`. Other `ToString()` calls on a property now throw (see Changed).
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -141,10 +154,12 @@ upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-
 Other changes:
 
 - **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
-  `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
-  property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
-  property. Their 3.9.0 constructor is unchanged, so code compiled against 3.9.0 keeps binding. Without a generator
-  a visitor still inlines values; MySQL's inline literal now also escapes backslashes.
+  `EnsureSupported`), `ScalarProjectionGuard`, `OrderByTerm`, and `LikePattern` (`Escape`, `EscapeCharacter`,
+  `EscapeClause`), the escaping every provider applies to a string `Contains`, `StartsWith` or `EndsWith` value.
+  The four order-by visitors gain an `OrderByTerms` property, constructor overloads that take a table qualifier and a
+  parameter generator, and a `Parameters` property. Their 3.9.0 constructor is unchanged, so code compiled against
+  3.9.0 keeps binding. Without a generator a visitor still inlines values; MySQL's inline literal now also escapes
+  backslashes.
 - **New public API in `Funcular.Data.Orm`:** `DeletePredicateGuard` (`Classify`, `Validate`, `HasLiteralTautology`)
   and the `DeletePredicateVerdict` enum, the checks each provider's delete by predicate runs. A custom provider can
   call them.
@@ -218,6 +233,18 @@ Other changes:
 
   Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
   rejected, now with that message instead of "…must reference at least one column from the target table."
+- **`ToString()` on a property is translated only on an integer or `string` property, with no argument** (see
+  Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, …), and with any argument
+  (a format string or a format provider, `CultureInfo.InvariantCulture` included), it now throws
+  `NotSupportedException`, because the database's text isn't .NET's (`1.50` for a `DECIMAL(10,2)` holding `1.5m`,
+  `1` for `true`); compare the property's value instead. Before, these compared the column's value with the text
+  (on PostgreSQL they failed with `42883`), and `x.Code.ToString(CultureInfo.InvariantCulture) == "7"` worked on SQL
+  Server, MySQL and SQLite; in a projection they threw `InvalidCastException` on SQL Server, PostgreSQL and MySQL and
+  gave text unlike .NET's on SQLite.
+- **`x.N.Value.ToString()` on a nullable property throws `NullableExpressionException`**, as `x.N.Value == 7` does;
+  write `x.N.ToString()`. It selected the right rows on SQL Server, MySQL and SQLite before.
+- **The SQL of a string `Contains`, `StartsWith` or `EndsWith` ends with `ESCAPE '!'`**, and its value has `%`, `_`,
+  `[` and `!` prefixed by `!`. Code that reads the SQL text, such as a `Log` callback, sees the new form.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

@@ -131,6 +131,8 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
         .ToList();
     ```
 
+    The same goes for `ToString()`: `p.HospitalId.Value.ToString()` throws `NullableExpressionException`. Write `p.HospitalId.ToString()`, whose text is `""` when the value is null.
+
     When using `List<int>.Contains()` with a nullable entity property, cast the list to match the nullable type rather than unwrapping the property:
 
     ```csharp
@@ -514,19 +516,27 @@ var results = provider.Query<Person>()
 ```
 
 #### The `LIKE` Clause
-Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property.
+Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property. The value is matched literally: `%`, `_` and `[` in it are ordinary characters, not wildcards. The SQL escapes them with `!` and names it with `ESCAPE '!'`.
 
 ```csharp
-// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%'
+// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%' ESCAPE '!'
 var smiths = provider.Query<Person>()
     .Where(p => p.LastName.Contains("Smith"))
     .ToList();
 
-// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%'
+// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%' ESCAPE '!'
 var scots = provider.Query<Person>()
     .Where(p => p.LastName.StartsWith("Mc"))
     .ToList();
+
+// Query: SELECT * FROM Person WHERE LastName LIKE '%!_%' ESCAPE '!'
+// Only the last names that contain an underscore.
+var underscored = provider.Query<Person>()
+    .Where(p => p.LastName.Contains("_"))
+    .ToList();
 ```
+
+`ToString()` on an integer property (`sbyte` through `ulong`, nullable or not) compares the column's text: `p => p.Id.ToString() == "42"`, and a null value's text is `""`, as in C#. The text is the invariant form (`-5`), while .NET formats a number in the current culture (`−5`, with U+2212, under fi-FI), so build the text you compare it with using `CultureInfo.InvariantCulture` before the query. On a string property, `ToString()` is the property itself. On a property of any other type, or with an argument (`ToString("D2")`, `ToString(CultureInfo.InvariantCulture)`), it throws `NotSupportedException`: compare the property's value instead.
 
 ### Advanced: Ternary Operators
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
@@ -1350,7 +1360,7 @@ You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predica
 
 The first two messages usually come before any SQL runs, and so does the third. Some come only once the WHERE clause is built: the third for the negated-`Contains` shape and for a literal `1=1` in the SQL (such as `x => x.Id == id || new Settings().Flag`), and the first from the provider's own check. For those, on a type's first use its columns are discovered first, and if its table doesn't exist you get that error instead.
 *   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (filter != null) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss.
-    *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). They evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a core type's `ToString()`, but no arithmetic and no other method call, and they evaluate as C# does while the database may not: a captured string's `Contains` is sent as a `LIKE` between two parameters, which doesn't escape `%` or `_` and compares under the database's default collation (on MySQL, the connection's), not any column's, while SQLite's `LIKE` ignores the case of ASCII letters; and `ToString()` isn't sent at all. So `x => x.Id == 2 || s.Contains("a")` with `s = "A"` (on SQL Server, MySQL and SQLite with their usual case-insensitive defaults, even when your columns are case-sensitive), `x => x.Id == 2 || s.Contains("_")`, and `x => x.Id == 2 || n.ToString() == "07"` with `n = 7` (on SQL Server and MySQL) are accepted and match every row. `ToString()` is evaluated only on a value declared as a string, number, enum or other non-generic sealed or value type of .NET's core library: `x => x.Id == 2 || o.ToString() == "s"` with `object o = "s"` is accepted and matches every row. Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
+    *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). They evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a core type's `ToString()`, but no arithmetic and no other method call, and they evaluate as C# does while the database may not: a captured string's `Contains` is sent as a `LIKE` between two parameters, which compares under the database's default collation (on MySQL, the connection's), not any column's, while SQLite's `LIKE` ignores the case of ASCII letters; and a captured value's `ToString()` isn't sent at all. So `x => x.Id == 2 || s.Contains("a")` with `s = "A"` (on SQL Server, MySQL and SQLite with their usual case-insensitive defaults, even when your columns are case-sensitive) and `x => x.Id == 2 || n.ToString() == "07"` with `n = 7` (on SQL Server and MySQL) are accepted and match every row. `ToString()` is evaluated only on a value declared as a string, number, enum or other non-generic sealed or value type of .NET's core library: `x => x.Id == 2 || o.ToString() == "s"` with `object o = "s"` is accepted and matches every row. Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
     *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.
 
 ---
