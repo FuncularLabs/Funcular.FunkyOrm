@@ -8,9 +8,13 @@
 >   expression translators; whichever lands second merges the other.
 > - Started from a task the delete guard's fix-verification filed (its §6, FV1-2).
 
-> **Status (2026-10-03):** rev 4. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings, answered in rev 2
-> (`b58aea7`). Its re-review (§9.2) found 7, answered in rev 3 (`acb28e1`). Its re-review (§9.3) found 3; rev 4
-> answers them and is re-reviewed next. Nothing is implemented.
+> **Status (2026-10-03):** rev 5. Task 0 review of rev 1 (`6c83810`, §9.1) found 15 findings, answered in rev 2
+> (`b58aea7`). Its re-review (§9.2) found 7, answered in rev 3 (`acb28e1`). Its re-review (§9.3) found 3, answered in
+> rev 4 (`ead9710`). Its re-review (§9.4) found 2; rev 5 answers them and is re-reviewed next. Nothing is implemented.
+
+> **Revision 5 — what changed (Task 0 re-review, L3-1, L3-2):** Task 4 lists the five I1-6 tests that pin the
+> unescaped `LIKE` text and change at the merge, and §1 says no test on this branch pins it (L3-1); AC1's seam class
+> limits `[` to SQL Server (L3-2).
 
 > **Revision 4 — what changed (Task 0 re-review, L2-1…L2-3):** Task 4's merge notes: the column-test mutation stays
 > reachable after the merge and is killed by I1-6's rejection rows, so D4's message differs from I1-6's (L2-1); a
@@ -97,8 +101,9 @@ This branch owns LIKE escaping, a column's `ToString()`, and the guard prose abo
 missing table, the `StartsWith(goneLast)` delete and the `EndsWith(marker)` query); the net48 copies
 (`Funcular.Data.Orm.NetFramework.Tests:512, 535, 580`; `Funcular.Data.Orm.SqlServer.Tests.NetFramework:530, 553, 576,
 597`); the `DeleteGuardHarness` string rows. `EfSqlDataProviderIntegrationTests:510-577` exercise a test-local EF
-wrapper, not FunkyORM. No test pins the `LIKE` text. The `ColdCacheDeleteTests` marker comment ("No underscore: the
-method-call row uses it inside LIKE patterns", four copies) describes the workaround this change removes.
+wrapper, not FunkyORM. No test on this branch pins the `LIKE` text (I1-6's do, §5 Task 4). The `ColdCacheDeleteTests`
+marker comment ("No underscore: the method-call row uses it inside LIKE patterns", four copies) describes the
+workaround this change removes.
 
 ## 2. Decisions
 
@@ -237,7 +242,7 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 
 | AC | Test | SQL Server | PostgreSQL | MySQL | SQLite | Class at the seam |
 |---|---|---|---|---|---|---|
-| AC1 | `ColumnStringMethods_QuerySelectsWhatCSharpSelects` [`Contains`: `_`, `%`, `[`, `]`, `!`, a backslash, `[x]`, `a_`, `x`, `""`; `StartsWith`: `a_`, `a%`, `a[`, `a!`, `a` and a backslash, `a`; `EndsWith`: `_b`, `%b`, `[b`, `!b`, a backslash and `b`, `b`; each as a literal (`…Lit`) and, for `_`, `%`, `[`, `!` and a backslash, as a captured variable (`…Cap`)] | ✓ | ✓ | ✓ | ✓ | Red where the seam's rows differ from C#'s (every row with `_`, `%` or `[`, and on PostgreSQL and MySQL a backslash, as §1 shows; `!` rows are Guard); Guard for the rest. Task 1 records each row's class |
+| AC1 | `ColumnStringMethods_QuerySelectsWhatCSharpSelects` [`Contains`: `_`, `%`, `[`, `]`, `!`, a backslash, `[x]`, `a_`, `x`, `""`; `StartsWith`: `a_`, `a%`, `a[`, `a!`, `a` and a backslash, `a`; `EndsWith`: `_b`, `%b`, `[b`, `!b`, a backslash and `b`, `b`; each as a literal (`…Lit`) and, for `_`, `%`, `[`, `!` and a backslash, as a captured variable (`…Cap`)] | ✓ | ✓ | ✓ | ✓ | Red where the seam's rows differ from C#'s (every row with `_` or `%`, on SQL Server a row with `[`, and on PostgreSQL and MySQL a row with a backslash, as §1 shows; `!` rows are Guard); Guard for the rest. Task 1 records each row's class |
 | AC1 | `ColumnStringMethods_DeleteDeletesWhatCSharpSelects` [`Contains` `_`, `%`, `[`, `!`, a backslash; `StartsWith("a%")`; `EndsWith` a backslash and `b`; `Contains("x")`; literal and captured] | ✓ | ✓ | ✓ | ✓ | Red as above |
 | AC2 | `CapturedStringContains_SelectsWhatCSharpSelects` [`_`, `%`, `[a]`, and `b` by Query only], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red for `_` and `%` on all four and `[a]` on SQL Server; Guard for the rest |
 | AC3 | `IntegerColumnToString_ComparesAsText` [each of `i8`…`u64` at its minimum and maximum; `code07`, `code7`, `ncodeEmpty`, `ncode7`, `longName`], Query and Delete | ✓ | ✓ | ✓ | ✓ | Red: every integer row on PostgreSQL (42883); elsewhere `code07`, `ncodeEmpty` and each row whose text the database's conversion matches differently; `longName` Guard |
@@ -314,6 +319,12 @@ element for it, unioned across the four suites. Baselines at `ca82741` are recor
      of, `AppendColumn` for a property receiver); I1-6's rejection for anything else. AC11's `.Value` row pins the
      order. I1-6's `ToString_Column` test, which pins `x.Id.ToString()` as the bare column, changes to the cast in
      the merge commit.
+   - I1-6's `TranslatorDirectHarness` (as implemented at `d37f719`) pins the unescaped `LIKE` text in five more tests:
+     `StringContains_ConstantValue`, `StringContains_CapturedThisPropertyValue`, `StartsWith_Column`,
+     `EndsWith_Column` and `StartsWith_CapturedThisPropertyArgument`. The merge commit appends `ESCAPE '!'` to their
+     expected SQL; their values have no metacharacters, so the parameters don't change. The harness is compiled into
+     all four test projects, so with `ToString_Column` the merge commit changes six tests on each provider (§9.4).
+     I1-6's `LIKE NULL` tests don't change: its null branch runs before escaping.
    - After the merge, AC10's `d` takes I1-6's evaluator. A captured value declared as `object`, an interface or a user
      type still reaches the column test, so §4.3's "the column test accepts a captured member" row is killed by
      I1-6's `Rejected_BeforeAnyCommand` rows for those receivers (`userTypeToString`, `objectDeclaredToString`,
@@ -406,3 +417,13 @@ PLAN-GAP 2.
 | L2-1 | low | PLAN-GAP | §5 Task 4: the column-test row "retired" after the merge | Killed by I1-6's rejection rows; D4's message stays distinct; "every receiver the delete guard evaluates". |
 | L2-2 | low | AC-GAP | The merged column-versus-captured `ToString()` under a non-invariant culture | Disclosed in D6 and §6; a fi-FI merge-time row. |
 | L2-3 | nit | PLAN-GAP | §4.1: AC1's seam class | The general rule. |
+
+### 9.4 Task 0 re-review of rev 4 (`ead9710`; non-author; a merged prototype of `d37f719` plus rev 4's D1–D4, with I1-6's SQLite test classes run on it unmutated and under the column-test mutation; 15 merge rows on all four, merged, mutated and on this branch alone)
+
+Verdict: NOT CLEAN; one blocking finding and one nit. L2-1 and L2-2 resolved; L2-3 partial (L3-2). Blame: PLAN-GAP 2
+(L3-2 introduced by L2-3's fix).
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| L3-1 | low | PLAN-GAP | §5 Task 4 named one of the six I1-6 tests the merge changes; §1 "No test pins the `LIKE` text" | The five `LIKE` tests named; §1 qualified. |
+| L3-2 | nit | PLAN-GAP | §4.1: AC1's seam class put `[` rows Red on all four | `[` on SQL Server only. |
