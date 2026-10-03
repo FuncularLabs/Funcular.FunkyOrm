@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using MySqlConnector;
 using Funcular.Data.Orm.MySql;
+using Funcular.Data.Orm.Tests.Shared;
 
 namespace Funcular.Data.Orm.MySql.Tests
 {
@@ -13,11 +14,18 @@ namespace Funcular.Data.Orm.MySql.Tests
     /// disallows). The schema is pre-loaded via Database/MySql/integration_test_db.sql (CI workflow
     /// does this; locally it is created once). NOT a [TestClass] to avoid inherited-test duplication.
     /// </summary>
+    /// <remarks>
+    /// Each test runs with a <see cref="TestRowLedger"/>, begun by <see cref="InitProvider"/>: a test that inserts
+    /// into person or a related table passes each inserted entity to <see cref="Track"/>, and
+    /// <see cref="DisposeProvider"/> deletes those rows and fails the test if it left the guarded tables' row counts
+    /// changed.
+    /// </remarks>
     public abstract class MySqlTestFixture
     {
         protected string _connectionString;
         protected MySqlOrmDataProvider _provider;
         protected readonly StringBuilder _sb = new StringBuilder();
+        protected TestRowLedger _rows;
 
         protected void InitProvider()
         {
@@ -43,6 +51,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             {
                 Log = s => { _sb.AppendLine(s); }
             };
+            _rows = TestRowLedger.Begin(() => new MySqlConnection(_connectionString), TestRowLedger.MySqlTables);
         }
 
         /// <summary>
@@ -66,6 +75,21 @@ namespace Funcular.Data.Orm.MySql.Tests
             return value;
         }
 
-        protected void DisposeProvider() => _provider?.Dispose();
+        protected void DisposeProvider()
+        {
+            // Dispose first: it rolls back a transaction a failed test left open, so the deletes don't wait on it.
+            _provider?.Dispose();
+            _rows?.Finish();
+        }
+
+        /// <summary>Records a row this test inserted, for <see cref="DisposeProvider"/> to delete.</summary>
+        protected void Track(object entity) => _rows.Track(entity);
+
+        /// <summary>Inserts an entity built inline and tracks it.</summary>
+        protected void InsertTracked<T>(T entity) where T : class, new()
+        {
+            _provider.Insert(entity);
+            Track(entity);
+        }
     }
 }

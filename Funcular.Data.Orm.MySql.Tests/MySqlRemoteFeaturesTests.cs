@@ -22,6 +22,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             var orgName = "Org" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var org = new Organization { Name = orgName };
             _provider.Insert(org);
+            Track(org);
 
             var person = new PersonWithEmployer
             {
@@ -32,6 +33,7 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(person);
+            Track(person);
             return (org.Id, person.Id, orgName);
         }
 
@@ -84,6 +86,7 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(person);
+            Track(person);
 
             var fetched = _provider.Get<PersonWithEmployer>(person.Id);
             Assert.IsNotNull(fetched);

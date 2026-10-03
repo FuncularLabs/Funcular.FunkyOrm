@@ -36,6 +36,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             {
                 var person = NewPerson("Before", "Tx-" + Guid.NewGuid().ToString("N").Substring(0, 8));
                 await _provider.InsertAsync(person);
+                Track(person);
 
                 person.FirstName = "After";
                 await _provider.UpdateAsync(person);
@@ -55,6 +56,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             var person = NewPerson("Async", "Inserter");
             await _provider.InsertAsync(person);
+            Track(person);
             Assert.IsTrue(person.Id > 0);
 
             var fetched = await _provider.GetAsync<Person>(person.Id);
@@ -66,8 +68,12 @@ namespace Funcular.Data.Orm.MySql.Tests
         public async Task QueryAsync_FiltersByColumn()
         {
             var marker = "AQ" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            await _provider.InsertAsync(NewPerson("One", marker));
-            await _provider.InsertAsync(NewPerson("Two", marker));
+            var one = NewPerson("One", marker);
+            await _provider.InsertAsync(one);
+            Track(one);
+            var two = NewPerson("Two", marker);
+            await _provider.InsertAsync(two);
+            Track(two);
 
             var results = await _provider.QueryAsync<Person>(p => p.LastName == marker);
             Assert.AreEqual(2, results.Count);
@@ -78,6 +84,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             var person = NewPerson("Before", "AsyncUpd");
             await _provider.InsertAsync(person);
+            Track(person);
 
             person.FirstName = "After";
             await _provider.UpdateAsync(person);
@@ -89,7 +96,9 @@ namespace Funcular.Data.Orm.MySql.Tests
         [TestMethod]
         public async Task GetListAsync_ReturnsRows()
         {
-            await _provider.InsertAsync(NewPerson("List", "AsyncList"));
+            var person = NewPerson("List", "AsyncList");
+            await _provider.InsertAsync(person);
+            Track(person);
             var all = await _provider.GetListAsync<Person>();
             Assert.IsTrue(all.Count >= 1);
         }
@@ -100,6 +109,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             var marker = "AD" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var person = NewPerson("ToDeleteAsync", marker);
             await _provider.InsertAsync(person);
+            Track(person);
 
             _provider.BeginTransaction();
             var affected = await _provider.DeleteAsync<Person>(p => p.LastName == marker);

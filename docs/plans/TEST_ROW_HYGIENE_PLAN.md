@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 7. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 8. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (§5); Task 4 is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (§5); Task 5 is next.
+
+> **Revision 8 — what changed (Task 4):** §5 records Task 4.
 
 > **Revision 7 — what changed (Task 3):** §5 records Task 3.
 
@@ -450,6 +452,19 @@ the exact sha).
       `Get_WithExistingId_ReturnsPerson` failed, leaving its 1 row. M14: `Count_NoFilter…` failed; library restored,
       `git status` clean for `Funcular.Data.Orm.PostgreSql`.
 - **Task 4 — MySQL suite.** The same steps for its five classes and one probe (no AC6 tests on `development/3.10`).
+  - **Record (the commit that carries rev 8):**
+    - Red 1: the probe failed; counts unchanged. Red 2: the probe passed; one test per §1.1 class failed in cleanup
+      (`Insert_AssignsIdentity_AndGetRoundTrips`, `InsertAsync_AssignsIdentity_AndGetAsyncRoundTrips`,
+      `RemoteProperty_IsNull_WhenNoForeignKey`, `JsonPath_Select_ExtractsScalars`,
+      `ExecProcedure_NoParams_ReturnsRows`), leaving 10 rows: person 4, organization 1, project 2,
+      project_milestone 3.
+    - Green: the suite passed, 719 of 719, every guarded count unchanged (it added 59 `person` rows before). Each
+      §1.1 class alone: all passed, counts unchanged (13, 6, 8, 27, 22 tests).
+    - Inline inserts (`_provider.Insert(NewPerson(…))`, `new ProjectMilestone { … }`, `new PersonWithEmployer { … }`:
+      18) go through the fixture's `InsertTracked<T>`, which inserts and tracks; the async class's three use a local
+      and `Track`, keeping `InsertAsync`.
+    - Mutations: M10 (Begin, Finish removed from the fixture): the probe failed each time. M11 (the `Track` after
+      the insert in `Insert_AssignsIdentity_AndGetRoundTrips` removed): that test failed, leaving its 1 row.
 - **Task 5 — net48.** Link `TestRowLedger.cs` in the csproj `<Compile>` list; the two probes first (red), then the
   hooks and `Track` calls; run the playlist classes and measure. Measure DotNet9 once (§1.2).
 - **Task 6 — documents.** D9's Changelog line and XML docs; this plan's §5 record.

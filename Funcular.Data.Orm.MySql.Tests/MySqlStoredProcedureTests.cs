@@ -73,6 +73,7 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(person);
+            Track(person);
             return person.Id;
         }
 
