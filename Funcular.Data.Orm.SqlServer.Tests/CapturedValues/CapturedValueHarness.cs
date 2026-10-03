@@ -33,7 +33,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         protected const string ContainsReceiverMessage =
             "Contains() is translated only on a property of the entity, or on a value that doesn't read the row: ";
         protected const string ToStringMessage =
-            "ToString() is translated only on a property of the entity, or on a captured value declared as an enum or a non-generic core type, read directly (at most a format string: no format provider, arithmetic, method call or indexer); compute the string before the query: ";
+            "ToString() is translated only on a property of the entity; for a value that doesn't read the row, compute the string before the query: ";
         protected const string CouldNotEvaluateMessage = "Could not evaluate expression: ";
         protected const string NoColumnMessage = "Delete operation WHERE clause must reference at least one column from the target table.";
 
@@ -216,7 +216,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                 case "andArrayPresent": return x => x.Id == 2 && arr.Contains(present.Id);
                 case "orCapturedReceiverCase": return x => x.Id == 2 || absent.Name.Contains("ZETA");
                 case "orLocalReceiverCase": return x => x.Id == 2 || s.Contains("ZETA");
-                // AC6: captured values read as C# reads them.
+                // AC6: captured values read as C# reads them; the ToString keys are rejected (D16).
                 case "containsThisFilter": return holder.ContainsFilter();
                 case "startsWithThisFilter": return holder.StartsWithFilter();
                 case "codeEqualsThisCodeToString": return holder.CodeEqualsCodeToString();
@@ -238,6 +238,15 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                 case "throwingItem": return x => x.Id == 2 || ids.Contains(nullRequest.Id);
                 case "throwingCollection": return x => nullRequest.Ids.Contains(x.Id);
                 case "nullStringToString": return x => x.Code == nullFilter.ToString();
+                case "intColumnToStringEqCaptured": return x => x.Id.ToString() == localInt.ToString();
+                // A1: All with SQL's unknown.
+                case "allNotContainsNull": return x => !x.Name.Contains(nullFilter);
+                case "allContainsNull": return x => x.Name.Contains(nullFilter);
+                case "allOrContainsNull": return x => x.Id == 2 || x.Name.Contains(nullFilter);
+                case "allRowIndependentNull": return x => s.Contains(nullFilter);
+                case "allNullableGreaterThanZero": return x => x.NullableId > 0;
+                case "allIdPositive": return x => x.Id > 0;
+                case "allNotIdsX": return x => !ids.Contains(x.Id);
                 // AC4: an item that reads the row other than as a property of the entity.
                 case "nestedParamItem": return x => ids.Contains(x.Child.Id);
                 case "lengthItem": return x => lengths.Contains(x.Name.Length);
@@ -253,7 +262,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                 // AC7: a member of a member.
                 case "codeEqualsLengthToString": return x => x.Code == x.Name.Length.ToString();
                 case "childNameContains": return x => x.Child.Name.Contains("a");
-                // D7, D14: ToString the guard doesn't evaluate (each C# true where it's compared).
+                // D16: more ToString that doesn't read the row, rejected (each C# true where it's compared).
                 case "userTypeToString": return x => x.Id == 2 || settings.ToString() == "on";
                 case "objectDeclaredToString": return x => x.Id == 2 || boxed.ToString() == "5";
                 case "providerToString": return x => x.Id == 2 || five.ToString(CultureInfo.InvariantCulture) == "5";
@@ -291,6 +300,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                 case "labelNestedParam": return x => new CvRow { Id = x.Id, Label = ids.Contains(x.Child.Id) ? "in" : "out" };
                 case "labelObjectToString": return x => new CvRow { Id = x.Id, Label = objStr.ToString() };
                 case "labelProviderToString": return x => new CvRow { Id = x.Id, Label = sB.ToString(CultureInfo.InvariantCulture) };
+                case "labelFormatted": return x => new CvRow { Id = x.Id, Label = five.ToString("D2") };
                 default: throw new ArgumentException("Unknown projection " + key, nameof(key));
             }
         }
@@ -398,15 +408,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("orLocalReceiverCase", "2")]
         // AC6
         [DataRow("containsThisFilter", "2")]
-        [DataRow("codeEqualsThisCodeToString", "2")]
         [DataRow("containsNestedCaptured", "3")]
         [DataRow("startsWithThisFilter", "2")]
-        [DataRow("codeEqualsNestedToString", "2")]
-        [DataRow("orCapturedToString05", "2")]
-        [DataRow("orPropertyToString05", "2")]
-        [DataRow("orFormattedToString", "2")]
-        [DataRow("orNullableToStringIsNull", "2")]
-        [DataRow("orNullableToStringIsEmpty", "1,2,3")]
         // AC8
         [DataRow("optionalFilterNull", "1,2,3")]
         [DataRow("optionalThisFilterNull", "1,2,3")]
@@ -485,10 +488,6 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("orLocalReceiverCase", "2")]
         [DataRow("containsThisFilter", "2")]
         [DataRow("startsWithThisFilter", "2")]
-        [DataRow("orCapturedToString05", "2")]
-        [DataRow("orPropertyToString05", "2")]
-        [DataRow("orFormattedToString", "2")]
-        [DataRow("orNullableToStringIsNull", "2")]
         [DataRow("containsNullValue", "2", "D8")]
         [DataRow("startsWithNullValue", "2", "D8")]
         [DataRow("idsX", "1,2")]
@@ -563,7 +562,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         // AC7
         [DataRow("codeEqualsLengthToString", "Q", ToStringMessage, null)]
         [DataRow("childNameContains", "Q", ContainsReceiverMessage, null)]
-        // AC6, D7, D14
+        // AC6, D16
         [DataRow("userTypeToString", "QD", ToStringMessage, null)]
         [DataRow("objectDeclaredToString", "QD", ToStringMessage, null)]
         [DataRow("providerToString", "QD", ToStringMessage, null)]
@@ -582,7 +581,16 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         // AC8
         [DataRow("throwingItem", "QD", CouldNotEvaluateMessage, "NullReferenceException")]
         [DataRow("throwingCollection", "QD", CouldNotEvaluateMessage, "NullReferenceException")]
-        [DataRow("nullStringToString", "QD", CouldNotEvaluateMessage, "NullReferenceException")]
+        // D16: a ToString that doesn't read the row is rejected, never evaluated.
+        [DataRow("nullStringToString", "QD", ToStringMessage, null)]
+        [DataRow("codeEqualsThisCodeToString", "QD", ToStringMessage, null)]
+        [DataRow("codeEqualsNestedToString", "QD", ToStringMessage, null)]
+        [DataRow("orCapturedToString05", "QD", ToStringMessage, null)]
+        [DataRow("orPropertyToString05", "QD", ToStringMessage, null)]
+        [DataRow("orFormattedToString", "QD", ToStringMessage, null)]
+        [DataRow("orNullableToStringIsNull", "QD", ToStringMessage, null)]
+        [DataRow("orNullableToStringIsEmpty", "QD", ToStringMessage, null)]
+        [DataRow("intColumnToStringEqCaptured", "QD", ToStringMessage, null)]
         public void Rejected_BeforeAnyCommand(string key, string paths, string messagePrefix, string innerType)
         {
             var predicate = Predicate(key);
@@ -691,6 +699,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("labelNestedParam", ItemMessage)]
         [DataRow("labelObjectToString", ToStringMessage)]
         [DataRow("labelProviderToString", ToStringMessage)]
+        [DataRow("labelFormatted", ToStringMessage)]
         public void Projection_Rejected_BeforeAnyCommand(string key, string messagePrefix)
         {
             var projection = Projection(key);
@@ -701,6 +710,31 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                 StringAssert.StartsWith(ex.Message, messagePrefix, key);
                 AssertNothingSent(log, key);
             });
+        }
+
+        #endregion
+
+        #region All (A1)
+
+        /// <summary>
+        /// All treats a row whose predicate is unknown in SQL as failing, as C# fails it (or throws): a null search value
+        /// (D8) or a nullable column compared with a value. Translated as NOT EXISTS(... WHERE NOT (p)), an unknown row
+        /// counted as satisfied.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("allNotContainsNull", false, "D8")]
+        [DataRow("allContainsNull", false, "D8")]
+        [DataRow("allOrContainsNull", false, "D8")]
+        [DataRow("allRowIndependentNull", false, "D8")]
+        [DataRow("allNullableGreaterThanZero", false, null)]
+        [DataRow("allIdPositive", true, null)]
+        [DataRow("allNotIdsX", false, null)]
+        public void All_TreatsUnknownAsFailing(string key, bool expected, string knownDivergence)
+        {
+            var predicate = Predicate(key);
+            if (knownDivergence == null)
+                Assert.AreEqual(expected, Rows.All(predicate.Compile()), key + ": the DataRow disagrees with LINQ to objects");
+            WithTable((provider, log) => Assert.AreEqual(expected, provider.Query<CvRow>().All(predicate), key));
         }
 
         #endregion

@@ -557,14 +557,21 @@ var people = provider.Query<Person>()
 ```
 
 Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
-from the row (`role.Contains("admin")`) is answered before the query, as C# would; `StartsWith` and `EndsWith` on
-anything but an entity property throw `NotSupportedException` — test the value in C# before the query instead.
+from the row (`role.Contains("admin")`) is answered before the query, as C# would, except that a null `role` (or a
+null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
+property throw `NotSupportedException` — test the value in C# before the query instead.
 
-A captured `ToString()` (`p.Code == id.ToString("D2")`) is sent as the string C# produces, in the current culture,
-when the value is declared as an enum or a non-generic core type (`int`, `decimal`, `DateTime`, `Guid`, `string`,
-...) and is read directly, with at most a format string. Anything else — an `IFormatProvider` argument, a value
-declared as `object` or an interface, arithmetic or a method call in it — throws `NotSupportedException`; compute
-the string before the query (`var code = id.ToString(CultureInfo.InvariantCulture);`).
+`ToString()` is translated only on a property of the entity. On anything else — a local, a constant, a property of
+an object you hold, with or without a format — it throws `NotSupportedException`: compute the string before the
+query and compare with that.
+
+```csharp
+// Not a.PostalCode == zip.ToString("D5"): that throws.
+var postalCode = zip.ToString("D5");
+var addresses = provider.Query<Address>()
+    .Where(a => a.PostalCode == postalCode)
+    .ToList();
+```
 
 ### Advanced: Ternary Operators
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
@@ -1375,7 +1382,7 @@ We try to give you helpful error messages. Here are some you might see and what 
 You tried to do something too fancy in your LINQ query that we can't translate to SQL.
 *   **Example**: `Where(p => p.FirstName.GetHashCode() == 123)`
 *   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`) on entity properties. If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
-*   **"Could not evaluate expression: ..."**: a value FunkyORM reads before the query threw — usually a member of a null captured object (`ids.Contains(request.Id)` with `request == null`). The original exception is the inner one. Both sides of `||` are translated, so a null check inside the predicate (`request == null || ids.Contains(request.Id)`) doesn't prevent it: check the object before building the query. (A null *value* is different: `filter == null || p.Name.Contains(filter)` works, because a null search value matches no row.)
+*   **"Could not evaluate expression: ..."**: a value FunkyORM reads before the query threw — usually a member of a null captured object (`ids.Contains(request.Id)` with `request == null`), or a lazy collection that throws while it is read. The original exception is the inner one. Both sides of `||` are translated, so a null check inside the predicate (`request == null || ids.Contains(request.Id)`) doesn't prevent it: check the object before building the query. (A null *value* is different: `filter == null || p.Name.Contains(filter)` works, because a null search value matches no row.)
 
 ### 3. "Delete operations must be performed within an active transaction"
 You tried to call `.Delete()` without starting a transaction.

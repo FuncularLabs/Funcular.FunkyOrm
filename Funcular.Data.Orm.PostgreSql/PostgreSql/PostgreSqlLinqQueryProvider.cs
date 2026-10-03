@@ -499,7 +499,8 @@ namespace Funcular.Data.Orm.PostgreSql
                     aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause)) { combinedWhere += whereClause; if (hasPredicate) combinedWhere += " AND "; }
-                    if (hasPredicate) combinedWhere += $"NOT ({modifiedWhereClause})";
+                    // A row disproves All unless its predicate is true; NOT (p) would skip a row whose p is unknown (null).
+                    if (hasPredicate) combinedWhere += $"CASE WHEN ({modifiedWhereClause}) THEN 1 ELSE 0 END = 0";
                     if (!string.IsNullOrEmpty(combinedWhere)) aggregateClause += $"\r\nWHERE {combinedWhere}";
                     aggregateClause += ") THEN 0 ELSE 1 END";
                 }

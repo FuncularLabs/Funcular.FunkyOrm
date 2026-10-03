@@ -31,7 +31,7 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         private const string ContainsReceiverMessage =
             "Contains() is translated only on a property of the entity, or on a value that doesn't read the row: ";
         private const string ToStringMessage =
-            "ToString() is translated only on a property of the entity, or on a captured value declared as an enum or a non-generic core type, read directly (at most a format string: no format provider, arithmetic, method call or indexer); compute the string before the query: ";
+            "ToString() is translated only on a property of the entity; for a value that doesn't read the row, compute the string before the query: ";
 
         /// <summary>
         /// Translates a method call expression into SQL, appending the result to the provided StringBuilder. A part
@@ -51,13 +51,8 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         {
             if (node.Method.Name == "ToString")
             {
-                // A ToString that doesn't read the row, and that the delete guard evaluates too, is sent as the string
-                // C# produces (D7, D14). Otherwise only a property's own ToString is translated: the column (D15).
-                if (node.Type == typeof(string) && RowIndependentEvaluator.TryEvaluateToString(node, out var text))
-                {
-                    AppendParameter(text, commandTextBuilder, parameters);
-                    return;
-                }
+                // Only a property's own ToString is translated: the column (D15). A ToString of anything else is
+                // rejected, never evaluated: the caller computes the string before the query (D16).
                 AppendColumn(node.Object, node, ToStringMessage, commandTextBuilder, getColumnName);
                 return;
             }
@@ -189,7 +184,16 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                         throw new NotSupportedException(NotACollectionMessage + node);
                     }
 
-                    var values = collection.Cast<object>().Where(v => v != null).ToList();
+                    // A lazy collection runs the caller's code here; what it throws is reported as the read is (D9).
+                    List<object> values;
+                    try
+                    {
+                        values = collection.Cast<object>().Where(v => v != null).ToList();
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new NotSupportedException("Could not evaluate expression: " + collectionExpression, ex);
+                    }
                     if (!values.Any())
                     {
                         commandTextBuilder.Append("1=0");

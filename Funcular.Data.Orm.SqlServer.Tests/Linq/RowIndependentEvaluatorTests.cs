@@ -3,7 +3,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
@@ -15,9 +14,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.SqlServer.Tests.Linq
 {
     /// <summary>
-    /// DB-free tests of the Core <see cref="RowIndependentEvaluator"/> and its copy of the delete guard's
-    /// evaluability rule, <c>CoreEvaluability</c> (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md, §4.2 and §4.3: AC2, AC3,
-    /// AC8, AC11).
+    /// DB-free tests of the Core <see cref="RowIndependentEvaluator"/> (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md,
+    /// §4.2 and §4.3: AC2, AC3, AC8, AC11).
     /// </summary>
     [TestClass]
     public class RowIndependentEvaluatorTests
@@ -52,7 +50,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             public int Reads;
             private readonly List<int> _ids = new List<int> { 1, 2 };
             public List<int> Ids { get { Reads++; return _ids; } }
-            public Settings Settings { get { Reads++; return new Settings(); } }
             public int Five { get { Reads++; return 5; } }
         }
 
@@ -69,37 +66,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
         }
 
-        public class Settings
-        {
-            public override string ToString() { return "on"; }
-        }
-
-        public sealed class SealedSettings
-        {
-            public override string ToString() { return "on"; }
-        }
-
-        public struct UserStruct
-        {
-            public override string ToString() { return "on"; }
-        }
-
-        public struct Wrapper
-        {
-            public int Value;
-            public static explicit operator int(Wrapper wrapper) { return wrapper.Value; }
-        }
-
         /// <summary>A user type with an implicit conversion from an array, to build a non-MemoryExtensions call.</summary>
         public class IntBag
         {
             public int[] Items;
             public static implicit operator IntBag(int[] items) { return new IntBag { Items = items }; }
-        }
-
-        public class OddToString
-        {
-            public new object ToString() { return "odd"; }
         }
 
         public static class StaticHolder
@@ -121,8 +92,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             public Expression<Func<string>> FilterRead() { return () => Filter; }
         }
 
-        private static int Seven() { return 7; }
-
         private static MethodCallExpression Call<T>(Expression<Func<T>> expression)
         {
             return (MethodCallExpression)expression.Body;
@@ -143,20 +112,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             string sql;
             Assert.IsTrue(RowIndependentEvaluator.TryTranslateContains(call, out sql), "expected an evaluated call: " + call);
             return sql;
-        }
-
-        private static string Evaluate(MethodCallExpression call)
-        {
-            string value;
-            Assert.IsTrue(RowIndependentEvaluator.TryEvaluateToString(call, out value), "expected an evaluated call: " + call);
-            return value;
-        }
-
-        private static void AssertNotEvaluated(MethodCallExpression call)
-        {
-            string value;
-            Assert.IsFalse(RowIndependentEvaluator.TryEvaluateToString(call, out value), "expected no evaluation: " + call);
-            Assert.IsNull(value);
         }
 
         private static NotSupportedException AssertCouldNotEvaluate(Action action)
@@ -402,194 +357,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             Assert.IsInstanceOfType(ex.InnerException, typeof(ArgumentException));
         }
 #endif
-
-        #endregion
-
-        #region TryEvaluateToString
-
-        public enum Day { Sunday, Monday }
-
-        [TestMethod]
-        public void TryEvaluateToString_CapturedInt_CSharpString()
-        {
-            var localInt = 5;
-            Assert.AreEqual("5", Evaluate(Call(() => localInt.ToString())));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_Formatted()
-        {
-            var five = 5;
-            Assert.AreEqual("05", Evaluate(Call(() => five.ToString("D2"))));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_Enum()
-        {
-            var day = Day.Monday;
-            Assert.AreEqual("Monday", Evaluate(Call(() => day.ToString())));
-            Assert.AreEqual("1", Evaluate(Call(() => day.ToString("D"))));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_NullableNoValue_EmptyString()
-        {
-            int? n = null;
-            Assert.AreEqual(string.Empty, Evaluate(Call(() => n.ToString())));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_CastReceiver_Evaluated()
-        {
-            var five = 5;
-            object boxed = 5;
-            Assert.AreEqual("5", Evaluate(Call(() => ((long)five).ToString())));
-            Assert.AreEqual("5", Evaluate(Call(() => ((int)boxed).ToString())));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_CurrentCulture()
-        {
-            var amount = 1.5m;
-            var original = CultureInfo.CurrentCulture;
-            try
-            {
-                CultureInfo.CurrentCulture = new CultureInfo("de-DE");
-                Assert.AreEqual("1,5", Evaluate(Call(() => amount.ToString())));
-                CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-                Assert.AreEqual("1.5", Evaluate(Call(() => amount.ToString())));
-            }
-            finally
-            {
-                CultureInfo.CurrentCulture = original;
-            }
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_NullStringReceiver_WrapsInNotSupported()
-        {
-            string nullString = null;
-            var ex = AssertCouldNotEvaluate(() => Evaluate(Call(() => nullString.ToString())));
-            Assert.IsInstanceOfType(ex.InnerException, typeof(NullReferenceException));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_UserType_ReturnsFalse()
-        {
-            var counting = new Counting();
-            AssertNotEvaluated(Call(() => counting.Settings.ToString()));
-            Assert.AreEqual(0, counting.Reads, "nothing may be evaluated for a call the guard doesn't evaluate");
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_ObjectDeclared_ReturnsFalse()
-        {
-            object objString = "b";
-            IComparable interfaceString = "b";
-            AssertNotEvaluated(Call(() => objString.ToString()));
-            AssertNotEvaluated(Call(() => interfaceString.ToString()));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_FormatProvider_ReturnsFalse()
-        {
-            var counting = new Counting();
-            AssertNotEvaluated(Call(() => counting.Five.ToString(CultureInfo.InvariantCulture)));
-            Assert.AreEqual(0, counting.Reads);
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_Static_ReturnsFalse()
-        {
-            var localInt = 5;
-            AssertNotEvaluated(Call(() => Convert.ToString(localInt)));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_UserStruct_ReturnsFalse()
-        {
-            var userStruct = new UserStruct();
-            AssertNotEvaluated(Call(() => userStruct.ToString()));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_NullableUserStruct_ReturnsFalse()
-        {
-            UserStruct? nullableUserStruct = new UserStruct();
-            AssertNotEvaluated(Call(() => nullableUserStruct.ToString()));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_SealedUserClass_ReturnsFalse()
-        {
-            var sealedSettings = new SealedSettings();
-            AssertNotEvaluated(Call(() => sealedSettings.ToString()));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_GenericCoreValueType_ReturnsFalse()
-        {
-            var pair = new KeyValuePair<int, int>(1, 2);
-            AssertNotEvaluated(Call(() => pair.ToString()));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_ArithmeticReceiver_ReturnsFalse()
-        {
-            var counting = new Counting();
-            AssertNotEvaluated(Call(() => (counting.Five + 1).ToString()));
-            Assert.AreEqual(0, counting.Reads);
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_ConcatenatedFormat_ReturnsFalse()
-        {
-            var five = 5;
-            var digits = "2";
-            AssertNotEvaluated(Call(() => five.ToString("D" + digits)));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_UserConversionReceiver_ReturnsFalse()
-        {
-            var wrapper = new Wrapper { Value = 5 };
-            AssertNotEvaluated(Call(() => ((int)wrapper).ToString()));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_ReadsTheRow_ReturnsFalse()
-        {
-            string value;
-            Assert.IsFalse(RowIndependentEvaluator.TryEvaluateToString(CallOnRow(x => x.Id.ToString()), out value));
-            Assert.IsNull(value);
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_UsesTheCompiler()
-        {
-            var localInt = 5;
-            var compiles = CountCompiles(() => Evaluate(Call(() => localInt.ToString())));
-            Assert.IsTrue(compiles > 0, "ToString must be evaluated through Compiler");
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_Null_Throws()
-        {
-            string value;
-            Assert.ThrowsException<ArgumentNullException>(() => RowIndependentEvaluator.TryEvaluateToString(null, out value));
-        }
-
-        [TestMethod]
-        public void TryEvaluateToString_NotAToString_Throws()
-        {
-            var five = 5;
-            var odd = new OddToString();
-            string value;
-            Assert.ThrowsException<ArgumentException>(() =>
-                RowIndependentEvaluator.TryEvaluateToString(Call(() => five.GetHashCode()), out value));
-            Assert.ThrowsException<ArgumentException>(() =>
-                RowIndependentEvaluator.TryEvaluateToString(Call(() => odd.ToString()), out value));
-        }
 
         #endregion
 
@@ -843,65 +610,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             Assert.Fail("expected the interpreter to fail on a span");
         }
 #endif
-
-        #endregion
-
-        #region CoreEvaluability (the guard's predicate, copied)
-
-        [TestMethod]
-        public void CoreEvaluability_MatchesTheGuardsTable()
-        {
-            var capturedA = 7;
-            var five = 5;
-            var day = Day.Monday;
-            int? n = null;
-            var s = "s";
-            var flag = true;
-            object boxed = 5;
-            object objString = "b";
-            var settings = new Settings();
-            var userStruct = new UserStruct();
-            var pair = new KeyValuePair<int, int>(1, 2);
-            var arr = new[] { 1 };
-            var wrapper = new Wrapper { Value = 5 };
-            Expression<Func<Row, bool>> readsRow = x => x.Id == 2;
-
-            var rows = new List<Tuple<string, Expression, bool>>
-            {
-                Tuple.Create("constant", (Expression)Expression.Constant(true), true),
-                Tuple.Create("captured local", Body(() => capturedA), true),
-                Tuple.Create("static property", Body(() => StaticHolder.Name), true),
-                Tuple.Create("int ToString()", (Expression)Call(() => capturedA.ToString()), true),
-                Tuple.Create("int ToString(format)", (Expression)Call(() => five.ToString("D2")), true),
-                Tuple.Create("enum ToString()", (Expression)Call(() => day.ToString()), true),
-                Tuple.Create("nullable ToString()", (Expression)Call(() => n.ToString()), true),
-                Tuple.Create("string ToString()", (Expression)Call(() => s.ToString()), true),
-                Tuple.Create("string Contains", (Expression)Call(() => s.Contains("s")), true),
-                Tuple.Create("cast receiver", (Expression)Call(() => ((long)five).ToString()), true),
-                Tuple.Create("unboxing receiver", (Expression)Call(() => ((int)boxed).ToString()), true),
-                Tuple.Create("conditional", Body(() => flag ? 1 : 2), true),
-                Tuple.Create("not", Body(() => !flag), true),
-                Tuple.Create("comparison", Body(() => capturedA == five), true),
-                Tuple.Create("ToString(provider)", (Expression)Call(() => five.ToString(CultureInfo.InvariantCulture)), false),
-                Tuple.Create("object ToString()", (Expression)Call(() => objString.ToString()), false),
-                Tuple.Create("user class ToString()", (Expression)Call(() => settings.ToString()), false),
-                Tuple.Create("user struct ToString()", (Expression)Call(() => userStruct.ToString()), false),
-                Tuple.Create("generic core ToString()", (Expression)Call(() => pair.ToString()), false),
-                Tuple.Create("static Convert.ToString", (Expression)Call(() => Convert.ToString(five)), false),
-                Tuple.Create("another instance call", (Expression)Call(() => s.Trim()), false),
-                Tuple.Create("arithmetic", Body(() => capturedA + 1), false),
-                Tuple.Create("arithmetic receiver", (Expression)Call(() => (five + 1).ToString()), false),
-                Tuple.Create("indexer receiver", (Expression)Call(() => arr[0].ToString()), false),
-                Tuple.Create("method receiver", (Expression)Call(() => Seven().ToString()), false),
-                Tuple.Create("coalesce receiver", (Expression)Call(() => (n ?? 7).ToString()), false),
-                Tuple.Create("user conversion receiver", (Expression)Call(() => ((int)wrapper).ToString()), false),
-                Tuple.Create("reads the row", readsRow.Body, false),
-            };
-
-            var wrong = rows.Where(r => CoreEvaluability.IsEvaluable(r.Item2) != r.Item3)
-                .Select(r => r.Item1 + " (expected " + r.Item3 + ")").ToList();
-            Assert.AreEqual(0, wrong.Count, "differs from the guard's rule: " + string.Join("; ", wrong));
-        }
 
         #endregion
     }

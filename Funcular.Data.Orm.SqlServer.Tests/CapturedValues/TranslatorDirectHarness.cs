@@ -28,7 +28,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         protected const string ContainsReceiverMessage =
             "Contains() is translated only on a property of the entity, or on a value that doesn't read the row: ";
         protected const string ToStringMessage =
-            "ToString() is translated only on a property of the entity, or on a captured value declared as an enum or a non-generic core type, read directly (at most a format string: no format provider, arithmetic, method call or indexer); compute the string before the query: ";
+            "ToString() is translated only on a property of the entity; for a value that doesn't read the row, compute the string before the query: ";
         protected const string CouldNotEvaluateMessage = "Could not evaluate expression: ";
         protected const string ParameterReferencesMessage = "Collection Contains with parameter references is not supported: ";
         protected const string StringContainsValueMessage = "Unsupported expression in string Contains: ";
@@ -127,6 +127,11 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             public static string Name => "alpha";
         }
 
+        public class OddToString
+        {
+            public new object ToString() => "odd";
+        }
+
         public static class UserExtensions
         {
             public static int Contains(IEnumerable<int> source, int value) => 1;
@@ -181,6 +186,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         private readonly bool flag = true;
         private readonly string digits = "2";
         private readonly DtRange range = new DtRange();
+        private readonly OddToString odd = new OddToString();
+        private readonly int zero = 0;
 
         #endregion
 
@@ -339,6 +346,15 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [TestMethod]
         public void CollectionContains_NonBoolCall_NotSupported() =>
             AssertRejected<NotSupportedException>(CallOnRow(x => UserExtensions.Contains(ids, x.Id)), "Method call Contains is not supported.");
+
+        [TestMethod]
+        public void CollectionContains_LazyThrowingCollection_NotSupportedWithInner()
+        {
+            var lazy = ids.Select(i => i / zero);
+            var ex = Assert.ThrowsException<NotSupportedException>(() => Translate(CallOnRow(x => lazy.Contains(x.Id))));
+            StringAssert.StartsWith(ex.Message, CouldNotEvaluateMessage);
+            Assert.IsInstanceOfType(ex.InnerException, typeof(DivideByZeroException));
+        }
 
         [TestMethod]
         public void CollectionContains_ThrowingCollection_NotSupportedWithInner()
@@ -516,49 +532,49 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [TestMethod]
         public void ToString_Column() => Assert.AreEqual("c.Id", Translate(CallOnRow(x => x.Id.ToString())).Sql);
 
-        private void AssertEvaluatedString(MethodCallExpression call, string expected)
+        /// <summary>D16: a ToString that doesn't read the row is rejected, never evaluated or sent raw.</summary>
+        private void AssertRejectedToString(MethodCallExpression call) => AssertRejected<NotSupportedException>(call, ToStringMessage);
+
+        [TestMethod]
+        public void ToString_CapturedLocal_NotSupported() => AssertRejectedToString(Call(() => localInt.ToString()));
+
+        [TestMethod]
+        public void ToString_Constant_NotSupported() =>
+            AssertRejectedToString(Expression.Call(Expression.Constant(5), typeof(int).GetMethod("ToString", Type.EmptyTypes)));
+
+        [TestMethod]
+        public void ToString_Formatted_NotSupported() => AssertRejectedToString(Call(() => five.ToString("D2")));
+
+        [TestMethod]
+        public void ToString_CapturedThisProperty_NotSupported() => AssertRejectedToString(new Holder().CodeToString());
+
+        [TestMethod]
+        public void ToString_NestedCaptured_NotSupported() => AssertRejectedToString(Call(() => bee.Code.ToString()));
+
+        [TestMethod]
+        public void ToString_StaticMemberReceiver_NotSupported() => AssertRejectedToString(Call(() => StaticHolder.Name.ToString()));
+
+        [TestMethod]
+        public void ToString_NullableNoValue_NotSupported() => AssertRejectedToString(Call(() => noValue.ToString()));
+
+        [TestMethod]
+        public void ToString_Enum_NotSupported() => AssertRejectedToString(Call(() => day.ToString()));
+
+        [TestMethod]
+        public void ToString_ConditionalReceiver_NotSupported() => AssertRejectedToString(Call(() => (flag ? 1 : 2).ToString()));
+
+        [TestMethod]
+        public void ToString_NonStringReturn_NotSupported() => AssertRejectedToString(Call(() => odd.ToString()));
+
+        [TestMethod]
+        public void ToString_NullStringReceiver_NotSupported() => AssertRejectedToString(Call(() => nullString.ToString()));
+
+        [TestMethod]
+        public void ToString_Captured_NothingRead()
         {
-            var result = Translate(call);
-            Assert.AreEqual(1, result.Parameters.Count, "one parameter");
-            Assert.AreEqual(result.Name(0), result.Sql);
-            Assert.IsInstanceOfType(result.Value(0), typeof(string), "sent as the string C# produces");
-            Assert.AreEqual(expected, result.Value(0));
-        }
-
-        [TestMethod]
-        public void ToString_CapturedLocal_EvaluatedString() => AssertEvaluatedString(Call(() => localInt.ToString()), "5");
-
-        [TestMethod]
-        public void ToString_Constant_EvaluatedString() =>
-            AssertEvaluatedString(Expression.Call(Expression.Constant(5), typeof(int).GetMethod("ToString", Type.EmptyTypes)), "5");
-
-        [TestMethod]
-        public void ToString_Formatted_EvaluatedString() => AssertEvaluatedString(Call(() => five.ToString("D2")), "05");
-
-        [TestMethod]
-        public void ToString_CapturedThisProperty() => AssertEvaluatedString(new Holder().CodeToString(), "b");
-
-        [TestMethod]
-        public void ToString_NestedCaptured() => AssertEvaluatedString(Call(() => bee.Code.ToString()), "b");
-
-        [TestMethod]
-        public void ToString_StaticMemberReceiver() => AssertEvaluatedString(Call(() => StaticHolder.Name.ToString()), "alpha");
-
-        [TestMethod]
-        public void ToString_NullableNoValue_EmptyString() => AssertEvaluatedString(Call(() => noValue.ToString()), "");
-
-        [TestMethod]
-        public void ToString_Enum_Name() => AssertEvaluatedString(Call(() => day.ToString()), "Monday");
-
-        [TestMethod]
-        public void ToString_ConditionalReceiver_Evaluated() => AssertEvaluatedString(Call(() => (flag ? 1 : 2).ToString()), "1");
-
-        [TestMethod]
-        public void ToString_NullStringReceiver_NotSupportedWithInner()
-        {
-            var ex = Assert.ThrowsException<NotSupportedException>(() => Translate(Call(() => nullString.ToString())));
-            StringAssert.StartsWith(ex.Message, CouldNotEvaluateMessage);
-            Assert.IsInstanceOfType(ex.InnerException, typeof(NullReferenceException));
+            var counting = new Counting();
+            AssertRejectedToString(Call(() => counting.Five.ToString("D2")));
+            Assert.AreEqual(0, counting.Reads, "a rejected ToString runs no user code");
         }
 
         [TestMethod]

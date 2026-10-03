@@ -8,8 +8,8 @@ namespace Funcular.Data.Orm.Linq
 {
     /// <summary>
     /// Evaluates, as C# does, the parts of a predicate that don't read the row, for the providers' translators: a
-    /// <c>Contains</c> that doesn't read the row, a captured <c>ToString()</c>, and a captured value
-    /// (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md, D4–D10).
+    /// <c>Contains</c> that doesn't read the row, and a captured value (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md,
+    /// D4–D10). A captured <c>ToString()</c> is not evaluated: the translators reject it (D16).
     /// </summary>
     public static class RowIndependentEvaluator
     {
@@ -88,34 +88,6 @@ namespace Funcular.Data.Orm.Linq
             }
 
             sql = result ? TrueSql : FalseSql;
-            return true;
-        }
-
-        /// <summary>
-        /// When <paramref name="call"/> doesn't read the row and the delete guard would evaluate it too (an instance
-        /// <c>ToString</c> with no argument or a format string, on a receiver declared as an enum or a non-generic,
-        /// sealed or value type of the core library, or a nullable one, built only from what the guard evaluates),
-        /// evaluates the whole call, in the current culture, and returns the string C# produces. Returns false, with a
-        /// null <paramref name="value"/> and nothing evaluated, otherwise.
-        /// </summary>
-        /// <param name="call">A method named <c>ToString</c> returning <c>string</c>.</param>
-        /// <param name="value">The string C# produces (<c>""</c> for a nullable with no value).</param>
-        /// <exception cref="ArgumentNullException"><paramref name="call"/> is null.</exception>
-        /// <exception cref="ArgumentException"><paramref name="call"/> isn't a <c>ToString</c> returning <c>string</c>.</exception>
-        /// <exception cref="NotSupportedException">Evaluating the call threw; the original exception is the inner one.</exception>
-        public static bool TryEvaluateToString(MethodCallExpression call, out string? value)
-        {
-            if (call == null)
-                throw new ArgumentNullException(nameof(call));
-            if (call.Method.Name != "ToString" || call.Type != typeof(string))
-                throw new ArgumentException("Expected a method named ToString returning string: " + call, nameof(call));
-
-            value = null;
-            // The guard's rule admits no parameter, so a call it evaluates never reads the row.
-            if (!CoreEvaluability.IsEvaluable(call))
-                return false;
-
-            value = (string?)Evaluate(call, call);
             return true;
         }
 
