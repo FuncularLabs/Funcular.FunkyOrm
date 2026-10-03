@@ -633,12 +633,13 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - **A `Contains` or `ToString` that C# finds false and the database finds true** (rev 9, I1-1; widened in rev 10,
   FV1-2; corrected in rev 11, FV2-1). D2 evaluates them as C# does; the providers send a captured string's `Contains`
   as a `LIKE` between two parameters, which compares under the database's default collation (on MySQL, the
-  connection's), not a column's; SQLite's `LIKE` ignores the case of ASCII letters; and they don't send `ToString`
-  at all. Each of these deleted every row in the reviews, the first also with every column case-sensitive:
+  connection's), not a column's; SQLite's `LIKE` ignores the case of ASCII letters; and they don't send a captured
+  value's `ToString` at all. Each of these deleted every row in the reviews, the first also with every column
+  case-sensitive:
   `x.Id == 2 || s.Contains("s")` with `s = "S"` on SQL Server, MySQL and SQLite;
   `x.Id == 2 || capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL. Translator defects,
   pre-existing; filed as a separate task. A third shape, `x.Id == 2 || s.Contains("_")` on all four, came from the
-  `LIKE` metacharacters the providers didn't escape; `LIKE_ESCAPING_TOSTRING_PLAN.md` escapes them (its D6).
+  `LIKE` metacharacters the providers didn't escape; `LIKE_ESCAPING_TOSTRING_PLAN.md` escapes them (its D3).
 - **`ToString()` on a value declared as `object` or an interface** (rev 12, FV3-1) isn't evaluated, as D2 judges the
   declared type: `x.Id == 2 || o.ToString() == "s"` with `object o = "s"` (or an `IComparable`) deleted every row on
   all four providers in the fix-verification; with `object o = 7`, `o.ToString() == "7"` did on SQL Server and MySQL.
