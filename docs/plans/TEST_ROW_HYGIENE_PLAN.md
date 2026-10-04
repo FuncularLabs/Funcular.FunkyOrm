@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 11. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 12. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (`3fb471f`). Task 7's review of `35c6477..3fb471f` (§9.4) found 2 blocking and 4 non-blocking findings; rev 11 answers them (§5 Task 7). Fix-verification of that layer is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (`3fb471f`). Task 7's review of `35c6477..3fb471f` (§9.4) found 2 blocking and 4 non-blocking findings, answered in rev 11 (`9f7722e`, §5 Task 7). Its fix-verification (§9.5) found 2 blocking and 1 non-blocking, in prose; rev 12 answers them, and is re-verified next.
+
+> **Revision 12 — what changed (fix-verification R2-1…R2-3):** the Changelog line says which tests delete and which are checked, and that the suites no longer add rows on each run (R2-1); the new case's comment says what SQL Server's driver raises (R2-2); §9.5 corrects §9.4's row total (R2-3).
 
 > **Revision 11 — what changed (Task 7 review, R1-1…R1-6):** probes in the four MySQL classes that call the fixture's hooks from their own cleanup (13 probes; M10 covers 13 hook sites) (R1-1). The Changelog line names the tables it covers and says where each figure comes from (R1-2, R1-6). `Finish` records any exception from a delete, with a case and mutation M15 (R1-4). §1.3 says "no class- or assembly-level seeding" (R1-5). `MySqlTestFixture`'s coverage joins net48's as an owner question (R1-3).
 
@@ -525,6 +527,10 @@ the exact sha).
       left 12 rows (organization 2, project 4, project_milestone 6): with the check off, its `Setup` seed (and the
       probe's re-`Setup` seed) wasn't deleted. Not deleted afterwards (D3).
     - R1-2, R1-6: the Changelog line. R1-5: §1.3. R1-3: owner question (§4.2).
+    - Suites after the layer, from fresh builds: SQL Server 896 of 896, PostgreSQL 770 of 770, MySQL 724 of 724,
+      net48 70 of 70, every guarded count unchanged.
+  - **Fix-verification of `3fb471f..9f7722e`** (§9.5): 2 blocking, 1 non-blocking, all in prose (the Changelog
+    line's class scope, a test comment, §9.4's total); the commit that carries rev 12 answers them.
 
 ## 6. Out of scope (recorded)
 
@@ -618,3 +624,15 @@ mutant before any `-NoBuild` run.
 | R1-4 | Non-blocking | `Finish` caught only `DbException`, so another exception from a delete skipped the rest and the count check, against AC5 and its doc comment | `catch (Exception)`; case `Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError`; M15 | TEST-GAP |
 | R1-5 | Non-blocking | §1.3 said no `[ClassInitialize]` in any suite; three performance-test classes have one (logging only) | Reworded | PLAN-GAP |
 | R1-6 | Non-blocking | The Changelog's net48 figure and Task 5's "before" come from the audit, which §1.1 calls not measured | The Changelog says each figure's source | PLAN-GAP |
+
+### 9.5 Fix-verification of `3fb471f..9f7722e` (non-author; rebuilt after every restore; re-ran M15 on all three providers, RV-M15 on two MySQL classes, M5, and its own RV-M16; all counts unchanged)
+
+Verdict: 2 blocking, 1 non-blocking. R1-1, R1-3…R1-6 confirmed resolved; R1-2 partly (R2-1). `catch (Exception)` is
+safe (every caught error still ends in `Assert.Fail`), and `PersonWithUnbindableId` doesn't reach the remote-path
+resolver's foreign-key graph. All accepted; rev 12 answers them.
+
+| ID | Severity | Finding | Disposition | Blame |
+|---|---|---|---|---|
+| R2-1 | Blocking | The Changelog line said a test that inserts into the tables deletes and is checked; SQL Server's ComputedAttribute and JsonPath insert `project` rows, delete them by name, and aren't checked. "No longer leave rows in `organization`" is untrue on a fresh database's first run | The line says the tests that left rows delete them, that fixture-based tests and the formerly leaking classes are checked, and that the suites no longer add rows on each run | HOUSE-RULE |
+| R2-2 | Blocking | The new case's comment said no driver's error is a `DbException`; SQL Server's is (M15 survives there) | Comment names what each driver raises | HOUSE-RULE |
+| R2-3 | Non-blocking | §9.4's "65 rows" is 68: the stale-build runs left 66 (PostgreSQL `organization` +3, MySQL `person` +33, `organization` +30), plus 1 each from M11 and RV-M15. The reviewer's own count was wrong | Corrected here (§9.4 is history) | PLAN-GAP |

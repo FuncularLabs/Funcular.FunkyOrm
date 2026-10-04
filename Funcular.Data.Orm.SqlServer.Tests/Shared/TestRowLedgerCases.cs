@@ -115,7 +115,8 @@ namespace Funcular.Data.Orm.Tests.Shared
                 var marker = NewMarker();
                 var earlier = Insert(inserted, "person", _insertPerson(marker, marker, null));
                 ledger.Track(earlier);
-                // Deleted first; no driver can bind an object as @id, so the delete throws outside DbException.
+                // Deleted first. No driver can bind an object as @id: PostgreSQL and MySQL throw outside DbException;
+                // SQL Server's driver raises a SqlException, so there the case passes either way.
                 ledger.Track(new PersonWithUnbindableId());
 
                 var failure = Assert.ThrowsException<AssertFailedException>(() => ledger.Finish());
