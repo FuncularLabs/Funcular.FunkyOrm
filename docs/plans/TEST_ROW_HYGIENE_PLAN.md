@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 9. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 10. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (§5); Task 6 is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (§5); Task 7 (non-author adversarial review) is next.
+
+> **Revision 10 — what changed (Task 6):** §5 records the Changelog line and the coverage.
 
 > **Revision 9 — what changed (Task 5):** §5 records Task 5; §6 records the net48 `dotnet build` gap.
 
@@ -485,6 +487,22 @@ the exact sha).
     - DotNet9, measured once: 5 of 5 passed, counts unchanged; it leaves nothing.
     - The net48 coverage exemption (§4.2) still awaits the owner's answer.
 - **Task 6 — documents.** D9's Changelog line and XML docs; this plan's §5 record.
+  - **Record (the commit that carries rev 10):** the Changelog line is under 3.10.0-beta1 › Changed. Coverage, from
+    one measured run of each net8 suite with `IncludeTestAssembly=true` (counts unchanged around each: SQL Server
+    895 of 895, PostgreSQL 769 of 769, MySQL 719 of 719), line rate per touched file:
+
+    | File | Line rate |
+    |---|---|
+    | `Shared/TestRowLedger.cs` | SQL Server 99.2 %, PostgreSQL 92.7 %, MySQL 92.7 % |
+    | `Shared/TestRowLedgerCases.cs` | 98.2 % (each provider) |
+    | `SqlServerTestFixture.cs` | 98.1 % |
+    | `PostgreSqlTestFixture.cs` | 94.3 % |
+    | `MySqlTestFixture.cs` | **68.2 %**: every uncovered line is pre-existing environment fallback (lines 34–40, `Assert.Inconclusive` when `FUNKY_MYSQL_CONNECTION` is unset; 69–75, the registry read), which a configured run can't reach. Every line this branch added is covered |
+    | The three `*TestRowLedgerTests.cs` | 100 % |
+    | SQL Server touched test classes (7) | 97.9–100 % |
+    | PostgreSQL touched test classes (7) | 97.6–100 % |
+    | MySQL touched test classes (5) | 99.5–100 % |
+    | net48 (2) | not measured: the exemption of §4.2, pending the owner |
 - **Task 7 — adversarial review (non-author)** of the cumulative diff, then fix-verification of each fix layer, then
   the push gate.
 
