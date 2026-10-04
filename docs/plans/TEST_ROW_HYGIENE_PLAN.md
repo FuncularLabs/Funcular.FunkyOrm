@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 12. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 13. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (`3fb471f`). Task 7's review of `35c6477..3fb471f` (§9.4) found 2 blocking and 4 non-blocking findings, answered in rev 11 (`9f7722e`, §5 Task 7). Its fix-verification (§9.5) found 2 blocking and 1 non-blocking, in prose; rev 12 answers them, and is re-verified next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (`3fb471f`). Task 7's review of `35c6477..3fb471f` (§9.4) found 2 blocking and 4 non-blocking findings, answered in rev 11 (`9f7722e`, §5 Task 7). Its fix-verification (§9.5) found 2 blocking and 1 non-blocking, in prose, answered in rev 12 (`7fc52d2`). Its re-verification (§9.6) found 1 blocking (R3-1, a class outside the CI filter), answered here; re-verified next.
+
+> **Revision 13 — what changed (re-verification R3-1):** §1.1 says the SQL Server figures are for the CI filter and names the EntityFramework comparison class it leaves out; §6 records that class; the Changelog line names it among the tables and tests that still collect rows.
 
 > **Revision 12 — what changed (fix-verification R2-1…R2-3):** the Changelog line says which tests delete and which are checked, and that the suites no longer add rows on each run (R2-1); the new case's comment says what SQL Server's driver raises (R2-2); §9.5 corrects §9.4's row total (R2-3).
 
@@ -108,6 +110,10 @@ per run, PostgreSQL +87 and MySQL +59.
   `PostgreSqlComputedAttributeIntegrationTests.cs:132-135`, `PostgreSqlJsonPathIntegrationTests.cs`). That is one row
   each, ever, not growth (§6).
 - The affected files are identical on `development/3.10` and `ca82741` (`git diff --stat` lists none of them).
+- The SQL Server figures are for the CI filter (`FullyQualifiedName!~PerformanceTests&FullyQualifiedName!~EntityFramework`),
+  which the owner's measurement used. The class it leaves out, `EntityFramework/EfSqlDataProviderIntegrationTests`,
+  also inserts `person`, `address` and `person_address` rows into the same database and deletes almost none; it is
+  out of scope (§6).
 
 ### 1.2 What isn't affected
 
@@ -530,7 +536,9 @@ the exact sha).
     - Suites after the layer, from fresh builds: SQL Server 896 of 896, PostgreSQL 770 of 770, MySQL 724 of 724,
       net48 70 of 70, every guarded count unchanged.
   - **Fix-verification of `3fb471f..9f7722e`** (§9.5): 2 blocking, 1 non-blocking, all in prose (the Changelog
-    line's class scope, a test comment, §9.4's total); the commit that carries rev 12 answers them.
+    line's class scope, a test comment, §9.4's total), answered in `7fc52d2` (rev 12).
+  - **Re-verification of `9f7722e..7fc52d2`** (§9.6): R2-1…R2-3 resolved; 1 blocking, R3-1 (the EntityFramework
+    class), answered in the commit that carries rev 13 (documents only).
 
 ## 6. Out of scope (recorded)
 
@@ -538,6 +546,10 @@ the exact sha).
   `SqlServerAuditContextIntegrationTests` 15 per run, PostgreSQL `PostgreSqlAuditContextIntegrationTests` 4; RLS
   filters the delete, so cleanup needs each owner's session context or a role that bypasses RLS);
   `non_identity_guid_entity` / `non_identity_string_entity` (SQL Server 1 each, MySQL 1); MySQL `user` (2).
+- **SQL Server's EntityFramework comparison tests** (`EntityFramework/EfSqlDataProviderIntegrationTests`, 49 tests,
+  own hooks, outside the CI filter and the measured command) insert `person`, `address` and `person_address` rows
+  and delete only the Delete tests' own; an unfiltered run or a Test Explorer "Run All" still adds them. Not
+  wired here (found by the Task 7 re-verification, R3-1); the follow-up covers it unless the owner asks for it here.
 - **Rows earlier runs left** stay. No sweep by name or marker (owner rule: don't delete rows you didn't create).
   `Query_MaxDateWithSelector` reads the table's maximum birthdate, which those rows have pushed forward; it stops
   moving once runs stop leaking.
@@ -636,3 +648,13 @@ resolver's foreign-key graph. All accepted; rev 12 answers them.
 | R2-1 | Blocking | The Changelog line said a test that inserts into the tables deletes and is checked; SQL Server's ComputedAttribute and JsonPath insert `project` rows, delete them by name, and aren't checked. "No longer leave rows in `organization`" is untrue on a fresh database's first run | The line says the tests that left rows delete them, that fixture-based tests and the formerly leaking classes are checked, and that the suites no longer add rows on each run | HOUSE-RULE |
 | R2-2 | Blocking | The new case's comment said no driver's error is a `DbException`; SQL Server's is (M15 survives there) | Comment names what each driver raises | HOUSE-RULE |
 | R2-3 | Non-blocking | §9.4's "65 rows" is 68: the stale-build runs left 66 (PostgreSQL `organization` +3, MySQL `person` +33, `organization` +30), plus 1 each from M11 and RV-M15. The reviewer's own count was wrong | Corrected here (§9.4 is history) | PLAN-GAP |
+
+### 9.6 Re-verification of `9f7722e..7fc52d2` (non-author; every clause of the Changelog line checked against each class with its own hooks; a scratch SqlClient check of R2-2 in a rolled-back transaction, outside the repo; counts unchanged)
+
+Verdict: 1 blocking. R2-1…R2-3 confirmed resolved; SQL Server's driver rejects `new object()` as `@id` with a
+`SqlException` (a `DbException`), as the comment now says. Accepted; rev 13 answers it with documents only, leaving
+the owner the choice of wiring the class.
+
+| ID | Severity | Finding | Disposition | Blame |
+|---|---|---|---|---|
+| R3-1 | Blocking | "No longer add rows … on each run" is false for `EntityFramework/EfSqlDataProviderIntegrationTests`, which the CI filter (and so AC2) excludes but the Changelog didn't; it inserts person/address/link rows and deletes almost none. Missed by every earlier round, the reviewer's included | §1.1 states the CI-filter scope; §6 records the class; the Changelog names it among what still collects rows; added to the follow-up task | AC-GAP |

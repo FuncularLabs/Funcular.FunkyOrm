@@ -120,8 +120,8 @@ Other changes:
   used to add `person` rows to the shared test databases: SQL Server 177, PostgreSQL 87, MySQL 59 (measured), net48
   101 (counted from its tests). The tests that left those rows now delete them by primary key after each test; the
   tests built on the shared fixtures, and the classes that used to leak, fail when a test changes those tables' row
-  counts. `rls_demo`, `non_identity_*` and MySQL's `user` still collect rows; a follow-up covers them. No library
-  change.
+  counts. `rls_demo`, `non_identity_*`, MySQL's `user`, and SQL Server's EntityFramework comparison tests (outside
+  the CI filter) still collect rows; a follow-up covers them. No library change.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
