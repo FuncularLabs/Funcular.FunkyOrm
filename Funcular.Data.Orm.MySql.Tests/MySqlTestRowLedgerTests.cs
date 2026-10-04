@@ -42,6 +42,10 @@ namespace Funcular.Data.Orm.MySql.Tests
             Cases.Finish_AttemptsEveryDelete_AndReportsTheOnesThatFail();
 
         [TestMethod]
+        public void Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError() =>
+            Cases.Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError();
+
+        [TestMethod]
         public void Finish_Passes_WhenATrackedRowIsAlreadyGone() => Cases.Finish_Passes_WhenATrackedRowIsAlreadyGone();
 
         [TestMethod]

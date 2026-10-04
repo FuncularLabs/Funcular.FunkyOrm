@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Funcular.Data.Orm;
 using Funcular.Data.Orm.Attributes;
 using Funcular.Data.Orm.MySql.Tests.Domain;
+using Funcular.Data.Orm.Tests.Shared;
 using MySqlConnector;
 
 namespace Funcular.Data.Orm.MySql.Tests
@@ -57,6 +58,15 @@ namespace Funcular.Data.Orm.MySql.Tests
 
         [TestCleanup]
         public void Cleanup() => DisposeProvider();
+
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var person = new Person { FirstName = "Probe", LastName = Guid.NewGuid().ToString("N") };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new MySqlConnection(_connectionString),
+                "person", person.Id);
+        }
 
         private static string UniqueGender() => "g" + Guid.NewGuid().ToString("N").Substring(0, 8);
 

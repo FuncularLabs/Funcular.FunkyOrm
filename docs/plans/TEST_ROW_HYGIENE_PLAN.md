@@ -10,10 +10,12 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
-> **Status (2026-10-03):** rev 10. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
+> **Status (2026-10-03):** rev 11. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).
-> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (§5); Task 7 (non-author adversarial review) is next.
+> Rev 5 records Task 1 (`a2c836d`), rev 6 Task 2 (`5100216`), rev 7 Task 3 (`268bb75`), rev 8 Task 4 (`a69b08d`), rev 9 Task 5 (`d48aeab`), rev 10 Task 6 (`3fb471f`). Task 7's review of `35c6477..3fb471f` (§9.4) found 2 blocking and 4 non-blocking findings; rev 11 answers them (§5 Task 7). Fix-verification of that layer is next.
+
+> **Revision 11 — what changed (Task 7 review, R1-1…R1-6):** probes in the four MySQL classes that call the fixture's hooks from their own cleanup (13 probes; M10 covers 13 hook sites) (R1-1). The Changelog line names the tables it covers and says where each figure comes from (R1-2, R1-6). `Finish` records any exception from a delete, with a case and mutation M15 (R1-4). §1.3 says "no class- or assembly-level seeding" (R1-5). `MySqlTestFixture`'s coverage joins net48's as an owner question (R1-3).
 
 > **Revision 10 — what changed (Task 6):** §5 records the Changelog line and the coverage.
 
@@ -132,8 +134,9 @@ per run, PostgreSQL +87 and MySQL +59.
   `coverlet.collector`. `Funcular.Data.Orm.Tests.Shared` files are already linked into it and into DotNet9
   (`SupportedOperatorSignatures.cs`). The net8 projects have `ImplicitUsings` on and a global MSTest using.
 - **No parallelism**: no `[Parallelize]` attribute or parallel runsettings in any suite.
-- **No class- or assembly-level seeding**: no `[ClassInitialize]` or `[AssemblyInitialize]` in any of the four
-  suites, so a check per test covers each class.
+- **No class- or assembly-level seeding**: no `[ClassInitialize]` or `[AssemblyInitialize]` in any affected class;
+  the three performance-test classes that have one only set up logging and are outside the CI filter and the
+  playlist. So a check per test covers each class.
 - **Provider transactions don't nest.** `BeginTransaction` throws "Transaction already in progress." when one is open
   (`SqlServerOrmDataProvider.cs:938`, `PostgreSqlOrmDataProvider.cs:414`, `MySqlOrmDataProvider.cs:389`). The suites
   call `BeginTransaction()` at 35 sites (SQL Server, CI filter), 20 (PostgreSQL) and 9 (MySQL). Five net8 tests
@@ -299,8 +302,9 @@ other `…Id` property (§1.3).
 | AC2 | Per-suite measurement, §4.4 | Counts unchanged around one run of each suite |
 | AC3, AC4 | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt` (each provider) | Inserts person P1 (tracked), then P2 with the same first and last name (untracked, higher id). `Finish` fails naming `person` with both counts; P1 is gone and P2 still exists |
 | AC3 | `Track_Rejects_AnEntityOutsideTheGuardedSet` (each provider) | `ArgumentException` for a `[Table("not_guarded")]` type and for a `[Table("person")]` type with no `Id` |
-| AC4 | `Cleanup_Fails_WhenTheTestLeavesAPersonRow`, 9 wiring probes (§4.2) | Each class's own `Cleanup` fails after an untracked insert; proves `Begin` and `Finish` are wired at every hook site |
+| AC4 | `Cleanup_Fails_WhenTheTestLeavesAPersonRow`, 13 wiring probes (§4.2) | Each class's own `Cleanup` fails after an untracked insert; proves `Begin` and `Finish` are wired at every hook site |
 | AC5 | `Finish_AttemptsEveryDelete_AndReportsTheOnesThatFail` (each provider) | Tracks person Q, then organization O; an untracked person employed by O blocks O's delete. `Finish` fails naming O's id and the `person` count, and Q is gone |
+| AC5 | `Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError` (each provider) | Tracks a person, then an entity whose `Id` no driver can bind; that delete throws outside `DbException` (PostgreSQL `InvalidCastException`, MySQL `NotSupportedException`; SQL Server's driver raises a `SqlException`), is reported, and the person is still deleted |
 | AC5 | `Finish_Passes_WhenATrackedRowIsAlreadyGone` (each provider) | A row the test deleted itself isn't a failure |
 | AC5 | `Cleanup_Passes_WhenTheTestLeftATransactionOpen` (SQL Server fixture, in `SqlDataProviderIntegrationTests`) | Begins a transaction, inserts and tracks a person, calls `Cleanup`: it passes, because dispose rolls back before `Finish` reads |
 | AC5 | Placement: `Finish` in `[TestCleanup]` (§1.3: MSTest runs it after a failed test) | Cleanup on failure |
@@ -312,19 +316,22 @@ other `…Id` property (§1.3).
 | Member | Tests |
 |---|---|
 | `TestRowLedger.Begin` | every contract case; every guarded test |
-| `TestRowLedger.Track` | `Finish_DeletesTrackedRows_NewestFirst`, `Finish_Fails_WhenAnUntrackedCopy…`, `Finish_AttemptsEveryDelete…`, `Finish_Passes_WhenATrackedRowIsAlreadyGone`, `Track_Rejects…` (both branches) |
+| `TestRowLedger.Track` | `Finish_DeletesTrackedRows_NewestFirst`, `Finish_Fails_WhenAnUntrackedCopy…`, `Finish_AttemptsEveryDelete…` (both), `Finish_Passes_WhenATrackedRowIsAlreadyGone`, `Track_Rejects…` (both branches) |
 | `TestRowLedger.Finish` | every contract case except `Track_Rejects…` and `Tables_Are…`; the wiring probes |
 | `TestRowLedger.DeleteRow` | every contract case's `finally`; `AssertCleanupFails` |
 | `SqlServerTables`, `PostgreSqlTables`, `MySqlTables` | `Tables_AreTheProvidersGuardedSet` (per provider) |
-| `TestRowLedgerProbe.AssertCleanupFails` | the 9 wiring probes |
+| `TestRowLedgerProbe.AssertCleanupFails` | the 13 wiring probes |
 | `TestRowLedgerProbe.AssertCleanupPasses` | `Cleanup_Passes_WhenTheTestLeftATransactionOpen` |
 | Fixture `Track` (SQL Server, PostgreSQL, MySQL), `SeedEmployerChain(countryPrefix)` (SQL Server, PostgreSQL) | AC6 tests (the ordering test passes two prefixes); every helper insert |
 
-Wiring probes (`Cleanup_Fails_WhenTheTestLeavesAPersonRow`), 9: SQL Server `SqlDataProviderIntegrationTests`
+Wiring probes (`Cleanup_Fails_WhenTheTestLeavesAPersonRow`), 13: SQL Server `SqlDataProviderIntegrationTests`
 (fixture), `SqlDataProviderIntegrationAsyncTests`, `StoredProcedureIntegrationTests`; PostgreSQL
 `PostgreSqlDataProviderIntegrationTests` (fixture), `PostgreSqlDataProviderIntegrationAsyncTests`,
 `PostgreSqlComputedAttributeIntegrationTests`; MySQL `MySqlDataProviderIntegrationTests` (the fixture's
-`InitProvider`/`DisposeProvider`); net48 both classes. Each inserts an untracked person through the class's
+`InitProvider`/`DisposeProvider`) and each other §1.1 class, since each calls them from its own hooks
+(`MySqlDataProviderIntegrationAsyncTests`, `MySqlRemoteFeaturesTests`, `MySqlJsonAndComputedTests`,
+`MySqlStoredProcedureTests`); net48 both classes. (SQL Server and PostgreSQL fixture subclasses inherit the
+fixture's hooks; none hides `Cleanup`.) Each inserts an untracked person through the class's
 provider and calls `TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, …)`.
 
 Coverage: `TestRowLedger.cs`, `TestRowLedgerCases.cs` and the touched fixtures at ≥ 85 % line rate, from
@@ -334,7 +341,7 @@ Per-file `line-rate` from each cobertura file goes in §5. net48: the house rule
 `coverlet.collector` gets it as part of the task. The plan proposes an exemption instead, **pending the owner's
 approval** (asked with the Task 5 handoff): the old-style project has no coverlet, its suite is opt-in, the shared
 files' coverage comes from the net8 runs, and its own edits are hook lines and `Track` calls whose execution the
-probes and the check prove. If the owner declines, Task 5 adds `coverlet.collector` and collects through vstest.
+probes and the check prove. If the owner declines, Task 5 adds `coverlet.collector` and collects through vstest. `MySqlTestFixture.cs` (68.2 %, all of it pre-existing environment fallback; §5 Task 6) is put to the owner with it (R1-3).
 
 ### 4.3 Mutations each key test must kill
 
@@ -349,11 +356,12 @@ probes and the check prove. If the owner declines, Task 5 adds `coverlet.collect
 | M7 | `Begin` also records each table's `MAX(id)` and `Finish` deletes every id above it | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt` (P2 must survive) |
 | M8 | A table removed from a provider's list | `Tables_AreTheProvidersGuardedSet` |
 | M9 | An AC6 test's seed removed, or `SeedEmployerChain` not setting `EmployerId` | that test (it reads its own person, so rows other runs left don't rescue it) |
-| M10 | `Finish` or `Begin` removed from a hook (each of the 9 hook sites) | that site's wiring probe |
+| M10 | `Finish` or `Begin` removed from a hook (each of the 13 hook sites; at a MySQL class, its `Cleanup` no longer calls `DisposeProvider`) | that site's wiring probe |
 | M11 | A `Track` call removed: from `InsertTestPerson` (SQL Server, PostgreSQL fixtures); after the direct insert in `MySqlDataProviderIntegrationTests.Insert_AssignsIdentity_AndGetRoundTrips` (MySQL has no helper) | the D4 check fails `Get_WithExistingId_ReturnsPerson` (SQL Server, PostgreSQL) and `Insert_AssignsIdentity_AndGetRoundTrips` (MySQL) |
 | M12 | `Finish` also deletes rows whose first and last name match a tracked row's | `Finish_Fails_WhenAnUntrackedCopyIsLeft_AndLeavesIt` (P2 must survive) |
 | M13 | The SQL Server fixture calls `Finish` before disposing the provider | `Cleanup_Passes_WhenTheTestLeftATransactionOpen` (the delete and the count wait on the open transaction's lock and time out). Needs locking READ COMMITTED (§1.3): if the local database has `READ_COMMITTED_SNAPSHOT` on, M13 runs on LocalDB, or is recorded as surviving locally |
 | M14 | Library, local only and reverted: the body of `ResolveAggregateJoins` (`Funcular.Data.Orm.SqlServer/…/SqlLinqQueryProvider.cs:720-727`; `Funcular.Data.Orm.PostgreSql/PostgreSql/PostgreSqlLinqQueryProvider.cs:550-557`) becomes `return remoteInfo.JoinClauses ?? string.Empty;`. Revert, and check `git status` shows no library path before any commit | `Count_NoFilter_OnReverseEntity_MatchesBaseCount` (the filtered count becomes 2 and the whole-table counts differ) |
+| M15 | `Finish` catches only `DbException` | `Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError` on PostgreSQL and MySQL; on SQL Server the driver's error is a `DbException`, so it survives there; recorded |
 
 Mutation runs: M1–M8 and M12 leave nothing (each case's `finally` deletes all it inserted). M7 and M12 change what
 `Finish` deletes, so they run only with a filter that selects the `*TestRowLedgerTests` classes, whose rows carry
@@ -505,6 +513,18 @@ the exact sha).
     | net48 (2) | not measured: the exemption of §4.2, pending the owner |
 - **Task 7 — adversarial review (non-author)** of the cumulative diff, then fix-verification of each fix layer, then
   the push gate.
+  - **Review of `35c6477..3fb471f`** (§9.4): 2 blocking, 4 non-blocking; its mutation re-runs reproduced every claim
+    it tried, and it found RV-M15 surviving.
+  - **Fix layer (the commit that carries rev 11):**
+    - R1-4, red: `Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError` failed on PostgreSQL ("Threw
+      exception InvalidCastException, but exception AssertFailedException was expected") and MySQL
+      (`NotSupportedException`); it passed on SQL Server. Green after `catch (Exception)`: the seven contract cases
+      passed on each provider, counts unchanged. M15 (back to `DbException`): killed on PostgreSQL and MySQL.
+    - R1-1: the four MySQL probes passed; RV-M15 (that class's `Cleanup` back to `_provider?.Dispose()`) failed
+      each with "Cleanup passed although the test left a row in person." The `MySqlJsonAndComputedTests` RV-M15 run
+      left 12 rows (organization 2, project 4, project_milestone 6): with the check off, its `Setup` seed (and the
+      probe's re-`Setup` seed) wasn't deleted. Not deleted afterwards (D3).
+    - R1-2, R1-6: the Changelog line. R1-5: §1.3. R1-3: owner question (§4.2).
 
 ## 6. Out of scope (recorded)
 
@@ -578,3 +598,23 @@ non-blocking findings, folded into rev 4.
 |---|---|---|---|---|
 | T2-1 | Non-blocking | `SeedEmployerChain()` generated its own names, so the ordering test couldn't control name order | Country-name prefix parameter; `"B_"` then `"A_"` (D8, §4.2) | PLAN-GAP |
 | T2-2 | Non-blocking | M14 didn't name the PostgreSQL site or the exact mutant; its killer cell named something the test doesn't observe; Task 3 didn't say which mutations PostgreSQL runs | Both sites, the mutant, the revert check; killer cell rewritten; Task 3 lists M9–M11, M14 (§4.3, §5) | PLAN-GAP |
+
+### 9.4 Task 7 review of `35c6477..3fb471f` (non-author; re-ran M1–M12, M14 and its own M14b and RV-M15 against fresh builds, the four suites, and the coverage collection)
+
+Verdict: 2 blocking, 4 non-blocking. All accepted; rev 11 answers them.
+
+The reviewer's coverage pass ran with `-NoBuild` straight after its mutation runs, so it ran stale mutant binaries:
+SQL Server (the M14b library mutant; 7 failures, no rows), PostgreSQL (`Finish` removed from ComputedAttribute;
+`organization` +3) and MySQL (`Begin` removed from the fixture; `person` +33, `organization` +30). With M11's and
+RV-M15's expected single rows, its runs left 65 rows. It rebuilt from the clean tree and re-ran all three suites
+green with counts unchanged. The rows weren't deleted (D3). Lesson for later rounds: rebuild after restoring a
+mutant before any `-NoBuild` run.
+
+| ID | Severity | Finding | Disposition | Blame |
+|---|---|---|---|---|
+| R1-1 | Blocking | Four MySQL §1.1 classes call `DisposeProvider` from their own `Cleanup` but had no probe; RV-M15 (`Cleanup => _provider?.Dispose()`) survived in `MySqlStoredProcedureTests` and leaked a row | Probe in each of the four; RV-M15 kills each; §4.1, §4.2, M10 updated | TEST-GAP |
+| R1-2 | Blocking | The Changelog line claimed the suites leave no rows; `rls_demo`, `non_identity_*`, MySQL `user` still do, and the check covers only the guarded tables | Line names the tables, says what still collects rows, and that a follow-up covers them | HOUSE-RULE |
+| R1-3 | Non-blocking | `MySqlTestFixture.cs` at 68.2 % (all uncovered lines pre-existing environment fallback) | Owner question with net48's exemption (§4.2) | HOUSE-RULE |
+| R1-4 | Non-blocking | `Finish` caught only `DbException`, so another exception from a delete skipped the rest and the count check, against AC5 and its doc comment | `catch (Exception)`; case `Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError`; M15 | TEST-GAP |
+| R1-5 | Non-blocking | §1.3 said no `[ClassInitialize]` in any suite; three performance-test classes have one (logging only) | Reworded | PLAN-GAP |
+| R1-6 | Non-blocking | The Changelog's net48 figure and Task 5's "before" come from the audit, which §1.1 calls not measured | The Changelog says each figure's source | PLAN-GAP |

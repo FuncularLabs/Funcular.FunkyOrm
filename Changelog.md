@@ -115,10 +115,12 @@ Other changes:
   exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
   the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
   such an entity already failed in 3.9.0.)
-- **Tests only: the integration suites no longer leave rows behind.** Each run used to add rows to the shared test
-  databases' `person` table and its related tables (SQL Server 177 `person` rows, PostgreSQL 87, MySQL 59, net48
-  101). Each test now deletes the rows it inserts, by primary key, and fails if it leaves those tables' row counts
-  changed. No library change.
+- **Tests only: the integration suites no longer leave rows in `person` and its related tables** (`address`,
+  `person_address`, `organization`, `country`, and the project tables where the schema has them). Each run used to
+  add `person` rows to the shared test databases: SQL Server 177, PostgreSQL 87, MySQL 59 (measured), net48 101
+  (counted from its tests). A test that inserts into those tables now deletes those rows by primary key, and fails
+  if it leaves their row counts changed. `rls_demo`, `non_identity_*` and MySQL's `user` still collect rows; a
+  follow-up covers them. No library change.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

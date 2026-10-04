@@ -106,6 +106,29 @@ namespace Funcular.Data.Orm.Tests.Shared
             }
         }
 
+        public void Finish_AttemptsEveryDelete_WhenADeleteThrowsANonDatabaseError()
+        {
+            var inserted = new List<KeyValuePair<string, int>>();
+            try
+            {
+                var ledger = TestRowLedger.Begin(_newConnection, _tables);
+                var marker = NewMarker();
+                var earlier = Insert(inserted, "person", _insertPerson(marker, marker, null));
+                ledger.Track(earlier);
+                // Deleted first; no driver can bind an object as @id, so the delete throws outside DbException.
+                ledger.Track(new PersonWithUnbindableId());
+
+                var failure = Assert.ThrowsException<AssertFailedException>(() => ledger.Finish());
+
+                StringAssert.Contains(failure.Message, "These tracked rows could not be deleted:");
+                Assert.IsFalse(Exists("person", IdOf(earlier)), "A failed delete stopped the later ones.");
+            }
+            finally
+            {
+                DeleteAll(inserted);
+            }
+        }
+
         public void Finish_Passes_WhenATrackedRowIsAlreadyGone()
         {
             var inserted = new List<KeyValuePair<string, int>>();
@@ -145,6 +168,12 @@ namespace Funcular.Data.Orm.Tests.Shared
         private sealed class PersonWithoutId
         {
             public string FirstName { get; set; }
+        }
+
+        [Table("person")]
+        private sealed class PersonWithUnbindableId
+        {
+            public object Id { get; set; } = new object();
         }
 
         private static string NewMarker() => "ledger_" + Guid.NewGuid().ToString("N").Substring(0, 12);

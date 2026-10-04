@@ -90,7 +90,7 @@ namespace Funcular.Data.Orm.Tests.Shared
                 {
                     DeleteRow(_newConnection, _rows[i].Key, _rows[i].Value);
                 }
-                catch (DbException ex)
+                catch (Exception ex)
                 {
                     failedDeletes.Add("  " + _rows[i].Key + " id " + _rows[i].Value + ": " + ex.Message);
                 }
