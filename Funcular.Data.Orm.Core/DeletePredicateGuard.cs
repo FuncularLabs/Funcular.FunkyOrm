@@ -150,7 +150,15 @@ namespace Funcular.Data.Orm
         /// <param name="whereClause">The WHERE clause, without the <c>WHERE</c> keyword.</param>
         /// <returns>True when the clause always holds by its literals.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="whereClause"/> is null.</exception>
-        public static bool HasLiteralTautology(string whereClause)
+        public static bool HasLiteralTautology(string whereClause) => HasLiteralTautology(whereClause, LargeStackSize);
+
+        /// <summary>
+        /// <see cref="HasLiteralTautology(string)"/>, parsing a clause too deep for the calling thread again on a stack
+        /// of <paramref name="largeStackSize"/> bytes. Tests pass a small one: how many levels fit on a stack depends on
+        /// how the JIT has compiled the parser by then, so only a stack far too small for the clause is too small on
+        /// every run.
+        /// </summary>
+        internal static bool HasLiteralTautology(string whereClause, int largeStackSize)
         {
             if (whereClause == null)
                 throw new ArgumentNullException(nameof(whereClause));
@@ -168,18 +176,19 @@ namespace Funcular.Data.Orm
             catch (InsufficientExecutionStackException)
             {
                 // Nested too deeply for this thread's stack: parse it again on a thread with a large one.
-                return ParseOnLargeStack(tokens);
+                return ParseOnLargeStack(tokens, largeStackSize);
             }
         }
 
         private const int LargeStackSize = 64 * 1024 * 1024;
 
         /// <summary>
-        /// Folds <paramref name="tokens"/> on a new thread with a 64 MB stack, for a clause nested too deeply for the
-        /// calling thread's. A clause too deep even for that, or a platform that can't start the thread, gives false,
-        /// as a clause that doesn't parse does.
+        /// Folds <paramref name="tokens"/> on a new thread with a <paramref name="stackSize"/>-byte stack (64 MB from
+        /// <see cref="HasLiteralTautology(string)"/>), for a clause nested too deeply for the calling thread's. A clause
+        /// too deep even for that, or a platform that can't start the thread, gives false, as a clause that doesn't
+        /// parse does.
         /// </summary>
-        private static bool ParseOnLargeStack(List<Token> tokens)
+        private static bool ParseOnLargeStack(List<Token> tokens, int stackSize)
         {
             var result = false;
             Exception? failure = null;
@@ -201,7 +210,7 @@ namespace Funcular.Data.Orm
                         // it would end the process.
                         failure = ex;
                     }
-                }, LargeStackSize);
+                }, stackSize);
                 thread.Start();
                 thread.Join();
             }

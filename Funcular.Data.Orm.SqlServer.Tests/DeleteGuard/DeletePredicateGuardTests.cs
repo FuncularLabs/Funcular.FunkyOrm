@@ -618,17 +618,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
 
         /// <summary>
         /// A clause nested too deeply even for the large stack is one the parser can't parse: false, not a stack
-        /// overflow.
+        /// overflow. The large stack here is 1 MB, not 64 MB: how many levels fit on 64 MB depends on how far the JIT
+        /// has optimised the parser (in a Release build, about 230,000 cold and 350,000 once earlier tests have warmed
+        /// it), but even an optimised parser makes a recursive call per level, at least 16 bytes of stack in a 64-bit
+        /// process, so 70,000 levels can't fit in 1 MB. They do fit on 64 MB (about 92,000 do in a Debug build), so
+        /// the test also fails if the size it passes doesn't reach the parsing thread.
         /// </summary>
         [TestMethod]
         public void HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse()
         {
-            const int depth = 300000;
+            const int depth = 70000;
             var clause = new string('(', depth) + "t.id = @p OR NOT 1=0" + new string(')', depth);
-            Assert.AreEqual(false, OnSmallThread(clause));
+            Assert.AreEqual(false, OnSmallThread(clause, largeStackSize: 1024 * 1024));
         }
 
-        private static bool? OnSmallThread(string clause)
+        private static bool? OnSmallThread(string clause, int? largeStackSize = null)
         {
             bool? result = null;
             Exception error = null;
@@ -636,7 +640,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             {
                 try
                 {
-                    result = DeletePredicateGuard.HasLiteralTautology(clause);
+                    result = largeStackSize == null
+                        ? DeletePredicateGuard.HasLiteralTautology(clause)
+                        : DeletePredicateGuard.HasLiteralTautology(clause, largeStackSize.Value);
                 }
                 catch (Exception ex)
                 {

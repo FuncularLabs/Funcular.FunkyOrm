@@ -8,11 +8,17 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-05):** rev 14. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
+> **Status (2026-10-05):** rev 15. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
 > 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and D9, the
 > owner's decision of that day, was added (`6b4172d`, rev 13, §5.8). Its review (§9.12) found 2, answered in
-> `302cd86` (rev 14, §5.9); that layer's fix-verification (§9.13) found 2, answered by the next commit, whose
-> verification is next.
+> `302cd86` (rev 14, §5.9); that layer's fix-verification (§9.13) found 2, answered in `867d6c1`, which is CLEAN.
+> The 3.10.0 release commit `e618653` is CLEAN; one of its CI runs failed a D3 test, answered in rev 15.
+
+> **Revision 15 (CI-1, the 3.10.0 CI run):** `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse` assumed
+> 300,000 groups don't fit on the 64 MB stack. They do once earlier tests have warmed the parser up (about 350,000
+> fit then, 230,000 cold), so one CI run of `e618653` got true. An internal `HasLiteralTautology(string, int)` takes
+> the large stack's size; the public method passes 64 MB, and the test passes 1 MB with 70,000 groups, which can't
+> fit in 1 MB but do fit on 64 MB in Debug and Release builds (§4.3 D3). Blame: TEST-GAP.
 
 > **Rev 12 status (2026-10-02):** Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
@@ -384,7 +390,7 @@ SR = SelfReference, AT = AlwaysTrue, NC = NoColumn, OK = Acceptable.
 | AC1, AC2 | `Validate_ThrowsTheMessageOfEachVerdict` [NoColumn, SelfReference, AlwaysTrue: exact message; Acceptable: no throw] | Red for the three rejections; the Acceptable row is a Guard |
 | D1 contract | `PublicMembers_RejectBadArguments` [`Classify(null)`, `Validate(null)`, `HasLiteralTautology(null)`: `ArgumentNullException`; a zero-parameter lambda `() => true` (rev 5, T3-1), a two-parameter lambda and a lambda with an `int` body: `ArgumentException`] (rev 4, T2-4) | Red (the seam stub doesn't check) |
 | AC4 | `HasLiteralTautology_ReturnsTheRuleOrTheFold`. True by the `1=1` rule: `1=1`, `1 = 1`, `(t.id = @p__linq__0 AND 1=1)`, `1=1 = @p`, `CASE WHEN 1 = 1 THEN 1 END = @p`. True by the fold: `1 < 2`, `2 >= 1`, `1.5 > 1`, `1 != 2`, `1 <> 2`, `1 <= 1`, `(2 > 1)`, `NOT NOT 2 > 1`, `t.id = @p OR NOT 1=0`, `t.a = @p or not 1=0` (lower case), `NOT (1=0 AND t.id = @p)`, and in an `OR` with `NOT 1=0` (rev 4, T2-1): `t.first_name IS NOT NULL`, `t.id IN (@p0, @p1)`, `t.id NOT IN (@p0)`, `COALESCE(t.a, 0) = @p`, `CAST(strftime('%Y', t.d) AS INTEGER) = @p`, `t.name LIKE CONCAT(@p, '%')`, `(t.a)::int = @p`, `(SELECT COUNT(*) FROM c WHERE c.pid = t.id) > @p`, `CASE WHEN t.a > 0 THEN 1 ELSE 0 END = @p`, `t.notes = @p`. Also true (rev 5, T3-1): `1=1 AND (` (rule 1 in a clause that doesn't parse), `ordinal = @p OR NOT 1=0`; and (rev 6, T4-2) `t.c = 'abc 1=1` (an unclosed quote masks nothing). False: `1=0`, `1 <> 1`, `2 <= 1`, `NOT 2 > 1`, each of the ten shapes just listed in an `AND` with `NOT 1=0`, and (rev 5, T3-1) `(t.id = @p OR NOT 1=0` (unbalanced), `t.c = 'abc OR NOT 1=0` (an unclosed quote), `CASE WHEN t.a = 0 OR NOT 1 = 0 OR t.b = 0 THEN 0 ELSE 1 END = @p`, `t.a = @p XOR NOT 1=0`, `(1=0 OR t.id = @p)`, `(t.parent_id = @p AND NOT 1=0)`, `(NOT 1=0 AND t.x = @p)`, `2 > 1 AND t.id = @p`, `t.col1=1`, `t.col1 = 1`, `@p__linq__1=1`, `$1=1`, `'1=1'`, `t.c = 'x OR 1=1 OR y'`, `[a OR 1=1 OR b] = @p`, `"1"=1`, `` `1`=1 ``, `t.c = 'a''1=1'`, `t.a * 100 > 50`, `t.a - 1 >= 0`, `5 < 10 * t.a`, `CASE WHEN t.a - 1 >= 0 THEN 1 ELSE 0 END = @p`; and (rev 7) the clauses that don't parse `NOT 1=0 OR`, `NOT 1=0 AND`, `t.id IN (@p OR NOT 1=0`, `CASE WHEN t.a = 1 THEN 1 OR NOT 1=0`, `() OR NOT 1=0` and `t.a = @p) OR NOT 1=0`, and `[a]]1=1] = @p` (an escaped `]`); and (rev 9, I1-5) `NOT 1=0) AND t.x = @p` and `CASE WHEN CASE WHEN t.a = 1 THEN 1 END = 1 OR NOT 1=0 OR t.b = 0 THEN 0 END = @p` | Red for the true rows (the seam returns false); Guard for the false rows |
-| D3 | `HasLiteralTautology_DeeplyNested_StillFolds`: 20,000 nested groups around `t.id = @p OR NOT 1=0` (true) and `… AND NOT 1=0` (false), on a 1 MB thread; `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse`: 300,000 groups give false without a stack overflow (rev 9, I1-4; rev 10, FV1-3) | Red at the seam for the `OR` row, Guard for the others; at `3ec5ba9` the test host dies |
+| D3 | `HasLiteralTautology_DeeplyNested_StillFolds`: 20,000 nested groups around `t.id = @p OR NOT 1=0` (true) and `… AND NOT 1=0` (false), on a 1 MB thread; `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse`: 70,000 groups on a 1 MB large stack (the internal overload) give false without a stack overflow (rev 9, I1-4; rev 10, FV1-3; rev 15, CI-1: was 300,000 on 64 MB, which a warmed-up parser fits) | Red at the seam for the `OR` row, Guard for the others; at `3ec5ba9` the test host dies |
 
 **Integration, a shared harness `Funcular.Data.Orm.SqlServer.Tests/DeleteGuard/DeleteGuardHarness.cs`, compiled into
 SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Tests, as `LinqScopeHarness` is.**
