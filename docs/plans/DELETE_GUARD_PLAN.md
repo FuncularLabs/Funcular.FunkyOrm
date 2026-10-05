@@ -8,17 +8,25 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-05):** rev 15. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
+> **Status (2026-10-05):** rev 16. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
 > 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and D9, the
 > owner's decision of that day, was added (`6b4172d`, rev 13, §5.8). Its review (§9.12) found 2, answered in
-> `302cd86` (rev 14, §5.9); that layer's fix-verification (§9.13) found 2, answered in `867d6c1`, which is CLEAN.
-> The 3.10.0 release commit `e618653` is CLEAN; one of its CI runs failed a D3 test, answered in rev 15.
+> `302cd86` (rev 14, §5.9); that layer's fix-verification (§9.13) found 2, answered in `867d6c1`, which is CLEAN
+> (§9.14). The 3.10.0 release commit `e618653` is CLEAN (§9.15); one of its CI runs failed a D3 test, answered in
+> rev 15 (`0070f6c`, §5.10), whose review (§9.16) found 1 medium and 2 low, answered in rev 16 (§5.11).
+
+> **Revision 16 (the review of rev 15, §9.16):** about 120,000 groups fit on 64 MB cold, not 230,000 (that figure came
+> from a search that warmed the parser as it went). The test's comment says which mutant it kills and which test
+> catches a thread with the default size. §4.2 and §4.3 gain the internal overload and its four mutations; §9.14 to
+> §9.16 are recorded; the guard's summary and SQL Server's `ValidateDeleteWhereClause<T>` name
+> `HasLiteralTautology(string)`.
 
 > **Revision 15 (CI-1, the 3.10.0 CI run):** `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse` assumed
-> 300,000 groups don't fit on the 64 MB stack. They do once earlier tests have warmed the parser up (about 350,000
-> fit then, 230,000 cold), so one CI run of `e618653` got true. An internal `HasLiteralTautology(string, int)` takes
-> the large stack's size; the public method passes 64 MB, and the test passes 1 MB with 70,000 groups, which can't
-> fit in 1 MB but do fit on 64 MB in Debug and Release builds (§4.3 D3). Blame: TEST-GAP.
+> 300,000 groups don't fit on the 64 MB stack. They do once earlier tests have warmed the parser up (about 320,000
+> to 350,000 fit then, about 120,000 cold), so one CI run of `e618653` got true. An internal
+> `HasLiteralTautology(string, int)` takes the large stack's size; the public method passes 64 MB, and the test passes
+> 1 MB with 70,000 groups, which can't fit in 1 MB but do fit on 64 MB in Debug and Release builds (§4.1 D3). Blame:
+> TEST-GAP.
 
 > **Rev 12 status (2026-10-02):** Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
@@ -447,6 +455,7 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 | `DeletePredicateGuard.Classify` | `Classify_ReturnsTheVerdict`, `Classify_NeverCallsMethodsOperatorsOrConstructors` |
 | `DeletePredicateGuard.Validate` | `Validate_ThrowsTheMessageOfEachVerdict`; every harness row |
 | `DeletePredicateGuard.HasLiteralTautology` | `HasLiteralTautology_ReturnsTheRuleOrTheFold`; `LiteralTautologyInSql_IsRejected`; the `emptyIds` and `[SqlExpression]` rows |
+| `DeletePredicateGuard.HasLiteralTautology(string, int)` (internal, rev 15) | `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse`; every call of the public overload |
 | `DeletePredicateVerdict` | `Classify_ReturnsTheVerdict` |
 | Each provider's `Delete<T>(Expression)` and `DeleteAsync<T>(Expression)` | the harness rows, `sync` and `async` |
 | SQL Server `ValidateDeleteWhereClause<T>` (new) | the SQL Server harness rows; AC6 |
@@ -519,6 +528,10 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 | D3's `InsufficientExecutionStackException` not caught (rev 9) | `HasLiteralTautology_DeeplyNested_StillFolds` |
 | No second parse on a large stack (rev 10) | `HasLiteralTautology_DeeplyNested_StillFolds` (the `OR` row) |
 | The large-stack thread's own stack check not caught (rev 10) | `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse` (the test host dies) |
+| The public overload passes a small stack size, not 64 MB (rev 15) | `HasLiteralTautology_DeeplyNested_StillFolds` (the `OR` row) |
+| A clause too deep for the large stack gives true (rev 15) | `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse` |
+| The large-stack thread gets 64 MB, not the size passed (rev 15) | `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse` |
+| The large-stack thread gets the default size (rev 16, F-2) | `HasLiteralTautology_DeeplyNested_StillFolds` (the `OR` row) |
 | `ToString` with a format string not evaluated (rev 10) | Classify `capturedA.ToString("D2")` and `capturedDate.ToString(…)`; the harness `ToString("D2")` row |
 | `ToString` evaluated whatever its argument types (rev 10) | `Classify_NeverCallsMethodsOperatorsOrConstructors` (the `IFormatProvider` counter) |
 | `Contains` evaluated whatever its receiver type (rev 10, FV1-4) | `Classify_NeverCallsMethodsOperatorsOrConstructors` (the user `Contains` counter) |
@@ -672,6 +685,20 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   net48 79.
 - Its fix-verification (§9.13) found 2: a row with the captured value on the left (`capturedS == x.Name`, accepted)
   now pins the right-side read check, and `Usage.md` and the finder's summary say "other rows".
+
+### 5.10 CI-1 (`0070f6c`, rev 15)
+
+- CI run `37374929187` of `e618653` failed `HasLiteralTautology_NestedBeyondTheLargeStack_ReturnsFalse`. A probe
+  reproduced it: once the parser was warmed up, the old call returned true 3 times of 3. Three mutants for §4.3's
+  rev 15 rows, each killed in Release and Debug builds.
+- Suites, all passing: SqlServer.Tests 1475 (Release three times, and Debug), PostgreSql.Tests 919, MySql.Tests 872,
+  Sqlite.Tests 800, DotNet9 5, net48 79. `DeletePredicateGuard.cs` 97.6 %.
+
+### 5.11 Rev 15's review (the commit that carries rev 16)
+
+- F-1: measured one process per depth, Release: 120,000 groups fold on 64 MB cold, 126,000 don't.
+- F-2: the default-size mutant is killed by `DeeplyNested_StillFolds`' `OR` row only, as the comment now says.
+- F-5: with `GenerateDocumentationFile`, CS0419 at `DeletePredicateGuard.cs(35,51)` before, none after.
 
 ## 6. Out of scope (recorded)
 
@@ -904,3 +931,27 @@ Verdict: NOT CLEAN; two low findings and two nits. R-1 resolved; R-2 partial. Bl
 | FV-2 | low | HOUSE-RULE | `Usage.md` and the finder's summary still said "far more rows" | "Other rows". |
 | N-1 | nit | — | §6's captured-string comparison lacked the rev 14 note | Added. |
 | N-2 | nit | — | The Changelog's "deleted only the rows C# selects" list | Adds the comparison on PostgreSQL and SQLite. |
+
+### 9.14 Fix-verification of `302cd86..867d6c1` (non-author; cumulative `ca82741..867d6c1`)
+
+Verdict: CLEAN. FV-1, FV-2, N-1 and N-2 resolved.
+
+### 9.15 Review of the 3.10.0 release commit `e618653` (non-author; the owner's collation sentence probed on 25 shapes)
+
+Verdict: CLEAN. Three wording nits on the sentence the owner approved are carried: its scope (a comparison with a
+column side can hold a rejected comparison that doesn't read the row), "as before" in `Usage.md`, and `LIKE`'s
+case folding on SQLite. Recorded for after 3.10.0, outside this plan: `MySqlStringComparison` and
+`SqliteStringComparison` are documented but have no effect, and the package description leaves out MySQL.
+
+### 9.16 Review of `e618653..0070f6c` (non-author; the diagnosis reproduced; the test cold, warm, Debug, Release, without tiering and without PGO, on .NET 8, 9 and 10; four mutants)
+
+Verdict: NOT CLEAN; one medium and two low findings, two nits. The code and the test are sound. Blame: HOUSE-RULE 2,
+PLAN-GAP 1.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| F-1 | medium | HOUSE-RULE | The test's comment and rev 15 said about 230,000 groups fit on 64 MB cold; a search in one process had warmed the parser, and cold is about 120,000 | Corrected in both. |
+| F-2 | low | HOUSE-RULE | "Fails if the size doesn't reach the thread" holds only for a thread that gets 64 MB; one with the default size passes it | The comment names the test that catches it; §4.3 row. |
+| F-3 | low | PLAN-GAP | Rev 15 cited §4.3 for the D3 row, which is in §4.1; §4.2 and §4.3 lacked the overload and its mutations | Cited §4.1; rows added. |
+| F-4 | nit | — | No §9 records for `867d6c1` and `e618653` | §9.14, §9.15. |
+| F-5 | nit | — | `cref="HasLiteralTautology"` is ambiguous between the overloads (CS0419 with documentation generation) | `HasLiteralTautology(string)` in the guard's summary and SQL Server's `ValidateDeleteWhereClause<T>`. |

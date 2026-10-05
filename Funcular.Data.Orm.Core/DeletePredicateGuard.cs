@@ -32,7 +32,8 @@ namespace Funcular.Data.Orm
     /// <summary>
     /// Rejects delete-by-predicate calls whose predicate would match every row. Each provider's
     /// <c>Delete&lt;T&gt;(predicate)</c> and <c>DeleteAsync&lt;T&gt;(predicate)</c> call <see cref="Validate"/> before
-    /// translating the predicate, and <see cref="HasLiteralTautology"/> on the WHERE clause the translation produces.
+    /// translating the predicate, and <see cref="HasLiteralTautology(string)"/> on the WHERE clause the translation
+    /// produces.
     /// A custom provider can call them too.
     /// <para>The guard rejects the shapes it can prove always hold. It doesn't prove that every always-true predicate
     /// is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.</para>

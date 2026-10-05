@@ -1471,8 +1471,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Checks the translated WHERE clause of a delete by predicate, which <see cref="DeletePredicateGuard.Validate"/>
         /// has accepted: it must be non-empty, must not hold by its literals
-        /// (<see cref="DeletePredicateGuard.HasLiteralTautology"/>), must not be a whole-clause self-comparison, and must
-        /// name at least one column of <typeparamref name="T"/>.
+        /// (<see cref="DeletePredicateGuard.HasLiteralTautology(string)"/>), must not be a whole-clause
+        /// self-comparison, and must name at least one column of <typeparamref name="T"/>.
         /// </summary>
         /// <typeparam name="T">The entity whose table the delete targets.</typeparam>
         /// <param name="whereClause">The translated WHERE clause, without the <c>WHERE</c> keyword.</param>
