@@ -230,7 +230,8 @@ Other changes:
     `x.Name.Contains(Filter)` in an instance method (the translation reads it as null).
 
   Some of these deleted only the rows C# selects before (`x.Id == 2 || s.Contains("z")`; `x.Name.Contains("[")` on
-  PostgreSQL, MySQL and SQLite; a backslash on SQL Server and SQLite); they now throw too.
+  PostgreSQL, MySQL and SQLite; a backslash on SQL Server and SQLite; `x.Id == 2 || role == "admin"` with `role`
+  "Admin" on PostgreSQL and SQLite); they now throw too.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:

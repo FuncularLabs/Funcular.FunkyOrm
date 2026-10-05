@@ -491,8 +491,8 @@ namespace Funcular.Data.Orm
         private static readonly char[] LikeWildcards = { '%', '_', '[', '\\' };
 
         /// <summary>
-        /// Finds the first call in a delete predicate that the providers would send so that it matches far more rows
-        /// than C# selects (see <see cref="Validate"/>), and holds its message.
+        /// Finds the first call or string comparison in a delete predicate that the providers can send so that it
+        /// matches other rows than C# selects (see <see cref="Validate"/>), and holds its message.
         /// </summary>
         private sealed class UnsafeDeleteCallFinder : ExpressionVisitor
         {

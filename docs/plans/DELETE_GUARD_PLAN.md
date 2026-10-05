@@ -10,8 +10,9 @@
 
 > **Status (2026-10-05):** rev 14. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
 > 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and D9, the
-> owner's decision of that day, was added (`6b4172d`, rev 13, §5.8). Its review (§9.12) found 2; the commit that
-> carries this revision answers them (§5.9), and its verification is next.
+> owner's decision of that day, was added (`6b4172d`, rev 13, §5.8). Its review (§9.12) found 2, answered in
+> `302cd86` (rev 14, §5.9); that layer's fix-verification (§9.13) found 2, answered by the next commit, whose
+> verification is next.
 
 > **Rev 12 status (2026-10-02):** Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
@@ -663,6 +664,8 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   before the changed words.
 - Suites, all passing: SqlServer.Tests 1474, PostgreSql.Tests 919, MySql.Tests 872, Sqlite.Tests 800, DotNet9 5,
   net48 79.
+- Its fix-verification (§9.13) found 2: a row with the captured value on the left (`capturedS == x.Name`, accepted)
+  now pins the right-side read check, and `Usage.md` and the finder's summary say "other rows".
 
 ## 6. Out of scope (recorded)
 
@@ -676,7 +679,8 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - **Always-true shapes the Task 0 re-review found and the guard doesn't detect** (rev 4, T2-3). Each deleted every row
   in that review's run:
   - a parameter-free string comparison that C# finds false and the server's collation finds true:
-    `x.Id == 2 || s == "s"` with `s = "S"` on SQL Server and MySQL, and with `s = "s "` on SQL Server;
+    `x.Id == 2 || s == "s"` with `s = "S"` on SQL Server and MySQL, and with `s = "s "` on SQL Server (since rev 14,
+    D9, a delete throws `NotSupportedException` for it);
   - a comparison of a comparison: `(x.Id == x.Id) == true` (`t.id = t.id = @p`) on MySQL and SQLite; and (rev 5,
     T3-4; corrected in rev 6, T4-3) `capturedTrue == (x.Id == 2 || !emptyIds.Contains(x.Id))` (`@p = (… OR NOT 1=0)`)
     on PostgreSQL, MySQL and SQLite, and `x.Id == 2 || emptyIds.Contains(x.Id) == false` (`OR 1=0 = @p`) and
@@ -883,3 +887,14 @@ Verdict: NOT CLEAN; one medium and one low finding. The merge is correct. Blame:
 |---|---|---|---|---|
 | R-1 | medium | HOUSE-RULE | The Changelog and Usage promised more than D9 catches: a comparison of two captured strings still deleted every row on SQL Server and MySQL | D9 rejects it (cheap to recognize, the owner's rule); the general caveat restored. |
 | R-2 | low | HOUSE-RULE | "More rows" where a wildcard can match fewer; "every row" for "every non-null row"; the backslash list | Messages and documents reworded. |
+
+### 9.13 Fix-verification of `6b4172d..302cd86` (non-author; R-1 probed on all four; five mutants of the new check)
+
+Verdict: NOT CLEAN; two low findings and two nits. R-1 resolved; R-2 partial. Blame: TEST-GAP 1, HOUSE-RULE 1.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| FV-1 | low | TEST-GAP | No row pinned the right-side read check (`filter == x.Name` would have been rejected) | `capturedEqualsName` accepted; mutation. |
+| FV-2 | low | HOUSE-RULE | `Usage.md` and the finder's summary still said "far more rows" | "Other rows". |
+| N-1 | nit | — | §6's captured-string comparison lacked the rev 14 note | Added. |
+| N-2 | nit | — | The Changelog's "deleted only the rows C# selects" list | Adds the comparison on PostgreSQL and SQLite. |

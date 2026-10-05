@@ -221,6 +221,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["orCapturedStringEquals"] = P(x => x.Id == 2 || capturedUpperA == "a"),
                 ["orCapturedStringNotEquals"] = P(x => x.Id == 2 || capturedUpperA != "A"),
                 ["capturedNullCheckOr"] = P(x => capturedS == null || x.Name == capturedS),
+                ["capturedEqualsName"] = P(x => capturedS == x.Name),
                 ["idToStringSelf"] = P(x => x.Id.ToString() == x.Id.ToString()),
                 ["nameToStringSelf"] = P(x => x.Name.ToString() == x.Name),
                 ["idToStringSelfNe"] = P(x => x.Id.ToString() != x.Id.ToString()),
@@ -457,6 +458,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idToStringEq7")]
         [DataRow("idEq2")]
         [DataRow("capturedNullCheckOr")]
+        [DataRow("capturedEqualsName")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => DeletePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>A verdict's rejection is thrown before D9's check, with its own message.</summary>
