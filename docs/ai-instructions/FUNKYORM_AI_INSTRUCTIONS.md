@@ -564,7 +564,7 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 > A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
 > projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
 > The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
-> **Reverse (one-to-many) `[RemoteKey]`/`[RemoteProperty]` filters on `Count`/`All`/`Sum`/`Average`** throw
+> **Reverse (one-to-many) `[RemoteKey]`/`[RemoteProperty]` filters on `Count`/`LongCount`/`All`/`Sum`/`Average`** throw
 > `NotSupportedException` (v3.8.2) — the reverse join fans out and would inflate the result; materialize and
 > aggregate in memory (`query.Where(...).ToList().Count()`). Forward (many-to-one) remote filters work, and
 > `Any`/`Min`/`Max` over a reverse join are allowed (fan-out-safe). Detect "reverse" by the `[RemoteKey]`/

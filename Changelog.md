@@ -2,6 +2,246 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.10.0] - 2026-10-05
+
+Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12),
+[#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)). **Upgrade strongly recommended:** several
+operators returned wrong results without an error in 3.9.0 and earlier. All four providers. Also: identifier caches
+are scoped per provider, dialect and connection (see Fixed and Changed), which is binary-breaking for `OrmDataProvider`
+subclasses.
+
+### Security
+- **Values in an ORDER BY ternary are now sent as command parameters.** Before, a text value (`x.Name == input ? 0 :
+  1`) was written into the SQL as a quoted literal, with only its quotes doubled. On MySQL, whose default mode treats
+  a backslash as an escape character, a crafted value could change the query. Now booleans, enums, `NULL` and
+  values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and
+  `decimal` stay inline, and no other value (a string, char, `Guid`, date or time, and so on) is written into the
+  SQL: each is sent as a parameter where the SQL uses it. A parameter is typed as 3.9.0's literal
+  was (untyped on PostgreSQL, `varchar` on SQL Server), except that on SQL Server strings and chars are
+  `nvarchar`, like WHERE's. Upgrade if you order by a ternary over values you don't control.
+
+### Fixed
+- **`Single`/`SingleOrDefault` dropped their predicate and never checked cardinality.**
+  `Single(p => p.Id == 42)` returned the *first row of the table*, and `Single()` over many rows returned one of
+  them. Both now apply the predicate as `WHERE`, read at most two rows (`TOP (2)` / `LIMIT 2`, with no ORDER BY
+  added), and follow LINQ: two or more matches throw, and `Single` throws on none.
+- **`Last`/`LastOrDefault` returned the first row.** They now invert every ordering key (own, remote, computed
+  and `CASE` keys) and read one row; with no `OrderBy` they use `Id DESC`. Like `First` and `ToList`, they follow
+  the database's NULL placement (PostgreSQL sorts NULLs last when ascending; LINQ-to-objects sorts them first).
+- **`LongCount` threw** (`InvalidCastException`; `NullReferenceException` on an empty set). It now returns a `long`, built like `Count` (SQL Server uses
+  `COUNT_BIG(*)`).
+- **Ordering on entities with remote joins** ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12)):
+  own columns in ORDER BY are now table-qualified (`person.id`). Ordering by an own column that a joined table
+  also has (typically `id`), with a narrow projection that leaves that column out, failed with "Ambiguous column
+  name". On SQLite, unordered paging on such an
+  entity orders by `{table}.rowid`, and `Skip(n)` without `Take` emits `LIMIT -1 OFFSET n` instead of invalid SQL.
+- **A ternary ORDER BY key comparing a member with `null`** (`p.M == null ? 0 : 1`, either operand order, the null
+  written as a literal, held in a variable, or computed without reading the row) emitted
+  `= NULL`, which SQL Server rejected and the other providers evaluated wrongly. It now emits `IS NULL` /
+  `IS NOT NULL`.
+- **A repeated ordering key** (`OrderBy(a).ThenBy(a)`) failed on SQL Server (error 169). The later duplicate is
+  dropped; it can't change the order.
+- **The non-generic `IQueryProvider.Execute(expression)`** returned the whole list for a terminal such as
+  `First`. It now returns the single element (or throws, as LINQ does).
+- **SQLite: reusing a `Query<T>()` root** let a later query inherit an earlier one's projection, parameters or
+  ordering. Each query now starts clean.
+- **Queries over a base-class or interface view:** enumerating a `Cast<Base>()` query, or paging an
+  `IQueryable<Base>` view, threw `InvalidCastException`. Both now return the entity rows.
+- **A terminal over a scalar projection seen as `IQueryable<object>`** (`Select(x => x.Name).Cast<object>().First()`)
+  returned the whole list as its "first element". It now throws the scalar-projection message.
+- `Take(n ≤ 0)` returns an empty result without sending a query; `Skip(n < 0)` acts as `Skip(0)`.
+- **An enum value in an ORDER BY ternary** could be emitted as its name (`'B'`): a test then compared an integer
+  column with text, and branch values sorted by name. It's now always the underlying number, as LINQ orders them.
+- **A property of the enclosing object in an ORDER BY ternary** (captured `this`, e.g. `x.Name == CurrentName ? 0 : 1`
+  in an instance method) was emitted as `NULL`. It's now the property's value, in the test and in the branches.
+  The getter is now called while the query is translated (3.9.0 never called it), and one that throws is reported
+  as `NotSupportedException`.
+- **Identifier caches were process-wide.** Table names, column names and the discovered and unmapped sets were
+  `static` on `OrmDataProvider`, shared by all four providers. Procedure names (SQL Server, MySQL) and compiled row
+  mappers were `static` per provider type. As a result:
+  - after SQL Server ran `Query<User>()`, PostgreSQL sent `[Key]`/`[User]` and failed with `42601`;
+  - for example, on SQLite, a second database of one provider type read the first one's table and column names, and
+    a column missing from the first came back `null` from the second;
+  - providers of one type with different dialect types shared names and row mappers: after a provider whose dialect
+    quotes every name built the mapper, the default provider read `Id = 0`;
+  - a procedure name resolved against one database answered for another.
+
+  Each provider instance now reads its own scope's caches: its runtime type, its dialect's runtime type and its
+  connection identity.
+- **Two entity types with the same simple name shared column-name cache entries.** The key was `TypeName.Property`.
+  It now uses the declaring type's full name, and keys compare ordinally, so `Outer_X.Thing` and `OuterX.Thing` no
+  longer collide.
+- **`GeneralExtensions.Contains(string, string, StringComparison)` ignored its `comparison` argument** and compared
+  case-sensitively in the current culture. It now uses the comparison it is given.
+- **SQLite now uses discovered column names.** Its SELECT list and row mapper use the column discovery found, so a
+  property whose column differs by underscores (`Label` → `la_bel`) is queryable.
+- **`Delete<T>` and `DeleteAsync<T>`, by predicate or by id, as a type's first use in the process** could run before
+  the type's columns were discovered. For example, `x => x.LastName == value` on a member mapped by convention could throw
+  `NotSupportedException: Expression type Parameter is not supported`. They now discover the type's columns first.
+  All four providers.
+- **`ExecProcedure<T>` as a type's first use** no longer leaves `Query<T>()` and `Delete<T>(predicate)` failing for
+  that type afterwards. SQL Server and MySQL.
+- **`Delete`/`DeleteAsync` by predicate accepted predicates that match every row, and rejected some that don't.**
+  All four providers:
+  - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`, also through `ToString()`:
+    `x.Code.ToString() == x.Code.ToString()`), their negations (`!(x.Id != x.Id)`), and
+    disjunctions with an always-true operand (`x.Id == 2 || true`, a captured or static `true`, a `true` property of
+    a captured object, a comparison of constants and captured values that holds, such as `filter == null` with
+    `filter` null, or a captured string's `Contains`, or the `ToString()` (with no argument or a format string) of a
+    captured value declared as a string, number, enum or other non-generic sealed or value type of .NET's core
+    library, in a comparison, that holds, such as `roles.Contains("admin")`, or a `Contains` with a null search
+    value, which every provider sends as `LIKE '%%'`) could delete every row. They're now rejected before any SQL runs;
+  - a disjunction with a negated `Contains` over an empty collection (`x.Id == 2 || !emptyIds.Contains(x.Id)`, its
+    De Morgan form `!(emptyIds.Contains(x.Id) && x.Id == 2)`, and the same after `IS NOT NULL` or `IN (…)`) deleted
+    every row. It's now rejected once the WHERE clause is built, before the DELETE runs;
+  - a predicate on a table or column whose name contains `true` (a column `true_up` or `TrueUpAmount`, a table
+    `TrueUpLedger`) was rejected as trivial: in any letter case on the .NET 8 build, in lower case on the
+    netstandard2.0 and .NET Framework 4.8 builds. It's now accepted.
+
+  The checks evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a
+  core type's `ToString()`, but no arithmetic and no other method call, and they catch these shapes, not every
+  predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. They evaluate as C# does, and the
+  database can disagree; a predicate they accept throws `NotSupportedException` for the shapes listed under Changed,
+  not for every such disagreement.
+
+### Changed
+These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
+wrong results silently in 3.9.0; a few happened to be correct, and are listed so you can find them before
+upgrading. The full rules are in [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310).
+- **Operators FunkyORM doesn't translate** were silently dropped or mistranslated: `Reverse`, `TakeWhile`,
+  `SkipWhile`, `TakeLast`, `SkipLast` and `ElementAt` were ignored (`TakeWhile(p => false)` returned every row).
+  Every operator not on the supported list now throws, including set and join operators, `Contains`,
+  `Aggregate`, `DefaultIfEmpty`, `MinBy`/`MaxBy`, and indexed, comparer and default-value overloads.
+  Happened to be correct before: `OrderBy(k).ElementAt(0)`; `DefaultIfEmpty()` over a non-empty set.
+- **Operators after `Skip`/`Take`** were applied *before* the page (`Take(5).Count()` counted the whole table).
+  Only `Select`, `Cast`/`OfType`, one `Take` after a `Skip`, and a parameterless `First*`/`Single*` are allowed
+  after paging now. Happened to be correct before: `Take(k).Distinct()` over a keyed entity, `Take(k ≥ 1).Any()`
+  (`Take(0).Any()` returned `true`), `Take(10).Take(5)`, and `Skip(0)` followed by `Where`/`Count`/etc., page 1 of
+  a `Skip(page * size)` helper. (On SQLite only an aggregate after `Skip(0)` worked: `Skip` without `Take` was
+  invalid SQL there.)
+- **A second `OrderBy`/`OrderByDescending`** was mistranslated. Chained directly (`OrderBy(a).OrderBy(b)`), it
+  emitted `ORDER BY a, b`: the wrong priority. Across `Where`/`Select`/`Distinct`, the earlier key was dropped,
+  so the primary key was right but its ties weren't broken. It now throws; write
+  `query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction. Happened to be correct before:
+  the across-`Where` form whenever the later key had no ties, e.g. `OrderBy(a).Where(w).OrderByDescending(k).First()`
+  on a unique `k`.
+- **A predicate written against a base type or interface** over a converted query threw
+  `InvalidCastException`, or for `Single*` returned an unrelated row. It now throws a message telling you to
+  apply it to the concrete `IQueryable<T>` (or a generic helper constrained to a base class).
+- **`Cast`/`OfType`** other than an identity cast or a reference conversion (`Cast<object>()`,
+  `Cast<BaseClass>()`) now throw. So does an identity `OfType` over a nullable or reference member, which
+  would drop nulls.
+- **`Last`/`LastOrDefault` after `Distinct()` with a custom projection** need an explicit `OrderBy` on a
+  projected key.
+
+Other changes:
+
+- **New public API in `Funcular.Data.Orm.Linq`:** `QueryOperatorPolicy` (`SupportedOperators`, `IsAllowed`,
+  `EnsureSupported`), `ScalarProjectionGuard` and `OrderByTerm`. The four order-by visitors gain an `OrderByTerms`
+  property, constructor overloads that take a table qualifier and a parameter generator, and a `Parameters`
+  property. Their 3.9.0 constructor is unchanged, so code compiled against 3.9.0 keeps binding. Without a generator
+  a visitor still inlines values; MySQL's inline literal now also escapes backslashes.
+- **New public API in `Funcular.Data.Orm`:** `DeletePredicateGuard` (`Classify`, `Validate`, `HasLiteralTautology`)
+  and the `DeletePredicateVerdict` enum, the checks each provider's delete by predicate runs. A custom provider can
+  call them.
+- **SQL Server: text in an ORDER BY ternary is now `nvarchar`**, like a WHERE string parameter; 3.9.0's literal was
+  `varchar`. Text outside the database's code page now matches (`x.Name == "Ωmega" ? 0 : 1` matched no row before).
+  When both branches are text they sort by the collation's Unicode rules, so under a `SQL_*` collation punctuation
+  can sort differently than in 3.9.0 (`"a-c"` and `"ab"` swap places). Equality follows the same rules, as it
+  already did in WHERE: under a `SQL_*` collation, `x.Code == "ss" ? 0 : 1` now also matches a `varchar` value `ß`.
+- **The text of an ORDER BY ternary's parameters is formatted with the invariant culture, and dates and times have
+  a fixed format.** 3.9.0 wrote a `DateTimeOffset`, `DateOnly` or `TimeOnly` in the current culture's format, and
+  some other values in the current culture's text (a `Half` as `1,5`, a negative `nint` with the culture's minus
+  sign). A database could reject that text, or, under a day-first culture, read a date with day and month swapped.
+  A `TimeOnly` lost its seconds (`10:00 AM`), so times in the same minute compared as equal. The text of a value
+  sent as a parameter (or quoted, by a visitor without a generator) is now as below; booleans, enums, `NULL` and
+  the eleven numeric types are inline (see Security).
+  - `DateTime`: `yyyy-MM-dd HH:mm:ss.fff`, as in 3.9.0.
+  - `DateTimeOffset`: `yyyy-MM-dd HH:mm:ss.fffffffK`. On MySQL it is its UTC time, `yyyy-MM-dd HH:mm:ss.ffffff`, as
+    WHERE sends it.
+  - `DateOnly`: `yyyy-MM-dd`.
+  - `TimeOnly`: `HH:mm:ss.FFFFFFF`.
+  - any other such value: `Convert.ToString` with the invariant culture (a type that is neither `IConvertible` nor
+    `IFormattable` is its own `ToString()`).
+- **SQLite: unordered paging on an entity whose base has no `rowid`** (a view or a `WITHOUT ROWID` table) **and
+  exactly one remote join** now orders by the base's `rowid` and fails with `no such column`. In 3.9.0 it paged by
+  the joined table's `rowid`, a meaningless order. Add an explicit `OrderBy`. (With no joins, or with two or more,
+  such an entity already failed in 3.9.0.)
+- **Cache scopes.** The identity is the constructor's connection string (or, when that is empty, the supplied
+  connection's string) as the provider's builder writes it, with `Password` removed. So:
+  - strings that differ only in the password, under `Password` or a synonym the builder maps to it, share a scope;
+  - other differences (server, database, user, `Search Path`, `Options`, `Application Name`, a timeout) make another
+    scope;
+  - a string the builder rejects is used as given.
+
+  The registry stores the identity as a SHA-256 of its UTF-8 bytes and never removes a scope.
+- **Each new scope starts cold:** it discovers its tables and columns and builds its row mappers on first use. To vary
+  a session value without a new scope, use `AuditContext` (SQL Server, PostgreSQL, MySQL). Keep settings that change
+  name resolution, such as `search_path`, in the connection string: after a `SET`, the scope would hold another
+  schema's names. Each distinct `Application Name` or timeout value is its own scope.
+- **SQLite:** `:memory:`, `Mode=Memory` (shared cache included) and an empty data source get an unregistered scope per
+  provider instance. A provider created per operation on such a database repeats discovery each time.
+- **First cache use of each new built-in provider instance** parses its connection string with the provider's builder
+  and, unless the scope is per-instance, computes a SHA-256.
+- **SQLite's SQL uses the database's spelling of convention-mapped columns** (`"country_0".name`, where 3.9.0 emitted
+  `.Name`).
+- **A custom SQLite dialect's `EncloseIdentifier` must leave an already-enclosed name unchanged** (`E(E(x)) = E(x)`).
+  SQLite passes cached, enclosed names through it again; a dialect that wraps unconditionally emits `[[Id]]` and fails.
+  SQLite's mapper strips a matching `"…"`, `[…]` or backtick pair from a cached name.
+- **Binary-breaking for `OrmDataProvider` subclasses:**
+  - removed: `_tableNames`, `_columnNames`, `_mappedTypes`, `_unmappedPropertiesCache`, and SQL Server's
+    `GetColumnOrdinals`;
+  - added: protected `TableNameCache`, `ColumnNameCache`, `UnmappedPropertyCache`, `MappedTypes`,
+    `EntityMapperCache` and `ProcedureNameCache`, plus `protected virtual` `CacheScopeIdentity` and
+    `CacheScopeDialectType`;
+  - providers' `GetUnmappedProperties<T>(Type)` are instance methods.
+
+  A direct subclass that doesn't override `CacheScopeIdentity` gets one scope per provider type.
+- **`ToDictionaryKey()`** returns `{DeclaringType.FullName}.{Name}`.
+- PostgreSql, MySql and Sqlite grant `InternalsVisibleTo` to `Funcular.Data.Orm.SqlServer.Tests`.
+- On SQL Server, MySQL and PostgreSQL, when a delete inside a transaction is a type's first use and the type's table
+  doesn't exist, the provider's missing-table error (SQL Server 208, MySQL 1146, PostgreSQL 42P01) is now the
+  `InnerException` of an `InvalidOperationException`. That holds for a delete by id, and for a delete by a predicate
+  the delete guard doesn't reject before translating it. Some of these calls threw the provider's exception
+  directly before. A predicate rejected before translation (see Fixed) reports the guard's message instead.
+- **`Delete`/`DeleteAsync` by predicate reject these idioms when a captured value makes them always true.** When
+  the condition held, they deleted every row (on SQL Server, the second and third failed with a SQL error instead);
+  they now throw "Delete operation requires a non-trivial WHERE clause.":
+  - `filter == null || x.Col == filter` with `filter` null;
+  - `isAdmin || x.OwnerId == me` with `isAdmin` true;
+  - `x.Archived || !keepIds.Contains(x.Id)` with `keepIds` empty;
+  - `roles.Contains("admin") || x.OwnerId == me` with `roles` containing `admin` (without it, the captured `Contains`
+    throws `NotSupportedException`; see the next entry).
+
+  Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
+  rejected, now with that message instead of "…must reference at least one column from the target table."
+- **`Delete`/`DeleteAsync` by predicate throw `NotSupportedException` for shapes the providers can send so that they
+  match other rows than C# selects, often every row** (all four providers, before the DELETE is sent; queries aren't
+  affected):
+  - a string `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row
+    (`x.Id == 2 || s.Contains("z")`, `x.Name == n.ToString()`): C# and the database can disagree (collation, a
+    `ToString()` that isn't sent), so compute it before the query;
+  - a comparison of two strings neither of which reads the row, unless one is a `null` literal
+    (`x.Id == 2 || role == "admin"` with `role` "Admin" deleted every row on SQL Server and MySQL, which compare under
+    a case-insensitive collation); `filter == null || x.Col == filter` is still accepted;
+  - a string `Contains`, `StartsWith` or `EndsWith` on a column whose search value is null or empty (a null
+    `Contains` or an empty search matches every non-null row), contains `%`, `_`, `[` or a backslash (sent unescaped,
+    some providers read them as wildcards or escapes), or is a property of a captured object, such as
+    `x.Name.Contains(Filter)` in an instance method (the translation reads it as null).
+
+  Some of these deleted only the rows C# selects before (`x.Id == 2 || s.Contains("z")`; `x.Name.Contains("[")` on
+  PostgreSQL, MySQL and SQLite; a backslash on SQL Server and SQLite; `x.Id == 2 || role == "admin"` with `role`
+  "Admin" on PostgreSQL and SQLite); they now throw too. Comparisons that read a column are never rejected for case or
+  collation; the database's collation decides them, as before.
+
+### Known issues (fixes planned for 3.10.1)
+Aggregates keep their 3.9 behavior in 3.10.0:
+- `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
+  and SQLite.
+- `Average` over a `decimal` or `float` column throws.
+- `Min`/`Max`/`Average` over a nullable column on an empty set throw instead of returning `null`.
+- Some `Min`/`Max` result types throw after the round-trip.
+
 ## [3.9.0] - 2026-07-06
 
 ### Added

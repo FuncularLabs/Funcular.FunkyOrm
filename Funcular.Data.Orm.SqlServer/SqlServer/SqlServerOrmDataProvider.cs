@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -62,21 +62,15 @@ namespace Funcular.Data.Orm.SqlServer
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
 
         /// <summary>
-        /// Represents a thread-safe collection of entity mappers, where each mapper is identified by a unique string key.    
+        /// The string the identity of this instance's cache scope comes from (provider-scoped caches plan, D3): the
+        /// constructor string or, when that is empty, the supplied connection's string. Captured at construction, so a
+        /// connection replaced later doesn't change the scope. Never logged.
         /// </summary>
-        /// <remarks>This dictionary is used to store and retrieve delegates that map entities to specific
-        /// types or formats. It ensures thread-safe access and updates, making it suitable for concurrent
-        /// operations.</remarks>
-        internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
+        private readonly string _cacheScopeIdentitySource;
 
         #endregion
 
         #region Properties
-
-        /// <summary>
-        /// Exposes the internal column name cache to other components (used by visitor classes).
-        /// </summary>
-        internal static ConcurrentDictionary<string, string> ColumnNames => _columnNames;
 
         /// <summary>
         /// The current <see cref="IDbConnection"/> used by the provider. May be null until required.
@@ -120,6 +114,9 @@ namespace Funcular.Data.Orm.SqlServer
             IDbTransaction transaction = null, ISqlDialect dialect = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _cacheScopeIdentitySource = string.IsNullOrWhiteSpace(_connectionString) && connection != null
+                ? connection.ConnectionString
+                : _connectionString;
             Connection = connection ?? new SqlConnection(_connectionString);
             Transaction = transaction;
             Dialect = dialect ?? new SqlServerDialect();
@@ -262,15 +259,21 @@ namespace Funcular.Data.Orm.SqlServer
         /// predicate.
         /// </summary>
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
-        /// cref="InvalidOperationException"/> is thrown. Additionally, the predicate must produce a valid WHERE clause;
-        /// trivial or empty conditions (e.g., "1=1") are not allowed and will result in an exception.</remarks>
+        /// cref="InvalidOperationException"/> is thrown. <see cref="DeletePredicateGuard"/> checks the predicate before
+        /// it is translated, and its WHERE clause after: a predicate that reads no column, compares a column with itself,
+        /// or is always true through literals or captured values is rejected. The checks don't catch every predicate
+        /// that is true for every row.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
-        /// delete operation. The predicate must not be null and must result in a valid, non-trivial condition.
-        /// Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
+        /// delete operation. It must not be null, and must not plainly match every row: <c>x =&gt; true</c>,
+        /// <c>x =&gt; x.Id == x.Id</c> and <c>x =&gt; x.Id == id || true</c> are rejected to prevent accidental data loss.</param>
         /// <returns>The number of rows affected by the delete operation.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the predicate
-        /// results in an invalid or trivial WHERE clause.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the
+        /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
+        /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
+        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
+        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -279,33 +282,9 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-            
-            // Enhanced validation
-            if (string.IsNullOrWhiteSpace(components.WhereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-
-            // Trivial patterns
-            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
-            if (trivialPatterns.Any(p => components.WhereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-
-            // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(components.WhereClause.Trim()))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-
-            // Must reference at least one column from the target table
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-
-            bool columnReferenced = tableColumns.Any(col =>
-                components.WhereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
+            ValidateDeleteWhereClause<T>(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -330,11 +309,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="id">The primary key value of the entity to delete. This value is used to identify the entity in the database.</param>
         /// <returns><see langword="true"/> if the entity was successfully deleted; otherwise, <see langword="false"/>.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, or if
+        /// <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
+        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
         public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
 
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
@@ -443,8 +427,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         #region Stored Procedure Execution
 
-        /// <summary>Per-type cache of resolved stored procedure names (mirrors the table-name cache).</summary>
-        private static readonly ConcurrentDictionary<Type, string> _procedureNames = new ConcurrentDictionary<Type, string>();
+        // Resolved procedure names are cached per type in this instance's scope (ProcedureNameCache), like table names.
 
         /// <inheritdoc />
         public override ICollection<T> ExecProcedure<T>(object parameters = null)
@@ -574,14 +557,15 @@ namespace Funcular.Data.Orm.SqlServer
 
         /// <summary>
         /// Resolves the stored procedure name for <typeparamref name="T"/>: an explicit name wins, then a
-        /// <c>[Procedure]</c> attribute, then convention inference against <c>sys.procedures</c> (cached per type).
-        /// Catalog lookup runs on its own connection scope and completes before the execution scope opens, so it
-        /// does not nest scopes inside a transaction.
+        /// <c>[Procedure]</c> attribute, then convention inference against <c>sys.procedures</c> (cached per type in
+        /// this instance's scope). Catalog lookup runs on its own
+        /// connection scope and completes before the execution scope opens, so it does not nest scopes inside a
+        /// transaction.
         /// </summary>
         private string ResolveProcedureName<T>(string procedureName)
         {
             if (!string.IsNullOrEmpty(procedureName)) return procedureName;
-            return _procedureNames.GetOrAdd(typeof(T), t =>
+            return ProcedureNameCache.GetOrAdd(typeof(T), t =>
             {
                 var attributeName = GetProcedureNameFromAttribute<T>();
                 if (!string.IsNullOrEmpty(attributeName)) return attributeName;
@@ -826,8 +810,12 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
-        /// The predicate must result in a non-trivial condition. Trivial conditions like "1=1", "true", or self-referencing columns (e.g., x => x.Id == x.Id) are explicitly forbidden to prevent accidental data loss.</param>
+        /// It must not plainly match every row: <c>x =&gt; true</c>, <c>x =&gt; x.Id == x.Id</c> and
+        /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="DeletePredicateGuard"/> to prevent accidental data
+        /// loss. The checks don't catch every predicate that is true for every row.</param>
         /// <returns>The number of rows deleted.</returns>
+        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
+        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -836,33 +824,9 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-
-            // Enhanced validation
-            if (string.IsNullOrWhiteSpace(components.WhereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-
-            // Trivial patterns
-            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
-            if (trivialPatterns.Any(p => components.WhereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-
-            // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(components.WhereClause.Trim()))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-
-            // Must reference at least one column from the target table
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-
-            bool columnReferenced = tableColumns.Any(col =>
-                components.WhereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
+            ValidateDeleteWhereClause<T>(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -887,11 +851,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="id">The primary key value of the record to delete.</param>
         /// <returns><see langword="true"/> if the record was successfully deleted; otherwise, <see langword="false"/>.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, or if
+        /// <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
+        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
         public override bool Delete<T>(long id)
         {
             if (Transaction == null)
                 throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
 
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
@@ -1123,7 +1092,7 @@ namespace Funcular.Data.Orm.SqlServer
             var aliasCounts = new Dictionary<string, int>();
 
             // Helper to get table name for non-generic types
-            string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
+            string GetTableNameByType(Type t) => TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
 
             foreach (var prop in remoteProperties)
@@ -1138,7 +1107,7 @@ namespace Funcular.Data.Orm.SqlServer
                 // keys and the final column map to real DB names (snake_case-aware) instead of the naive
                 // property-name fallback. Deterministic regardless of whether the target type was materialized
                 // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
-                // guarded (_mappedTypes) schema-only read per type.
+                // guarded (MappedTypes, this instance's scope) schema-only read per type.
                 foreach (var step in resolvedPath.Joins)
                 {
                     DiscoverColumns(step.SourceTableType);
@@ -1343,7 +1312,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         private string GetTableNameForType(Type t)
         {
-            return _tableNames.GetOrAdd(t, type =>
+            return TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
         }
 
@@ -1427,6 +1396,11 @@ namespace Funcular.Data.Orm.SqlServer
             ParameterGenerator parameterGenerator = null,
             SqlExpressionTranslator translator = null) where T : class, new()
         {
+            // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
+            // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
+            // column-cache key is absent.
+            DiscoverColumns<T>();
+
             // Use the provided ParameterGenerator and translator, or create new ones if not specified
             var paramGen = parameterGenerator ?? new ParameterGenerator();
             var trans = translator ?? new SqlExpressionTranslator(paramGen);
@@ -1436,8 +1410,8 @@ namespace Funcular.Data.Orm.SqlServer
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
 
             var visitor = new WhereClauseVisitor<T>(
-                ColumnNames,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
                 paramGen,
                 trans,
                 tableName,
@@ -1477,8 +1451,8 @@ namespace Funcular.Data.Orm.SqlServer
             SqlQueryComponents<T> commandElements = null) where T : class, new()
         {
             var visitor = new OrderByClauseVisitor<T>(
-                ColumnNames,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>());
             visitor.Visit(expression);
             if (commandElements == null)
             {
@@ -1495,38 +1469,28 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Validates the provided WHERE clause to ensure it meets the requirements for a delete operation.
+        /// Checks the translated WHERE clause of a delete by predicate, which <see cref="DeletePredicateGuard.Validate"/>
+        /// has accepted: it must be non-empty, must not hold by its literals
+        /// (<see cref="DeletePredicateGuard.HasLiteralTautology(string)"/>), must not be a whole-clause
+        /// self-comparison, and must name at least one column of <typeparamref name="T"/>.
         /// </summary>
-        /// <remarks>This method ensures that the WHERE clause is meaningful and safe for use in a delete
-        /// operation. It prevents trivial or invalid conditions that could lead to unintended data
-        /// destruction.</remarks>
-        /// <typeparam name="T">The type representing the target table. The properties of this type are used to validate column references
-        /// in the WHERE clause.</typeparam>
-        /// <param name="whereClause">The SQL WHERE clause to validate. Must be a non-empty, non-trivial expression that references at least one
-        /// column from the target table.</param>
-        /// <exception cref="InvalidOperationException">Thrown if the WHERE clause is null, empty, or consists only of whitespace; if it contains trivial
-        /// expressions (e.g., "1=1"); if it includes self-referencing column expressions (e.g., "column = column"); or
-        /// if it does not reference any columns from the target table.</exception>
-        private void ValidateWhereClause<T>(string whereClause)
+        /// <typeparam name="T">The entity whose table the delete targets.</typeparam>
+        /// <param name="whereClause">The translated WHERE clause, without the <c>WHERE</c> keyword.</param>
+        /// <exception cref="InvalidOperationException">The clause fails one of the checks.</exception>
+        private void ValidateDeleteWhereClause<T>(string whereClause)
         {
             if (string.IsNullOrWhiteSpace(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
 
-            var trivialPatterns = new[]
-            {
-                "1=1", "1 < 2", "1 > 0", "@p__linq__0", "true", "WHERE 1=1", "WHERE 1 < 2"
-            };
-
-            // Check for trivial patterns
-            if (trivialPatterns.Any(p => whereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
+            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
 
-            // Check for self-referencing column expressions (e.g., first_name = first_name)
-            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(whereClause))
+            // Self-referencing column (e.g., x => x.Id == x.Id)
+            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (regex.IsMatch(whereClause.Trim()))
                 throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
 
-            // Check that at least one column from the target table is referenced
+            // Must reference at least one column from the target table
             var tableColumns = typeof(T).GetProperties()
                 .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
                 .Select(p => GetCachedColumnName(p))
@@ -1645,7 +1609,7 @@ namespace Funcular.Data.Orm.SqlServer
 
         protected void DiscoverColumns(Type type)
         {
-            if (_mappedTypes.Contains(type)) return;
+            if (MappedTypes.Contains(type)) return;
 
             var table = GetTableNameByType(type);
             var commandText = $"SELECT * FROM {table}";
@@ -1712,11 +1676,11 @@ namespace Funcular.Data.Orm.SqlServer
                             if (actualColumnName != null)
                             {
                                 var key = property.ToDictionaryKey();
-                                ColumnNames[key] = Dialect.EncloseIdentifier(actualColumnName);
+                                ColumnNameCache[key] = Dialect.EncloseIdentifier(actualColumnName);
                             }
                         }
 
-                        _mappedTypes.Add(type);
+                        MappedTypes.Add(type);
                     }
                 }
                 catch (SqlException ex)
@@ -1766,7 +1730,7 @@ namespace Funcular.Data.Orm.SqlServer
             // Use both type and schema signature as cache key
             string schemaKey = typeof(T).FullName + "|" + GetSchemaSignature(reader);
 
-            var mapper = (Func<SqlDataReader, T>)_entityMappers.GetOrAdd(schemaKey, _ =>
+            var mapper = (Func<SqlDataReader, T>)EntityMapperCache.GetOrAdd(schemaKey, _ =>
                 BuildDataReaderMapper<T>(reader)
             );
             return mapper(reader);
@@ -1809,7 +1773,7 @@ namespace Funcular.Data.Orm.SqlServer
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name)
+                UnmappedPropertiesFor<T>().Select(p => p.Name)
             );
 
             // Precompute mapping array
@@ -1849,11 +1813,41 @@ namespace Funcular.Data.Orm.SqlServer
 
                     var setter = GetOrCreateSetter(p);
                     var propertyType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
-                    return new { Ordinal = ordinal, Setter = setter, Type = propertyType, IsEnum = propertyType.IsEnum };
+                    return new ReaderColumnMapping(ordinal, setter, propertyType);
                 })
                 .Where(m => m != null)
                 .ToArray();
 
+            return ComposeReaderMapper<T>(mappings);
+        }
+
+        /// <summary>
+        /// One column a reader-to-entity mapper reads: its ordinal, the property's setter and the property's type. Holds
+        /// nothing of the provider (review HRA-2).
+        /// </summary>
+        private sealed class ReaderColumnMapping
+        {
+            internal ReaderColumnMapping(int ordinal, Action<object, object> setter, Type type)
+            {
+                Ordinal = ordinal;
+                Setter = setter;
+                Type = type;
+                IsEnum = type.IsEnum;
+            }
+
+            internal int Ordinal { get; }
+            internal Action<object, object> Setter { get; }
+            internal Type Type { get; }
+            internal bool IsEnum { get; }
+        }
+
+        /// <summary>
+        /// The mapper for <paramref name="mappings"/>. Built in a static method so that its closure holds only
+        /// <paramref name="mappings"/>: a lambda built in <see cref="BuildDataReaderMapper{T}"/> shares that method's
+        /// closure, which holds this provider, and the scope's mapper cache would keep the provider alive (review HRA-2).
+        /// </summary>
+        private static Func<SqlDataReader, T> ComposeReaderMapper<T>(ReaderColumnMapping[] mappings) where T : class, new()
+        {
             return r =>
             {
                 var entity = new T();
@@ -1894,7 +1888,7 @@ namespace Funcular.Data.Orm.SqlServer
             PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1948,7 +1942,7 @@ namespace Funcular.Data.Orm.SqlServer
             T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -2231,7 +2225,7 @@ namespace Funcular.Data.Orm.SqlServer
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>(); // Ensure column mappings are discovered
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));
@@ -2254,60 +2248,10 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Computes a mapping of actual database column names to column ordinals for the provided reader.
-        /// This mapping is used to quickly map reader columns to entity properties without repeated GetOrdinal calls.
-        /// </summary>
-        /// <param name="type">The CLR type being mapped.</param>
-        /// <param name="reader">The active <see cref="SqlDataReader"/> used to inspect schema and values.</param>
-        /// <returns>A dictionary mapping column name to ordinal. Comparisons ignore underscores and case.</returns>
-        protected internal Dictionary<string, int> GetColumnOrdinals(Type type, SqlDataReader reader)
-        {
-            var ordinals = new Dictionary<string, int>(new IgnoreUnderscoreAndCaseStringComparer());
-            ICollection<string> columnNames = new List<string>();
-#if NET8_0_OR_GREATER
-            var columnSchema = reader.GetColumnSchema();
-            foreach (var dbColumn in columnSchema)
-            {
-                columnNames.Add(dbColumn.ColumnName);
-            }
-#else
-                        var schemaTable = reader.GetSchemaTable();
-                        foreach (DataRow row in schemaTable?.Rows)
-                        {
-                            columnNames.Add(row["ColumnName"].ToString());
-                        }
-#endif
-
-            var comparer = new IgnoreUnderscoreAndCaseStringComparer();
-            foreach (var property in _propertiesCache.GetOrAdd(type, t => t.GetProperties().ToArray()))
-            {
-                if (property.GetCustomAttribute<NotMappedAttribute>() != null) continue;
-
-                var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-                var actualColumnName = columnAttr?.Name;
-
-                if (actualColumnName == null)
-                {
-                    // Find matching schema column using comparer semantics
-                    actualColumnName = columnNames.FirstOrDefault(c => comparer.Equals(c, property.Name));
-                }
-
-                if (actualColumnName != null)
-                {
-                    var ordinal = reader.GetOrdinal(actualColumnName);
-                    ordinals[actualColumnName] = ordinal;
-
-                    // Populate _columnNames for future GetColumnName calls
-                    _columnNames[property.Name.ToLowerInvariant()] = Dialect.EncloseIdentifier(actualColumnName);
-                }
-            }
-            return ordinals;
-        }
-
-
-        /// <summary>
-        /// Computes the database column name for the given property by consulting [Column] and cached schema.
-        /// Returns an empty string for properties marked with <see cref="NotMappedAttribute"/>.
+        /// Computes the database column name for a property that discovery hasn't cached: its <c>[Column]</c> name, else
+        /// its lower-cased property name, enclosed by the dialect. Returns an empty string for properties marked with
+        /// <see cref="NotMappedAttribute"/>. No cache entry is read: a key made of a bare property name would match
+        /// any type's property of that name (provider-scoped caches plan, D6).
         /// </summary>
         /// <param name="property">The property to compute a column name for.</param>
         /// <returns>The column name to use in SQL statements.</returns>
@@ -2315,9 +2259,7 @@ namespace Funcular.Data.Orm.SqlServer
             property.GetCustomAttribute<NotMappedAttribute>() != null
                 ? string.Empty
                 : Dialect.EncloseIdentifier(property.GetCustomAttribute<ColumnAttribute>()?.Name ??
-                  (_columnNames.TryGetValue(property.Name.ToLowerInvariant(), out var columnName)
-                      ? columnName
-                      : property.Name.ToLowerInvariant()));
+                                            property.Name.ToLowerInvariant());
 
 
 
@@ -2336,13 +2278,17 @@ namespace Funcular.Data.Orm.SqlServer
             p.Name.Equals($"{typeof(T).Name}Id", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// Returns the properties of <typeparamref name="T"/> that are marked with <see cref="NotMappedAttribute"/>.
-        /// Used to avoid attempting to map or read such properties from a data reader.
+        /// Returns the properties of <typeparamref name="T"/> that aren't read as columns of its table: those marked
+        /// <see cref="NotMappedAttribute"/>, those with a remote attribute, and those with neither a
+        /// <see cref="ColumnAttribute"/> nor an entry in this instance's column-name cache (keyed
+        /// <see cref="GeneralExtensions.ToDictionaryKey"/>). Before <typeparamref name="T"/> is discovered that set can
+        /// include convention-mapped properties, so callers cache it only for discovered types
+        /// (<see cref="UnmappedPropertiesFor{T}"/>).
         /// </summary>
         /// <typeparam name="T">The type whose unmapped properties are requested.</typeparam>
-        /// <param name="type">The CLR Type (provided by the cache accessor).</param>
-        /// <returns>A collection of properties decorated with <see cref="NotMappedAttribute"/>.</returns>
-        protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
+        /// <param name="type">The CLR type, always <c>typeof(T)</c> (the parameter fits the cache's value factory).</param>
+        /// <returns>Those properties.</returns>
+        protected internal ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new()
         {
             var properties = typeof(T).GetProperties();
@@ -2359,9 +2305,25 @@ namespace Funcular.Data.Orm.SqlServer
                 var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
                 if (columnAttr != null) return false; // Explicit column mapping
                 var key = p.ToDictionaryKey();
-                return !_columnNames.ContainsKey(key); // No cached column mapping
+                return !ColumnNameCache.ContainsKey(key); // No cached column mapping
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
+        }
+
+        /// <summary>
+        /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
+        /// this class that needs that set calls this helper rather than <see cref="OrmDataProvider.UnmappedPropertyCache"/>
+        /// directly. Once <typeparamref name="T"/> is discovered (in this instance's
+        /// <see cref="OrmDataProvider.MappedTypes"/>) it returns the cached set, computing and caching it on first use.
+        /// Before that it returns the set computed without caching: a convention-mapped property counts as unmapped
+        /// while its column-name cache key (<see cref="GeneralExtensions.ToDictionaryKey"/>) is absent, and a cached set
+        /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2). Both reads are of
+        /// this instance's scope.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
+        {
+            if (!MappedTypes.Contains(typeof(T))) return GetUnmappedProperties<T>(typeof(T));
+            return UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
         }
 
         /// <summary>
@@ -2378,7 +2340,7 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
+        private string GetTableNameByType(Type type) => TableNameCache.GetOrAdd(type, ResolveTableName);
 
         /// <summary>
         /// Gets the table name used for the specified entity type, consulting the cache or the [Table] attribute if present.
@@ -2388,7 +2350,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <typeparam name="T">The entity type to determine the table name for.</typeparam>
         /// <returns>The resolved table name.</returns>
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
+        protected override string GetTableName<T>() => TableNameCache.GetOrAdd(typeof(T), ResolveTableName);
 
         /// <summary>
         /// Resolves the table name for a CLR type. Resolution order:
@@ -2454,18 +2416,78 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The resolved database column name.</returns>
         protected override string GetCachedColumnName(PropertyInfo property)
         {
-            return ColumnNames.GetOrAdd(property.ToDictionaryKey(), p => ComputeColumnName(property));
+            return ColumnNameCache.GetOrAdd(property.ToDictionaryKey(), p => ComputeColumnName(property));
         }
 
         #region Internal Accessors for SqlLinqQueryProvider
 
         internal string GetTableNameInternal<T>() => GetTableName<T>();
-        
-        internal static ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertiesCache => _unmappedPropertiesCache;
-        
+
         internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
 
-        internal static ConcurrentDictionary<string, string> ColumnNamesCache => _columnNames;
+        #endregion
+
+        #region Identifier Cache Scope (provider-scoped caches plan)
+
+        /// <summary>
+        /// The identity of this instance's cache scope (D2, D3): the constructor string, or the supplied connection's
+        /// string when that is empty, parsed by <see cref="SqlConnectionStringBuilder"/> with the password removed
+        /// (every synonym) and taken as the builder's canonical string. A string the builder rejects is used as given;
+        /// the registry keeps only its SHA-256. Never logged.
+        /// </summary>
+        protected override string CacheScopeIdentity
+        {
+            get
+            {
+                var source = _cacheScopeIdentitySource ?? string.Empty;
+                try
+                {
+                    var builder = new SqlConnectionStringBuilder(source);
+                    builder.Remove("Password");
+                    return builder.ConnectionString;
+                }
+                catch (Exception ex) when (!IsFatal(ex))
+                {
+                    return source;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The exceptions that parsing a connection string for the cache-scope identity must not swallow: the runtime's
+        /// own failures. After any other exception the string is used as given, so the identity never makes an operation
+        /// fail (review HRA-3; <see cref="SqlConnectionStringBuilder"/> throws <see cref="OverflowException"/> on an
+        /// out-of-range number).
+        /// </summary>
+        private static bool IsFatal(Exception ex) =>
+            ex is OutOfMemoryException || ex is StackOverflowException || ex is AccessViolationException ||
+            ex is System.Threading.ThreadAbortException;
+
+        /// <summary>The runtime type of <see cref="Dialect"/> (D1).</summary>
+        protected override Type CacheScopeDialectType => Dialect.GetType();
+
+        // Internal accessors: the LINQ provider, the visitors and the tests read this instance's scope through these.
+
+        /// <summary>This instance's table-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
+
+        /// <summary>This instance's column-name cache.</summary>
+        internal ConcurrentDictionary<string, string> ScopeColumnNames => ColumnNameCache;
+
+        /// <summary>This instance's unmapped-property cache.</summary>
+        internal ConcurrentDictionary<Type, ICollection<PropertyInfo>> ScopeUnmappedProperties => UnmappedPropertyCache;
+
+        /// <summary>This instance's mapped-type set (the types whose columns it has discovered).</summary>
+        internal ICollection<Type> ScopeMappedTypes => MappedTypes;
+
+        /// <summary>This instance's entity-mapper cache.</summary>
+        internal ConcurrentDictionary<string, Delegate> ScopeEntityMappers => EntityMapperCache;
+
+        /// <summary>This instance's procedure-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeProcedureNames => ProcedureNameCache;
+
+        /// <summary>Resolves the stored procedure name for <typeparamref name="T"/> as the Exec* methods do.</summary>
+        internal string ResolveProcedureNameInternal<T>(string procedureName) => ResolveProcedureName<T>(procedureName);
 
         #endregion
 

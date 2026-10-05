@@ -62,6 +62,7 @@
     <Reference Include="System.ComponentModel.DataAnnotations" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DeleteGuardCaseTests.cs" />
     <Compile Include="Domain\Entities\Address\AddressEntity.cs" />
     <Compile Include="Domain\Entities\NotifyPropertyChangedInvocatorAttribute.cs" />
     <Compile Include="Domain\Entities\PersistenceStateEntity.cs" />
@@ -75,6 +76,12 @@
     <Compile Include="SqlDataProviderNetFrameworkIntegrationTests.cs" />
     <Compile Include="SqlDataProviderNetFrameworkPerformanceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Linq\SupportedOperatorSignatures.cs">
+      <Link>Linq\SupportedOperatorSignatures.cs</Link>
+    </Compile>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Linq\QueryOperatorPolicyTests.cs">
+      <Link>Linq\QueryOperatorPolicyTests.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="EPPlus">

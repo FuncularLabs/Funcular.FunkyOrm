@@ -25,7 +25,8 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Returns true if <paramref name="s"/> contains <paramref name="other"/>.
+        /// Returns true if <paramref name="s"/> contains <paramref name="other"/>, compared with
+        /// <paramref name="comparison"/>; false if <paramref name="s"/> is null.
         /// </summary>
 #if NET8_0_OR_GREATER
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -34,12 +35,12 @@ namespace Funcular.Data.Orm
 #endif
         public static bool Contains(this string s, string other, StringComparison comparison = StringComparison.OrdinalIgnoreCase)
         {
-            return s?.IndexOf(other) > -1;
+            return s?.IndexOf(other, comparison) > -1;
         }
 
         /// <summary>
-        /// Converts to a dictionary key, using the type name of the object, a dot,
-        /// and the name of the property.
+        /// Converts to a column-cache key: the full name of the property's declaring type, a dot, and the name of the
+        /// property.
         /// </summary>
         /// <param name="propertyInfo">The property information.</param>
         /// <returns>System.String.</returns>
@@ -52,8 +53,8 @@ namespace Funcular.Data.Orm
         public static string ToDictionaryKey(this PropertyInfo propertyInfo)
         {
             if(propertyInfo == null)
-                throw new ArgumentNullException(nameof(propertyInfo)); 
-            return $"{propertyInfo.DeclaringType?.Name}.{propertyInfo.Name}";
+                throw new ArgumentNullException(nameof(propertyInfo));
+            return $"{propertyInfo.DeclaringType?.FullName}.{propertyInfo.Name}";
         }
 
 

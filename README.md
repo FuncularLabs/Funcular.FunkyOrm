@@ -1,4 +1,5 @@
 > **Recent Changes** — see [Changelog.md](Changelog.md) for full details.
+> * **v3.10.0**: 🛠️ **Query-operator correctness — upgrade strongly recommended.** In 3.9.0 and earlier, `Single`/`SingleOrDefault` with a predicate could return an unrelated row, `Last()` returned the first row, and operators FunkyORM doesn't translate (`Reverse`, `TakeWhile`, …) were silently ignored. 3.10 fixes these, adds `LongCount`, and throws `NotSupportedException` for anything it can't translate — review the Changelog's **Changed** list before upgrading. Some aggregate results (`Average`, `Min`/`Max` result types, empty nullable sets) are still wrong in 3.10.0, with fixes planned for 3.10.1: see **Known issues**. The supported operators are listed in [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310).
 > * **v3.9.0**: 🎯 **Top-level scalar projection** — `Select(x => x.Member)` returns `List<memberType>` via a narrow `SELECT`; composes with filter / order-by (incl. a remote column) / paging.
 > * **v3.8.5-beta1**: 🎯 Explicit remote target authoritative on the final FK hop; documented the narrow-projection idiom.
 > * **v3.8.4-beta1**: 🐛 Fix: a `[RemoteProperty]` value column declared on a base class no longer throws `Invalid object name`.
@@ -37,7 +38,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Performance**: Outperforms EF Core in single-row writes and matches it in reads. (See our [Usage Guide](Usage.md) for benchmarks).
 *   **Zero Configuration**: No `DbContext`, no mapping files. Just POCOs and a connection string.
 *   **Safe**: All queries are parameterized to prevent SQL injection.
-*   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., blocking `1=1`), though this does not guarantee prevention of all crafty circumventions.
+*   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., rejecting `x => true`, `x => x.Id == x.Id` and `x => x.Id == id || true`), though they don't catch every predicate that is true for every row.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
 *   **JSON & Computed Column Attributes**: Four attribute types that eliminate SQL views entirely in code — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]`. Works on SQL Server, PostgreSQL, and SQLite.
@@ -313,7 +314,7 @@ public class ProjectScorecard : ProjectEntity
 }
 ```
 
-All four work in `Get<T>`, `Query<T>`, and `GetList<T>`; the scalar three (`[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`) — and `[RemoteProperty]`/`[RemoteKey]` — also resolve in **WHERE predicates**, **ORDER BY**, and **aggregate filters** (`Count`/`Any`/`Sum`/…). (One exception: filtering `Count`/`All`/`Sum`/`Average` by a *reverse* one-to-many `[RemoteKey]`/`[RemoteProperty]` throws — the join would fan out; aggregate in memory instead.) See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
+All four work in `Get<T>`, `Query<T>`, and `GetList<T>`; the scalar three (`[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`) — and `[RemoteProperty]`/`[RemoteKey]` — also resolve in **WHERE predicates**, **ORDER BY**, and **aggregate filters** (`Count`/`Any`/`Sum`/…). (One exception: filtering `Count`/`LongCount`/`All`/`Sum`/`Average` by a *reverse* one-to-many `[RemoteKey]`/`[RemoteProperty]` throws — the join would fan out; aggregate in memory instead.) See the [Usage Guide](Usage.md) for detailed documentation, generated SQL, and parameter tables.
 
 #### `OrderBy`, `Distinct()`, and projecting computed/remote attributes (v3.8.1)
 

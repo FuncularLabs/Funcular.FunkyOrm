@@ -2,8 +2,9 @@
 
 FunkyORM translates a deliberately **bounded** slice of LINQ to SQL. That boundary is what keeps it fast and
 predictable — but it means some constructs that compile in C# aren't translated, and a few translate only in
-specific shapes. This guide is the honest map of that boundary for four areas that trip people up:
-**projections**, **computed (view-replacing) attributes**, **aggregates**, and **remote properties**.
+specific shapes. This guide is the honest map of that boundary for five areas that trip people up:
+**projections**, **computed (view-replacing) attributes**, **aggregates**, **remote properties**, and **which LINQ
+operators are translated at all** (§5).
 
 These behaviors are covered by integration tests. Everything marked ❌ fails at a specific, named point —
 usually a clear `NotSupportedException` that tells you the alternative. When in doubt, the universal escape
@@ -121,8 +122,9 @@ provider.Query<ProjectScorecard>()
 Chain `Count` / `Any` / `All` / `Sum` / `Min` / `Max` / `Average` **directly off `Query<T>()`** so the database
 does the counting — don't `.ToList()` first just to `.Count()` it.
 
-**Works:** all seven aggregates; filtering an aggregate by a **forward** remote attribute (the required join is
-injected automatically); filtering by a computed attribute.
+**Works:** all seven aggregates, plus `LongCount` (3.10), which returns a `long` (SQL Server computes it with
+`COUNT_BIG(*)`); filtering an aggregate by a **forward** remote attribute (the required join is injected
+automatically); filtering by a computed attribute.
 
 ```csharp
 var count = provider.Query<Person>().Count(p => p.Gender == "Female");
@@ -131,7 +133,7 @@ var n = provider.Query<Person>().Where(p => p.EmployerCountryName == "USA").Coun
 
 **Doesn't work:**
 
-- Filtering **`Count` / `All` / `Sum` / `Average`** by a **reverse** (one-to-many) remote attribute throws
+- Filtering **`Count` / `LongCount` / `All` / `Sum` / `Average`** by a **reverse** (one-to-many) remote attribute throws
   `NotSupportedException` — the reverse join fans rows out and would inflate the number. Materialize and
   aggregate in memory: `query.Where(...).ToList().Count()`. (`Any` / `Min` / `Max` are fan-out-safe and *do*
   work over a reverse join.)
@@ -183,15 +185,71 @@ forward-remote-filtered aggregates, and multi-hop paths all work. Remote reads i
 | Query and filter the whole entity (`.ToList()`) | ✅ works |
 | `Any` / `Min` / `Max` with a reverse filter | ✅ works (fan-out-safe) |
 | Aggregate with **no** remote filter | ✅ works (stays on the base table) |
-| `Count` / `All` / `Sum` / `Average` with a **reverse filter** | ❌ `NotSupportedException` — aggregate in memory |
+| `Count` / `LongCount` / `All` / `Sum` / `Average` with a **reverse filter** | ❌ `NotSupportedException` — aggregate in memory |
 
 The reverse-aggregate guard is deliberately conservative and **entity-wide**: if an entity declares *any*
-reverse remote link, filtering `Count`/`All`/`Sum`/`Average` by any remote column on it — even a forward one —
+reverse remote link, filtering `Count`/`LongCount`/`All`/`Sum`/`Average` by any remote column on it — even a forward one —
 throws. Keep forward and reverse remote attributes on separate detail entities if you need forward-remote
 aggregates.
 
 **Never:** a `[RemoteProperty]` / `[RemoteKey]` inside a custom `Select` (`NotSupportedException`) — query the
 whole entity, or move the attribute onto a detail entity you query directly.
+
+---
+
+## 5. Supported LINQ operators (v3.10)
+
+Before building any SQL, FunkyORM checks the query's chain of operators against the list below. An operator
+that isn't listed, or a listed one in an unsupported position, throws `NotSupportedException` naming the
+operator, and **no command runs**. (Up to 3.9, several of these were silently ignored or mistranslated — see the
+3.10.0 Changelog.)
+
+<!-- funky:supported-operators:begin -->
+| Operator | Translated as | Notes |
+|---|---|---|
+| `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. |
+| `Select` | a narrow `SELECT` | A column subset of the same entity (`new T { … }`) or a single member (`x => x.Member`); see §1. |
+| `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its values sent as parameters (such as strings, chars, `Guid`s, dates and times; booleans, enums and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline); a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL` (on PostgreSQL, a value that would be sent as a parameter is instead compared with `null` before the query is sent; an inline value such as `5` is still sent as `5 IS NULL`). |
+| `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |
+| `Skip`, `Take` | `OFFSET … FETCH` (SQL Server), `LIMIT … OFFSET` (others) | See the paging rule below. Without an `OrderBy`, pages are ordered by `id` (SQLite: `rowid`). `Skip(n < 0)` acts as `Skip(0)`; `Take(n ≤ 0)` returns an empty result without a query. |
+| `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. |
+| `First`, `FirstOrDefault` | the first row of the order | With or without a predicate. |
+| `Single`, `SingleOrDefault` | at most two rows (`TOP (2)` / `LIMIT 2`), then LINQ's checks | Two or more matches throw; `Single` also throws on none. |
+| `Last`, `LastOrDefault` | the first row of the **inverted** order (`TOP (1)` / `LIMIT 1`) | Every ordering key is inverted. With no `OrderBy`, the order is `Id DESC`. |
+| `Count`, `LongCount` | `COUNT(*)`; `COUNT_BIG(*)` for `LongCount` on SQL Server | `LongCount` returns a `long`. |
+| `Any`, `All` | `EXISTS` | `All` requires a predicate. |
+| `Sum`, `Average`, `Min`, `Max` | the SQL aggregate over one mapped column | Selector overloads only. Some result types and empty-set cases are wrong in 3.10.0; fixes are planned for 3.10.1 (Changelog, Known issues). |
+| `Cast`, `OfType` | nothing: the rows are already of that type | `Cast<T>()` to the row type itself or a reference conversion (`Cast<object>()`, `Cast<BaseClass>()`); `OfType<T>()` to the row type only, and not over a nullable or reference member (it would drop nulls). |
+<!-- funky:supported-operators:end -->
+
+**The paging rule.** After `Skip`/`Take`, only `Select`, `Cast`/`OfType`, one `Take` after a `Skip`, and a
+parameterless `First*`/`Single*` are translated. Anything else — `Where`, `OrderBy`, `Distinct`, an aggregate,
+`Last`, `First(pred)`, a second `Skip` — throws, because SQL would apply it *before* the page, not after. Apply it
+before `Skip`/`Take`, or materialize the page first: `query.Skip(n).Take(k).ToList().Where(...)`. This includes
+`Skip(0)`, so a `Skip(page * size)` helper hits it on page 1 too.
+
+**One `OrderBy`.** A second `OrderBy`/`OrderByDescending` anywhere after an earlier ordering throws. In LINQ the
+later ordering becomes the primary key and the earlier one only breaks ties; write that as one chain:
+`query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction (`ThenByDescending` for a descending one).
+
+**NULLs in an ordering.** The database decides where NULLs sort: SQL Server, MySQL and SQLite put them first in
+ascending order, as LINQ does; PostgreSQL puts them last. `First`, `Last` and `ToList` all follow the database's
+order, so on PostgreSQL `OrderBy(x => x.Nullable).Last()` can be a row whose key is NULL.
+
+**`Last` and `Distinct`.** `Last`/`LastOrDefault` after `Distinct()` with a custom projection need an explicit
+`OrderBy` on a projected key, even when `Id` is projected: distinct projected rows have no default order, so it
+throws.
+
+**Base-type and interface views.** Over `IQueryable<BaseClass>` or `IQueryable<IInterface>` (by assignment or
+`Cast`), enumeration, paging and parameterless terminals work, but a **predicate** written against the base type
+throws a clear message. Apply it to the concrete `IQueryable<T>`, or write the helper as a generic method
+constrained to a base class (`where TEntity : BaseClass`). (A helper constrained to an *interface* fails in the
+WHERE translator; that's a known limitation.)
+
+**Everything else** throws, naming the operator: `Reverse`, `TakeWhile`, `SkipWhile`, `TakeLast`, `SkipLast`,
+`ElementAt`, `Concat`, `Union`, `Join`, `GroupBy`, `SelectMany`, `Contains`, `Aggregate`, `DefaultIfEmpty`,
+`DistinctBy`, `MinBy`/`MaxBy`, and the indexed, comparer and default-value overloads of supported operators.
+Lambdas *inside* a supported operator aren't affected: `Where(p => ids.Contains(p.Id))` still works.
 
 ---
 

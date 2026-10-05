@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data;
 using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using Microsoft.Data.SqlClient;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Funcular.Data.Orm.Visitors
 {
@@ -46,27 +49,105 @@ namespace Funcular.Data.Orm.Visitors
         /// <param name="columnNames">Cached column name mappings from property keys to SQL column names.</param>
         /// <param name="unmappedProperties">Cached unmapped properties (marked with NotMappedAttribute).</param>
         private readonly IReadOnlyDictionary<string, string> _propertyToColumnMap;
+        private readonly string _tableQualifier;
+        private readonly ParameterGenerator _parameterGenerator;
+        private readonly List<SqlParameter> _parameters = new List<SqlParameter>();
+        private readonly List<(bool IsText, string Text)> _pendingValues = new List<(bool IsText, string Text)>();
+        private readonly HashSet<string> _termKeys = new HashSet<string>(StringComparer.Ordinal);
 
+        // Stands for a value in a term's SQL until the term is added (ValueSql, AddOrderByClause).
+        private static readonly Regex Placeholder = new Regex("\u0001(\\d+)\u0001", RegexOptions.Compiled);
+
+        /// <summary>The 3.9.0 constructor (no table qualifier), kept for binary compatibility.</summary>
         public OrderByClauseVisitor(
             ConcurrentDictionary<string, string> columnNames,
             ICollection<PropertyInfo> unmappedProperties,
             IReadOnlyDictionary<string, string> propertyToColumnMap = null)
+            : this(columnNames, unmappedProperties, propertyToColumnMap, null)
+        {
+        }
+
+        /// <param name="tableQualifier">When the query has joins, the base table name used to qualify own
+        /// columns (<c>{table}.{column}</c>); <c>null</c> otherwise.</param>
+        public OrderByClauseVisitor(
+            ConcurrentDictionary<string, string> columnNames,
+            ICollection<PropertyInfo> unmappedProperties,
+            IReadOnlyDictionary<string, string> propertyToColumnMap,
+            string tableQualifier)
+            : this(columnNames, unmappedProperties, propertyToColumnMap, tableQualifier, null)
+        {
+        }
+
+        /// <param name="parameterGenerator">When given, every value except booleans, enums, <c>NULL</c> and the eleven
+        /// numeric types in <c>IsNumber</c> is sent as a command parameter, one per occurrence as each literal was its
+        /// own literal, listed in <see cref="Parameters"/>. A dropped duplicate term binds nothing. Without a
+        /// generator, values are inlined as literals.</param>
+        public OrderByClauseVisitor(
+            ConcurrentDictionary<string, string> columnNames,
+            ICollection<PropertyInfo> unmappedProperties,
+            IReadOnlyDictionary<string, string> propertyToColumnMap,
+            string tableQualifier,
+            ParameterGenerator parameterGenerator)
             : base(columnNames, unmappedProperties)
         {
             _propertyToColumnMap = propertyToColumnMap;
+            _tableQualifier = tableQualifier;
+            _parameterGenerator = parameterGenerator;
         }
+
+        /// <summary>
+        /// The translated ordering terms, in order, after duplicate removal.
+        /// </summary>
+        public IReadOnlyList<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms =>
+            _orderByClauses.Select(c => new Funcular.Data.Orm.Linq.OrderByTerm(c.ColumnName, c.IsDescending)).ToList();
+
+        /// <summary>
+        /// The command parameters the ORDER BY fragments refer to (empty without a parameter generator).
+        /// </summary>
+        public IReadOnlyList<SqlParameter> Parameters => _parameters;
 
         /// <summary>
         /// Resolves a property to its ORDER BY SQL fragment. For a "view-replacing" / remote attribute
         /// (<c>[JsonPath]</c>, <c>[RemoteProperty]</c>/<c>[RemoteKey]</c>, <c>[SqlExpression]</c>,
         /// <c>[SubqueryAggregate]</c>) this is the resolved expression (JSON accessor, <c>alias.column</c>,
-        /// expression, or correlated subquery) from the remote-join map; otherwise the plain column name.
+        /// expression, or correlated subquery) from the remote-join map, never prefixed. Otherwise it's the own
+        /// column, qualified as <c>{table}.{column}</c> when the query has joins (#12: a bare own column such as
+        /// <c>id</c> is ambiguous against the joined tables once the projection no longer lists it).
         /// </summary>
         private string ResolveOrderColumn(PropertyInfo property)
         {
             if (_propertyToColumnMap != null && _propertyToColumnMap.TryGetValue(property.Name, out var resolved))
                 return resolved;
-            return GetColumnName(property);
+            var column = GetColumnName(property);
+            return _tableQualifier != null ? $"{_tableQualifier}.{column}" : column;
+        }
+
+        /// <summary>
+        /// Adds an ordering term unless an earlier term is the same: a later duplicate can never break a tie, and SQL
+        /// Server rejects a column listed twice in ORDER BY (error 169). Terms compare by their SQL with each value as
+        /// its kind and text, so a repeated ternary is a duplicate although each value is its own parameter. The values
+        /// of a dropped term are never bound.
+        /// </summary>
+        private void AddOrderByClause(string columnName, bool isDescending)
+        {
+            var values = _pendingValues.ToArray();
+            _pendingValues.Clear();
+            // Placeholders exist only with a parameter generator; without one, every value is already a literal. The
+            // key is length-prefixed, so no value's text can pass for the SQL around it.
+            var key = _parameterGenerator == null ? columnName : Placeholder.Replace(columnName, m =>
+            {
+                var value = values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)];
+                return "\u0001" + (value.IsText ? "t" : "v") + value.Text.Length.ToString(CultureInfo.InvariantCulture) + ":"
+                       + value.Text + "\u0001";
+            });
+            if (_termKeys.Contains(key))
+                return;
+            var sql = _parameterGenerator == null
+                ? columnName
+                : Placeholder.Replace(columnName, m => Bind(values[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)]));
+            _orderByClauses.Add(new OrderByClause { ColumnName = sql, IsDescending = isDescending });
+            // Recorded once the term is in, so a term that failed to bind is never taken for a duplicate later.
+            _termKeys.Add(key);
         }
 
         /// <summary>
@@ -149,7 +230,7 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && IsOrderableProperty(property))
                 {
                     var columnName = ResolveOrderColumn(property);
-                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    AddOrderByClause(columnName, isDescending);
                     return;
                 }
             }
@@ -160,7 +241,7 @@ namespace Funcular.Data.Orm.Visitors
                 if (property != null && IsOrderableProperty(property))
                 {
                     var columnName = ResolveOrderColumn(property);
-                    _orderByClauses.Add(new OrderByClause { ColumnName = columnName, IsDescending = isDescending });
+                    AddOrderByClause(columnName, isDescending);
                     return;
                 }
             }
@@ -168,7 +249,7 @@ namespace Funcular.Data.Orm.Visitors
             {
                 // Build a CASE WHEN ... THEN ... ELSE ... END expression for ORDER BY
                 var caseSql = BuildCaseExpression(conditional);
-                _orderByClauses.Add(new OrderByClause { ColumnName = caseSql, IsDescending = isDescending });
+                AddOrderByClause(caseSql, isDescending);
                 return;
             }
 
@@ -183,10 +264,101 @@ namespace Funcular.Data.Orm.Visitors
         private string BuildCaseExpression(ConditionalExpression conditional)
         {
             string testSql = BuildTestSql(conditional.Test);
-            string trueSql = BuildValueSql(conditional.IfTrue);
-            string falseSql = BuildValueSql(conditional.IfFalse);
+            // Branch values go through the same operand path as the test, so a value reads the same in both positions.
+            string trueSql = OperandSql(conditional.IfTrue, out _);
+            string falseSql = OperandSql(conditional.IfFalse, out _);
 
             return $"CASE WHEN {testSql} THEN {trueSql} ELSE {falseSql} END";
+        }
+
+        /// <summary>
+        /// The SQL for one operand of a ternary test, or for a THEN/ELSE value. An operand that reads no parameter of
+        /// the ordering lambda (a literal, a captured variable, a call such as
+        /// <c>names.FirstOrDefault(n =&gt; ...)</c>) is evaluated once and formatted as a constant, so its null check
+        /// and its SQL can't disagree; anything else is translated as a column or value. <paramref name="isNull"/>
+        /// reports an operand that is or evaluates to null.
+        /// </summary>
+        private string OperandSql(Expression operand, out bool isNull)
+        {
+            isNull = false;
+            if (FreeParameterFinder.Reads(operand))
+                return BuildValueSql(operand);
+
+            // Like BuildValueSql, read through Convert: a char or enum comparison compiles through an int conversion,
+            // and a nullable lift wraps the captured value. ConvertChecked is part of the value ((int)2.7 is 2), so it
+            // is evaluated, never read through.
+            var inner = operand;
+            while (inner is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+                inner = unary.Operand;
+
+            object value;
+            if (inner is ConstantExpression constant)
+                value = constant.Value;
+            else if (inner is MemberExpression member && member.Member is FieldInfo field
+                     && (member.Expression == null || member.Expression is ConstantExpression))
+                value = field.GetValue((member.Expression as ConstantExpression)?.Value); // a captured variable or static field
+            else
+            {
+                try
+                {
+                    value = Expression.Lambda(Expression.Convert(inner, typeof(object))).Compile().DynamicInvoke();
+                }
+                catch
+                {
+                    // Not retried: a second evaluation could see another outcome than the one that failed.
+                    throw new NotSupportedException(inner is MemberExpression
+                        ? $"Unsupported member expression in ORDER BY: {inner}"
+                        : $"Unsupported expression in ORDER BY branch: {inner.NodeType}");
+                }
+            }
+
+            isNull = value == null;
+            return ValueSql(value);
+        }
+
+        /// <summary>
+        /// Finds a parameter an expression reads but doesn't declare. A lambda inside the operand declares its own
+        /// parameters, and reading those doesn't make the operand depend on the row.
+        /// </summary>
+        private sealed class FreeParameterFinder : ExpressionVisitor
+        {
+            private readonly HashSet<ParameterExpression> _declared = new HashSet<ParameterExpression>();
+            private bool _found;
+
+            public static bool Reads(Expression expression)
+            {
+                var finder = new FreeParameterFinder();
+                finder.Visit(expression);
+                return finder._found;
+            }
+
+            protected override Expression VisitLambda<TDelegate>(Expression<TDelegate> node)
+            {
+                foreach (var parameter in node.Parameters)
+                    _declared.Add(parameter);
+                return base.VisitLambda(node);
+            }
+
+            protected override Expression VisitBlock(BlockExpression node)
+            {
+                foreach (var variable in node.Variables)
+                    _declared.Add(variable);
+                return base.VisitBlock(node);
+            }
+
+            protected override CatchBlock VisitCatchBlock(CatchBlock node)
+            {
+                if (node.Variable != null)
+                    _declared.Add(node.Variable);
+                return base.VisitCatchBlock(node);
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                if (!_declared.Contains(node))
+                    _found = true;
+                return node;
+            }
         }
 
         private string BuildTestSql(Expression test)
@@ -205,11 +377,15 @@ namespace Funcular.Data.Orm.Visitors
                     }
                 case BinaryExpression bin:
                     {
-                        var left = bin.Left;
-                        var right = bin.Right;
-
-                        string leftSql = BuildValueSql(left);
-                        string rightSql = BuildValueSql(right);
+                        var leftSql = OperandSql(bin.Left, out var leftIsNull);
+                        var rightSql = OperandSql(bin.Right, out var rightIsNull);
+                        if ((bin.NodeType == ExpressionType.Equal || bin.NodeType == ExpressionType.NotEqual) && (leftIsNull || rightIsNull))
+                        {
+                            // SQL needs IS [NOT] NULL: `col = NULL` is never true (SQL Server even rejects it as a constant
+                            // ORDER BY expression). Either operand order; the null may be a literal or an evaluated value.
+                            var operandSql = leftIsNull ? rightSql : leftSql;
+                            return bin.NodeType == ExpressionType.Equal ? $"{operandSql} IS NULL" : $"{operandSql} IS NOT NULL";
+                        }
 
                         switch (bin.NodeType)
                         {
@@ -255,7 +431,7 @@ namespace Funcular.Data.Orm.Visitors
                         if (memberExpr.Expression is ConstantExpression constExpr)
                         {
                             var value = (memberExpr.Member as FieldInfo)?.GetValue(constExpr.Value);
-                            return FormatConstant(value);
+                            return ValueSql(value);
                         }
 
                         // Nullable.Value access: e.g., p.Birthdate.Value -> map to column
@@ -275,7 +451,7 @@ namespace Funcular.Data.Orm.Visitors
                         try
                         {
                             var evaluated = Expression.Lambda(Expression.Convert(memberExpr, typeof(object))).Compile().DynamicInvoke();
-                            return FormatConstant(evaluated);
+                            return ValueSql(evaluated);
                         }
                         catch
                         {
@@ -283,7 +459,7 @@ namespace Funcular.Data.Orm.Visitors
                         }
                     }
                 case ConstantExpression constExpr:
-                    return FormatConstant(constExpr.Value);
+                    return ValueSql(constExpr.Value);
                 case UnaryExpression unary when unary.NodeType == ExpressionType.Convert:
                     return BuildValueSql(unary.Operand);
                 default:
@@ -291,12 +467,68 @@ namespace Funcular.Data.Orm.Visitors
                     try
                     {
                         var evaluated = Expression.Lambda(Expression.Convert(expr, typeof(object))).Compile().DynamicInvoke();
-                        return FormatConstant(evaluated);
+                        return ValueSql(evaluated);
                     }
                     catch
                     {
                         throw new NotSupportedException($"Unsupported expression in ORDER BY branch: {expr.NodeType}");
                     }
+            }
+        }
+
+        /// <summary>
+        /// A value's SQL. With a parameter generator, anything <see cref="FormatConstant"/> would quote becomes a command
+        /// parameter carrying the text it would quote (<see cref="LiteralText"/>), typed as <see cref="Bind"/> says.
+        /// Each occurrence is its own parameter, as each literal was its own literal. Until its term is added the value
+        /// is a placeholder (<see cref="AddOrderByClause"/>). Booleans, enums, <c>NULL</c> and the numeric types in
+        /// <see cref="IsNumber"/> stay inline.
+        /// </summary>
+        private string ValueSql(object value)
+        {
+            if (_parameterGenerator == null || value == null || value is bool || value is Enum || IsNumber(value))
+                return FormatConstant(value);
+
+            _pendingValues.Add((value is string || value is char, LiteralText(value)));
+            return "\u0001" + (_pendingValues.Count - 1).ToString(CultureInfo.InvariantCulture) + "\u0001";
+        }
+
+        private string Bind((bool IsText, string Text) value)
+        {
+            var parameter = _parameterGenerator.CreateParameter(value.Text);
+            // Strings stay nvarchar, like WHERE's; anything else is varchar, as the literal was, so (say) a legacy
+            // datetime column compares with it as it did with the literal.
+            if (!value.IsText)
+                parameter.SqlDbType = SqlDbType.VarChar;
+            _parameters.Add(parameter);
+            return parameter.ParameterName;
+        }
+
+        private static bool IsNumber(object value) =>
+            value is byte || value is sbyte || value is short || value is ushort || value is int || value is uint
+            || value is long || value is ulong || value is float || value is double || value is decimal;
+
+        /// <summary>
+        /// The text between the quotes of a value <see cref="FormatConstant"/> quotes, and of the parameter that
+        /// replaces it, formatted with the invariant culture: a date as <c>yyyy-MM-dd HH:mm:ss.fff</c>, a
+        /// <see cref="DateTimeOffset"/> as <c>yyyy-MM-dd HH:mm:ss.fffffffK</c>, a <c>DateOnly</c> as
+        /// <c>yyyy-MM-dd</c>, a <c>TimeOnly</c> as <c>HH:mm:ss.FFFFFFF</c>, a Guid as <c>D</c>, anything else as
+        /// <see cref="Convert.ToString(object, IFormatProvider)"/> gives it.
+        /// </summary>
+        private static string LiteralText(object value)
+        {
+            switch (value)
+            {
+                case DateTime dt:
+                    return dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                case DateTimeOffset dto:
+                    return dto.ToString("yyyy-MM-dd HH:mm:ss.fffffffK", CultureInfo.InvariantCulture);
+                // By name: netstandard2.0 has no DateOnly or TimeOnly, but an app on .NET 6 or later can pass one.
+                case IFormattable day when value.GetType().FullName == "System.DateOnly":
+                    return day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                case IFormattable time when value.GetType().FullName == "System.TimeOnly":
+                    return time.ToString("HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
+                default:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
             }
         }
 
@@ -306,15 +538,10 @@ namespace Funcular.Data.Orm.Visitors
 
             switch (value)
             {
-                case string s:
-                    return $"'{s.Replace("'", "''")}'";
-                case DateTime dt:
-                    // SQL-friendly ISO format (no timezone)
-                    return $"'{dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)}'";
                 case bool b:
                     return b ? "1" : "0";
-                case Guid g:
-                    return $"'{g}'";
+                case Enum e:
+                    return Convert.ToString(Convert.ChangeType(e, Enum.GetUnderlyingType(e.GetType()), CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
                 case byte _:
                 case sbyte _:
                 case short _:
@@ -328,8 +555,7 @@ namespace Funcular.Data.Orm.Visitors
                 case decimal _:
                     return Convert.ToString(value, CultureInfo.InvariantCulture);
                 default:
-                    // fallback with quoted ToString
-                    return $"'{value?.ToString()?.Replace("'", "''")}'";
+                    return $"'{LiteralText(value).Replace("'", "''")}'";
             }
         }
     }

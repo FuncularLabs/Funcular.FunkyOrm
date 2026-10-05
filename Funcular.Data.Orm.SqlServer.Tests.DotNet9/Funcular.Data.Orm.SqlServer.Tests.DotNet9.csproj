@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Linq\SupportedOperatorSignatures.cs" Link="Linq\SupportedOperatorSignatures.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj" />
     <ProjectReference Include="..\Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj" />
   </ItemGroup>

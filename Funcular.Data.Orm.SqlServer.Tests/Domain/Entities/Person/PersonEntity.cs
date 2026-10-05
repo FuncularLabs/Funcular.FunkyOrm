@@ -24,7 +24,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person
 	/// </summary>
 	[Table("person")]
 	[Serializable]
-	public class PersonEntity : PersistenceStateEntity
+	public class PersonEntity : PersistenceStateEntity, IHasPersonId
 	{
 
 		#region Members

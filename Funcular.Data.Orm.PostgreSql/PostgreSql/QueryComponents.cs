@@ -50,5 +50,30 @@ namespace Funcular.Data.Orm.PostgreSql
         /// The projected member's type for a scalar projection (the element type of the returned list).
         /// </summary>
         public System.Type ScalarMemberType { get; set; }
+
+        /// <summary>
+        /// The single-row terminal operator (<c>First*</c>, <c>Single*</c>, <c>Last*</c>), or <c>null</c>.
+        /// </summary>
+        public string Terminal { get; set; }
+
+        /// <summary>
+        /// The row limit for a single-row terminal without user paging (<c>LIMIT</c>), or <c>null</c>.
+        /// </summary>
+        public int? RowLimit { get; set; }
+
+        /// <summary>
+        /// The translated ordering terms, used to invert the order for <c>Last*</c>.
+        /// </summary>
+        public List<Funcular.Data.Orm.Linq.OrderByTerm> OrderByTerms { get; set; } = new List<Funcular.Data.Orm.Linq.OrderByTerm>();
+
+        /// <summary>
+        /// The parameters the ORDER BY's values are bound to (AC12-10).
+        /// </summary>
+        public List<NpgsqlParameter> OrderByParameters { get; set; } = new List<NpgsqlParameter>();
+
+        /// <summary>
+        /// Whether a <c>Take(n &lt;= 0)</c> makes the result empty without querying.
+        /// </summary>
+        public bool IsEmptyByTake { get; set; }
     }
 }

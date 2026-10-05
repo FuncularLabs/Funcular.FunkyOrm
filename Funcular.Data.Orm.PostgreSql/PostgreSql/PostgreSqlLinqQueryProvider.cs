@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Runtime.ExceptionServices;
 using System.Reflection;
 using Npgsql;
 using Funcular.Data.Orm.PostgreSql.Visitors;
@@ -9,6 +10,7 @@ using Funcular.Data.Orm.Attributes;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Diagnostics;
 
+using Funcular.Data.Orm.Linq;
 namespace Funcular.Data.Orm.PostgreSql
 {
     /// <summary>
@@ -37,7 +39,32 @@ namespace Funcular.Data.Orm.PostgreSql
 
         public object Execute(Expression expression)
         {
-            return Execute<IEnumerable<T>>(expression);
+            // I2: a collection (IQueryable-typed) expression returns the list; a terminal (First, Count, ...) returns
+            // its single result. Pinning IEnumerable<T> here returned the whole list as the "result" of a First.
+            var resultType = typeof(IQueryable).IsAssignableFrom(expression.Type)
+                ? typeof(IEnumerable<>).MakeGenericType(ElementTypeOf(expression.Type))
+                : expression.Type;
+            try
+            {
+                return GenericExecuteMethod.MakeGenericMethod(resultType).Invoke(this, new object[] { expression });
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                // Surface the real exception (type and stack trace), not the reflection wrapper.
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+
+        private static readonly MethodInfo GenericExecuteMethod = typeof(PostgreSqlLinqQueryProvider<T>).GetMethods()
+            .Single(m => m.Name == nameof(Execute) && m.IsGenericMethodDefinition);
+
+        private static Type ElementTypeOf(Type sequenceType)
+        {
+            var enumerable = sequenceType.IsGenericType && sequenceType.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+                ? sequenceType
+                : sequenceType.GetInterfaces().First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+            return enumerable.GetGenericArguments()[0];
         }
 
         public TResult Execute<TResult>(Expression expression)
@@ -55,10 +82,23 @@ namespace Funcular.Data.Orm.PostgreSql
                 return ExecuteScalarProjection<TResult>(components, expression);
             }
 
-            bool isCollection = typeof(IEnumerable<T>).IsAssignableFrom(typeof(TResult)) && typeof(TResult) != typeof(T);
+            // I2: collection vs single row is decided by the expression's shape, not TResult. A terminal over an
+            // IQueryable<object> view requests object, and an enumerated Cast<object>() requests IEnumerable<object>.
+            bool isCollection = typeof(IQueryable).IsAssignableFrom(expression.Type);
+
+            // Take(n <= 0): no command. Decided by the expression's shape (I2), never by TResult.
+            if (components.IsEmptyByTake)
+                return EmptyResult<TResult>(expression, isCollection);
 
             TResult executeResult;
-            if (components.IsAggregate)
+            if (components.Terminal == "Single" || components.Terminal == "SingleOrDefault")
+            {
+                // Up to two rows through the list path, then LINQ's cardinality rules.
+                string commandText = BuildQueryComponents(components);
+                var rows = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
+                executeResult = SingleOf<TResult>(rows, components.Terminal, ((MethodCallExpression)expression).Arguments.Count == 2);
+            }
+            else if (components.IsAggregate)
             {
                 executeResult = HandleAggregateQuery<TResult>(components, expression);
             }
@@ -80,21 +120,12 @@ namespace Funcular.Data.Orm.PostgreSql
         /// </summary>
         private TResult ExecuteScalarProjection<TResult>(QueryComponents components, Expression expression)
         {
-            // A scalar projection yields List<memberType>; that is only valid when the caller expects a collection
-            // (ToList/enumeration → TResult is IEnumerable<memberType>/List<memberType>). ANY reducing terminal
-            // (First/Single/Count/Any/Sum/LongCount/ElementAt/Contains/Aggregate/…) produces a different TResult —
-            // reject uniformly BY RESULT TYPE rather than an operator blocklist. (Parameterless numeric aggregates
-            // are caught earlier in ParseExpression before their missing selector argument is dereferenced.)
+            // A scalar projection yields List<memberType>, so it supports enumeration only: every terminal is rejected,
+            // decided by the expression's shape (I2).
+            ScalarProjectionGuard.EnsureCollectionResult(expression, typeof(TResult), components.ScalarMemberType);
             var listType = typeof(List<>).MakeGenericType(components.ScalarMemberType);
-            if (!typeof(TResult).IsAssignableFrom(listType))
-            {
-                var op = (expression as MethodCallExpression)?.Method.Name;
-                var opText = (op != null && op != "Select") ? $" followed by {op}()" : "";
-                throw new NotSupportedException(
-                    $"A scalar projection Select(x => x.Member){opText} is only supported for a list/enumeration " +
-                    $"result in this version. Materialize then apply the operator in memory " +
-                    $"(query.Select(x => x.Member).ToList()...), or aggregate off the base query.");
-            }
+            if (components.IsEmptyByTake)
+                return (TResult)Activator.CreateInstance(listType);
 
             string commandText = BuildQueryComponents(components);
             var entities = ExecuteQuery<List<T>>(commandText, components.Parameters, isCollection: true, expression);
@@ -110,8 +141,41 @@ namespace Funcular.Data.Orm.PostgreSql
             return (TResult)(object)list;
         }
 
+        /// <summary>
+        /// The result of a <c>Take(n &lt;= 0)</c> query on the entity path: an empty list for a collection, "no elements"
+        /// for <c>First</c>/<c>Single</c>/<c>Last</c>, <c>default</c> for <c>*OrDefault</c>.
+        /// </summary>
+        private static TResult EmptyResult<TResult>(Expression expression, bool isCollection)
+        {
+            if (isCollection)
+                return (TResult)(object)new List<T>();
+            var terminal = (expression as MethodCallExpression)?.Method.Name;
+            if (terminal == "First" || terminal == "Single" || terminal == "Last")
+                throw new InvalidOperationException("Sequence contains no elements");
+            return default(TResult);
+        }
+
+        /// <summary>
+        /// LINQ's <c>Single</c>/<c>SingleOrDefault</c> cardinality over the (at most two) rows read.
+        /// </summary>
+        private static TResult SingleOf<TResult>(List<T> rows, string terminal, bool hasPredicate)
+        {
+            if (rows.Count > 1)
+                throw new InvalidOperationException(hasPredicate
+                    ? "Sequence contains more than one matching element"
+                    : "Sequence contains more than one element");
+            if (rows.Count == 1)
+                return (TResult)(object)rows[0];
+            if (terminal == "Single")
+                throw new InvalidOperationException(hasPredicate ? "Sequence contains no matching element" : "Sequence contains no elements");
+            return default(TResult);
+        }
+
         private QueryComponents ParseExpression(Expression expression, PostgreSqlParameterGenerator parameterGenerator, PostgreSqlExpressionTranslator translator)
         {
+            // Reject unsupported operators, and supported ones in unsupported positions, before translating anything.
+            QueryOperatorPolicy.EnsureSupported(expression);
+
             var components = new QueryComponents();
             components.Parameters = new List<NpgsqlParameter> { };
 
@@ -130,7 +194,7 @@ namespace Funcular.Data.Orm.PostgreSql
             {
                 var currentCall = methodCalls[i];
 
-                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
+                if (currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "LongCount" || currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
                     components.OuterMethodCall = currentCall;
                 }
@@ -139,23 +203,12 @@ namespace Funcular.Data.Orm.PostgreSql
                     components.OuterMethodCall = currentCall;
                 }
 
-                if (currentCall.Method.Name == "GroupBy")
-                {
-                    // GroupBy is not translated to SQL. Fail clearly here rather than letting the result path
-                    // materialize T and then throw an obscure InvalidCastException (same class as the top-level
-                    // Select guard). Group in memory after materializing.
-                    throw new NotSupportedException(
-                        "GroupBy is not supported in this version — it is not translated to SQL. Materialize " +
-                        "first and group in memory: query.ToList().GroupBy(...).");
-                }
-
                 // A scalar projection changes the element type from T to the projected member. The chain is walked
                 // inner→outer, so if ScalarSelector is already set we are now processing an operator OUTER of the
                 // scalar Select. Any such operator carrying a lambda over the projected element (Where/OrderBy/
                 // predicate- or selector-bearing aggregates/chained Select) would be hard-cast to Func<T,...> and
-                // throw an obscure InvalidCastException. Reject the whole class here with one clear message (same
-                // pattern as the result-type and GroupBy guards). Constant-arg operators (Skip/Take/Distinct) are
-                // unaffected and still compose.
+                // throw an obscure InvalidCastException. Reject the whole class here with one clear message.
+                // Constant-arg operators (Skip/Take/Distinct) are unaffected and still compose.
                 if (components.ScalarSelector != null && currentCall.Arguments.Count >= 2
                     && (currentCall.Arguments[1] is LambdaExpression
                         || (currentCall.Arguments[1] is UnaryExpression scalarComposeUnary && scalarComposeUnary.Operand is LambdaExpression)))
@@ -186,14 +239,21 @@ namespace Funcular.Data.Orm.PostgreSql
                 else if (currentCall.Method.Name == "Skip")
                 {
                     object value = ((ConstantExpression)currentCall.Arguments[1]).Value;
-                    if (value != null) components.Skip = (int)value;
+                    if (value != null)
+                        components.Skip = Math.Max(0, (int)value); // Skip(n < 0) behaves as Skip(0)
                 }
                 else if (currentCall.Method.Name == "Take")
                 {
                     object value = ((ConstantExpression)currentCall.Arguments[1]).Value;
-                    if (value != null) components.Take = (int)value;
+                    if (value != null)
+                    {
+                        components.Take = (int)value;
+                        // Take(n <= 0) is empty: it's answered without a command (Execute / ExecuteScalarProjection).
+                        if ((int)value <= 0)
+                            components.IsEmptyByTake = true;
+                    }
                 }
-                else if ((currentCall.Method.Name == "FirstOrDefault" || currentCall.Method.Name == "First" || currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last") && currentCall.Arguments.Count == 2)
+                else if ((currentCall.Method.Name == "FirstOrDefault" || currentCall.Method.Name == "First" || currentCall.Method.Name == "SingleOrDefault" || currentCall.Method.Name == "Single" || currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last") && currentCall.Arguments.Count == 2)
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)currentCall.Arguments[1]).Operand;
                     var whereExpression = (Expression<Func<T, bool>>)lambda;
@@ -208,64 +268,33 @@ namespace Funcular.Data.Orm.PostgreSql
                         if (elements.JoinClausesList != null) components.JoinClausesList.AddRange(elements.JoinClausesList);
                     }
                     if (elements.SqlParameters != null) components.Parameters.AddRange(elements.SqlParameters);
-
-                    if (currentCall.Method.Name == "LastOrDefault" || currentCall.Method.Name == "Last")
-                    {
-                        if (string.IsNullOrEmpty(components.OrderByClause))
-                        {
-                            var idProperty = typeof(T).GetProperty("Id");
-                            if (idProperty == null)
-                                throw new InvalidOperationException($"Entity type {typeof(T).Name} does not have an 'Id' property.");
-
-                            var parameter = Expression.Parameter(typeof(T), "x");
-                            var propertyAccess = Expression.Property(parameter, idProperty);
-                            var orderByLambda = Expression.Lambda(propertyAccess, parameter);
-
-                            var orderByDescendingMethod = typeof(Queryable).GetMethods()
-                                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
-                                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
-
-                            var orderByExpression = Expression.Call(
-                                orderByDescendingMethod,
-                                Expression.Constant(null, typeof(IQueryable<T>)),
-                                Expression.Quote(orderByLambda));
-
-                            var orderByVisitor = new PostgreSqlOrderByClauseVisitor<T>(
-                                PostgreSqlOrmDataProvider.ColumnNamesCache,
-                                PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
-                                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()));
-                            orderByVisitor.Visit(orderByExpression);
-                            components.OrderByClause = orderByVisitor.OrderByClause;
-                        }
-                    }
                 }
                 else if (currentCall.Method.Name == "OrderBy" || currentCall.Method.Name == "OrderByDescending" || currentCall.Method.Name == "ThenBy" || currentCall.Method.Name == "ThenByDescending")
                 {
+                    // Own columns are table-qualified when the entity has joins (#12).
                     var orderByTable = _dataProvider.GetTableNameInternal<T>();
-                    var orderByRemoteMap = _dataProvider.ResolveRemoteJoins<T>(orderByTable).PropertyToColumnMap;
+                    var orderByRemote = _dataProvider.ResolveRemoteJoins<T>(orderByTable);
                     var orderByVisitor = new PostgreSqlOrderByClauseVisitor<T>(
-                        PostgreSqlOrmDataProvider.ColumnNamesCache,
-                        PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
-                        orderByRemoteMap);
+                        orderByRemote.PropertyToColumnMap,
+                        orderByRemote.IndividualJoinClauses?.Count > 0 ? orderByTable : null,
+                        parameterGenerator);
                     orderByVisitor.Visit(currentCall);
                     components.OrderByClause = orderByVisitor.OrderByClause;
+                    components.OrderByTerms = orderByVisitor.OrderByTerms.ToList();
+                    // The outermost ordering call's visitor sees the whole chain: its parameters are the ones the ORDER
+                    // BY uses (earlier visitors' are discarded).
+                    components.OrderByParameters = orderByVisitor.Parameters.ToList();
                 }
-                else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
+                else if ((currentCall.Method.Name == "Any" || currentCall.Method.Name == "All" || currentCall.Method.Name == "Count" || currentCall.Method.Name == "LongCount") && (currentCall.Arguments.Count == 1 || currentCall.Arguments.Count == 2))
                 {
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }
                 else if (currentCall.Method.Name == "Average" || currentCall.Method.Name == "Min" || currentCall.Method.Name == "Max" || currentCall.Method.Name == "Sum")
                 {
-                    // A parameterless numeric aggregate after a scalar projection has no selector argument — guard
-                    // it here before BuildAggregateClause dereferences Arguments[1].
-                    if (components.ScalarSelector != null)
-                        throw new NotSupportedException(
-                            $"A scalar projection Select(x => x.Member) followed by {currentCall.Method.Name}() is " +
-                            $"not supported in this version. Aggregate off the base query " +
-                            $"(e.g. query.{currentCall.Method.Name}(x => x.Member)), or materialize and apply in " +
-                            $"memory: query.Select(x => x.Member).ToList().{currentCall.Method.Name}().");
                     components.IsAggregate = true;
                     components.AggregateClause = BuildAggregateClause(currentCall, components.WhereClause, components.Parameters, parameterGenerator, translator);
                 }
@@ -305,8 +334,8 @@ namespace Funcular.Data.Orm.PostgreSql
                     var selectTable = _dataProvider.GetTableNameInternal<T>();
                     var selectRemoteMap = _dataProvider.ResolveRemoteJoins<T>(selectTable).PropertyToColumnMap;
                     var selectVisitor = new PostgreSqlSelectClauseVisitor<T>(
-                        PostgreSqlOrmDataProvider.ColumnNamesCache,
-                        PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator,
                         translator,
@@ -327,7 +356,63 @@ namespace Funcular.Data.Orm.PostgreSql
                     "Distinct() combined with an aggregate (e.g. Count) is not supported in this version. " +
                     "Apply the aggregate without Distinct, or materialize the distinct rows and count client-side.");
 
+            // Single*: read at most two rows to check cardinality. Without user paging that is a row limit (no ORDER BY
+            // is synthesized); with user Skip/Take it caps the page at min(Take ?? 2, 2).
+            var terminal = (expression as MethodCallExpression)?.Method.Name;
+            if (terminal == "Single" || terminal == "SingleOrDefault")
+            {
+                components.Terminal = terminal;
+                if (components.Skip.HasValue || components.Take.HasValue)
+                    components.Take = Math.Min(components.Take ?? 2, 2);
+                else
+                    components.RowLimit = 2;
+            }
+
+            // Last*: the first row of the inverted order. Every term is inverted whole (own, remote/computed and CASE
+            // fragments). With no explicit order it is Id DESC, qualified when the entity has joins, resolved in
+            // BuildQueryComponents. Paging before Last* is rejected by the policy, so the row limit never meets a user
+            // Skip/Take.
+            if (terminal == "Last" || terminal == "LastOrDefault")
+            {
+                components.Terminal = terminal;
+                if (components.OrderByTerms.Count > 0)
+                    components.OrderByClause = "ORDER BY " + string.Join(", ", components.OrderByTerms.Select(t => $"{t.Fragment} {(t.IsDescending ? "ASC" : "DESC")}"));
+                components.RowLimit = 1;
+            }
+
+            // ORDER BY values are command parameters (AC12-10). An aggregate drops the ORDER BY, so it gets none.
+            if (!components.IsAggregate)
+                components.Parameters.AddRange(components.OrderByParameters);
+
             return components;
+        }
+
+        /// <summary>
+        /// The order for <c>Last*</c> without an explicit one: <c>Id DESC</c>, table-qualified when the entity has joins.
+        /// </summary>
+        private string DefaultLastOrderBy()
+        {
+            var idProperty = typeof(T).GetProperty("Id");
+            if (idProperty == null)
+                throw new InvalidOperationException($"Entity type {typeof(T).Name} does not have an 'Id' property.");
+
+            var parameter = Expression.Parameter(typeof(T), "x");
+            var orderByDescending = typeof(Queryable).GetMethods()
+                .First(m => m.Name == "OrderByDescending" && m.GetParameters().Length == 2)
+                .MakeGenericMethod(typeof(T), idProperty.PropertyType);
+            var orderByExpression = Expression.Call(orderByDescending, Expression.Constant(null, typeof(IQueryable<T>)),
+                Expression.Quote(Expression.Lambda(Expression.Property(parameter, idProperty), parameter)));
+
+            var table = _dataProvider.GetTableNameInternal<T>();
+            var remote = _dataProvider.ResolveRemoteJoins<T>(table);
+            var orderByVisitor = new PostgreSqlOrderByClauseVisitor<T>(
+                _dataProvider.ScopeColumnNames,
+                _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
+                    t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
+                remote.PropertyToColumnMap,
+                remote.IndividualJoinClauses?.Count > 0 ? table : null);
+            orderByVisitor.Visit(orderByExpression);
+            return orderByVisitor.OrderByClause;
         }
 
         private string BuildAggregateClause(MethodCallExpression methodCall, string whereClause, List<NpgsqlParameter> existingParameters, PostgreSqlParameterGenerator parameterGenerator, PostgreSqlExpressionTranslator translator)
@@ -345,7 +430,7 @@ namespace Funcular.Data.Orm.PostgreSql
             string methodName = methodCall.Method.Name;
             bool isAny = methodName == "Any";
             bool isAll = methodName == "All";
-            bool isCount = methodName == "Count";
+            bool isCount = methodName == "Count" || methodName == "LongCount"; // LongCount: the same rows, an Int64 result
             bool isPredicateBased = isAny || isAll || isCount;
 
             if (isPredicateBased)
@@ -360,8 +445,8 @@ namespace Funcular.Data.Orm.PostgreSql
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
                     var whereVisitor = new PostgreSqlWhereClauseVisitor<T>(
-                        PostgreSqlOrmDataProvider.ColumnNamesCache,
-                        PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+                        _dataProvider.ScopeColumnNames,
+                        _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
                             t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray()),
                         parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
@@ -387,7 +472,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 }
 
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
-                // join for Count/All (fan-out-sensitive), allow it for Any (EXISTS is fan-out-safe).
+                // join for Count/LongCount/All (fan-out-sensitive), allow it for Any (EXISTS is fan-out-safe).
                 joins = ResolveAggregateJoins(
                     (whereClause ?? string.Empty) + "\n" + (modifiedWhereClause ?? string.Empty),
                     remoteInfo, fanOutSafe: isAny);
@@ -428,10 +513,10 @@ namespace Funcular.Data.Orm.PostgreSql
                 var property = memberExpression?.Member as PropertyInfo;
                 string columnExpression;
                 if (property != null &&
-                    PostgreSqlOrmDataProvider.UnmappedPropertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray())
+                    _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t => t.GetProperties().Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null).ToArray())
                         .All(p => p.Name != property.Name))
                 {
-                    columnExpression = PostgreSqlOrmDataProvider.ColumnNamesCache.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
+                    columnExpression = _dataProvider.ScopeColumnNames.GetOrAdd(property.ToDictionaryKey(), p => _dataProvider.GetCachedColumnNameInternal(property));
                 }
                 else throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
 
@@ -460,7 +545,7 @@ namespace Funcular.Data.Orm.PostgreSql
         /// <summary>
         /// Returns the LEFT JOIN clauses to append to an aggregate's FROM, or empty when the aggregate's WHERE does
         /// not reference a remote (join-backed) column. Throws <see cref="NotSupportedException"/> when the required
-        /// join is a reverse (one-to-many) join and the aggregate is fan-out-sensitive (Count/All/Sum/Average).
+        /// join is a reverse (one-to-many) join and the aggregate is fan-out-sensitive (Count/LongCount/All/Sum/Average).
         /// </summary>
         private string ResolveAggregateJoins(string aggregateWhere, PostgreSqlOrmDataProvider.ResolvedRemoteJoinInfo remoteInfo, bool fanOutSafe)
         {
@@ -519,6 +604,13 @@ namespace Funcular.Data.Orm.PostgreSql
             {
                 if (!string.IsNullOrEmpty(components.SelectClause))
                 {
+                    // Last* after Distinct + a custom projection needs an explicit order on a projected key (AC13-2).
+                    if ((components.Terminal == "Last" || components.Terminal == "LastOrDefault") && components.OrderByTerms.Count == 0)
+                        throw new NotSupportedException(
+                            $"{components.Terminal}() after Distinct() with a custom Select(...) projection requires an explicit " +
+                            "OrderBy on a projected key; distinct projected rows have no default order. Add the OrderBy before " +
+                            "the Select, or materialize first.");
+
                     if (string.IsNullOrEmpty(components.OrderByClause) && (components.Skip.HasValue || components.Take.HasValue))
                         throw new InvalidOperationException(
                             "Distinct() with a custom Select(...) projection and paging (Skip/Take) requires an explicit " +
@@ -546,6 +638,11 @@ namespace Funcular.Data.Orm.PostgreSql
                 if (trimmedSelect.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
                     selectPart = "SELECT DISTINCT " + trimmedSelect.Substring("SELECT ".Length);
             }
+
+            // Last* with no explicit order: Id DESC. Resolved here, after the scalar and Distinct guards, so an entity
+            // without an Id property doesn't mask their messages.
+            if ((components.Terminal == "Last" || components.Terminal == "LastOrDefault") && components.OrderByTerms.Count == 0)
+                components.OrderByClause = DefaultLastOrderBy();
 
             // If fromPart contains a WHERE clause from the base command, strip it
             // (only the outer WHERE, not one inside subqueries)
@@ -591,6 +688,10 @@ namespace Funcular.Data.Orm.PostgreSql
             if (components.Skip.HasValue)
                 commandText += $"\r\nOFFSET {components.Skip.Value}";
 
+            // Single*/Last*: a row limit when the user didn't page (RowLimit is never set alongside Skip/Take).
+            if (components.RowLimit.HasValue)
+                commandText += $"\r\nLIMIT {components.RowLimit.Value}";
+
             return commandText;
         }
 
@@ -613,6 +714,8 @@ namespace Funcular.Data.Orm.PostgreSql
                         return (TResult)(object)(Convert.ToInt32(result) == 1);
                     else if (components.OuterMethodCall?.Method.Name == "Count")
                         return (TResult)(object)Convert.ToInt32(result);
+                    else if (components.OuterMethodCall?.Method.Name == "LongCount")
+                        return (TResult)(object)Convert.ToInt64(result);
                     else if (components.OuterMethodCall?.Method.Name == "Average")
                         return (TResult)(object)Convert.ToDouble(result);
                     else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max" || components.OuterMethodCall?.Method.Name == "Sum")

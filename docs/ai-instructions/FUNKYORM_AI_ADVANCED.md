@@ -100,6 +100,7 @@ resolves to an inline SQL fragment (JSON accessor, expression, correlated subque
 | Construct | Notes |
 |---|---|
 | `Query<T>().Count(x => x.Col == v)` / `.Any(...)` / `.Sum(x => x.Num)` / `.Min` / `.Max` / `.Average` | Translated to a SQL aggregate. |
+| `Query<T>().LongCount(...)` | v3.10: returns `long`, built like `Count` (SQL Server: `COUNT_BIG(*)`). |
 | Aggregate filtered by a **forward** `[RemoteProperty]`/`[RemoteKey]` — e.g. `Query<T>().Where(x => x.RemoteProp == v).Count()` | The required `LEFT JOIN` is injected into the aggregate `FROM` when the `WHERE` references a remote column (v3.8.2). |
 | Aggregate filtered by a computed attribute (`[JsonPath]` etc.) | Self-contained — resolves inline, no join. |
 | Numeric aggregate selector | Emitted base-table-qualified (`SUM(person.id)`) to stay unambiguous once joins are present (v3.8.2). |
@@ -107,7 +108,7 @@ resolves to an inline SQL fragment (JSON accessor, expression, correlated subque
 ### ❌ Doesn't work
 | Construct | Fails with | Do this instead |
 |---|---|---|
-| `Count` / `All` / `Sum` / `Average` filtered by a **reverse** (one-to-many) `[RemoteKey]`/`[RemoteProperty]` | `NotSupportedException` (message contains "reverse" and "ToList") | The reverse join fans base rows out one-per-child, inflating the result. Materialize and aggregate in memory: `Query<T>().Where(...).ToList().Count()` / `.Sum(...)`. |
+| `Count` / `LongCount` / `All` / `Sum` / `Average` filtered by a **reverse** (one-to-many) `[RemoteKey]`/`[RemoteProperty]` | `NotSupportedException` (message contains "reverse" and "ToList") | The reverse join fans base rows out one-per-child, inflating the result. Materialize and aggregate in memory: `Query<T>().Where(...).ToList().Count()` / `.Sum(...)`. |
 | `Distinct().Count()` | `NotSupportedException` | Count client-side. |
 | Aggregate selector that is an expression, not a simple member — e.g. `.Sum(x => x.A + x.B)` | `NotSupportedException` — aggregate selectors must be a single mapped column, not an expression | Sum a mapped column, or compute in memory. |
 | `GroupBy(...)` | `NotSupportedException` — not translated to SQL | Group in memory: `Query<T>().ToList().GroupBy(...)`. |
@@ -172,17 +173,59 @@ base row fans out one-per-child.
 | Whole-entity `Query<T>().Where(x => x.ReverseKey == v).ToList()` | ✅ Works — rows fan out, but `ToList()` handles it; filtering by the reverse key is supported. |
 | `Any` / `Min` / `Max` over a reverse filter | ✅ Fan-out-safe — executes. |
 | Reverse entity aggregate with **no** remote filter | ✅ Stays on the base table (no fan-out join appended). |
-| `Count` / `All` / `Sum` / `Average` over a **reverse remote filter** | ❌ `NotSupportedException` — materialize and aggregate in memory. |
+| `Count` / `LongCount` / `All` / `Sum` / `Average` over a **reverse remote filter** | ❌ `NotSupportedException` — materialize and aggregate in memory. |
 
 > **The reverse-aggregate guard is entity-wide (conservative/fail-safe).** It keys off whether the entity
 > declares *any* reverse remote link — so if an entity mixes forward and reverse remotes, filtering
-> `Count`/`All`/`Sum`/`Average` by *any* remote column on it (even the forward one) throws. Keep forward and
+> `Count`/`LongCount`/`All`/`Sum`/`Average` by *any* remote column on it (even the forward one) throws. Keep forward and
 > reverse remotes on separate detail entities if you need forward-remote aggregates.
 
 ### Remote attributes — ❌ never
 | Construct | Fails with |
 |---|---|
 | A `[RemoteProperty]`/`[RemoteKey]` in a custom `Select(x => new T { R = x.RemoteProp })` | `NotSupportedException` — the join isn't carried by a custom projection's `FROM`. Query the whole entity, or move the attribute to a detail entity you query directly. |
+
+---
+
+## 5. Supported LINQ operators (v3.10) — the allow-list
+
+**Core rule:** before any SQL is built, the operator chain is checked against this list. An unlisted operator,
+or a listed one in an unsupported position, throws `NotSupportedException` naming the operator, and **no
+command runs**. Never emit an unlisted operator against `Query<T>()`; materialize first (`.ToList()`) and use
+LINQ-to-objects.
+
+<!-- funky:supported-operators:begin -->
+| Operator | SQL | Constraints |
+|---|---|---|
+| `Where` | `WHERE` | Predicate over the queried entity `T`. |
+| `Select` | narrow `SELECT` | `new T { … }` (same entity) or `x => x.Member` only (§1). |
+| `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE`; values other than booleans, enums, `NULL` and `sbyte`/`byte`/`short`/`ushort`/`int`/`uint`/`long`/`ulong`/`float`/`double`/`decimal` as parameters (`== null`, literal, captured or computed without the row, → `IS [NOT] NULL`; PostgreSQL decides a would-be parameter's null test before sending; an inline value stays `5 IS NULL`). NULL placement follows the database (PostgreSQL: NULLs last ascending). |
+| `ThenBy`, `ThenByDescending` | more `ORDER BY` keys | A repeated key is dropped. |
+| `Skip`, `Take` | `OFFSET`/`FETCH` or `LIMIT`/`OFFSET` | Paging rule below. Default order `id` (SQLite `rowid`). `Skip(n<0)` = `Skip(0)`; `Take(n≤0)` → empty, no query. |
+| `Distinct` | `SELECT DISTINCT` | Custom projection ⇒ ordering keys must be projected. No aggregate after it. |
+| `First`, `FirstOrDefault` | first row | With or without predicate. |
+| `Single`, `SingleOrDefault` | `TOP (2)` / `LIMIT 2` + cardinality check | ≥2 matches throw; `Single` throws on 0. |
+| `Last`, `LastOrDefault` | inverted `ORDER BY` + `TOP (1)` / `LIMIT 1` | Default order `Id DESC`. After `Distinct` + custom projection: explicit `OrderBy` on a projected key required. |
+| `Count`, `LongCount` | `COUNT(*)` (`COUNT_BIG(*)` for `LongCount` on SQL Server) | `LongCount` → `long`. |
+| `Any`, `All` | `EXISTS` | `All` needs a predicate. |
+| `Sum`, `Average`, `Min`, `Max` | SQL aggregate | Selector overloads only, one mapped column. Known issues in 3.10.0; fixes planned for 3.10.1 (Changelog). |
+| `Cast`, `OfType` | no-op | `Cast` to the row type or a reference conversion; `OfType` to the row type only, not over a nullable/reference member. |
+<!-- funky:supported-operators:end -->
+
+### ❌ Positional rules (throw before any query)
+| Construct | Do this instead |
+|---|---|
+| Any operator after `Skip`/`Take` other than `Select`, `Cast`/`OfType`, one `Take` after `Skip`, parameterless `First*`/`Single*` — includes `Skip(0).Where(...)`, `Take(5).Count()`, `Skip(n).Last()` | Apply it before paging, or `query.Skip(n).Take(k).ToList().Where(...)`. |
+| A second `OrderBy`/`OrderByDescending` (even across `Where`/`Select`/`Distinct`) | One chain, primary key first: `query.OrderBy(later).ThenBy(earlier)` (LINQ makes the later ordering primary), keeping each earlier key's direction (`ThenByDescending` for a descending one). |
+| A predicate over a base-type or interface view (`IQueryable<Base> b = q; b.Where(x => …)`) | Apply it to the concrete `IQueryable<T>`, or use a generic helper constrained to a **base class** (`where TEntity : Base`). An interface-constrained helper fails in the WHERE translator. |
+| `Last()` after `Distinct()` + custom projection, with no `OrderBy` | Add `OrderBy` on a projected key before the `Select`. |
+
+### ❌ Unlisted operators (throw, naming the operator)
+`Reverse`, `TakeWhile`, `SkipWhile`, `TakeLast`, `SkipLast`, `ElementAt*`, `Concat`, `Union`, `Intersect`,
+`Except`, `Join`, `GroupJoin`, `GroupBy`, `SelectMany`, `Zip`, `Contains`, `Aggregate`, `DefaultIfEmpty`,
+`DistinctBy`, `MinBy`/`MaxBy`, `Order`/`OrderDescending`, `Append`/`Prepend`, and the indexed, comparer and
+default-value overloads of listed operators. Lambdas **inside** a listed operator are not checked:
+`Where(p => ids.Contains(p.Id))` is fine.
 
 ---
 
@@ -196,3 +239,7 @@ base row fans out one-per-child.
 6. **PostgreSQL + `[JsonCollection]` + `Distinct()`?** Not allowed — exclude the collection column from the distinct projection.
 7. **A `[RemoteProperty]` inside a custom `Select`?** Never — query the whole entity instead.
 8. **`GroupBy`?** Not translated — materialize then group in memory (`Query<T>().ToList().GroupBy(...)`).
+9. **An operator not in the §5 table?** Not translated — it throws. Materialize first.
+10. **Filtering, ordering or aggregating after `Skip`/`Take`?** Not allowed — do it before paging, or on the materialized page.
+11. **Two orderings?** One `OrderBy`, then `ThenBy`/`ThenByDescending`. Never a second `OrderBy`.
+12. **Counting past `int.MaxValue`?** Use `LongCount()` (returns `long`).

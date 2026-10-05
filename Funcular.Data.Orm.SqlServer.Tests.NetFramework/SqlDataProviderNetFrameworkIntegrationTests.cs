@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Objects.Address;
@@ -1206,5 +1207,26 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             Assert.AreEqual(3, queryable.ToList().Count);
         }
         #endregion
+
+        // AC13-15 on net48. The non-generic IQueryProvider.Execute dispatches through reflection, and net48 has no
+        // BindingFlags.DoNotWrapExceptions: the caller must see the provider's exception itself, not a
+        // TargetInvocationException (Assert.ThrowsException matches the exact type).
+        [TestMethod]
+        public void NonGenericExecute_FirstOnEmpty_ThrowsUnwrapped()
+        {
+            var marker = Guid.NewGuid().ToString("N");
+            var query = _provider.Query<Person>().Where(p => p.FirstName == marker);
+            var first = Expression.Call(typeof(Queryable), nameof(Queryable.First), new[] { typeof(Person) }, query.Expression);
+
+            Assert.ThrowsException<InvalidOperationException>(() => query.Provider.Execute(first));
+        }
+
+        [TestMethod]
+        public void NonGenericExecute_RejectedOperator_ThrowsNotSupported()
+        {
+            var query = _provider.Query<Person>().Reverse();
+
+            Assert.ThrowsException<NotSupportedException>(() => query.Provider.Execute(query.Expression));
+        }
     }
 }

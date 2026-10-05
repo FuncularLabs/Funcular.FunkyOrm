@@ -13,10 +13,10 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;sqlite;entity;lambda;query;embedded;lightweight</PackageTags>
     <Title>Funcular.FunkyORM.Sqlite</Title>
-    <Version>3.9.0</Version>
-    <AssemblyVersion>3.9.0.0</AssemblyVersion>
-    <FileVersion>3.9.0.0</FileVersion>
-    <InformationalVersion>3.9.0</InformationalVersion>
+    <Version>3.10.0</Version>
+    <AssemblyVersion>3.10.0.0</AssemblyVersion>
+    <FileVersion>3.10.0.0</FileVersion>
+    <InformationalVersion>3.10.0</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -26,6 +26,10 @@
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>Funcular.Data.Orm.Sqlite.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <!-- The cross-provider cache-scope tests (SqlServer.Tests/Caching) plant and observe this provider's caches. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Funcular.Data.Orm.SqlServer.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

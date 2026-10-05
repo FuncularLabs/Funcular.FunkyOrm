@@ -311,7 +311,7 @@ provider.Update(jane);
 ```
 
 ### Delete
-**Safety First!** Deletes require a transaction and a non-trivial WHERE clause. We don't want you accidentally wiping the table.
+**Safety First!** Deletes require a transaction, and a delete by predicate is rejected when its predicate plainly matches every row (see [Troubleshooting](#4-a-where-clause-predicate-is-required-for-deletes)). We don't want you accidentally wiping the table.
 
 **Delete by ID:**
 ```csharp
@@ -371,6 +371,9 @@ var sorted = provider.Query<Person>()
     .ThenBy(p => p.FirstName)
     .ToList();
 ```
+Use one `OrderBy` and add keys with `ThenBy`/`ThenByDescending`. Since v3.10 a second `OrderBy` throws
+`NotSupportedException`; see [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310) for the full list of
+translated operators and the rules for operators after `Skip`/`Take`.
 
 ### Paging (`Skip` / `Take`)
 ```csharp
@@ -426,6 +429,12 @@ FROM [Person]
 WHERE [Gender] = @p0
 ```
 
+**Counting past `int.MaxValue`** (v3.10): `LongCount` works like `Count` and returns a `long`. SQL Server computes
+it with `COUNT_BIG(*)`.
+```csharp
+long total = provider.Query<Person>().LongCount(p => p.Gender == "Female");
+```
+
 **Filtering aggregates by computed & remote attributes:** aggregates honor the same view-replacing
 attributes as any other query. You can `Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average` filtered by a
 `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, or `[RemoteProperty]`/`[RemoteKey]` — the generated
@@ -444,7 +453,7 @@ var recent = provider.Query<CallListQueryRow>()
 
 **⚠️ Limitation — reverse (one-to-many) remote filters.** If a `[RemoteKey]`/`[RemoteProperty]` resolves through a
 *reverse* join (joining on a child's foreign key, e.g. `Country ← Address ← PersonAddress → Person`), the join
-fans the base rows out one-per-child. Filtering **`Count`/`Sum`/`Average`** (or `All`) by such a property would
+fans the base rows out one-per-child. Filtering **`Count`/`LongCount`/`Sum`/`Average`** (or `All`) by such a property would
 therefore return an inflated number, so FunkyORM **throws `NotSupportedException`** instead — aggregate in memory:
 
 ```csharp
@@ -460,7 +469,7 @@ provider.Query<PersonDetail>().Where(p => p.EmployerHqCountryName == "USA").Coun
 ```
 
 > The guard is **entity-wide**: if a detail class declares *any* reverse remote property, a fan-out-sensitive
-> aggregate (`Count`/`All`/`Sum`/`Average`) filtered by *any* of that class's remote properties is rejected —
+> aggregate (`Count`/`LongCount`/`All`/`Sum`/`Average`) filtered by *any* of that class's remote properties is rejected —
 > even a forward one. If you need `Count`/`Sum` over a forward remote property, keep it on a detail class that
 > doesn't also declare a reverse one.
 
@@ -1334,9 +1343,15 @@ You tried to call `.Delete()` without starting a transaction.
 *   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
 
 ### 4. "A WHERE clause (predicate) is required for deletes"
-You tried to delete everything, or used a trivial predicate like `x => true` or `x => 1 == 1`. We stopped you.
-*   **The Fix**: Provide a valid, non-trivial predicate that references at least one column. We explicitly block "delete all" operations to prevent catastrophic data loss.
-    *   **Warning**: While we include rudimentary checks to prevent accidental mass deletes (e.g., blocking `1=1` or `x.Id == x.Id`), we cannot guarantee prevention of all malicious or crafty circumventions (e.g., expressions that evaluate to true for every row). Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
+You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also stop a predicate that plainly matches every row, before the DELETE is sent, with one of these messages:
+*   **"Delete operation WHERE clause must reference at least one column from the target table."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`). The provider's own check can also give it once the WHERE clause is built, when that clause names no column of the table, for example a predicate on a remote property only.
+*   **"Delete operation WHERE clause cannot be a self-referencing column expression."**: it compares a column with itself (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`).
+*   **"Delete operation requires a non-trivial WHERE clause."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null), or with a `Contains` on a captured string that holds (`x => roles.Contains("admin") || x.OwnerId == me`); or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
+*   **`NotSupportedException`**, for a predicate the checks above accept, when it holds a shape the providers can send so that it matches other rows than C# selects, often every row: a string `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row (`x => x.Id == 2 || s.Contains("z")`, `x => x.Name == n.ToString()`), or a comparison of two strings neither of which reads the row and neither of which is a `null` literal (`x => x.Id == 2 || role == "admin"`, which the database compares under its collation), so compute it before the query; or a string `Contains`, `StartsWith` or `EndsWith` on a column whose search value is null or empty, contains `%`, `_`, `[` or a backslash, or is a property of your own class (`x => x.Name.Contains(Filter)`), so check the value, or copy it to a local, first. Comparisons that read a column are never rejected for case or collation; the database's collation decides them, as before.
+
+The first two messages usually come before any SQL runs, and so does the third. Some come only once the WHERE clause is built: the third for the negated-`Contains` shape and for a literal `1=1` in the SQL (such as `x => x.Id == id || new Settings().Flag`), and the first from the provider's own check. For those, on a type's first use its columns are discovered first, and if its table doesn't exist you get that error instead.
+*   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (filter != null) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss.
+    *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). They evaluate as C# does, and the database can disagree in ways they don't list. Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
     *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.
 
 ---

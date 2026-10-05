@@ -38,14 +38,17 @@ namespace Funcular.Data.Orm.MySql
         /// </summary>
         private int _activeTransactionalScopes;
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
-        internal static readonly ConcurrentDictionary<string, Delegate> _entityMappers = new ConcurrentDictionary<string, Delegate>();
+
+        /// <summary>
+        /// The string the identity of this instance's cache scope comes from (provider-scoped caches plan, D3): the
+        /// constructor string or, when that is empty, the supplied connection's string. Captured at construction, so a
+        /// connection replaced later doesn't change the scope. Never logged.
+        /// </summary>
+        private readonly string _cacheScopeIdentitySource;
 
         #endregion
 
         #region Properties
-
-        internal static ConcurrentDictionary<string, string> ColumnNamesCache => _columnNames;
-        internal static ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertiesCache => _unmappedPropertiesCache;
 
         public IDbConnection Connection { get; set; }
 
@@ -66,6 +69,9 @@ namespace Funcular.Data.Orm.MySql
             IDbTransaction transaction = null, ISqlDialect dialect = null)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _cacheScopeIdentitySource = string.IsNullOrWhiteSpace(_connectionString) && connection != null
+                ? connection.ConnectionString
+                : _connectionString;
             Connection = connection;
             Transaction = transaction;
             Dialect = dialect ?? new MySqlDialect();
@@ -159,6 +165,7 @@ namespace Funcular.Data.Orm.MySql
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
             ValidateWhereClause<T>(components.WhereClause);
             var tableName = GetTableName<T>();
@@ -175,6 +182,8 @@ namespace Funcular.Data.Orm.MySql
         public async Task<bool> DeleteAsync<T>(long id) where T : class, new()
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -341,6 +350,7 @@ namespace Funcular.Data.Orm.MySql
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
             ValidateWhereClause<T>(components.WhereClause);
             var tableName = GetTableName<T>();
@@ -357,6 +367,8 @@ namespace Funcular.Data.Orm.MySql
         public override bool Delete<T>(long id)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
+            // Discover before the key's column is read: on a cold cache GetCachedColumnName caches the naive name.
+            DiscoverColumns<T>();
             var pk = GetCachedPrimaryKey<T>();
             var tableName = GetTableName<T>();
             var pkColumn = GetCachedColumnName(pk);
@@ -553,7 +565,7 @@ namespace Funcular.Data.Orm.MySql
             var existingJoins = new Dictionary<string, string>();
             var aliasCounts = new Dictionary<string, int>();
 
-            string GetTableNameByType(Type t) => _tableNames.GetOrAdd(t, type =>
+            string GetTableNameByType(Type t) => TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
 
             foreach (var prop in remoteProperties)
@@ -568,7 +580,7 @@ namespace Funcular.Data.Orm.MySql
                 // keys and the final column map to real DB names (snake_case-aware) instead of the naive
                 // property-name fallback. Deterministic regardless of whether the target type was materialized
                 // earlier in the process — fixes the cold-cache remote-column bug. DiscoverColumns is a one-time,
-                // guarded (_mappedTypes) schema-only read per type.
+                // guarded (MappedTypes, this instance's scope) schema-only read per type.
                 foreach (var step in resolvedPath.Joins)
                 {
                     DiscoverColumns(step.SourceTableType);
@@ -760,7 +772,7 @@ namespace Funcular.Data.Orm.MySql
         /// </summary>
         private string GetTableNameForType(Type t)
         {
-            return _tableNames.GetOrAdd(t, type =>
+            return TableNameCache.GetOrAdd(t, type =>
                 Dialect.EncloseIdentifier(type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name.ToLower()));
         }
 
@@ -811,6 +823,11 @@ namespace Funcular.Data.Orm.MySql
             MySqlParameterGenerator parameterGenerator = null,
             MySqlExpressionTranslator translator = null) where T : class, new()
         {
+            // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
+            // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
+            // column-cache key is absent.
+            DiscoverColumns<T>();
+
             var paramGen = parameterGenerator ?? new MySqlParameterGenerator();
             var trans = translator ?? new MySqlExpressionTranslator(paramGen);
 
@@ -818,8 +835,8 @@ namespace Funcular.Data.Orm.MySql
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
 
             var visitor = new MySqlWhereClauseVisitor<T>(
-                ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>),
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
 
@@ -847,8 +864,8 @@ namespace Funcular.Data.Orm.MySql
             MySqlQueryComponents<T> commandElements = null) where T : class, new()
         {
             var visitor = new MySqlOrderByClauseVisitor<T>(
-                ColumnNamesCache,
-                _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>));
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>());
             visitor.Visit(expression);
             if (commandElements == null)
                 commandElements = new MySqlQueryComponents<T>(expression, string.Empty, string.Empty, string.Empty, visitor.OrderByClause, new List<MySqlParameter> { });
@@ -864,8 +881,7 @@ namespace Funcular.Data.Orm.MySql
         {
             if (string.IsNullOrWhiteSpace(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-            var trivialPatterns = new[] { "1=1", "1 < 2", "1 > 0", "true", "WHERE 1=1", "WHERE 1 < 2" };
-            if (trivialPatterns.Any(p => whereClause.Replace(" ", "").Contains(p.Replace(" ", ""), StringComparison.OrdinalIgnoreCase)))
+            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
                 throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
             var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (regex.IsMatch(whereClause))
@@ -930,8 +946,7 @@ namespace Funcular.Data.Orm.MySql
 
         #region Stored Procedure Execution
 
-        /// <summary>Per-type cache of resolved stored procedure names (mirrors the table-name cache).</summary>
-        private static readonly ConcurrentDictionary<Type, string> _procedureNames = new ConcurrentDictionary<Type, string>();
+        // Resolved procedure names are cached per type in this instance's scope (ProcedureNameCache), like table names.
 
         /// <inheritdoc />
         public override ICollection<T> ExecProcedure<T>(object parameters = null)
@@ -1061,13 +1076,14 @@ namespace Funcular.Data.Orm.MySql
 
         /// <summary>
         /// Resolves the stored procedure name for <typeparamref name="T"/>: explicit name wins, then
-        /// <c>[Procedure]</c>, then convention inference against information_schema.routines (cached). Catalog
-        /// lookup runs on its own scope before the execution scope opens, so it never nests inside a transaction.
+        /// <c>[Procedure]</c>, then convention inference against information_schema.routines (cached per type in this
+        /// instance's scope). Catalog lookup runs on its own scope
+        /// before the execution scope opens, so it never nests inside a transaction.
         /// </summary>
         private string ResolveProcedureName<T>(string procedureName)
         {
             if (!string.IsNullOrEmpty(procedureName)) return procedureName;
-            return _procedureNames.GetOrAdd(typeof(T), t =>
+            return ProcedureNameCache.GetOrAdd(typeof(T), t =>
             {
                 var attributeName = GetProcedureNameFromAttribute<T>();
                 if (!string.IsNullOrEmpty(attributeName)) return attributeName;
@@ -1126,7 +1142,7 @@ namespace Funcular.Data.Orm.MySql
 
         protected void DiscoverColumns(Type type)
         {
-            if (_mappedTypes.Contains(type)) return;
+            if (MappedTypes.Contains(type)) return;
             var table = GetTableNameByType(type);
             // MySQL: Use LIMIT 0 to fetch schema only
             var commandText = $"SELECT * FROM {table} LIMIT 0";
@@ -1185,10 +1201,10 @@ namespace Funcular.Data.Orm.MySql
                             if (actualColumnName != null)
                             {
                                 var key = property.ToDictionaryKey();
-                                ColumnNamesCache[key] = Dialect.EncloseIdentifier(actualColumnName);
+                                ColumnNameCache[key] = Dialect.EncloseIdentifier(actualColumnName);
                             }
                         }
-                        _mappedTypes.Add(type);
+                        MappedTypes.Add(type);
                     }
                 }
                 catch (MySqlException ex) { HandleMySqlException(type, ex); throw; }
@@ -1206,7 +1222,7 @@ namespace Funcular.Data.Orm.MySql
         protected T MapEntity<T>(MySqlDataReader reader) where T : class, new()
         {
             string schemaKey = typeof(T).FullName + "|" + GetSchemaSignature(reader);
-            var mapper = (Func<MySqlDataReader, T>)_entityMappers.GetOrAdd(schemaKey, _ => BuildDataReaderMapper<T>(reader));
+            var mapper = (Func<MySqlDataReader, T>)EntityMapperCache.GetOrAdd(schemaKey, _ => BuildDataReaderMapper<T>(reader));
             return mapper(reader);
         }
 
@@ -1225,7 +1241,7 @@ namespace Funcular.Data.Orm.MySql
 
             var properties = _propertiesCache.GetOrAdd(type, t => t.GetProperties());
             var unmappedNames = new HashSet<string>(
-                _unmappedPropertiesCache.GetOrAdd(type, GetUnmappedProperties<T>).Select(p => p.Name));
+                UnmappedPropertiesFor<T>().Select(p => p.Name));
 
             var mappings = properties.Select(p =>
             {
@@ -1251,9 +1267,39 @@ namespace Funcular.Data.Orm.MySql
 
                 var setter = GetOrCreateSetter(p);
                 var propertyType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
-                return new { Ordinal = ordinal, Setter = setter, Type = propertyType, IsEnum = propertyType.IsEnum };
+                return new ReaderColumnMapping(ordinal, setter, propertyType);
             }).Where(m => m != null).ToArray();
 
+            return ComposeReaderMapper<T>(mappings);
+        }
+
+        /// <summary>
+        /// One column a reader-to-entity mapper reads: its ordinal, the property's setter and the property's type. Holds
+        /// nothing of the provider (review HRA-2).
+        /// </summary>
+        private sealed class ReaderColumnMapping
+        {
+            internal ReaderColumnMapping(int ordinal, Action<object, object> setter, Type type)
+            {
+                Ordinal = ordinal;
+                Setter = setter;
+                Type = type;
+                IsEnum = type.IsEnum;
+            }
+
+            internal int Ordinal { get; }
+            internal Action<object, object> Setter { get; }
+            internal Type Type { get; }
+            internal bool IsEnum { get; }
+        }
+
+        /// <summary>
+        /// The mapper for <paramref name="mappings"/>. Built in a static method so that its closure holds only
+        /// <paramref name="mappings"/>: a lambda built in <see cref="BuildDataReaderMapper{T}"/> shares that method's
+        /// closure, which holds this provider, and the scope's mapper cache would keep the provider alive (review HRA-2).
+        /// </summary>
+        private static Func<MySqlDataReader, T> ComposeReaderMapper<T>(ReaderColumnMapping[] mappings) where T : class, new()
+        {
             return r =>
             {
                 var entity = new T();
@@ -1285,7 +1331,7 @@ namespace Funcular.Data.Orm.MySql
         protected internal CommandParameters BuildInsertCommandObject<T>(T entity, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1322,7 +1368,7 @@ namespace Funcular.Data.Orm.MySql
         protected internal CommandParameters BuildUpdateCommand<T>(T entity, T existing, PropertyInfo primaryKey) where T : class, new()
         {
             var tableName = GetTableName<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             var properties = _propertiesCache.GetOrAdd(typeof(T), t => t.GetProperties().ToArray())
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Where(p => !IsDatabaseGenerated(p));
@@ -1387,6 +1433,69 @@ namespace Funcular.Data.Orm.MySql
         internal string GetTableNameInternal<T>() where T : class, new() => GetTableName<T>();
 
         internal string GetCachedColumnNameInternal(PropertyInfo property) => GetCachedColumnName(property);
+
+        #endregion
+
+        #region Identifier Cache Scope (provider-scoped caches plan)
+
+        /// <summary>
+        /// The identity of this instance's cache scope (D2, D3): the constructor string, or the supplied connection's
+        /// string when that is empty, parsed by <see cref="MySqlConnectionStringBuilder"/> with the password removed
+        /// (every synonym) and taken as the builder's canonical string. A string the builder rejects is used as given;
+        /// the registry keeps only its SHA-256. Never logged.
+        /// </summary>
+        protected override string CacheScopeIdentity
+        {
+            get
+            {
+                var source = _cacheScopeIdentitySource ?? string.Empty;
+                try
+                {
+                    var builder = new MySqlConnectionStringBuilder(source);
+                    builder.Remove("Password");
+                    return builder.ConnectionString;
+                }
+                catch (Exception ex) when (!IsFatal(ex))
+                {
+                    return source;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The exceptions that parsing a connection string for the cache-scope identity must not swallow: the runtime's
+        /// own failures. After any other exception the string is used as given, so the identity never makes an operation
+        /// fail (review HRA-3).
+        /// </summary>
+        private static bool IsFatal(Exception ex) =>
+            ex is OutOfMemoryException || ex is StackOverflowException || ex is AccessViolationException ||
+            ex is System.Threading.ThreadAbortException;
+
+        /// <summary>The runtime type of <see cref="Dialect"/> (D1).</summary>
+        protected override Type CacheScopeDialectType => Dialect.GetType();
+
+        // Internal accessors: the LINQ provider, the visitors and the tests read this instance's scope through these.
+
+        /// <summary>This instance's table-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeTableNames => TableNameCache;
+
+        /// <summary>This instance's column-name cache.</summary>
+        internal ConcurrentDictionary<string, string> ScopeColumnNames => ColumnNameCache;
+
+        /// <summary>This instance's unmapped-property cache.</summary>
+        internal ConcurrentDictionary<Type, ICollection<PropertyInfo>> ScopeUnmappedProperties => UnmappedPropertyCache;
+
+        /// <summary>This instance's mapped-type set (the types whose columns it has discovered).</summary>
+        internal ICollection<Type> ScopeMappedTypes => MappedTypes;
+
+        /// <summary>This instance's entity-mapper cache.</summary>
+        internal ConcurrentDictionary<string, Delegate> ScopeEntityMappers => EntityMapperCache;
+
+        /// <summary>This instance's procedure-name cache.</summary>
+        internal ConcurrentDictionary<Type, string> ScopeProcedureNames => ProcedureNameCache;
+
+        /// <summary>Resolves the stored procedure name for <typeparamref name="T"/> as the Exec* methods do.</summary>
+        internal string ResolveProcedureNameInternal<T>(string procedureName) => ResolveProcedureName<T>(procedureName);
 
         #endregion
 
@@ -1476,7 +1585,11 @@ namespace Funcular.Data.Orm.MySql
 
         #region Original Protected Helpers
 
-        protected internal static ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
+        /// <summary>
+        /// The properties of <typeparamref name="T"/> that have no column in this instance's scope: [NotMapped], remote,
+        /// and those with neither [Column] nor a discovered column.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> GetUnmappedProperties<T>(Type type)
             where T : class, new()
         {
             var properties = typeof(T).GetProperties();
@@ -1489,9 +1602,25 @@ namespace Funcular.Data.Orm.MySql
                 var columnAttr = p.GetCustomAttribute<ColumnAttribute>();
                 if (columnAttr != null) return false;
                 var key = p.ToDictionaryKey();
-                return !_columnNames.ContainsKey(key);
+                return !ColumnNameCache.ContainsKey(key);
             });
             return knownUnmapped.Concat(implicitlyUnmapped).Distinct().ToArray();
+        }
+
+        /// <summary>
+        /// The single provider-class read of the unmapped-property set for <typeparamref name="T"/>: every site in
+        /// this class that needs that set calls this helper rather than <see cref="OrmDataProvider.UnmappedPropertyCache"/>
+        /// directly. Once <typeparamref name="T"/> is discovered (in this instance's
+        /// <see cref="OrmDataProvider.MappedTypes"/>) it returns the cached set, computing and caching it on first use.
+        /// Before that it returns the set computed without caching: a convention-mapped property counts as unmapped
+        /// while its column-name cache key (<see cref="GeneralExtensions.ToDictionaryKey"/>) is absent, and a cached set
+        /// would outlive the discovery that corrects it (docs/plans/COLD_CACHE_DELETE_PLAN.md, D2). Both reads are of
+        /// this instance's scope.
+        /// </summary>
+        protected internal ICollection<PropertyInfo> UnmappedPropertiesFor<T>() where T : class, new()
+        {
+            if (!MappedTypes.Contains(typeof(T))) return GetUnmappedProperties<T>(typeof(T));
+            return UnmappedPropertyCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
         }
 
         protected internal object GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
@@ -1499,7 +1628,7 @@ namespace Funcular.Data.Orm.MySql
         protected internal string GetColumnNames<T>() where T : class, new()
         {
             DiscoverColumns<T>();
-            var unmapped = _unmappedPropertiesCache.GetOrAdd(typeof(T), GetUnmappedProperties<T>);
+            var unmapped = UnmappedPropertiesFor<T>();
             return string.Join(", ", typeof(T).GetProperties()
                 .Where(p => unmapped.All(up => up.Name != p.Name))
                 .Select(p => GetCachedColumnName(p)));
@@ -1521,9 +1650,9 @@ namespace Funcular.Data.Orm.MySql
             p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
             p.Name.Equals($"{typeof(T).Name}Id", StringComparison.OrdinalIgnoreCase));
 
-        protected override string GetTableName<T>() => _tableNames.GetOrAdd(typeof(T), ResolveTableName);
+        protected override string GetTableName<T>() => TableNameCache.GetOrAdd(typeof(T), ResolveTableName);
 
-        private string GetTableNameByType(Type type) => _tableNames.GetOrAdd(type, ResolveTableName);
+        private string GetTableNameByType(Type type) => TableNameCache.GetOrAdd(type, ResolveTableName);
 
         /// <summary>
         /// Resolves the table name for a CLR type. Resolution order:
@@ -1590,7 +1719,7 @@ namespace Funcular.Data.Orm.MySql
         protected override string GetCachedColumnName(PropertyInfo property)
         {
             var key = property.ToDictionaryKey();
-            return ColumnNamesCache.GetOrAdd(key, _ =>
+            return ColumnNameCache.GetOrAdd(key, _ =>
             {
                 var columnAttribute = property.GetCustomAttribute<ColumnAttribute>();
                 var rawName = columnAttribute != null ? columnAttribute.Name : property.Name;

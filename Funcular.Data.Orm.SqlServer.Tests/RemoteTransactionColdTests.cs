@@ -40,7 +40,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             public string RemoteColdValue { get; set; }
         }
 
-        // A SECOND, independent cold pair for the async test. _mappedTypes is static/process-wide, so the sync
+        // A SECOND, independent cold pair for the async test. Every provider on this connection string shares one
+        // cache scope (provider type, dialect type, connection identity), mapped-type set included, so the sync
         // test would warm TxnColdTarget; a distinct type keeps the async path genuinely cold.
         [Table("funky_txn_cold_target2")]
         public class TxnColdTarget2
@@ -134,7 +135,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         public async System.Threading.Tasks.Task ColdRemoteTarget_AsyncGet_InsideTransaction_DoesNotNestScopes()
         {
             // The async CRUD paths share the same cold-discovery fix. Uses TxnColdSource2 so the remote target is
-            // genuinely cold (the sync test warms the other pair; _mappedTypes is process-wide).
+            // genuinely cold (the sync test warms the other pair in the cache scope both tests' providers share).
             _provider.BeginTransaction();
             try
             {

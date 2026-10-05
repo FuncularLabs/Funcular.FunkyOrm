@@ -21,17 +21,6 @@ namespace Funcular.Data.Orm
         #region Fields
 
         /// <summary>
-        /// Cache mapping entity types to their resolved database table names.
-        /// </summary>
-        protected static readonly ConcurrentDictionary<Type, string> _tableNames = new ConcurrentDictionary<Type, string>();
-
-        /// <summary>
-        /// Cache mapping property dictionary keys (type + property) to actual database column names.
-        /// Uses a comparer that ignores underscores and case.
-        /// </summary>
-        protected static readonly ConcurrentDictionary<string, string> _columnNames = new ConcurrentDictionary<string, string>(new IgnoreUnderscoreAndCaseStringComparer());
-
-        /// <summary>
         /// Cache mapping entity types to their primary key <see cref="PropertyInfo"/>.
         /// </summary>
         protected static readonly ConcurrentDictionary<Type, PropertyInfo> _primaryKeys = new ConcurrentDictionary<Type, PropertyInfo>();
@@ -42,19 +31,72 @@ namespace Funcular.Data.Orm
         protected static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _propertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
 
         /// <summary>
-        /// Cache mapping entity types to properties marked with <see cref="NotMappedAttribute"/>.
-        /// </summary>
-        protected internal static readonly ConcurrentDictionary<Type, ICollection<PropertyInfo>> _unmappedPropertiesCache = new ConcurrentDictionary<Type, ICollection<PropertyInfo>>();
-
-        /// <summary>
-        /// Tracks which types have had their mappings discovered (to avoid repeated database schema calls).
-        /// </summary>
-        protected static readonly HashSet<Type> _mappedTypes = new HashSet<Type> { };
-
-        /// <summary>
         /// Cache mapping property types to their corresponding value setters.
         /// </summary>
         protected static readonly ConcurrentDictionary<PropertyInfo, Action<object, object>> _propertySetters = new ConcurrentDictionary<PropertyInfo, Action<object, object>>();
+
+        /// <summary>This instance's identifier-cache scope, resolved on first use (<see cref="CacheScope"/>).</summary>
+        private CacheScope? _cacheScope;
+
+        #endregion
+
+        #region Identifier Cache Scope
+
+        // Identifier caches are scoped per (provider runtime type, dialect runtime type, connection identity)
+        // (docs/plans/PROVIDER_SCOPED_CACHES_PLAN.md, D1, D4, D7, D8). Providers in different scopes don't share table
+        // names, column names, unmapped and mapped sets, procedure names or entity mappers. What one scope can still
+        // mix (a database changed at run time, an explicit connection to another database) is in the plan's §6.
+
+        /// <summary>
+        /// The connection identity of this instance's cache scope (D2, D3): null means a per-instance scope that the
+        /// registry never holds; empty means one scope per (provider type, dialect type). The default is empty, so a
+        /// direct <see cref="OrmDataProvider"/> subclass that doesn't override this gets one scope per provider type.
+        /// Each built-in provider overrides it with its connection string, parsed by its typed builder with the
+        /// password removed. Never logged.
+        /// </summary>
+        protected virtual string? CacheScopeIdentity => string.Empty;
+
+        /// <summary>
+        /// The runtime type of the dialect that quotes this instance's identifiers (D1). The default is null.
+        /// </summary>
+        protected virtual Type? CacheScopeDialectType => null;
+
+        /// <summary>
+        /// This instance's cache scope. Resolved on first cache use, after the constructor has set the dialect. Under
+        /// a race the factory can run more than once, but one scope is published, and registered scopes come from the
+        /// registry's <c>GetOrAdd</c>, so every run yields the same set (D8). Reading a resolved scope allocates nothing:
+        /// the factory delegate is created only by <see cref="ResolveCacheScope"/> (review HRA-5).
+        /// </summary>
+        internal CacheScope CacheScope => Volatile.Read(ref _cacheScope) ?? ResolveCacheScope();
+
+        /// <summary>Resolves and publishes this instance's cache scope on first use (D8).</summary>
+        private CacheScope ResolveCacheScope() =>
+            LazyInitializer.EnsureInitialized(ref _cacheScope,
+                () => CacheScopeRegistry.GetOrAdd(GetType(), CacheScopeDialectType, CacheScopeIdentity))!;
+
+        /// <summary>The registry key of this instance's scope, or null for a per-instance scope.</summary>
+        internal CacheScopeKey? CacheScopeKey => CacheScope.Key;
+
+        /// <summary>Entity type → resolved table name, in this instance's scope.</summary>
+        protected ConcurrentDictionary<Type, string> TableNameCache => CacheScope.TableNames;
+
+        /// <summary>
+        /// Property key (<see cref="GeneralExtensions.ToDictionaryKey"/>) → column name, in this instance's scope. The
+        /// keys compare ordinally.
+        /// </summary>
+        protected ConcurrentDictionary<string, string> ColumnNameCache => CacheScope.ColumnNames;
+
+        /// <summary>Entity type → unmapped properties, in this instance's scope.</summary>
+        protected ConcurrentDictionary<Type, ICollection<PropertyInfo>> UnmappedPropertyCache => CacheScope.UnmappedProperties;
+
+        /// <summary>The types whose columns have been discovered in this instance's scope (a concurrent set).</summary>
+        protected ICollection<Type> MappedTypes => CacheScope.MappedTypes;
+
+        /// <summary>Compiled entity mappers in this instance's scope.</summary>
+        protected ConcurrentDictionary<string, Delegate> EntityMapperCache => CacheScope.EntityMappers;
+
+        /// <summary>Resolved stored procedure names in this instance's scope (SQL Server, MySQL).</summary>
+        protected ConcurrentDictionary<Type, string> ProcedureNameCache => CacheScope.ProcedureNames;
 
         #endregion
 
@@ -342,7 +384,7 @@ namespace Funcular.Data.Orm
         /// <returns>System.String.</returns>
         protected internal virtual string GetTableName<T>()
         {
-            return _tableNames.GetOrAdd(typeof(T), t =>
+            return TableNameCache.GetOrAdd(typeof(T), t =>
             {
                 var tableAttribute = t.GetCustomAttribute<TableAttribute>();
                 return tableAttribute != null ? tableAttribute.Name : t.Name;
@@ -374,14 +416,15 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Gets the cached column name for the specified property.
+        /// Gets the cached column name for the specified property, keyed by <see cref="GeneralExtensions.ToDictionaryKey"/>
+        /// as discovery keys it, so a discovered name is used (D5).
         /// </summary>
         /// <param name="property">The property.</param>
         /// <returns>System.String.</returns>
         protected internal virtual string GetCachedColumnName(PropertyInfo property)
         {
-            var key = $"{property.DeclaringType?.FullName}.{property.Name}";
-            return _columnNames.GetOrAdd(key, k =>
+            var key = property.ToDictionaryKey();
+            return ColumnNameCache.GetOrAdd(key, k =>
             {
                 var columnAttribute = property.GetCustomAttribute<ColumnAttribute>();
                 return columnAttribute != null ? columnAttribute.Name : property.Name;
@@ -408,13 +451,13 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Gets the unmapped properties for the specified type.
+        /// Gets the unmapped properties for the specified type, from this instance's scope.
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns>ICollection&lt;PropertyInfo&gt;.</returns>
         protected ICollection<PropertyInfo> GetUnmappedProperties<T>()
         {
-            return _unmappedPropertiesCache.GetOrAdd(typeof(T), t =>
+            return UnmappedPropertyCache.GetOrAdd(typeof(T), t =>
             {
                 return t.GetProperties()
                     .Where(p => p.GetCustomAttribute<NotMappedAttribute>() != null)
