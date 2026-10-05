@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.10.0-beta1] - Unreleased
+## [3.10.0] - 2026-10-05
 
 Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12),
 [#13](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/13)). **Upgrade strongly recommended:** several
@@ -231,7 +231,8 @@ Other changes:
 
   Some of these deleted only the rows C# selects before (`x.Id == 2 || s.Contains("z")`; `x.Name.Contains("[")` on
   PostgreSQL, MySQL and SQLite; a backslash on SQL Server and SQLite; `x.Id == 2 || role == "admin"` with `role`
-  "Admin" on PostgreSQL and SQLite); they now throw too.
+  "Admin" on PostgreSQL and SQLite); they now throw too. Comparisons that read a column are never rejected for case or
+  collation; the database's collation decides them, as before.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
