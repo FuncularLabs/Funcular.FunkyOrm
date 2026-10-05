@@ -272,6 +272,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
         /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
         /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
+        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -812,6 +814,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="DeletePredicateGuard"/> to prevent accidental data
         /// loss. The checks don't catch every predicate that is true for every row.</param>
         /// <returns>The number of rows deleted.</returns>
+        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
+        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)

@@ -126,6 +126,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly int capturedA = 7;
         private readonly string capturedNull = null;
         private readonly string capturedS = "s";
+        private readonly string capturedWildcard = "a%";
+        private string FilterProperty { get; } = "b";
         private readonly Request request = new Request();
         private readonly Wrapper capturedWrapper = new Wrapper();
         private readonly W capturedW = new W();
@@ -201,6 +203,25 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["orEnumToString"] = P(x => x.Id == 2 || capturedDay.ToString() == "Monday"),
                 ["orNullableToString"] = P(x => x.Id == 2 || capturedNullableA.ToString() == "7"),
                 ["orContainsFalse"] = P(x => x.Id == 2 || capturedS.Contains("z")),
+                // D9 (owner 2026-10-05): shapes a delete can't send safely, and their safe neighbours.
+                ["nameContainsUnderscore"] = P(x => x.Name.Contains("_")),
+                ["nameStartsWithPercent"] = P(x => x.Name.StartsWith("a%")),
+                ["nameEndsWithBracket"] = P(x => x.Name.EndsWith("[b")),
+                ["nameContainsBackslash"] = P(x => x.Name.Contains("\\")),
+                ["nameContainsCharUnderscore"] = P(x => x.Name.Contains('_')),
+                ["nameContainsCapturedWildcard"] = P(x => x.Name.Contains(capturedWildcard)),
+                ["nameContainsNull"] = P(x => x.Name.Contains(capturedNull)),
+                ["nameContainsEmpty"] = P(x => x.Name.Contains("")),
+                ["nameContainsThisProperty"] = P(x => x.Name.Contains(FilterProperty)),
+                ["nameEqualsCapturedToString"] = P(x => x.Name == capturedS.ToString()),
+                ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
+                ["nameStartsWithA"] = P(x => x.Name.StartsWith("a")),
+                ["idToStringEq7"] = P(x => x.Id.ToString() == "7"),
+                ["idToStringSelf"] = P(x => x.Id.ToString() == x.Id.ToString()),
+                ["nameToStringSelf"] = P(x => x.Name.ToString() == x.Name),
+                ["idToStringSelfNe"] = P(x => x.Id.ToString() != x.Id.ToString()),
+                ["idToStringOther"] = P(x => x.Id.ToString() == x.Other.ToString()),
+                ["idToStringFormatSelf"] = P(x => x.Id.ToString("D2") == x.Id.ToString("D2")),
                 ["nameContains"] = P(x => x.Name.Contains("a")),
                 ["orContainsName"] = P(x => x.Id == 2 || capturedS.Contains(x.Name)),
                 // Not evaluated: another string method, and ToString() that could run user code.
@@ -264,6 +285,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("longSelf", DeletePredicateVerdict.SelfReference)]
         [DataRow("nullableSelf", DeletePredicateVerdict.SelfReference)]
         [DataRow("nameSelf", DeletePredicateVerdict.SelfReference)]
+        [DataRow("idToStringSelf", DeletePredicateVerdict.SelfReference)]
+        [DataRow("nameToStringSelf", DeletePredicateVerdict.SelfReference)]
+        [DataRow("idToStringSelfNe", DeletePredicateVerdict.Acceptable)]
+        [DataRow("idToStringOther", DeletePredicateVerdict.Acceptable)]
+        [DataRow("idToStringFormatSelf", DeletePredicateVerdict.Acceptable)]
         [DataRow("idOther", DeletePredicateVerdict.Acceptable)]
         [DataRow("orTrue", DeletePredicateVerdict.AlwaysTrue)]
         [DataRow("orCapturedTrue", DeletePredicateVerdict.AlwaysTrue)]
@@ -373,6 +399,66 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 return;
             }
             var exception = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicate), key);
+            Assert.AreEqual(expectedMessage, exception.Message, key);
+        }
+
+        private const string ValueCallMessage = "() on a value that doesn't read the row isn't supported in a delete";
+        private const string PropertyValueMessage = "()'s search value is a property of a captured object";
+        private const string EmptyValueMessage = "()'s search value is null or empty";
+        private const string WildcardValueMessage = "()'s search value contains a LIKE wildcard";
+
+        /// <summary>
+        /// D9 (owner decision 2026-10-05): <see cref="DeletePredicateGuard.Validate"/> throws
+        /// <see cref="NotSupportedException"/> for a predicate the guard accepts but the providers would widen to
+        /// (nearly) every row: a <c>Contains</c>/<c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> on a value that
+        /// doesn't read the row, or a string match on a column whose search value is null, empty, a LIKE wildcard, or a
+        /// property of a captured object. A verdict's rejection comes first and keeps its message.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("nameContainsUnderscore", "Contains" + WildcardValueMessage)]
+        [DataRow("nameStartsWithPercent", "StartsWith" + WildcardValueMessage)]
+        [DataRow("nameEndsWithBracket", "EndsWith" + WildcardValueMessage)]
+        [DataRow("nameContainsBackslash", "Contains" + WildcardValueMessage)]
+        [DataRow("nameContainsCharUnderscore", "Contains" + WildcardValueMessage)]
+        [DataRow("nameContainsCapturedWildcard", "Contains" + WildcardValueMessage)]
+        [DataRow("nameContainsNull", "Contains" + EmptyValueMessage)]
+        [DataRow("nameContainsEmpty", "Contains" + EmptyValueMessage)]
+        [DataRow("nameContainsThisProperty", "Contains" + PropertyValueMessage)]
+        [DataRow("orContainsFalse", "Contains" + ValueCallMessage)]
+        [DataRow("orStartsWith", "StartsWith" + ValueCallMessage)]
+        [DataRow("nameEqualsCapturedToString", "ToString" + ValueCallMessage)]
+        public void Validate_RejectsWhatADeleteCantSendSafely(string key, string expectedPrefix)
+        {
+            Exception thrown = null;
+            try
+            {
+                DeletePredicateGuard.Validate(Predicates()[key]);
+            }
+            catch (Exception ex)
+            {
+                thrown = ex;
+            }
+            Assert.IsNotNull(thrown, $"{key}: accepted");
+            Assert.AreEqual(typeof(NotSupportedException), thrown.GetType(), $"{key}: {thrown}");
+            StringAssert.StartsWith(thrown.Message, expectedPrefix, key);
+        }
+
+        [DataTestMethod]
+        [DataRow("nameContains")]
+        [DataRow("nameContainsCaptured")]
+        [DataRow("nameStartsWithA")]
+        [DataRow("idToStringEq7")]
+        [DataRow("idEq2")]
+        public void Validate_AcceptsTheSafeNeighbours(string key) => DeletePredicateGuard.Validate(Predicates()[key]);
+
+        /// <summary>A verdict's rejection is thrown before D9's check, with its own message.</summary>
+        [DataTestMethod]
+        [DataRow("rolesContainsOr", AlwaysTrueMessage)]
+        [DataRow("orCapturedContains", AlwaysTrueMessage)]
+        [DataRow("orContainsNull", AlwaysTrueMessage)]
+        public void Validate_VerdictComesBeforeTheUnsafeCallCheck(string key, string expectedMessage)
+        {
+            var exception = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(Predicates()[key]), key);
             Assert.AreEqual(expectedMessage, exception.Message, key);
         }
 

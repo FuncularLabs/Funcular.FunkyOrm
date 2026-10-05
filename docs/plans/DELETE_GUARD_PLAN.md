@@ -8,7 +8,11 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-02):** rev 12. Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
+> **Status (2026-10-05):** rev 13. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
+> 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and the commit
+> that carries this revision adds D9, the owner's decision of that day (§5.8); its verification is next.
+
+> **Rev 12 status (2026-10-02):** Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
 > rev 4 (`fa06956`). Its re-review (§9.4) found 4 blocking, answered in rev 5 (`5845883`). Its re-review (§9.5) found
 > 4 blocking, answered in rev 6 (`58efaca`). Its re-review (§9.6) is CLEAN. Task 1 is `0167f63` (§5.1), Task 2
@@ -17,6 +21,11 @@
 > (`fcc560c`, §5.5). Its re-verification (§9.9) found 2 blocking, in prose, answered in rev 11 (`b4cce09`, §5.6).
 > Its re-verification (§9.10) found 2 blocking, in prose; the commit that carries rev 12 answers them (§5.7) and is
 > re-verified next.
+
+> **Revision 13 — what changed (owner decision 2026-10-05, after the merge with the caches branch):** D9: a delete
+> throws `NotSupportedException` for the shapes the providers widen to far more rows than C# selects, and a
+> self-comparison through a no-argument `ToString()` is one; AC9, rows, mutations, documents. D7's pointers into the
+> caches plan are added, and §9.8 says its blame classes are the author's (FV2-NB1).
 
 > **Revision 12 — what changed (fix-verification FV3-1, FV3-2):** D2's `ToString` rule judges the receiver's declared
 > type, and §6, the Changelog, Usage and `Classify`'s XML doc say so; Usage says when the first message comes after the
@@ -284,7 +293,21 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
     always-true predicate is (T0-9). `docs/ai-instructions/FUNKYORM_AI_INSTRUCTIONS.md:149` stays true. The
     historical provider plans (`docs/plans/{SQLITE,POSTGRESQL,MYSQL}_PROVIDER_IMPLEMENTATION_PLAN.md` and their copies
     under `Funcular.Data.Orm.SqlServer/_agent/plans/`) describe the guard as it was then and stay unedited (T2-6).
-  - The provider-scoped caches plan's §4.2 note on the guard's reach and its §4.4 net48 line get a pointer here.
+  - The provider-scoped caches plan's §4.2 note on the guard's reach and its §4.4 net48 line get a pointer here
+    (added in rev 13, after the merge).
+- **D9 — What a delete can't send safely** (owner decision 2026-10-05: when a construct that looks right could delete
+  every row and the real fix is expensive, throw `NotSupportedException` if the input is cheap to recognize).
+  `Validate`, after a verdict's rejection, throws `NotSupportedException` for:
+  - a `string` `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row: D2
+    evaluates it as C# does, and the database can disagree (collation; `ToString()` isn't sent; §6);
+  - a `string` `Contains`, `StartsWith` or `EndsWith` on a column whose search value doesn't read the row and is null
+    or empty, or contains `%`, `_`, `[` or a backslash (the providers send it unescaped), or is a property of a captured
+    object (the translators read only a captured field; a property comes back null).
+
+  `MemberChain` reads through an outermost `ToString()` with no argument, so `x.Code.ToString() == x.Code.ToString()`
+  is a self-comparison (SQL Server's SQL-text check caught it; PostgreSQL, MySQL and SQLite deleted every row).
+  Queries are unchanged. Some of these deletes selected C#'s rows before (`x.Id == 2 || s.Contains("z")`;
+  `Contains("[")` outside SQL Server); under the owner's directive of 2026-10-03 they throw too.
 - **D8 — `DeleteGuardCaseTests` (net48) is inverted:** its three rows delete exactly the matching row, and its class
   summary, which describes the old rejection, is rewritten (T1-8). They become net48's instance of AC3.
 
@@ -326,6 +349,12 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
 - **AC8 — No regression:** SqlServer.Tests, PostgreSql.Tests, MySql.Tests, Sqlite.Tests, DotNet9 and net48 pass;
   `DeletePredicateGuard.cs` and every touched provider file reach 85 % line coverage, with the baseline at `be8de82`
   recorded (no pre-arranged waiver; rev 4, T2-5).
+- **AC9 — What a delete can't send safely throws** (rev 13, D9). `Delete`/`DeleteAsync` of `x.FirstName.Contains("_")`,
+  `Contains(capturedNull)`, `Contains("")`, `Contains(FilterProperty)` and `x.Id == 2 || capturedS.Contains("z")`
+  throw `NotSupportedException` with D9's message, log no DELETE and leave every row, on all four providers; `Validate`
+  does the same for the other D9 shapes (`StartsWith("a%")`, `EndsWith("[b")`, a backslash, `'_'`, a captured
+  wildcard, `x.Name == s.ToString()`, a captured `StartsWith`), accepts their safe neighbours, and throws a verdict's
+  message first. A self-comparison through `ToString()` is SelfReference on all four.
 
 ## 4. Test plan
 
@@ -380,6 +409,20 @@ SqlServer.Tests (SQL Server and SQLite classes), PostgreSql.Tests and MySql.Test
 `otherIds` = {1, 3}, `emptyIds` empty) are members of the test classes.
 `Holder.Flag`, the static property `StaticFlags.On` and the instance property `request.IncludeAll` return true;
 `capturedObj.Throws` throws; the user operators count their calls.
+
+**Rev 13 rows (D9, AC9).**
+- DB-free:
+  - `Validate_RejectsWhatADeleteCantSendSafely`: twelve shapes, each with its message prefix;
+  - `Validate_AcceptsTheSafeNeighbours`: `Contains("a")`, `Contains(capturedS)`, `StartsWith("a")`,
+    `x.Id.ToString() == "7"`, `x.Id == 2`;
+  - `Validate_VerdictComesBeforeTheUnsafeCallCheck`: `rolesContainsOr`, `orCapturedContains`, `orContainsNull`;
+  - `Classify_ReturnsTheVerdict`: SR for `idToStringSelf` and `nameToStringSelf`; OK for `idToStringSelfNe`,
+    `idToStringOther` and `idToStringFormatSelf`.
+- Harness, all four providers, sync and async:
+  - `UnsafeDeleteShapes_AreNotSupported`: five shapes; `orContainsFalse` moves here from the deleting rows;
+  - `SelfComparison_IsRejected`: `idToStringSelf`, `firstNameToStringSelf`.
+- Class at `c0dd5a1`: Red, except the safe-neighbour, verdict-order and OK rows (Guard), and SQL Server's ToString
+  self-comparison rows (Guard: its SQL-text check caught them).
 
 ### 4.2 Interface coverage
 
@@ -469,6 +512,14 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 | A failed evaluation not folded by its parts (rev 10) | Classify's two `Contains(capturedNull…)` rows |
 | D3 ignores tokens after the top-level `OR` (rev 9, I1-5) | its `NOT 1=0) AND t.x = @p` row |
 | D3's `CASE … END` matching ignores a nested `CASE` (rev 9, I1-5) | its nested `CASE` row |
+| D9's check removed from `Validate` (rev 13) | every D9 row |
+| D9's wildcards without `_` / `%` / `[` / a backslash (each) (rev 13) | `nameContainsUnderscore` / `nameStartsWithPercent` / `nameEndsWithBracket` / `nameContainsBackslash` |
+| D9 accepts a null or empty search value (rev 13) | `nameContainsNull`, `nameContainsEmpty`, `firstNameContainsEmpty` |
+| D9 accepts a property of a captured object (rev 13) | `nameContainsThisProperty`, `firstNameContainsThisProperty` |
+| D9 accepts a call on a value that doesn't read the row (rev 13) | `orContainsFalse`, `orStartsWith`, `nameEqualsCapturedToString` |
+| D9 leaves `StartsWith` out of the string matches (rev 13) | `nameStartsWithPercent` |
+| D9's check runs before the verdict (rev 13) | `Validate_VerdictComesBeforeTheUnsafeCallCheck` |
+| `MemberChain` doesn't read through `ToString()` / reads through it with an argument too (rev 13) | `idToStringSelf` rows / `idToStringFormatSelf` |
 
 ### 4.4 Where each tier runs
 
@@ -585,6 +636,15 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - FV3-1 and FV3-2 are answered as §9.10 records: prose in the Changelog, `Usage.md`, §6, D2 and `Classify`'s XML
   doc. No code or test changed.
 
+### 5.8 The merge with the caches branch and D9 (the commit that carries rev 13)
+
+- `c0dd5a1` merges `development/3.10` at `4652a3e`. One conflict: the net48 `DeleteGuardCaseTests` class summary, where
+  the caches branch had only rewrapped the old text; D8's summary is kept. The guard rows passed on the merge.
+- D9's rows ran red at `c0dd5a1` as §4.1's rev 13 note classes them, then green. 12 mutants for §4.3's rev 13 rows,
+  each killed by the rows it names.
+- Suites, all passing: SqlServer.Tests 1467, PostgreSql.Tests 917, MySql.Tests 870, Sqlite.Tests 800, DotNet9 5,
+  net48 79. `DeletePredicateGuard.cs` 495 / 504 lines (98.21 %).
+
 ## 6. Out of scope (recorded)
 
 - **Always-true shapes D2 doesn't detect** (T0-9). These deleted every row at the seam on all four providers and still
@@ -638,10 +698,12 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   every column case-sensitive:
   `x.Id == 2 || s.Contains("s")` with `s = "S"` on SQL Server, MySQL and SQLite; `x.Id == 2 || s.Contains("_")` on
   all four; `x.Id == 2 || capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL. Translator
-  defects, pre-existing; filed as a separate task.
+  defects, pre-existing; filed as a separate task. Since rev 13 (D9) a delete throws `NotSupportedException` for each
+  of these shapes instead.
 - **`ToString()` on a value declared as `object` or an interface** (rev 12, FV3-1) isn't evaluated, as D2 judges the
   declared type: `x.Id == 2 || o.ToString() == "s"` with `object o = "s"` (or an `IComparable`) deleted every row on
   all four providers in the fix-verification; with `object o = 7`, `o.ToString() == "7"` did on SQL Server and MySQL.
+  Since rev 13 (D9) a delete throws `NotSupportedException` for it.
 - **A clause nested too deeply for D3's parser** (rev 9, I1-4; rev 10, FV1-3) is parsed again on a 64 MB stack, so
   a 1,500-term nested `OR` ending in `|| !emptyIds.Contains(x.Id)` is rejected on all four providers; without the
   tautology it runs as at `be8de82` (PostgreSQL and MySQL delete the matching rows; SQL Server and SQLite reject the
@@ -757,7 +819,7 @@ Verdict: NOT CLEAN; five blocking findings and one non-blocking. Blame: TEST-GAP
 ### 9.8 Task 4 fix-verification of `3ec5ba9..09033fa` (non-author)
 
 Verdict: NOT CLEAN; four blocking findings. I1-3, I1-5 and I1-6 resolved; I1-4 resolved for the crash; I1-1 and I1-2
-partial. Blame: AC-GAP 2, TEST-GAP 2.
+partial. Blame: AC-GAP 2, TEST-GAP 2 (the author's classes; the review's differed, §9.9 FV2-NB1).
 
 | # | Sev | Blame | Location | Disposition |
 |---|---|---|---|---|
@@ -786,3 +848,7 @@ FV2-NB1 carried. Blame: TEST-GAP 2.
 |---|---|---|---|---|
 | FV3-1 | medium | TEST-GAP | The Changelog's `ToString()` clause; `Usage.md`; §6; `Classify`'s XML doc | Disclosed: D2 judges the receiver's declared type, so a value declared as `object` or an interface isn't evaluated. |
 | FV3-2 | low | TEST-GAP | `Usage.md` item 4: when the first message comes | Usage says the provider's own check can also give it, once the WHERE clause is built. |
+
+### 9.11 Task 4 fix-verification of `b4cce09..ca82741` (non-author)
+
+Verdict: CLEAN. FV3-1 and FV3-2 resolved. FV2-NB1 carried (answered in rev 13).

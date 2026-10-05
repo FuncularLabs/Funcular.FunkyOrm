@@ -107,14 +107,20 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// Throws <see cref="InvalidOperationException"/> with the message of the verdict when
-        /// <see cref="Classify"/> rejects <paramref name="predicate"/>; returns when it is
-        /// <see cref="DeletePredicateVerdict.Acceptable"/>.
+        /// <see cref="Classify"/> rejects <paramref name="predicate"/>. When it is
+        /// <see cref="DeletePredicateVerdict.Acceptable"/>, throws <see cref="NotSupportedException"/> for a shape the
+        /// providers would send so that it matches far more rows than C# selects: a <see cref="string"/>
+        /// <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c>, or a <c>ToString()</c>, on a value that doesn't read
+        /// the row; or a <see cref="string"/> <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a column whose
+        /// search value is null, empty, contains <c>%</c>, <c>_</c>, <c>[</c> or a backslash, or is a property of a
+        /// captured object (which the providers read as null). Otherwise returns.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is null.</exception>
         /// <exception cref="ArgumentException"><paramref name="predicate"/> doesn't have exactly one parameter, or its
         /// body isn't <c>bool</c>.</exception>
         /// <exception cref="InvalidOperationException">The predicate is rejected.</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely.</exception>
         public static void Validate(LambdaExpression predicate)
         {
             switch (Classify(predicate))
@@ -126,6 +132,10 @@ namespace Funcular.Data.Orm
                 case DeletePredicateVerdict.AlwaysTrue:
                     throw new InvalidOperationException(AlwaysTrueMessage);
             }
+            var finder = new UnsafeDeleteCallFinder();
+            finder.Visit(predicate.Body);
+            if (finder.Message != null)
+                throw new NotSupportedException(finder.Message);
         }
 
         /// <summary>
@@ -427,13 +437,16 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// The members of a chain of reads that ends at a parameter of the entity type, through casts, outermost
-        /// first; null when <paramref name="expression"/> isn't one.
+        /// The members of a chain of reads that ends at a parameter of the entity type, through casts and an outermost
+        /// <c>ToString()</c> with no argument, outermost first; null when <paramref name="expression"/> isn't one.
         /// </summary>
         private static List<MemberInfo>? MemberChain(Expression expression, Type entityType)
         {
             var members = new List<MemberInfo>();
             var current = StripConvert(expression);
+            if (current is MethodCallExpression call && call.Method.Name == nameof(ToString) && call.Object != null
+                && call.Arguments.Count == 0)
+                current = StripConvert(call.Object);
             while (current is MemberExpression member && member.Expression != null)
             {
                 members.Add(member.Member);
@@ -473,6 +486,72 @@ namespace Funcular.Data.Orm
 
         private static bool SameMember(MemberInfo left, MemberInfo right) =>
             left == right || (left.Module == right.Module && left.MetadataToken == right.MetadataToken);
+
+        private static readonly char[] LikeWildcards = { '%', '_', '[', '\\' };
+
+        /// <summary>
+        /// Finds the first call in a delete predicate that the providers would send so that it matches far more rows
+        /// than C# selects (see <see cref="Validate"/>), and holds its message.
+        /// </summary>
+        private sealed class UnsafeDeleteCallFinder : ExpressionVisitor
+        {
+            public string? Message { get; private set; }
+
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                Message ??= Check(node);
+                return Message == null ? base.VisitMethodCall(node) : node;
+            }
+
+            private static string? Check(MethodCallExpression node)
+            {
+                if (node.Object == null)
+                    return null;
+                var name = node.Method.Name;
+                var isStringMatch = node.Method.DeclaringType == typeof(string)
+                                    && (name == "Contains" || name == "StartsWith" || name == "EndsWith");
+                if (!isStringMatch && name != nameof(ToString))
+                    return null;
+                if (!ParameterFinder.Reads(node.Object))
+                    return $"{name}() on a value that doesn't read the row isn't supported in a delete; compute it " +
+                           $"before the query: {node}";
+                if (!isStringMatch || node.Arguments.Count == 0)
+                    return null;
+                var argument = node.Arguments[0];
+                if (argument is MemberExpression member && member.Member is PropertyInfo
+                    && member.Expression is ConstantExpression)
+                    return $"{name}()'s search value is a property of a captured object, which the translation reads " +
+                           $"as null; copy it to a local before the query: {node}";
+                if (ParameterFinder.Reads(argument) || !IsEvaluable(argument) || !TryRead(argument, out var value))
+                    return null;
+                var text = value == null ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
+                if (string.IsNullOrEmpty(text))
+                    return $"{name}()'s search value is null or empty, which matches every row in a delete: {node}";
+                if (text!.IndexOfAny(LikeWildcards) >= 0)
+                    return $"{name}()'s search value contains a LIKE wildcard (%, _, [ or a backslash), which is sent " +
+                           $"unescaped and matches more rows than C# does: {node}";
+                return null;
+            }
+        }
+
+        /// <summary>Whether an expression reads any lambda parameter.</summary>
+        private sealed class ParameterFinder : ExpressionVisitor
+        {
+            private bool _found;
+
+            public static bool Reads(Expression expression)
+            {
+                var finder = new ParameterFinder();
+                finder.Visit(expression);
+                return finder._found;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                _found = true;
+                return node;
+            }
+        }
 
         /// <summary>Finds a member chain that ends at a parameter of the entity type, anywhere in a tree.</summary>
         private sealed class MemberChainFinder : ExpressionVisitor

@@ -95,6 +95,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         private readonly bool? capturedNullBool = null;
         private readonly string capturedS = "s";
         private readonly string roles = "admin,user";
+        private string FilterProperty { get; } = "a";
 
         #region Provider seam
 
@@ -153,6 +154,13 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 case "orToStringFormat": return x => x.Id == 2 || capturedA.ToString("D2") == "07";
                 case "orContainsNull": return x => x.Id == 2 || capturedS.Contains(capturedNull);
                 case "firstNameContainsB": return x => x.FirstName.Contains("b");
+                // D9 (owner 2026-10-05): shapes a delete can't send safely.
+                case "firstNameContainsUnderscore": return x => x.FirstName.Contains("_");
+                case "firstNameContainsNull": return x => x.FirstName.Contains(capturedNull);
+                case "firstNameContainsEmpty": return x => x.FirstName.Contains("");
+                case "firstNameContainsThisProperty": return x => x.FirstName.Contains(FilterProperty);
+                case "idToStringSelf": return x => x.Id.ToString() == x.Id.ToString();
+                case "firstNameToStringSelf": return x => x.FirstName.ToString() == x.FirstName;
                 case "orArrayIndex": return x => x.Id == 2 || capturedArray[0] == 5;
                 case "orCoalesce": return x => x.Id == 2 || (capturedNullBool ?? true);
                 case "orIsNullOrEmpty": return x => string.IsNullOrEmpty(capturedNull) || x.FirstName == capturedNull;
@@ -211,6 +219,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("idLe", "sync")] [DataRow("idLe", "async")]
         [DataRow("notNe", "sync")] [DataRow("notNe", "async")]
         [DataRow("longCast", "sync")] [DataRow("longCast", "async")]
+        [DataRow("idToStringSelf", "sync")] [DataRow("idToStringSelf", "async")]
+        [DataRow("firstNameToStringSelf", "sync")] [DataRow("firstNameToStringSelf", "async")]
         public async Task SelfComparison_IsRejected(string key, string path) =>
             await AssertRejected(Row(key), path, SelfReferenceMessage, key);
 
@@ -345,11 +355,12 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         }
 
         /// <summary>
-        /// The guard accepts these, because it evaluates no operator other than casts, <c>!</c>, the logical operators and
-        /// comparisons, and no method call other than string's <c>Contains</c> and a core type's <c>ToString()</c> (plan
-        /// section 6). Every provider fails to translate or run them today (<c>NotSupportedException</c>, or for
-        /// <c>StartsWith</c>/<c>EndsWith</c> on a captured string a <c>NullReferenceException</c>), so nothing is deleted.
-        /// If a provider learns to run one, this row fails, and the guard must learn to evaluate it first.
+        /// The guard's verdict accepts these, because it evaluates no operator other than casts, <c>!</c>, the logical
+        /// operators and comparisons, and no method call other than string's <c>Contains</c> and a core type's
+        /// <c>ToString()</c> (plan section 6). Nothing is deleted: <c>StartsWith</c>/<c>EndsWith</c> on a captured string
+        /// throw <c>NotSupportedException</c> from <see cref="DeletePredicateGuard.Validate"/> (D9), and every provider
+        /// fails to translate the rest. If a provider learns to run one, this row fails, and the guard must learn to
+        /// evaluate it first.
         /// </summary>
         [DataTestMethod]
         [DataRow("orArithmetic", "sync")] [DataRow("orArithmetic", "async")]
@@ -415,10 +426,57 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("nameNotNullAndNotEmpty", "sync", "3")] [DataRow("nameNotNullAndNotEmpty", "async", "3")]
         [DataRow("bigAndId2", "sync", "1,3")] [DataRow("bigAndId2", "async", "1,3")]
         [DataRow("big2", "sync", "1")] [DataRow("big2", "async", "1")]
-        [DataRow("orContainsFalse", "sync", "1,3")] [DataRow("orContainsFalse", "async", "1,3")]
         [DataRow("firstNameContainsB", "sync", "1,3")] [DataRow("firstNameContainsB", "async", "1,3")]
         public async Task NonTrivialPredicates_DeleteTheMatchingRows(string key, string path, string survivors) =>
             await AssertDeletes(Row(key), path, survivors.Split(',').Select(int.Parse).ToArray(), key);
+
+        /// <summary>
+        /// D9 (owner decision 2026-10-05): shapes the guard accepts but the providers would widen to (nearly) every row
+        /// throw <see cref="NotSupportedException"/> before the DELETE is sent, and every row remains.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("firstNameContainsUnderscore", "sync", "Contains()'s search value contains a LIKE wildcard")]
+        [DataRow("firstNameContainsUnderscore", "async", "Contains()'s search value contains a LIKE wildcard")]
+        [DataRow("firstNameContainsNull", "sync", "Contains()'s search value is null or empty")]
+        [DataRow("firstNameContainsNull", "async", "Contains()'s search value is null or empty")]
+        [DataRow("firstNameContainsEmpty", "sync", "Contains()'s search value is null or empty")]
+        [DataRow("firstNameContainsEmpty", "async", "Contains()'s search value is null or empty")]
+        [DataRow("firstNameContainsThisProperty", "sync", "Contains()'s search value is a property of a captured object")]
+        [DataRow("firstNameContainsThisProperty", "async", "Contains()'s search value is a property of a captured object")]
+        [DataRow("orContainsFalse", "sync", "Contains() on a value that doesn't read the row isn't supported in a delete")]
+        [DataRow("orContainsFalse", "async", "Contains() on a value that doesn't read the row isn't supported in a delete")]
+        public async Task UnsafeDeleteShapes_AreNotSupported(string key, string path, string expectedPrefix)
+        {
+            RequireDatabase();
+            try
+            {
+                CreateTables();
+                using var provider = CreateProvider();
+                var logged = Capture(provider);
+                var transactional = (ISqlOrmProvider)provider;
+                transactional.BeginTransaction();
+                try
+                {
+                    var predicate = Row(key);
+                    NotSupportedException exception;
+                    if (path == "async")
+                        exception = await Assert.ThrowsExceptionAsync<NotSupportedException>(() => provider.DeleteAsync(predicate));
+                    else
+                        exception = Assert.ThrowsException<NotSupportedException>(() => provider.Delete(predicate));
+                    StringAssert.StartsWith(exception.Message, expectedPrefix, $"{key} {path}");
+                    AssertNoDeleteLogged(logged, key, path);
+                    Assert.AreEqual(3, provider.GetList<DgRow>().Count, $"{key} {path}: rows were deleted");
+                }
+                finally
+                {
+                    transactional.RollbackTransaction();
+                }
+            }
+            finally
+            {
+                DropTables();
+            }
+        }
 
         #endregion
 

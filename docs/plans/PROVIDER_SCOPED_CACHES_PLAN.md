@@ -502,7 +502,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
     Each counts the rows through the provider inside its transaction, before the rollback, so "the delete runs, then the
     guard throws" fails all three ("Expected:<2>. Actual:<1>") *(rev 18, FVD-3)*. The Changelog states it under Changed.
     The guard's substring patterns also reject legitimate predicates on every build (pre-existing); tightening them is
-    the owner's call.
+    the owner's call. The delete guard rewrite (`DELETE_GUARD_PLAN.md`) replaces them: the guard no longer calls
+    `Contains`, and its D8 inverts `DeleteGuardCaseTests` to accept these predicates.
 
 ### 4.3 Mutations each key test must kill
 
@@ -546,7 +547,8 @@ Each new or changed member has a test that calls it on purpose *(table: rev 7, R
   - the PostgreSQL and MySQL suites, with their AC7 pins;
   - the SQLite suite;
   - the PostgreSQL repro row;
-  - net48 (MSBuild, then vstest; it holds `DeleteGuardCaseTests`, and CI doesn't run it) and net9 *(rev 17)*.
+  - net48 (MSBuild, then vstest; it holds `DeleteGuardCaseTests`, and CI doesn't run it) and net9 *(rev 17)*. The
+    delete guard rewrite inverts `DeleteGuardCaseTests` (`DELETE_GUARD_PLAN.md`, D8).
 - **After the merge:** the PostgreSQL and MySQL workflows run on their own triggers.
 
 ## 5. Tasks

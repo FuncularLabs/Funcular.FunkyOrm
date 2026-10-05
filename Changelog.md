@@ -83,7 +83,8 @@ subclasses.
   that type afterwards. SQL Server and MySQL.
 - **`Delete`/`DeleteAsync` by predicate accepted predicates that match every row, and rejected some that don't.**
   All four providers:
-  - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`), their negations (`!(x.Id != x.Id)`), and
+  - self-comparisons (`x.FirstName == x.FirstName`, `x.Id >= x.Id`, also through `ToString()`:
+    `x.Code.ToString() == x.Code.ToString()`), their negations (`!(x.Id != x.Id)`), and
     disjunctions with an always-true operand (`x.Id == 2 || true`, a captured or static `true`, a `true` property of
     a captured object, a comparison of constants and captured values that holds, such as `filter == null` with
     `filter` null, or a captured string's `Contains`, or the `ToString()` (with no argument or a format string) of a
@@ -99,14 +100,9 @@ subclasses.
 
   The checks evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a
   core type's `ToString()`, but no arithmetic and no other method call, and they catch these shapes, not every
-  predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. They evaluate as C# does, and the
-  database can disagree: a captured string's `Contains` is sent as a `LIKE` between two parameters, which doesn't
-  escape `%` or `_` and compares under the database's default collation (on MySQL, the connection's), not a column's,
-  while SQLite's `LIKE` ignores the case of ASCII letters; and `ToString()` isn't sent at all. So
-  `x.Id == 2 || s.Contains("_")`, `x.Id == 2 || s.Contains("s")` with `s` "S" (on SQL Server, MySQL and SQLite), or
-  `capturedA.ToString() == "07"` with `capturedA` 7 on SQL Server and MySQL, still deletes every row. A value declared
-  as `object` or an interface isn't evaluated, whatever it holds: `x.Id == 2 || o.ToString() == "s"` with
-  `object o = "s"` still deletes every row.
+  predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. A predicate they accept throws
+  `NotSupportedException` when it holds a shape the providers would send so that it matches far more rows than C#
+  selects (see Changed).
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -214,10 +210,22 @@ Other changes:
   - `filter == null || x.Col == filter` with `filter` null;
   - `isAdmin || x.OwnerId == me` with `isAdmin` true;
   - `x.Archived || !keepIds.Contains(x.Id)` with `keepIds` empty;
-  - `roles.Contains("admin") || x.OwnerId == me` with `roles` containing `admin`.
+  - `roles.Contains("admin") || x.OwnerId == me` with `roles` containing `admin` (without it, the captured `Contains`
+    throws `NotSupportedException`; see the next entry).
 
   Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
   rejected, now with that message instead of "…must reference at least one column from the target table."
+- **`Delete`/`DeleteAsync` by predicate throw `NotSupportedException` for shapes the providers would widen to far
+  more rows than C# selects** (all four providers, before the DELETE is sent; queries aren't affected):
+  - a string `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row
+    (`x.Id == 2 || s.Contains("z")`, `x.Name == n.ToString()`): C# and the database can disagree (collation, a
+    `ToString()` that isn't sent), so compute it before the query;
+  - a string `Contains`, `StartsWith` or `EndsWith` on a column whose search value is null or empty (it matches every
+    non-null row), contains `%`, `_`, `[` or a backslash (sent unescaped, they act as wildcards), or is a property of a
+    captured object, such as `x.Name.Contains(Filter)` in an instance method (the translation reads it as null).
+
+  Some of these deleted only the rows C# selects before (`x.Id == 2 || s.Contains("z")`, and `x.Name.Contains("[")`
+  on PostgreSQL, MySQL and SQLite); they now throw too.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
