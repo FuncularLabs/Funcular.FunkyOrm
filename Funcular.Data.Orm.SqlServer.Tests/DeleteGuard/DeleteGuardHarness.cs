@@ -96,6 +96,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         private readonly string capturedS = "s";
         private readonly string roles = "admin,user";
         private string FilterProperty { get; } = "a";
+        private readonly string capturedUpperA = "A";
 
         #region Provider seam
 
@@ -161,6 +162,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 case "firstNameContainsThisProperty": return x => x.FirstName.Contains(FilterProperty);
                 case "idToStringSelf": return x => x.Id.ToString() == x.Id.ToString();
                 case "firstNameToStringSelf": return x => x.FirstName.ToString() == x.FirstName;
+                case "orCapturedUpperEqualsA": return x => x.Id == 2 || capturedUpperA == "a";
                 case "orArrayIndex": return x => x.Id == 2 || capturedArray[0] == 5;
                 case "orCoalesce": return x => x.Id == 2 || (capturedNullBool ?? true);
                 case "orIsNullOrEmpty": return x => string.IsNullOrEmpty(capturedNull) || x.FirstName == capturedNull;
@@ -445,6 +447,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("firstNameContainsThisProperty", "async", "Contains()'s search value is a property of a captured object")]
         [DataRow("orContainsFalse", "sync", "Contains() on a value that doesn't read the row isn't supported in a delete")]
         [DataRow("orContainsFalse", "async", "Contains() on a value that doesn't read the row isn't supported in a delete")]
+        [DataRow("orCapturedUpperEqualsA", "sync", "Comparing strings that don't read the row isn't supported in a delete")]
+        [DataRow("orCapturedUpperEqualsA", "async", "Comparing strings that don't read the row isn't supported in a delete")]
         public async Task UnsafeDeleteShapes_AreNotSupported(string key, string path, string expectedPrefix)
         {
             RequireDatabase();

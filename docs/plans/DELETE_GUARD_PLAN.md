@@ -8,9 +8,10 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-05):** rev 13. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
-> 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and the commit
-> that carries this revision adds D9, the owner's decision of that day (§5.8); its verification is next.
+> **Status (2026-10-05):** rev 14. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
+> 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and D9, the
+> owner's decision of that day, was added (`6b4172d`, rev 13, §5.8). Its review (§9.12) found 2; the commit that
+> carries this revision answers them (§5.9), and its verification is next.
 
 > **Rev 12 status (2026-10-02):** Task 0 review of rev 1 (`49e535a`, §9.1) found 11 findings, answered in rev 2
 > (`79069dd`). Its re-review (§9.2) found 9, answered in rev 3 (`edfc072`). Its re-review (§9.3) found 6, answered in
@@ -21,6 +22,10 @@
 > (`fcc560c`, §5.5). Its re-verification (§9.9) found 2 blocking, in prose, answered in rev 11 (`b4cce09`, §5.6).
 > Its re-verification (§9.10) found 2 blocking, in prose; the commit that carries rev 12 answers them (§5.7) and is
 > re-verified next.
+
+> **Revision 14 — what changed (D9's review, R-1, R-2):** D9 also rejects a comparison of two strings neither of
+> which reads the row, unless one is a `null` literal (R-1); its messages and documents say "other rows" where a
+> wildcard can match fewer, "non-null" rows, and a backslash on SQL Server and SQLite (R-2).
 
 > **Revision 13 — what changed (owner decision 2026-10-05, after the merge with the caches branch):** D9: a delete
 > throws `NotSupportedException` for the shapes the providers widen to far more rows than C# selects, and a
@@ -300,6 +305,8 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
   `Validate`, after a verdict's rejection, throws `NotSupportedException` for:
   - a `string` `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row: D2
     evaluates it as C# does, and the database can disagree (collation; `ToString()` isn't sent; §6);
+  - a comparison (`==`, `!=`) of two strings neither of which reads the row, unless one is a `null` literal: D2
+    evaluates it ordinally, and the database compares under its collation (rev 14, R-1);
   - a `string` `Contains`, `StartsWith` or `EndsWith` on a column whose search value doesn't read the row and is null
     or empty, or contains `%`, `_`, `[` or a backslash (the providers send it unescaped), or is a property of a captured
     object (the translators read only a captured field; a property comes back null).
@@ -353,8 +360,10 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
   `Contains(capturedNull)`, `Contains("")`, `Contains(FilterProperty)` and `x.Id == 2 || capturedS.Contains("z")`
   throw `NotSupportedException` with D9's message, log no DELETE and leave every row, on all four providers; `Validate`
   does the same for the other D9 shapes (`StartsWith("a%")`, `EndsWith("[b")`, a backslash, `'_'`, a captured
-  wildcard, `x.Name == s.ToString()`, a captured `StartsWith`), accepts their safe neighbours, and throws a verdict's
-  message first. A self-comparison through `ToString()` is SelfReference on all four.
+  wildcard, `x.Name == s.ToString()`, a captured `StartsWith`, `x.Id == 2 || capturedUpperA != "A"`), accepts their
+  safe neighbours (`capturedS == null || x.Name == capturedS` among them), and throws a verdict's message first; a
+  delete of `x.Id == 2 || capturedUpperA == "a"` throws on all four (rev 14). A self-comparison through `ToString()`
+  is SelfReference on all four.
 
 ## 4. Test plan
 
@@ -518,6 +527,7 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 | D9 accepts a property of a captured object (rev 13) | `nameContainsThisProperty`, `firstNameContainsThisProperty` |
 | D9 accepts a call on a value that doesn't read the row (rev 13) | `orContainsFalse`, `orStartsWith`, `nameEqualsCapturedToString` |
 | D9 leaves `StartsWith` out of the string matches (rev 13) | `nameStartsWithPercent` |
+| D9 accepts a comparison of two strings that don't read the row / rejects one with a `null` literal (rev 14) | `orCapturedStringEquals`, `orCapturedUpperEqualsA` / `capturedNullCheckOr` |
 | D9's check runs before the verdict (rev 13) | `Validate_VerdictComesBeforeTheUnsafeCallCheck` |
 | `MemberChain` doesn't read through `ToString()` / reads through it with an argument too (rev 13) | `idToStringSelf` rows / `idToStringFormatSelf` |
 
@@ -645,6 +655,15 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
 - Suites, all passing: SqlServer.Tests 1467, PostgreSql.Tests 917, MySql.Tests 870, Sqlite.Tests 800, DotNet9 5,
   net48 79. `DeletePredicateGuard.cs` 495 / 504 lines (98.21 %).
 
+### 5.9 D9's review (the commit that carries rev 14)
+
+- R-1's rows ran red at `6b4172d` (the delete ran on all four; on SQL Server and MySQL it removed every row), then
+  green. Two mutants for its §4.3 row, each killed by the rows it names.
+- R-2 is wording in two messages, the Changelog, `Usage.md` and `Validate`'s XML doc; the tests' message prefixes end
+  before the changed words.
+- Suites, all passing: SqlServer.Tests 1474, PostgreSql.Tests 919, MySql.Tests 872, Sqlite.Tests 800, DotNet9 5,
+  net48 79.
+
 ## 6. Out of scope (recorded)
 
 - **Always-true shapes D2 doesn't detect** (T0-9). These deleted every row at the seam on all four providers and still
@@ -704,6 +723,9 @@ element for it, unioned across the four suites. Baselines at `be8de82` are recor
   declared type: `x.Id == 2 || o.ToString() == "s"` with `object o = "s"` (or an `IComparable`) deleted every row on
   all four providers in the fix-verification; with `object o = 7`, `o.ToString() == "7"` did on SQL Server and MySQL.
   Since rev 13 (D9) a delete throws `NotSupportedException` for it.
+- **`ToString` with a format on row values in a delete** (D9's review, observed): the providers drop the format, so
+  `x.A.ToString("yyyy") != x.B.ToString("yyyy")` is sent as `A != B`. Not rejected here; the column-`ToString` work
+  is parked with the LIKE branch.
 - **A clause nested too deeply for D3's parser** (rev 9, I1-4; rev 10, FV1-3) is parsed again on a 64 MB stack, so
   a 1,500-term nested `OR` ending in `|| !emptyIds.Contains(x.Id)` is rejected on all four providers; without the
   tautology it runs as at `be8de82` (PostgreSQL and MySQL delete the matching rows; SQL Server and SQLite reject the
@@ -852,3 +874,12 @@ FV2-NB1 carried. Blame: TEST-GAP 2.
 ### 9.11 Task 4 fix-verification of `b4cce09..ca82741` (non-author)
 
 Verdict: CLEAN. FV3-1 and FV3-2 resolved. FV2-NB1 carried (answered in rev 13).
+
+### 9.12 Review of `ca82741..6b4172d` (non-author; the merge checked against both sides; D9 against the translators; probes on all four)
+
+Verdict: NOT CLEAN; one medium and one low finding. The merge is correct. Blame: HOUSE-RULE 2.
+
+| # | Sev | Blame | Location | Disposition |
+|---|---|---|---|---|
+| R-1 | medium | HOUSE-RULE | The Changelog and Usage promised more than D9 catches: a comparison of two captured strings still deleted every row on SQL Server and MySQL | D9 rejects it (cheap to recognize, the owner's rule); the general caveat restored. |
+| R-2 | low | HOUSE-RULE | "More rows" where a wildcard can match fewer; "every row" for "every non-null row"; the backslash list | Messages and documents reworded. |

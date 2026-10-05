@@ -109,11 +109,12 @@ namespace Funcular.Data.Orm
         /// Throws <see cref="InvalidOperationException"/> with the message of the verdict when
         /// <see cref="Classify"/> rejects <paramref name="predicate"/>. When it is
         /// <see cref="DeletePredicateVerdict.Acceptable"/>, throws <see cref="NotSupportedException"/> for a shape the
-        /// providers would send so that it matches far more rows than C# selects: a <see cref="string"/>
+        /// providers can send so that it matches other rows than C# selects, often every row: a <see cref="string"/>
         /// <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c>, or a <c>ToString()</c>, on a value that doesn't read
-        /// the row; or a <see cref="string"/> <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a column whose
-        /// search value is null, empty, contains <c>%</c>, <c>_</c>, <c>[</c> or a backslash, or is a property of a
-        /// captured object (which the providers read as null). Otherwise returns.
+        /// the row; a comparison of two strings neither of which reads the row (unless one is a <c>null</c> literal),
+        /// which the database makes under its collation; or a <see cref="string"/> <c>Contains</c>, <c>StartsWith</c>
+        /// or <c>EndsWith</c> on a column whose search value is null, empty, contains <c>%</c>, <c>_</c>, <c>[</c> or a
+        /// backslash, or is a property of a captured object (which the providers read as null). Otherwise returns.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is null.</exception>
@@ -503,6 +504,20 @@ namespace Funcular.Data.Orm
                 return Message == null ? base.VisitMethodCall(node) : node;
             }
 
+            protected override Expression VisitBinary(BinaryExpression node)
+            {
+                if (Message == null && (node.NodeType == ExpressionType.Equal || node.NodeType == ExpressionType.NotEqual)
+                    && node.Left.Type == typeof(string) && node.Right.Type == typeof(string)
+                    && !IsNullLiteral(node.Left) && !IsNullLiteral(node.Right)
+                    && !ParameterFinder.Reads(node.Left) && !ParameterFinder.Reads(node.Right))
+                    Message = "Comparing strings that don't read the row isn't supported in a delete; the database " +
+                              $"compares them under its collation, so compute it before the query: {node}";
+                return Message == null ? base.VisitBinary(node) : node;
+            }
+
+            private static bool IsNullLiteral(Expression expression) =>
+                expression is ConstantExpression constant && constant.Value == null;
+
             private static string? Check(MethodCallExpression node)
             {
                 if (node.Object == null)
@@ -526,10 +541,11 @@ namespace Funcular.Data.Orm
                     return null;
                 var text = value == null ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
                 if (string.IsNullOrEmpty(text))
-                    return $"{name}()'s search value is null or empty, which matches every row in a delete: {node}";
+                    return $"{name}()'s search value is null or empty, which can match every non-null row in a delete: " +
+                           $"{node}";
                 if (text!.IndexOfAny(LikeWildcards) >= 0)
                     return $"{name}()'s search value contains a LIKE wildcard (%, _, [ or a backslash), which is sent " +
-                           $"unescaped and matches more rows than C# does: {node}";
+                           $"unescaped, so the database can match other rows than C# does: {node}";
                 return null;
             }
         }

@@ -127,6 +127,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly string capturedNull = null;
         private readonly string capturedS = "s";
         private readonly string capturedWildcard = "a%";
+        private readonly string capturedUpperA = "A";
         private string FilterProperty { get; } = "b";
         private readonly Request request = new Request();
         private readonly Wrapper capturedWrapper = new Wrapper();
@@ -217,6 +218,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
                 ["nameStartsWithA"] = P(x => x.Name.StartsWith("a")),
                 ["idToStringEq7"] = P(x => x.Id.ToString() == "7"),
+                ["orCapturedStringEquals"] = P(x => x.Id == 2 || capturedUpperA == "a"),
+                ["orCapturedStringNotEquals"] = P(x => x.Id == 2 || capturedUpperA != "A"),
+                ["capturedNullCheckOr"] = P(x => capturedS == null || x.Name == capturedS),
                 ["idToStringSelf"] = P(x => x.Id.ToString() == x.Id.ToString()),
                 ["nameToStringSelf"] = P(x => x.Name.ToString() == x.Name),
                 ["idToStringSelfNe"] = P(x => x.Id.ToString() != x.Id.ToString()),
@@ -406,6 +410,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private const string PropertyValueMessage = "()'s search value is a property of a captured object";
         private const string EmptyValueMessage = "()'s search value is null or empty";
         private const string WildcardValueMessage = "()'s search value contains a LIKE wildcard";
+        private const string StringComparisonMessage = "Comparing strings that don't read the row isn't supported in a delete";
 
         /// <summary>
         /// D9 (owner decision 2026-10-05): <see cref="DeletePredicateGuard.Validate"/> throws
@@ -427,6 +432,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orContainsFalse", "Contains" + ValueCallMessage)]
         [DataRow("orStartsWith", "StartsWith" + ValueCallMessage)]
         [DataRow("nameEqualsCapturedToString", "ToString" + ValueCallMessage)]
+        [DataRow("orCapturedStringEquals", StringComparisonMessage)]
+        [DataRow("orCapturedStringNotEquals", StringComparisonMessage)]
         public void Validate_RejectsWhatADeleteCantSendSafely(string key, string expectedPrefix)
         {
             Exception thrown = null;
@@ -449,6 +456,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("nameStartsWithA")]
         [DataRow("idToStringEq7")]
         [DataRow("idEq2")]
+        [DataRow("capturedNullCheckOr")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => DeletePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>A verdict's rejection is thrown before D9's check, with its own message.</summary>

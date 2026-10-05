@@ -100,9 +100,9 @@ subclasses.
 
   The checks evaluate field and property reads, casts, the logical operators, comparisons, string's `Contains` and a
   core type's `ToString()`, but no arithmetic and no other method call, and they catch these shapes, not every
-  predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. A predicate they accept throws
-  `NotSupportedException` when it holds a shape the providers would send so that it matches far more rows than C#
-  selects (see Changed).
+  predicate that is true for every row: `x.Id == 2 || x.Id != 2` is still accepted. They evaluate as C# does, and the
+  database can disagree; a predicate they accept throws `NotSupportedException` for the shapes listed under Changed,
+  not for every such disagreement.
 
 ### Changed
 These shapes now throw `NotSupportedException` before any query runs, naming the operator. Most of them returned
@@ -215,17 +215,22 @@ Other changes:
 
   Test the condition in C# and pass `Delete` only the column condition. `x => !emptyIds.Contains(x.Id)` is still
   rejected, now with that message instead of "…must reference at least one column from the target table."
-- **`Delete`/`DeleteAsync` by predicate throw `NotSupportedException` for shapes the providers would widen to far
-  more rows than C# selects** (all four providers, before the DELETE is sent; queries aren't affected):
+- **`Delete`/`DeleteAsync` by predicate throw `NotSupportedException` for shapes the providers can send so that they
+  match other rows than C# selects, often every row** (all four providers, before the DELETE is sent; queries aren't
+  affected):
   - a string `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row
     (`x.Id == 2 || s.Contains("z")`, `x.Name == n.ToString()`): C# and the database can disagree (collation, a
     `ToString()` that isn't sent), so compute it before the query;
-  - a string `Contains`, `StartsWith` or `EndsWith` on a column whose search value is null or empty (it matches every
-    non-null row), contains `%`, `_`, `[` or a backslash (sent unescaped, they act as wildcards), or is a property of a
-    captured object, such as `x.Name.Contains(Filter)` in an instance method (the translation reads it as null).
+  - a comparison of two strings neither of which reads the row, unless one is a `null` literal
+    (`x.Id == 2 || role == "admin"` with `role` "Admin" deleted every row on SQL Server and MySQL, which compare under
+    a case-insensitive collation); `filter == null || x.Col == filter` is still accepted;
+  - a string `Contains`, `StartsWith` or `EndsWith` on a column whose search value is null or empty (a null
+    `Contains` or an empty search matches every non-null row), contains `%`, `_`, `[` or a backslash (sent unescaped,
+    some providers read them as wildcards or escapes), or is a property of a captured object, such as
+    `x.Name.Contains(Filter)` in an instance method (the translation reads it as null).
 
-  Some of these deleted only the rows C# selects before (`x.Id == 2 || s.Contains("z")`, and `x.Name.Contains("[")`
-  on PostgreSQL, MySQL and SQLite); they now throw too.
+  Some of these deleted only the rows C# selects before (`x.Id == 2 || s.Contains("z")`; `x.Name.Contains("[")` on
+  PostgreSQL, MySQL and SQLite; a backslash on SQL Server and SQLite); they now throw too.
 
 ### Known issues (fixes planned for 3.10.1)
 Aggregates keep their 3.9 behavior in 3.10.0:
