@@ -825,8 +825,10 @@ namespace Funcular.Data.Orm.PostgreSql
         /// <summary>
         /// Builds the SELECT for <c>Get</c> and for the read in <c>Update</c>: unfiltered when <paramref name="key"/> is
         /// null, otherwise constrained by the primary key, which is compared with a parameter and never written into the
-        /// SQL. The key is first converted to the primary key's type (<c>ConvertKeyToPrimaryKeyType</c>), and the
-        /// parameter is created as the dialect creates the UPDATE's primary-key parameter.
+        /// SQL. The key is first converted to the primary key's type (<c>ConvertKeyToPrimaryKeyType</c>) and normalized
+        /// for the driver (<c>NormalizeKeyForBinding</c>). A string key is sent untyped, so PostgreSQL resolves it against
+        /// the column as it resolved 3.10.0's quoted literal; any other key is created as the dialect creates the UPDATE's
+        /// primary-key parameter.
         /// </summary>
         /// <typeparam name="T">The entity type.</typeparam>
         /// <param name="key">The primary-key value, or null.</param>
@@ -837,9 +839,14 @@ namespace Funcular.Data.Orm.PostgreSql
             if (key == null)
                 return (CreateSelectCommandText<T>(null), null);
             var primaryKey = GetCachedPrimaryKey<T>();
-            var value = ConvertKeyToPrimaryKeyType(key, primaryKey, typeof(T));
-            return (CreateSelectCommandText<T>(KeyParameterName),
-                new[] { PostgreSqlDialect.CreateParameter(KeyParameterName, value, primaryKey.PropertyType) });
+            var value = NormalizeKeyForBinding(ConvertKeyToPrimaryKeyType(key, primaryKey, typeof(T)));
+            // A string key is sent untyped, as 3.10.0's quoted literal was (and as the ORDER BY visitor sends its values),
+            // so PostgreSQL resolves it against the column: a citext key column still compares without case, which a
+            // typed text parameter wouldn't.
+            var parameter = value is string text
+                ? new NpgsqlParameter(KeyParameterName, NpgsqlTypes.NpgsqlDbType.Unknown) { Value = text }
+                : PostgreSqlDialect.CreateParameter(KeyParameterName, value, primaryKey.PropertyType);
+            return (CreateSelectCommandText<T>(KeyParameterName), new[] { parameter });
         }
 
         /// <summary>

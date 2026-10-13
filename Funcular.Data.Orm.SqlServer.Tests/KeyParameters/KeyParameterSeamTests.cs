@@ -58,6 +58,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.KeyParameters
         private sealed class NullableIntKeyed { [System.ComponentModel.DataAnnotations.Key] public int? Id { get; set; } }
         private sealed class ShadeKeyed { [System.ComponentModel.DataAnnotations.Key] public Shade Id { get; set; } }
         private sealed class GuidKeyed { [System.ComponentModel.DataAnnotations.Key] public Guid Id { get; set; } }
+        public enum ByteShade : byte { A = 1, B = 2 }
+        private sealed class ByteShadeKeyed { [System.ComponentModel.DataAnnotations.Key] public ByteShade Id { get; set; } }
+        private sealed class DecimalKeyed { [System.ComponentModel.DataAnnotations.Key] public decimal Id { get; set; } }
+        private sealed class DateKeyed { [System.ComponentModel.DataAnnotations.Key] public DateTime Id { get; set; } }
 
         /// <summary>Exposes the protected conversion, which every provider's Get and Update use.</summary>
         private sealed class ConversionProbe : SqliteOrmDataProvider
@@ -65,6 +69,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.KeyParameters
             public ConversionProbe() : base("Data Source=:memory:") { }
             public static object Convert<T>(object key) =>
                 ConvertKeyToPrimaryKeyType(key, typeof(T).GetProperty("Id"), typeof(T));
+            public static object Normalize(object value) => NormalizeKeyForBinding(value);
         }
 
         /// <summary>AC6, D2: what each key converts to (no database).</summary>
@@ -85,6 +90,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests.KeyParameters
                 Assert.AreEqual(2, ConversionProbe.Convert<NullableIntKeyed>(2L), "long to int?");
                 Assert.AreEqual(Shade.Green, ConversionProbe.Convert<ShadeKeyed>(2), "int to enum");
                 Assert.AreEqual(Shade.Green, ConversionProbe.Convert<ShadeKeyed>(Shade.Green), "enum as it is");
+                Assert.AreEqual(Shade.Green, ConversionProbe.Convert<ShadeKeyed>("2"), "text to enum");
+                Assert.AreEqual(ByteShade.B, ConversionProbe.Convert<ByteShadeKeyed>(2L), "long to byte enum");
+                Assert.AreEqual(2.5m, ConversionProbe.Convert<DecimalKeyed>("2.5"), "text to decimal");
+                Assert.AreEqual(1000m, ConversionProbe.Convert<DecimalKeyed>("1e3"), "exponent text to decimal");
+                var date = (DateTime)ConversionProbe.Convert<DateKeyed>("2026-10-12T01:02:03Z");
+                Assert.AreEqual(DateTimeKind.Utc, date.Kind, "a UTC date keeps its kind");
+                Assert.AreEqual(new DateTime(2026, 10, 12, 1, 2, 3, DateTimeKind.Utc), date, "text to date");
                 var guid = new Guid("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
                 Assert.AreEqual(guid, ConversionProbe.Convert<GuidKeyed>(guid.ToString("B").ToUpperInvariant()), "braced text to Guid");
             }
@@ -98,19 +110,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests.KeyParameters
         [DataTestMethod]
         [DataRow("lossyDouble")] [DataRow("lossyDecimal")] [DataRow("lossyFloat")] [DataRow("overflow")] [DataRow("bool")]
         [DataRow("char")] [DataRow("textEnum")] [DataRow("dateForInt")] [DataRow("intForGuid")] [DataRow("textForInt")]
+        [DataRow("byteEnumOverflow")] [DataRow("byteEnumNegative")] [DataRow("byteEnumText")] [DataRow("decimalComma")]
+        [DataRow("decimalTrailingSign")]
         public void ConvertKey_RejectsWhatDoesNotConvert(string form)
         {
             Func<object> call;
+            string keyText = null;
             switch (form)
             {
+                case "byteEnumOverflow": call = () => ConversionProbe.Convert<ByteShadeKeyed>(258); break;
+                case "byteEnumNegative": call = () => ConversionProbe.Convert<ByteShadeKeyed>(-1); break;
+                case "byteEnumText": keyText = "258"; call = () => ConversionProbe.Convert<ByteShadeKeyed>(keyText); break;
+                case "decimalComma": keyText = "2,5"; call = () => ConversionProbe.Convert<DecimalKeyed>(keyText); break;
+                case "decimalTrailingSign": keyText = "2-"; call = () => ConversionProbe.Convert<DecimalKeyed>(keyText); break;
                 case "lossyDouble": call = () => ConversionProbe.Convert<IntKeyed>(2.5); break;
                 case "lossyDecimal": call = () => ConversionProbe.Convert<IntKeyed>(2.5m); break;
                 case "lossyFloat": call = () => ConversionProbe.Convert<IntKeyed>(2.5f); break;
-                case "textForInt": call = () => ConversionProbe.Convert<IntKeyed>("two"); break;
+                case "textForInt": keyText = "two"; call = () => ConversionProbe.Convert<IntKeyed>(keyText); break;
                 case "overflow": call = () => ConversionProbe.Convert<IntKeyed>(long.MaxValue); break;
                 case "bool": call = () => ConversionProbe.Convert<IntKeyed>(true); break;
                 case "char": call = () => ConversionProbe.Convert<IntKeyed>('2'); break;
-                case "textEnum": call = () => ConversionProbe.Convert<ShadeKeyed>("Green"); break;
+                case "textEnum": keyText = "Green"; call = () => ConversionProbe.Convert<ShadeKeyed>(keyText); break;
                 case "dateForInt": call = () => ConversionProbe.Convert<IntKeyed>(DateTime.Today); break;
                 default: call = () => ConversionProbe.Convert<GuidKeyed>(5); break;
             }
@@ -118,8 +138,30 @@ namespace Funcular.Data.Orm.SqlServer.Tests.KeyParameters
             Assert.AreEqual("key", exception.ParamName, $"{form}: parameter name");
             StringAssert.Contains(exception.Message, "can't be converted to", $"{form}: message");
             Assert.IsNull(exception.InnerException, $"{form}: inner exception (its message can quote the key)");
-            Assert.IsFalse(exception.ToString().Contains("two"), $"{form}: the exception repeats the key");
+            if (keyText != null)
+                Assert.IsFalse(exception.Message.Contains(keyText), $"{form}: the message repeats the key");
             Assert.ThrowsException<ArgumentNullException>(() => ConversionProbe.Convert<IntKeyed>(null), "null");
+        }
+
+        /// <summary>D2 (round 1, F-1): what the drivers are given for a converted key (no database).</summary>
+        [TestMethod]
+        public void NormalizeKey_GivesTheDriversTypesTheyBind()
+        {
+            void Is<TExpected>(object input, TExpected expected, string label)
+            {
+                var actual = ConversionProbe.Normalize(input);
+                Assert.IsInstanceOfType(actual, typeof(TExpected), label);
+                Assert.AreEqual(expected, actual, label);
+            }
+            Is(Shade.Green, 2, "int enum");
+            Is(ByteShade.B, (byte)2, "byte enum");
+            Is((sbyte)-2, (short)-2, "sbyte");
+            Is((ushort)2, 2, "ushort");
+            Is(2u, 2L, "uint");
+            Is(5UL, 5L, "ulong");
+            Is(ulong.MaxValue, (decimal)ulong.MaxValue, "ulong above long");
+            Is(7, 7, "int unchanged");
+            Is("x", "x", "string unchanged");
         }
 
         /// <summary>

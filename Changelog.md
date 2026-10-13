@@ -15,28 +15,31 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
 ### Fixed
 - **A key containing a quote** (`it's`) failed in `Get` and `Update` with a syntax error, and on MySQL a key
   containing a backslash found no row. Both now find their row, on every provider.
-- **SQL Server: `Get` with a `Guid` key, or a string key that isn't a number,** was sent unquoted and failed. It now
-  finds its row.
+- **SQL Server: `Get` and `Update` with a `Guid` key, or a string key that isn't a number,** sent the key unquoted and
+  failed. They now find their row.
+- **An enum key given as the enum itself** (`Get<T>(Status.Active)`) was written as the enum's name and failed. It now
+  finds its row, as a number or its text already did.
 
 ### Changed
-- **The key is converted to the primary key's type before it is sent.** An integer key given as a `long`, a `short`
-  or its text, and a `Guid` key given as its text, still find their row. A key that can't be converted without loss
-  now throws `ArgumentException` (`ParamName` "key") before any query runs, and the exception doesn't repeat the key:
-  for example `"two"` or `2.5` for an integer key, or text that isn't a `Guid` for a `Guid` key. Before, depending on
-  the provider, such a key failed in the database or found no row. Some keys that found their row in 3.10.0 now
-  throw too, for example a `char` digit (`'2'`) or text with a decimal point (`"2.0"`) for an integer key; pass the
-  key as its own type.
+- **The key is converted to the primary key's type before it is sent.** An integer key given as a `long`, a `short` or
+  its text, an enum key given as a number or its text, and a `Guid` key given as its text, still find their row. A key
+  that can't be converted without loss now throws `ArgumentException` (`ParamName` "key") before any query runs, and
+  the exception doesn't repeat the key: for example `"two"` or `2.5` for an integer key, or text that isn't a `Guid`
+  for a `Guid` key. Before, depending on the provider, such a key failed in the database or found no row. Some keys
+  that found their row in 3.10.0 now throw too, for example a `char` digit (`'2'`) or text with a decimal point
+  (`"2.0"`) for an integer key; pass the key as its own type.
 - **A key that was wrapped in quotes** to work around this (`"'abc'"`) is now compared as written: a string key with
   its quotes finds no row, and a `Guid` key with them throws `ArgumentException`.
-- **PostgreSQL:** the key is a typed parameter, as values in LINQ queries already are. Where the key column's type
-  has no `=` with the property's type, the WHERE now fails (a `Guid` property over a `varchar` column, a string
-  property over a PostgreSQL enum column). Reading such a row already failed in 3.10.0.
+- **PostgreSQL:** a key other than a string is a typed parameter, as values in LINQ queries already are, so a `Guid`
+  property over a `varchar` key column now fails in the WHERE; reading such a row already failed in 3.10.0. A string
+  key is sent untyped, as 3.10.0's literal was, so a `citext` key column still compares without case.
 - **SQLite:** a `Guid` key is matched as FunkyORM stores it (lower-case text), whatever the case of the text it's
   given.
-- **Provider subclasses:** `CreateGetOneOrSelectCommandText<T>(key)` now throws `NotSupportedException` when given a
-  key (it still builds the unfiltered SELECT without one), and `GetWhereClause<T>(key)` is obsolete and always throws.
-  `CreateGetCommand<T>(key)` returns the SELECT and its key parameter, and `ConvertKeyToPrimaryKeyType` (protected,
-  on `OrmDataProvider`) does the conversion.
+- **Provider subclasses:** `CreateGetOneOrSelectCommandText<T>(key)` is obsolete (warning CS0618): given a key it
+  throws `NotSupportedException`, and given null it still builds the unfiltered SELECT, which a new parameterless
+  overload also builds. `GetWhereClause<T>(key)` is obsolete and always throws. `CreateGetCommand<T>(key)` returns the
+  SELECT and its key parameter, and `ConvertKeyToPrimaryKeyType` and `NormalizeKeyForBinding` (protected, on
+  `OrmDataProvider`) prepare the key.
 
 ### Known issues
 - The aggregate fixes listed under 3.10.0's Known issues are now planned for 3.10.2.

@@ -2,6 +2,8 @@ using System;
 using Funcular.Data.Orm.Tests.KeyParameters;
 using MySqlConnector;
 
+#pragma warning disable CS0618 // The keyed CreateGetOneOrSelectCommandText is obsolete; a row pins its null behaviour.
+
 namespace Funcular.Data.Orm.MySql.Tests
 {
     /// <summary>
@@ -66,7 +68,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         private static readonly string[] Drop =
         {
             $"DROP TABLE IF EXISTS {TextTable}", $"DROP TABLE IF EXISTS {GuidTable}", $"DROP TABLE IF EXISTS {NumTable}",
-            $"DROP TABLE IF EXISTS {PkTable}"
+            $"DROP TABLE IF EXISTS {PkTable}", $"DROP TABLE IF EXISTS {EnumTable}", $"DROP TABLE IF EXISTS {UintTable}"
         };
 
         protected override void CreateTables()
@@ -77,11 +79,43 @@ namespace Funcular.Data.Orm.MySql.Tests
                 $"CREATE TABLE {GuidTable} (id CHAR(36) NOT NULL PRIMARY KEY, val INT NOT NULL)",
                 $"CREATE TABLE {NumTable} (id INT NOT NULL PRIMARY KEY, label VARCHAR(20) NOT NULL)",
                 $"INSERT INTO {NumTable} (id, label) VALUES (1, 'one'), (2, 'two')",
-                $"CREATE TABLE {PkTable} (pk VARCHAR(100) NOT NULL PRIMARY KEY, val INT NOT NULL) CHARACTER SET utf8mb4");
+                $"CREATE TABLE {PkTable} (pk VARCHAR(100) NOT NULL PRIMARY KEY, val INT NOT NULL) CHARACTER SET utf8mb4",
+                $"CREATE TABLE {EnumTable} (id INT NOT NULL PRIMARY KEY, val INT NOT NULL)",
+                $"INSERT INTO {EnumTable} (id, val) VALUES (1, 10), (2, 20)",
+                $"CREATE TABLE {UintTable} (id INT NOT NULL PRIMARY KEY, val INT NOT NULL)",
+                $"INSERT INTO {UintTable} (id, val) VALUES (1, 10), (2, 20)");
         }
 
         protected override void DropTables() => Execute(Drop);
 
         protected override OrmDataProvider CreateProvider() => new MySqlOrmDataProvider(ConnectionString);
+
+        private sealed class Probe : MySqlOrmDataProvider
+        {
+            public Probe() : base(ConnectionString) { }
+            public string Select<T>(object key) where T : class, new() => CreateGetOneOrSelectCommandText<T>(key);
+        }
+
+        /// <summary>
+        /// AC9: the obsolete keyed overload, given null (what code compiled against 3.10.0 calls), builds the unfiltered
+        /// SELECT.
+        /// </summary>
+        [TestMethod]
+        public void KeyedOverload_WithNull_BuildsTheUnfilteredSelect()
+        {
+            RequireDatabase();
+            try
+            {
+                CreateTables();
+                using var probe = new Probe();
+                var sql = probe.Select<KpText>(null);
+                StringAssert.Contains(sql, TextTable);
+                Assert.IsFalse(sql.Contains("WHERE"), sql);
+            }
+            finally
+            {
+                DropTables();
+            }
+        }
     }
 }

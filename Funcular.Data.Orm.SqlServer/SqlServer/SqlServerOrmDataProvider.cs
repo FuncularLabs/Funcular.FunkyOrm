@@ -1343,8 +1343,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// <summary>
         /// Builds the SELECT for <c>Get</c> and for the read in <c>Update</c>: unfiltered when <paramref name="key"/> is
         /// null, otherwise constrained by the primary key, which is compared with a parameter and never written into the
-        /// SQL. The key is first converted to the primary key's type (<c>ConvertKeyToPrimaryKeyType</c>), and the
-        /// parameter is created as the dialect creates the UPDATE's primary-key parameter.
+        /// SQL. The key is first converted to the primary key's type (<c>ConvertKeyToPrimaryKeyType</c>) and normalized
+        /// for the driver (<c>NormalizeKeyForBinding</c>), and the parameter is created as the dialect creates the UPDATE's
+        /// primary-key parameter.
         /// </summary>
         /// <typeparam name="T">The entity type.</typeparam>
         /// <param name="key">The primary-key value, or null.</param>
@@ -1355,7 +1356,7 @@ namespace Funcular.Data.Orm.SqlServer
             if (key == null)
                 return (CreateSelectCommandText<T>(null), null);
             var primaryKey = GetCachedPrimaryKey<T>();
-            var value = ConvertKeyToPrimaryKeyType(key, primaryKey, typeof(T));
+            var value = NormalizeKeyForBinding(ConvertKeyToPrimaryKeyType(key, primaryKey, typeof(T)));
             return (CreateSelectCommandText<T>(KeyParameterName),
                 new[] { SqlServerDialect.CreateParameter(KeyParameterName, value, primaryKey.PropertyType) });
         }

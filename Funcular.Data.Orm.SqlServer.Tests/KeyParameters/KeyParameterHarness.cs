@@ -26,6 +26,8 @@ namespace Funcular.Data.Orm.Tests.KeyParameters
         public const string GuidTable = "zz_kp_guid";
         public const string NumTable = "zz_kp_num";
         public const string PkTable = "zz_kp_pk";
+        public const string EnumTable = "zz_kp_enum";
+        public const string UintTable = "zz_kp_uint";
 
         /// <summary>The parameter the providers bind the key to (<c>OrmDataProvider.KeyParameterName</c>).</summary>
         public const string KeyParameter = "@pk";
@@ -84,6 +86,24 @@ namespace Funcular.Data.Orm.Tests.KeyParameters
             public int ValPlus { get; set; }
         }
 
+        public enum KpShade { Red = 1, Green = 2 }
+
+        /// <summary>An enum key over an integer column holding (1, 10) and (2, 20).</summary>
+        [Table(EnumTable)]
+        public class KpEnum
+        {
+            [Key] public KpShade Id { get; set; }
+            public int Val { get; set; }
+        }
+
+        /// <summary>An unsigned key over an integer column holding (1, 10) and (2, 20).</summary>
+        [Table(UintTable)]
+        public class KpUint
+        {
+            [Key] public uint Id { get; set; }
+            public int Val { get; set; }
+        }
+
         /// <summary>The seeded text keys and their values.</summary>
         private static readonly (string Name, int Val)[] TextRows =
         {
@@ -103,11 +123,12 @@ namespace Funcular.Data.Orm.Tests.KeyParameters
         /// <summary>
         /// Drops the four tables if they exist and creates them: <c>zz_kp_text (name, val)</c>,
         /// <c>zz_kp_guid (id, val)</c>, <c>zz_kp_num (id, label)</c> holding (1, 'one') and (2, 'two'), and
-        /// <c>zz_kp_pk (pk, val)</c>. Text columns hold Unicode.
+        /// <c>zz_kp_pk (pk, val)</c>, and <c>zz_kp_enum (id, val)</c> and <c>zz_kp_uint (id, val)</c> with integer ids
+        /// holding (1, 10) and (2, 20). Text columns hold Unicode.
         /// </summary>
         protected abstract void CreateTables();
 
-        /// <summary>Drops the four tables (or deletes the SQLite file).</summary>
+        /// <summary>Drops the six tables (or deletes the SQLite file).</summary>
         protected abstract void DropTables();
 
         protected abstract OrmDataProvider CreateProvider();
@@ -426,6 +447,60 @@ namespace Funcular.Data.Orm.Tests.KeyParameters
             Assert.AreEqual(key, row.Pk, $"{key} {path}: pk");
             Assert.AreEqual(val + 100, row.ValPlus, $"{key} {path}: computed column");
             AssertKeyBound(logged, $"{key} {path}");
+        });
+
+        /// <summary>
+        /// AC6 (round 1, F-1, F-2): an enum key, given as the enum, as a number or as the number's text, finds its row on
+        /// every provider (SQL Server and PostgreSQL can't bind an enum without a type).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("enum", "sync")] [DataRow("enum", "async")]
+        [DataRow("int", "sync")] [DataRow("int", "async")]
+        [DataRow("long", "sync")] [DataRow("long", "async")]
+        [DataRow("text", "sync")] [DataRow("text", "async")]
+        public void Get_EnumKey_ReturnsThatRow(string form, string path) => Run(async () =>
+        {
+            object key;
+            switch (form)
+            {
+                case "enum": key = KpShade.Green; break;
+                case "int": key = 2; break;
+                case "long": key = 2L; break;
+                default: key = "2"; break;
+            }
+            using var provider = CreateProvider();
+            var logged = Capture(provider);
+            var row = await Get<KpEnum>(provider, key, path);
+            Assert.IsNotNull(row, $"{form} {path}: no row");
+            Assert.AreEqual(KpShade.Green, row.Id, $"{form} {path}: id");
+            Assert.AreEqual(20, row.Val, $"{form} {path}: val");
+            AssertKeyBound(logged, $"{form} {path}");
+        });
+
+        /// <summary>
+        /// AC6 (round 1, F-1): an unsigned key, given as itself, as an int or as text, finds its row on every provider
+        /// (SQL Server and PostgreSQL can't bind an unsigned integer without a type).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("uint", "sync")] [DataRow("uint", "async")]
+        [DataRow("int", "sync")] [DataRow("int", "async")]
+        [DataRow("text", "sync")] [DataRow("text", "async")]
+        public void Get_UnsignedKey_ReturnsThatRow(string form, string path) => Run(async () =>
+        {
+            object key;
+            switch (form)
+            {
+                case "uint": key = 2u; break;
+                case "int": key = 2; break;
+                default: key = "2"; break;
+            }
+            using var provider = CreateProvider();
+            var logged = Capture(provider);
+            var row = await Get<KpUint>(provider, key, path);
+            Assert.IsNotNull(row, $"{form} {path}: no row");
+            Assert.AreEqual(2u, row.Id, $"{form} {path}: id");
+            Assert.AreEqual(20, row.Val, $"{form} {path}: val");
+            AssertKeyBound(logged, $"{form} {path}");
         });
     }
 }
