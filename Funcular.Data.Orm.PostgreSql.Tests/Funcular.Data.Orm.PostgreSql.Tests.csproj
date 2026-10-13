@@ -29,6 +29,7 @@
     <!-- The AC7 rows of the provider-scoped caches plan, shared by the four providers' suites. -->
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Caching\LinqScopeHarness.cs" Link="Caching\LinqScopeHarness.cs" />
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\DeleteGuard\DeleteGuardHarness.cs" Link="DeleteGuard\DeleteGuardHarness.cs" />
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\KeyParameters\KeyParameterHarness.cs" Link="KeyParameters\KeyParameterHarness.cs" />
   </ItemGroup>
 
 </Project>

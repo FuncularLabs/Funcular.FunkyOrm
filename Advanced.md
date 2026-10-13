@@ -218,7 +218,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 | `Last`, `LastOrDefault` | the first row of the **inverted** order (`TOP (1)` / `LIMIT 1`) | Every ordering key is inverted. With no `OrderBy`, the order is `Id DESC`. |
 | `Count`, `LongCount` | `COUNT(*)`; `COUNT_BIG(*)` for `LongCount` on SQL Server | `LongCount` returns a `long`. |
 | `Any`, `All` | `EXISTS` | `All` requires a predicate. |
-| `Sum`, `Average`, `Min`, `Max` | the SQL aggregate over one mapped column | Selector overloads only. Some result types and empty-set cases are wrong in 3.10.0; fixes are planned for 3.10.1 (Changelog, Known issues). |
+| `Sum`, `Average`, `Min`, `Max` | the SQL aggregate over one mapped column | Selector overloads only. Some result types and empty-set cases are wrong in 3.10.0; fixes are planned for 3.10.2 (Changelog, Known issues). |
 | `Cast`, `OfType` | nothing: the rows are already of that type | `Cast<T>()` to the row type itself or a reference conversion (`Cast<object>()`, `Cast<BaseClass>()`); `OfType<T>()` to the row type only, and not over a nullable or reference member (it would drop nulls). |
 <!-- funky:supported-operators:end -->
 

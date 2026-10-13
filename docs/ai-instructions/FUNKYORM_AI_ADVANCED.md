@@ -208,7 +208,7 @@ LINQ-to-objects.
 | `Last`, `LastOrDefault` | inverted `ORDER BY` + `TOP (1)` / `LIMIT 1` | Default order `Id DESC`. After `Distinct` + custom projection: explicit `OrderBy` on a projected key required. |
 | `Count`, `LongCount` | `COUNT(*)` (`COUNT_BIG(*)` for `LongCount` on SQL Server) | `LongCount` → `long`. |
 | `Any`, `All` | `EXISTS` | `All` needs a predicate. |
-| `Sum`, `Average`, `Min`, `Max` | SQL aggregate | Selector overloads only, one mapped column. Known issues in 3.10.0; fixes planned for 3.10.1 (Changelog). |
+| `Sum`, `Average`, `Min`, `Max` | SQL aggregate | Selector overloads only, one mapped column. Known issues in 3.10.0; fixes planned for 3.10.2 (Changelog). |
 | `Cast`, `OfType` | no-op | `Cast` to the row type or a reference conversion; `OfType` to the row type only, not over a nullable/reference member. |
 <!-- funky:supported-operators:end -->
 

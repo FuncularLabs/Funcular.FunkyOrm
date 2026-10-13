@@ -228,7 +228,7 @@ namespace Funcular.Data.Orm.PostgreSql
             return sb.ToString();
         }
 
-        private NpgsqlParameter CreateParameter(string name, object value, Type type)
+        internal static NpgsqlParameter CreateParameter(string name, object value, Type type)
         {
             var param = new NpgsqlParameter(name, value ?? DBNull.Value);
             if (value == null)

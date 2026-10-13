@@ -299,7 +299,7 @@ namespace Funcular.Data.Orm.MySql
             return sb.ToString();
         }
 
-        private MySqlParameter CreateParameter(string name, object value, Type type)
+        internal static MySqlParameter CreateParameter(string name, object value, Type type)
         {
             var param = new MySqlParameter(name, value ?? DBNull.Value);
             if (value == null)
