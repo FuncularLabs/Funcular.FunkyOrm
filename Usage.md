@@ -292,6 +292,7 @@ provider.Insert(link);
 ```csharp
 var jane = provider.Get<Person>(person.Id);
 ```
+The key is sent as a parameter, converted to the type of the entity's key property first: an integer key can be given as an `int`, a `long` or its text, and a `Guid` key as a `Guid` or its text. A key that can't be converted throws `ArgumentException` before any query runs.
 
 ### Get All (List)
 **Warning:** `GetList<T>()` retrieves *every* record in the table. This is great for small lookup tables (e.g., `OrderStatus`, `Country`), but a **very bad idea** for large tables (e.g., `Transaction`, `Log`). For large datasets, use `GetList<T>(predicate)` to filter your results.

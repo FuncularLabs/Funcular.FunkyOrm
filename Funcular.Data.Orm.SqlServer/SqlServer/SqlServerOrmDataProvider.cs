@@ -131,12 +131,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         public override async Task<T> GetAsync<T>(dynamic key = null)
         {
+            // A key that can't be converted throws here, before any connection is used; the original key goes on, so a
+            // provider can tell a key given as text from a converted one.
+            if ((object)key != null)
+                ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
-                var commandText = CreateGetOneOrSelectCommandText<T>(key);
+                var (commandText, keyParameters) = CreateGetCommand<T>((object)key);
 
-                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection))
+                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, keyParameters))
                 {
                     return await ExecuteReaderSingleAsync<T>(command).ConfigureAwait(false);
                 }
@@ -229,9 +233,9 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 // Read the existing row on the scope's own connection (not via GetAsync<T>, which would
                 // open a second ConnectionScope and trip the transactional concurrency guard).
-                string existingCommandText = CreateGetOneOrSelectCommandText<T>((dynamic)primaryKey.GetValue(entity));
+                var (existingCommandText, existingKeyParameters) = CreateGetCommand<T>(primaryKey.GetValue(entity));
                 T existingEntity;
-                using (var existingCommand = BuildSqlCommandObject(existingCommandText, connectionScope.Connection))
+                using (var existingCommand = BuildSqlCommandObject(existingCommandText, connectionScope.Connection, existingKeyParameters))
                     existingEntity = await ExecuteReaderSingleAsync<T>(existingCommand).ConfigureAwait(false);
                 if (existingEntity == null)
                     throw new InvalidOperationException("Entity does not exist in database.");
@@ -629,12 +633,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>An instance of <typeparamref name="T"/> if found; otherwise null.</returns>
         public override T Get<T>(dynamic key = null)
         {
+            // A key that can't be converted throws here, before any connection is used; the original key goes on, so a
+            // provider can tell a key given as text from a converted one.
+            if ((object)key != null)
+                ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
-                var commandText = CreateGetOneOrSelectCommandText<T>(key);
+                var (commandText, keyParameters) = CreateGetCommand<T>((object)key);
 
-                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection))
+                using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, keyParameters))
                 {
                     return ExecuteReaderSingle<T>(command);
                 }
@@ -764,9 +772,9 @@ namespace Funcular.Data.Orm.SqlServer
             {
                 // Read the existing row on the scope's own connection (not via Get<T>, which would
                 // open a second ConnectionScope and trip the transactional concurrency guard).
-                string existingCommandText = CreateGetOneOrSelectCommandText<T>((dynamic)primaryKey.GetValue(entity));
+                var (existingCommandText, existingKeyParameters) = CreateGetCommand<T>(primaryKey.GetValue(entity));
                 T existingEntity;
-                using (var existingCommand = BuildSqlCommandObject(existingCommandText, connectionScope.Connection))
+                using (var existingCommand = BuildSqlCommandObject(existingCommandText, connectionScope.Connection, existingKeyParameters))
                     existingEntity = ExecuteReaderSingle<T>(existingCommand);
                 if (existingEntity == null)
                     throw new InvalidOperationException("Entity does not exist in database.");
@@ -1317,17 +1325,57 @@ namespace Funcular.Data.Orm.SqlServer
         }
 
         /// <summary>
-        /// Builds a SELECT statement for the specified type optionally constrained by a primary key.
-        /// The returned SQL contains the resolved column list and a WHERE clause when <paramref name="key"/> is provided.
+        /// Builds the unfiltered SELECT for the specified type. A primary-key value isn't accepted here, because it would
+        /// have to be written into the SQL text; <see cref="CreateGetCommand{T}"/> binds it as a parameter instead.
         /// </summary>
         /// <typeparam name="T">Entity type for which to build the SELECT statement.</typeparam>
-        /// <param name="key">Optional primary key value to produce a WHERE clause.</param>
+        /// <param name="key">Must be null.</param>
         /// <returns>A complete SELECT SQL string for the entity.</returns>
-        protected internal string CreateGetOneOrSelectCommandText<T>(dynamic key = null) where T : class, new()
+        /// <exception cref="NotSupportedException"><paramref name="key"/> isn't null.</exception>
+        [Obsolete("A primary-key value is sent as a parameter; see CreateGetCommand<T>. For the unfiltered SELECT, call the parameterless overload.")]
+        protected internal string CreateGetOneOrSelectCommandText<T>(dynamic key) where T : class, new()
+        {
+            if ((object)key != null)
+                throw new NotSupportedException(KeyAsTextMessage);
+            return CreateSelectCommandText<T>(null);
+        }
+
+        /// <summary>Builds the unfiltered SELECT for the specified type.</summary>
+        /// <typeparam name="T">Entity type for which to build the SELECT statement.</typeparam>
+        /// <returns>A complete SELECT SQL string for the entity.</returns>
+        protected internal string CreateGetOneOrSelectCommandText<T>() where T : class, new() =>
+            CreateSelectCommandText<T>(null);
+
+        /// <summary>
+        /// Builds the SELECT for <c>Get</c> and for the read in <c>Update</c>: unfiltered when <paramref name="key"/> is
+        /// null, otherwise constrained by the primary key, which is compared with a parameter and never written into the
+        /// SQL. The key is first converted to the primary key's type (<c>ConvertKeyToPrimaryKeyType</c>) and normalized
+        /// for the driver (<c>NormalizeKeyForBinding</c>), and the parameter is created as the dialect creates the UPDATE's
+        /// primary-key parameter.
+        /// </summary>
+        /// <typeparam name="T">The entity type.</typeparam>
+        /// <param name="key">The primary-key value, or null.</param>
+        /// <returns>The SQL, and the key's parameter (null when there is no key).</returns>
+        /// <exception cref="ArgumentException">The key can't be converted to the primary key's type.</exception>
+        protected internal (string CommandText, SqlParameter[] Parameters) CreateGetCommand<T>(object key) where T : class, new()
+        {
+            if (key == null)
+                return (CreateSelectCommandText<T>(null), null);
+            var primaryKey = GetCachedPrimaryKey<T>();
+            var value = NormalizeKeyForBinding(ConvertKeyToPrimaryKeyType(key, primaryKey, typeof(T)));
+            return (CreateSelectCommandText<T>(KeyParameterName),
+                new[] { SqlServerDialect.CreateParameter(KeyParameterName, value, primaryKey.PropertyType) });
+        }
+
+        /// <summary>
+        /// The SELECT for <typeparamref name="T"/>, constrained by the primary key when <paramref name="keyParameterName"/>
+        /// isn't null.
+        /// </summary>
+        private string CreateSelectCommandText<T>(string keyParameterName) where T : class, new()
         {
             var tableName = GetTableName<T>();
             string columnNames = GetColumnNames<T>();
-            var whereClause = key != null ? GetWhereClause<T>(key) : string.Empty;
+            var whereClause = keyParameterName != null ? $" WHERE {KeyColumn<T>()} = {keyParameterName}" : string.Empty;
 
             // --- Remote Key Logic ---
             var remoteInfo = ResolveRemoteJoins<T>(tableName);
@@ -1347,12 +1395,8 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 columnNames = string.Join(", ", columns);
 
-                if (!string.IsNullOrEmpty(whereClause))
-                {
-                    var pk = GetCachedPrimaryKey<T>();
-                    var pkCol = GetCachedColumnName(pk);
-                    whereClause = whereClause.Replace(pkCol, $"{tableName}.{pkCol}");
-                }
+                if (keyParameterName != null)
+                    whereClause = $" WHERE {tableName}.{KeyColumn<T>()} = {keyParameterName}";
 
                 columnNames += remoteInfo.ExtraColumns;
                 joinClauses = hasJoins ? remoteInfo.JoinClauses : null;
@@ -2236,16 +2280,19 @@ namespace Funcular.Data.Orm.SqlServer
 
 
         /// <summary>
-        /// Builds a simple WHERE clause for a primary key lookup. The caller is responsible for providing a safe key expression.
+        /// Formerly built the WHERE clause of a primary-key lookup with the key written into the SQL text. It now always
+        /// throws: the key is a parameter (<see cref="CreateGetCommand{T}"/>).
         /// </summary>
-        /// <typeparam name="T">The entity type whose primary key is referenced.</typeparam>
-        /// <param name="key">The primary key value to include in the clause.</param>
-        /// <returns>A string starting with " WHERE " that constrains the primary key column to the provided value.</returns>
-        protected string GetWhereClause<T>(dynamic key) where T : class
-        {
-            var pk = GetCachedPrimaryKey<T>();
-            return $" WHERE {GetCachedColumnName(pk)} = {key}";
-        }
+        /// <typeparam name="T">The entity type.</typeparam>
+        /// <param name="key">Ignored.</param>
+        /// <returns>Never returns.</returns>
+        /// <exception cref="NotSupportedException">Always.</exception>
+        [Obsolete("A primary-key value is sent as a parameter; see CreateGetCommand<T>. This method no longer builds SQL.")]
+        protected string GetWhereClause<T>(dynamic key) where T : class =>
+            throw new NotSupportedException(KeyAsTextMessage);
+
+        /// <summary>The primary key's column, as the WHERE clause of <c>Get</c> names it.</summary>
+        private string KeyColumn<T>() => GetCachedColumnName(GetCachedPrimaryKey<T>());
 
         /// <summary>
         /// Computes the database column name for a property that discovery hasn't cached: its <c>[Column]</c> name, else

@@ -202,7 +202,7 @@ namespace Funcular.Data.Orm.SqlServer
             return sb.ToString();
         }
 
-        private SqlParameter CreateParameter(string name, object value, Type type)
+        internal static SqlParameter CreateParameter(string name, object value, Type type)
         {
             var param = new SqlParameter(name, value ?? DBNull.Value);
             if (value == null)

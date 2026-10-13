@@ -485,6 +485,128 @@ namespace Funcular.Data.Orm
             });
         }
 
+        /// <summary>The name of the parameter that carries a primary-key value in <c>Get</c> and <c>Update</c>'s read.</summary>
+        protected const string KeyParameterName = "@pk";
+
+        /// <summary>The message of the members that used to write a primary-key value into the SQL text.</summary>
+        protected const string KeyAsTextMessage =
+            "A primary-key value is sent as a parameter, never as SQL text: call Get<T>(key), or CreateGetCommand<T>(key) " +
+            "in a provider subclass.";
+
+        /// <summary>
+        /// Converts a key given to <c>Get</c> to the type of <paramref name="primaryKey"/> (its underlying type when it is
+        /// nullable), so that it can be bound as a parameter. A value of that type is returned as it is; a
+        /// <see cref="Guid"/> is read from text <see cref="Guid.TryParse(string, out Guid)"/> accepts; a string is any
+        /// value's invariant text; an enum is read from its underlying number, given as a number or as text; text or a
+        /// number is converted with the invariant culture (numbers as plain numbers), and a number must convert without
+        /// loss (2.5 doesn't become 2, 258 doesn't become a byte's 2). Anything else is rejected.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="primaryKey">The entity's primary-key property.</param>
+        /// <param name="entityType">The entity type, named in the message.</param>
+        /// <returns>The key as the primary key's type.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
+        /// <exception cref="ArgumentException">
+        /// The key can't be converted. The message names the types, not the key, no inner exception is attached (a
+        /// conversion's message can quote its input), and <see cref="ArgumentException.ParamName"/> is "key".
+        /// </exception>
+        protected static object ConvertKeyToPrimaryKeyType(object key, PropertyInfo primaryKey, Type entityType)
+        {
+            if (key == null)
+                throw new ArgumentNullException(nameof(key));
+            var type = Nullable.GetUnderlyingType(primaryKey.PropertyType) ?? primaryKey.PropertyType;
+            if (type.IsInstanceOfType(key))
+                return key;
+            try
+            {
+                if (type == typeof(Guid))
+                {
+                    if (key is string text && Guid.TryParse(text, out var guid))
+                        return guid;
+                }
+                else if (type == typeof(string))
+                {
+                    return key is IFormattable formattable
+                        ? formattable.ToString(null, CultureInfo.InvariantCulture)
+                        : key.ToString() ?? string.Empty;
+                }
+                else if (type.IsEnum)
+                {
+                    // An enum key is its underlying number, given as a number or as its text, without loss.
+                    if (key is string || IsIntegral(key))
+                    {
+                        var number = ConvertLosslessly(key, Enum.GetUnderlyingType(type));
+                        if (number != null)
+                            return Enum.ToObject(type, number);
+                    }
+                }
+                else if (key is string || IsIntegral(key) || key is decimal || key is double || key is float)
+                {
+                    var converted = ConvertLosslessly(key, type);
+                    if (converted != null)
+                        return converted;
+                }
+            }
+            catch (Exception ex) when (ex is FormatException || ex is InvalidCastException || ex is OverflowException ||
+                                       ex is ArgumentException)
+            {
+                // Not chained: the conversion's own message can quote the key (FormatException does).
+            }
+            throw new ArgumentException(KeyTypeMessage(key, type, primaryKey, entityType), nameof(key));
+        }
+
+        /// <summary>
+        /// <paramref name="key"/> as <paramref name="type"/>, or null when a number doesn't convert back to itself. Text
+        /// is parsed with the invariant culture: a decimal, double or float as a plain number (no thousands separator, no
+        /// trailing sign), a date with its kind kept, anything else as <see cref="Convert.ChangeType(object, Type,
+        /// IFormatProvider)"/> parses it. A parse or overflow failure throws.
+        /// </summary>
+        private static object? ConvertLosslessly(object key, Type type)
+        {
+            if (key is string text)
+            {
+                if (type == typeof(decimal)) return decimal.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+                if (type == typeof(double)) return double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+                if (type == typeof(float)) return float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+                if (type == typeof(DateTime))
+                    return DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+                return Convert.ChangeType(text, type, CultureInfo.InvariantCulture);
+            }
+            var converted = Convert.ChangeType(key, type, CultureInfo.InvariantCulture);
+            return Equals(Convert.ChangeType(converted, key.GetType(), CultureInfo.InvariantCulture), key) ? converted : null;
+        }
+
+        /// <summary>
+        /// A converted key as the database drivers bind it: an enum as its underlying number, and an <c>sbyte</c> or an
+        /// unsigned integer widened to a signed type (a <c>ulong</c> above <see cref="long.MaxValue"/> to
+        /// <see cref="decimal"/>), as the LINQ parameter generators map them; anything else as it is. In a parameter that
+        /// carries no explicit type, Npgsql rejects an enum, and SqlClient and Npgsql reject an <c>sbyte</c> or an unsigned
+        /// integer.
+        /// </summary>
+        /// <param name="value">A key converted by <see cref="ConvertKeyToPrimaryKeyType"/>.</param>
+        /// <returns>The value to bind.</returns>
+        protected static object NormalizeKeyForBinding(object value)
+        {
+            if (value is Enum)
+                value = Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()), CultureInfo.InvariantCulture);
+            switch (value)
+            {
+                case sbyte v: return (short)v;
+                case ushort v: return (int)v;
+                case uint v: return (long)v;
+                case ulong v: return v <= long.MaxValue ? (object)(long)v : (decimal)v;
+                default: return value;
+            }
+        }
+
+        private static string KeyTypeMessage(object key, Type type, PropertyInfo primaryKey, Type entityType) =>
+            $"A key of type {key.GetType().Name} can't be converted to {type.Name}, the type of " +
+            $"{entityType.Name}.{primaryKey.Name}.";
+
+        private static bool IsIntegral(object value) =>
+            value is int || value is long || value is short || value is byte || value is sbyte || value is uint ||
+            value is ulong || value is ushort;
+
         /// <summary>
         /// Invokes the log action if it is not null.
         /// </summary>

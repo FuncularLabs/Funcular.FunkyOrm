@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.10.1] - 2026-10-12
+
+Security release for every provider. **Upgrade recommended** from any earlier version.
+
+### Security
+- **`Get`, `GetAsync`, `Update` and `UpdateAsync` send the primary key as a command parameter.** Before, the key's
+  value was written into the SQL text: unquoted on SQL Server, and quoted without escaping on PostgreSQL, MySQL and
+  SQLite (`Update` reads the existing row by its key first). A key taken from user input could change the query.
+  Every earlier version is affected. `Delete<T>(id)` and the LINQ paths already sent their values as parameters.
+
+### Fixed
+- **A key containing a quote** (`it's`) failed in `Get` and `Update` with a syntax error, and on MySQL a key
+  containing a backslash found no row. Both now find their row, on every provider.
+- **SQL Server: `Get` and `Update` with a `Guid` key, or a string key that isn't a number,** sent the key unquoted and
+  failed. They now find their row.
+- **An enum key given as the enum itself** (`Get<T>(Status.Active)`) was written as the enum's name and failed. It now
+  finds its row, as a number or its text already did.
+
+### Changed
+- **The key is converted to the primary key's type before it is sent.** An integer key given as a `long`, a `short` or
+  its text, an enum key given as a number or its text, and a `Guid` key given as its text, still find their row. A key
+  that can't be converted without loss now throws `ArgumentException` (`ParamName` "key") before any query runs, and
+  the exception doesn't repeat the key: for example `"two"` or `2.5` for an integer key, or text that isn't a `Guid`
+  for a `Guid` key. Before, depending on the provider, such a key failed in the database or found no row. Some keys
+  that found their row in 3.10.0 now throw too, for example a `char` digit (`'2'`) or text with a decimal point
+  (`"2.0"`) for an integer key; pass the key as its own type.
+- **A key that was wrapped in quotes** to work around this (`"'abc'"`) is now compared as written: a string key with
+  its quotes finds no row, and a `Guid` key with them throws `ArgumentException`.
+- **PostgreSQL:** a string key, or any key given as text, is sent untyped, as 3.10.0's literal was, so PostgreSQL still
+  reads it as the key column's type: a `citext` key column compares without case, and a `timestamp` key given as text
+  with a zone (`"2026-01-02T00:00:00Z"`) matches as before. Any other key is a typed parameter, as values in LINQ
+  queries already are, so a `Guid` key over a `varchar` column now fails in the WHERE; reading such a row already
+  failed in 3.10.0.
+- **SQLite:** a `Guid` key is matched as FunkyORM stores it (lower-case text), whatever the case of the text it's
+  given.
+- **Provider subclasses:** `CreateGetOneOrSelectCommandText<T>(key)` is obsolete (warning CS0618): given a key it
+  throws `NotSupportedException`, and given null it still builds the unfiltered SELECT, which a new parameterless
+  overload also builds. `GetWhereClause<T>(key)` is obsolete and always throws. `CreateGetCommand<T>(key)` returns the
+  SELECT and its key parameter, and `ConvertKeyToPrimaryKeyType` and `NormalizeKeyForBinding` (protected, on
+  `OrmDataProvider`) prepare the key.
+
+### Known issues
+- The aggregate fixes listed under 3.10.0's Known issues are now planned for 3.10.2.
+- `Update` of an entity whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server and PostgreSQL) still
+  fails, as in 3.10.0: the UPDATE statement's own key parameter isn't converted yet.
+
 ## [3.10.0] - 2026-10-05
 
 Query-operator correctness ([#12](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/12),
