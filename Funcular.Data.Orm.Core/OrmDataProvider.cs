@@ -579,8 +579,9 @@ namespace Funcular.Data.Orm
         /// <summary>
         /// A converted key as the database drivers bind it: an enum as its underlying number, and an <c>sbyte</c> or an
         /// unsigned integer widened to a signed type (a <c>ulong</c> above <see cref="long.MaxValue"/> to
-        /// <see cref="decimal"/>), as the LINQ parameter generators map them; anything else as it is. SqlClient and Npgsql
-        /// reject those types in a parameter that carries no explicit type.
+        /// <see cref="decimal"/>), as the LINQ parameter generators map them; anything else as it is. In a parameter that
+        /// carries no explicit type, Npgsql rejects an enum, and SqlClient and Npgsql reject an <c>sbyte</c> or an unsigned
+        /// integer.
         /// </summary>
         /// <param name="value">A key converted by <see cref="ConvertKeyToPrimaryKeyType"/>.</param>
         /// <returns>The value to bind.</returns>

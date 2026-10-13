@@ -6,11 +6,22 @@
 >   at `6d2f3fa` (3.10.0).
 > - The aggregate fixes the 3.10.0 Changelog planned for 3.10.1 move to 3.10.2.
 
-> **Status (2026-10-12):** rev 3.
+> **Status (2026-10-12):** rev 4.
 > - The Task 0 review of rev 1 and its tests (§9.1) found 3 major and 13 minor or nit findings, answered in rev 2
 >   (`9fb3862`).
-> - The non-author review of `9fb3862` (§9.2) found 1 major, 3 minor and 5 nits. They are answered in this revision
->   (§5). The commit that carries it gets the fix-verification next.
+> - The non-author review of `9fb3862` (§9.2) found 1 major, 3 minor and 5 nits, answered in rev 3 (`6e07282`).
+> - Its fix-verification (§9.3) found 1 minor and 1 nit. They are answered in this revision (§5), and the commit that
+>   carries it is verified next.
+
+> **Revision 4 — what changed (the fix-verification of `6e07282`, N-1, N-2):**
+> - D4: on PostgreSQL a key given as text is sent untyped too, not only a string key. So a `timestamp` key given as
+>   text with a zone matches as 3.10.0's literal did (N-1, executed).
+> - `Get` and `GetAsync` validate the key early and pass the original key on, so a provider can tell text from a
+>   converted value.
+> - The comments no longer say SqlClient rejects an enum (N-2).
+> - The Changelog's PostgreSQL bullet covers keys given as text, and Known issues lists `Update` with an enum or
+>   unsigned key.
+> - §4.3 gains M14 and M15. The Task 3 record names the uncovered lines correctly.
 
 > **Revision 3 — what changed (the review of `9fb3862`, R-1…R-9):**
 > - D2: an enum key is converted losslessly and accepts its number's text (R-2, R-3); a decimal, double, float or date
@@ -76,9 +87,14 @@
   So a `Guid` over `varchar` didn't work in 3.10.0 either.
 - **PostgreSQL `citext` (rev 3, executed in a throwaway database):** for a stored `abc`, a typed text parameter
   `'ABC'` finds no row; an untyped parameter and 3.10.0's literal both find it. Hence D4's untyped string key.
-- **SQL Server and PostgreSQL can't bind an enum, an `sbyte` or an unsigned integer in a parameter that has no
-  explicit type** (the review of `9fb3862`, R-1, executed on both). 3.10.0 wrote these keys as numbers, which worked.
-  The LINQ parameter generators map them explicitly.
+- **In a parameter that has no explicit type, Npgsql rejects an enum, and SqlClient and Npgsql reject an `sbyte` or
+  an unsigned integer** (the review of `9fb3862`, R-1; rev 4 corrects rev 3, which said SqlClient rejects an enum).
+  3.10.0 wrote these keys as numbers, which worked. The LINQ parameter generators map them explicitly.
+- **PostgreSQL `timestamp` keys given as text with a zone (rev 4, N-1, executed in a session set to
+  America/Chicago):**
+  - `'2026-01-02T00:00:00Z'` and `'…+02:00'` match the row `2026-01-02 00:00:00`, both as a literal (3.10.0) and as
+    an untyped parameter: PostgreSQL ignores the zone of a `timestamp` input.
+  - A `DateTime` of UTC kind, which is what the text converts to, is sent as `timestamptz` and finds nothing.
 
 ## 2. Decisions
 
@@ -121,9 +137,14 @@
   - **Before binding, the converted key is normalized** (`OrmDataProvider.NormalizeKeyForBinding`, protected static;
     rev 3). An enum becomes its underlying number. An `sbyte` becomes a `short`, a `ushort` an `int`, a `uint` a
     `long`, and a `ulong` a `long` (a `decimal` above `long.MaxValue`), as the LINQ generators map them.
-  - **On PostgreSQL a string key is sent untyped** (`NpgsqlDbType.Unknown`, rev 3), as 3.10.0's quoted literal was
-    and as the ORDER BY visitor sends its values. PostgreSQL resolves it against the column, so a `citext` column
-    still compares without case. It's still a bound parameter.
+  - **On PostgreSQL a string key, or any key given as text, is sent untyped** (`NpgsqlDbType.Unknown`; rev 3 for
+    strings, rev 4 for text), as 3.10.0's quoted literal was and as the ORDER BY visitor sends its values.
+    - It's sent only after it has converted (D2), so the D3 rejections still hold.
+    - PostgreSQL resolves it against the column, so a `citext` column still compares without case, and a `timestamp`
+      key given as text with a zone still matches.
+    - It's still a bound parameter.
+    - `Get` and `GetAsync` validate the key before any connection is used, then pass the original key to
+      `CreateGetCommand<T>`, so the provider can tell text from a converted value (rev 4).
   - The public `ISqlDialect` isn't changed. A custom dialect passed to a provider isn't consulted for this
     parameter; 3.10.0 didn't consult one for the inlined key either.
 - **D5 — The text seams fail closed.**
@@ -195,7 +216,7 @@ own `zz_kp_*` tables. The database-free rows are in `KeyParameterSeamTests`.
 | AC1, AC3 | `Get_StringKey_ReturnsThatRow` (6 keys) |
 | AC2, AC3 | `Get_KeyThatWouldAlterTheStatement_MatchesNoRow` (6 keys; `zz_kp_num` still has 2 rows) |
 | AC4, AC3 | `Update_StringKeyWithQuote_UpdatesThatRow`, `Update_GuidKey_UpdatesThatRow` |
-| AC5, AC3 | `Get_GuidKey_ReturnsThatRow` (`guid`, `text`, `upperText`, `absent`); `Get_CitextKey_ComparesWithoutCase` (PostgreSQL, throwaway database) |
+| AC5, AC3 | `Get_GuidKey_ReturnsThatRow` (`guid`, `text`, `upperText`, `absent`); `Get_CitextKey_ComparesWithoutCase` (PostgreSQL, throwaway database); `Get_DateKeyGivenAsText_MatchesAsBefore` (PostgreSQL, `timestamp` key, session America/Chicago) |
 | AC6, AC3 | `Get_IntegerKey_ConvertsToThePrimaryKeyType`, `Get_EnumKey_ReturnsThatRow`, `Get_UnsignedKey_ReturnsThatRow`, `Get_UnconvertibleKey_ThrowsBeforeAnyCommand` (8 keys), `Get_UnconvertibleKey_ThrowsBeforeTheConnection` (no database, 4 providers), `ConvertKey_ConvertsToThePrimaryKeyType`, `ConvertKey_RejectsWhatDoesNotConvert`, `NormalizeKey_GivesTheDriversTypesTheyBind` |
 | AC7, AC3 | `Get_ComputedColumnEntity_BindsTheKey`, `Get_ComputedColumnEntity_KeyColumnNamedPk` |
 | AC8 | `TextSeams_RefuseAKey` (no database) |
@@ -230,6 +251,8 @@ own `zz_kp_*` tables. The database-free rows are in `KeyParameterSeamTests`.
 | M11 An enum key isn't converted losslessly (rev 3) | `ConvertKey_…` |
 | M12 Decimal text is parsed leniently (rev 3) | `ConvertKey_RejectsWhatDoesNotConvert` |
 | M13 A PostgreSQL string key is a typed text parameter (rev 3) | `Get_CitextKey_ComparesWithoutCase` |
+| M14 PostgreSQL ignores that the key was given as text (rev 4) | `Get_DateKeyGivenAsText_MatchesAsBefore` |
+| M15 `Get` passes the converted key on (rev 4) | `Get_DateKeyGivenAsText_MatchesAsBefore` |
 
 A partial M3 (convert, but bind the raw key) is equivalent on SQL Server and MySQL, which convert themselves. It's
 killed on SQLite (`upperText`) and on PostgreSQL (integer `text`).
@@ -277,20 +300,29 @@ killed on SQLite (`upperText`) and on PostgreSQL (integer `text`).
   - The suites, all passing: SqlServer.Tests 1674, PostgreSql.Tests 1006, MySql.Tests 957, Sqlite.Tests 800,
     DotNet9 5, net48 79.
   - M10–M13 each killed where they apply, with the sources restored byte for byte.
-  - Coverage of the touched files is 88.3–93.8 %, with `OrmDataProvider.cs` at 91.8 %. The one added line left
-    uncovered is the `float` text branch of the conversion.
+  - Coverage of the touched files is 88.3–93.8 %, with `OrmDataProvider.cs` at 91.8 %. The added lines left
+    uncovered are `OrmDataProvider.cs` 541–542, the enum branch's fall-through after a lossless integral conversion,
+    which can't be reached. (Rev 3 named the `float` text branch; corrected in rev 4.)
   - No `zz_kp` table or database is left on any server.
-- **Task 4.** A non-author fix-verification of the commit that carries rev 3; the release.
+- **Task 4 (rev 4, the fix-verification of `6e07282`).**
+  - `Get_DateKeyGivenAsText_MatchesAsBefore` was red with the key typed: the `Z` and `+02:00` rows found no row, and
+    the row without a zone passed. It's green with text untyped and the original key passed on.
+  - Key-parameter rows: SqlServer.Tests 199, PostgreSql.Tests 93, MySql.Tests 85.
+  - The suites, all passing: SqlServer.Tests 1674, PostgreSql.Tests 1006 + 6 = 1012, MySql.Tests 957, Sqlite.Tests
+    800, DotNet9 5, net48 79.
+  - M14 and M15 were each killed, with the sources restored byte for byte. Every line this layer adds is covered.
+- **Task 5.** A non-author fix-verification of the commit that carries rev 4; the release.
 
 ## 6. Out of scope (recorded)
 
 - `[SubqueryAggregate(ConditionValue = …)]` is written into the SQL unescaped. It's a constant the developer writes
   in an attribute, so it's a robustness issue, not an injection.
 - *(Answered in rev 3: PostgreSQL `citext` keys stay case-insensitive, verified in a throwaway database.)*
-- **The UPDATE statement's own `@Id`** is still created by the dialect without normalization. The review of `9fb3862`
-  reported that `Update` of an entity with an enum or unsigned key fails at that statement on SQL Server and
-  PostgreSQL, as it did in 3.10.0. That isn't verified here, and it isn't changed: it isn't an injection, and it isn't
-  a regression.
+- **The UPDATE statement's own `@Id`** is still created by the dialect without normalization. `Update` of an entity
+  whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server, PostgreSQL) fails at that statement, as in
+  3.10.0 (observed by the fix-verification of `6e07282`). An enum key's `Update` works on SQL Server, MySQL and SQLite.
+  It isn't changed here, because it isn't an injection and it isn't a regression. The Changelog lists it under Known
+  issues.
 - The downstream fix in Aperture (`AnnotationStore` uses `Get` and `Update` with file paths as keys) belongs to that
   repository, after 3.10.1 ships.
 
@@ -342,3 +374,13 @@ Non-blocking observations, recorded for later:
 - `Get<T>(null)` returns an arbitrary first row, which isn't documented.
 - SQL Server binds a string key as `nvarchar`, which costs an index seek against a `varchar` key column; the UPDATE
   and LINQ already do the same.
+
+### 9.3 Fix-verification of `9fb3862..6e07282` (non-author; cumulative `6d2f3fa..6e07282`; the old-versus-new probe on all four databases, a throwaway PostgreSQL database, M1 and M10–M13 re-executed)
+
+Verdict: NOT CLEAN; 1 minor, 1 nit. R-1 to R-5 and R-7 to R-9 are resolved; R-6 is partial (N-1). The withdrawn
+enum-column claim is confirmed as the probe's artifact. Blame: AC-GAP 1, OTHER 1.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| N-1 | minor | AC-GAP | On PostgreSQL a `timestamp` key given as text with `Z` or an offset found its row in 3.10.0 and found none at `6e07282` (a UTC-kind parameter is `timestamptz`, compared in the session's zone) | A key given as text is sent untyped; `Get` passes the original key on; `Get_DateKeyGivenAsText_MatchesAsBefore`; M14, M15 |
+| N-2 | nit | OTHER | Comments said SqlClient rejects an enum; §6 said enum-key `Update` fails on SQL Server | Corrected; §6 states what was observed |

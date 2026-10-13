@@ -30,9 +30,11 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
   (`"2.0"`) for an integer key; pass the key as its own type.
 - **A key that was wrapped in quotes** to work around this (`"'abc'"`) is now compared as written: a string key with
   its quotes finds no row, and a `Guid` key with them throws `ArgumentException`.
-- **PostgreSQL:** a key other than a string is a typed parameter, as values in LINQ queries already are, so a `Guid`
-  property over a `varchar` key column now fails in the WHERE; reading such a row already failed in 3.10.0. A string
-  key is sent untyped, as 3.10.0's literal was, so a `citext` key column still compares without case.
+- **PostgreSQL:** a string key, or any key given as text, is sent untyped, as 3.10.0's literal was, so PostgreSQL still
+  reads it as the key column's type: a `citext` key column compares without case, and a `timestamp` key given as text
+  with a zone (`"2026-01-02T00:00:00Z"`) matches as before. Any other key is a typed parameter, as values in LINQ
+  queries already are, so a `Guid` key over a `varchar` column now fails in the WHERE; reading such a row already
+  failed in 3.10.0.
 - **SQLite:** a `Guid` key is matched as FunkyORM stores it (lower-case text), whatever the case of the text it's
   given.
 - **Provider subclasses:** `CreateGetOneOrSelectCommandText<T>(key)` is obsolete (warning CS0618): given a key it
@@ -43,6 +45,8 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
 
 ### Known issues
 - The aggregate fixes listed under 3.10.0's Known issues are now planned for 3.10.2.
+- `Update` of an entity whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server and PostgreSQL) still
+  fails, as in 3.10.0: the UPDATE statement's own key parameter isn't converted yet.
 
 ## [3.10.0] - 2026-10-05
 

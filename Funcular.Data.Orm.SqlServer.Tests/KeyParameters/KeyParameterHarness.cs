@@ -451,7 +451,7 @@ namespace Funcular.Data.Orm.Tests.KeyParameters
 
         /// <summary>
         /// AC6 (round 1, F-1, F-2): an enum key, given as the enum, as a number or as the number's text, finds its row on
-        /// every provider (SQL Server and PostgreSQL can't bind an enum without a type).
+        /// every provider (Npgsql can't bind an enum without a type).
         /// </summary>
         [DataTestMethod]
         [DataRow("enum", "sync")] [DataRow("enum", "async")]

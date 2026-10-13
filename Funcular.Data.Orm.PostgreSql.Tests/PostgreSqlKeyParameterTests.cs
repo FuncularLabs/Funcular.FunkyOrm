@@ -85,6 +85,43 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             }
         }
 
+        [Table("zz_kp_date")]
+        public class DateKeyed
+        {
+            [Key] public DateTime Ts { get; set; }
+            public int Val { get; set; }
+        }
+
+        /// <summary>
+        /// AC6 (round 2, N-1): a <c>timestamp</c> key given as text, with a zone or an offset or neither, finds its row as
+        /// 3.10.0's literal did: text is sent untyped, so PostgreSQL reads it as the column's type and ignores the zone. A
+        /// typed parameter would compare a UTC <c>DateTime</c> as <c>timestamptz</c> in the session's time zone, which the
+        /// provider's connection sets to a non-UTC zone here, and find nothing.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("2026-01-02T00:00:00Z", "sync")] [DataRow("2026-01-02T00:00:00Z", "async")]
+        [DataRow("2026-01-02T00:00:00+02:00", "sync")] [DataRow("2026-01-02T00:00:00+02:00", "async")]
+        [DataRow("2026-01-02 00:00:00", "sync")] [DataRow("2026-01-02 00:00:00", "async")]
+        public async Task Get_DateKeyGivenAsText_MatchesAsBefore(string key, string path)
+        {
+            RequireDatabase();
+            const string drop = "DROP TABLE IF EXISTS zz_kp_date;";
+            try
+            {
+                Execute(ConnectionString, drop + " CREATE TABLE zz_kp_date (ts TIMESTAMP NOT NULL PRIMARY KEY, val INT NOT NULL); " +
+                                          "INSERT INTO zz_kp_date VALUES ('2026-01-02 00:00:00', 1);");
+                var chicago = new NpgsqlConnectionStringBuilder(ConnectionString) { Timezone = "America/Chicago" }.ConnectionString;
+                using var provider = new PostgreSqlOrmDataProvider(chicago);
+                var row = path == "async" ? await provider.GetAsync<DateKeyed>(key) : provider.Get<DateKeyed>(key);
+                Assert.IsNotNull(row, $"{key} {path}: no row");
+                Assert.AreEqual(1, row.Val, $"{key} {path}: val");
+            }
+            finally
+            {
+                Execute(ConnectionString, drop);
+            }
+        }
+
         [Table("kv")]
         public class CitextKv
         {

@@ -93,11 +93,14 @@ namespace Funcular.Data.Orm.PostgreSql
 
         public override async Task<T> GetAsync<T>(dynamic key = null)
         {
-            var keyValue = (object)key == null ? null : ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
+            // A key that can't be converted throws here, before any connection is used; the original key goes on, so a
+            // provider can tell a key given as text from a converted one.
+            if ((object)key != null)
+                ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
-                var (commandText, keyParameters) = CreateGetCommand<T>(keyValue);
+                var (commandText, keyParameters) = CreateGetCommand<T>((object)key);
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, keyParameters))
                     return await ExecuteReaderSingleAsync<T>(command).ConfigureAwait(false);
             }
@@ -282,11 +285,14 @@ namespace Funcular.Data.Orm.PostgreSql
 
         public override T Get<T>(dynamic key = null)
         {
-            var keyValue = (object)key == null ? null : ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
+            // A key that can't be converted throws here, before any connection is used; the original key goes on, so a
+            // provider can tell a key given as text from a converted one.
+            if ((object)key != null)
+                ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
-                var (commandText, keyParameters) = CreateGetCommand<T>(keyValue);
+                var (commandText, keyParameters) = CreateGetCommand<T>((object)key);
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, keyParameters))
                     return ExecuteReaderSingle<T>(command);
             }
@@ -826,9 +832,9 @@ namespace Funcular.Data.Orm.PostgreSql
         /// Builds the SELECT for <c>Get</c> and for the read in <c>Update</c>: unfiltered when <paramref name="key"/> is
         /// null, otherwise constrained by the primary key, which is compared with a parameter and never written into the
         /// SQL. The key is first converted to the primary key's type (<c>ConvertKeyToPrimaryKeyType</c>) and normalized
-        /// for the driver (<c>NormalizeKeyForBinding</c>). A string key is sent untyped, so PostgreSQL resolves it against
-        /// the column as it resolved 3.10.0's quoted literal; any other key is created as the dialect creates the UPDATE's
-        /// primary-key parameter.
+        /// for the driver (<c>NormalizeKeyForBinding</c>). A key given as text, or a string key, is sent untyped, so
+        /// PostgreSQL resolves it against the column as it resolved 3.10.0's quoted literal; any other key is created as
+        /// the dialect creates the UPDATE's primary-key parameter.
         /// </summary>
         /// <typeparam name="T">The entity type.</typeparam>
         /// <param name="key">The primary-key value, or null.</param>
@@ -840,10 +846,12 @@ namespace Funcular.Data.Orm.PostgreSql
                 return (CreateSelectCommandText<T>(null), null);
             var primaryKey = GetCachedPrimaryKey<T>();
             var value = NormalizeKeyForBinding(ConvertKeyToPrimaryKeyType(key, primaryKey, typeof(T)));
-            // A string key is sent untyped, as 3.10.0's quoted literal was (and as the ORDER BY visitor sends its values),
-            // so PostgreSQL resolves it against the column: a citext key column still compares without case, which a
-            // typed text parameter wouldn't.
-            var parameter = value is string text
+            // A key given as text, or a string key, is sent untyped (once it has converted), as 3.10.0's quoted literal
+            // was and as the ORDER BY visitor sends its values, so PostgreSQL resolves it against the column: a citext
+            // key column still compares without case, and a timestamp key given as text with a zone still matches its
+            // row. A typed parameter would do neither.
+            var text = key as string ?? value as string;
+            var parameter = text != null
                 ? new NpgsqlParameter(KeyParameterName, NpgsqlTypes.NpgsqlDbType.Unknown) { Value = text }
                 : PostgreSqlDialect.CreateParameter(KeyParameterName, value, primaryKey.PropertyType);
             return (CreateSelectCommandText<T>(KeyParameterName), new[] { parameter });

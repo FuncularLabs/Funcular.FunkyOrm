@@ -131,11 +131,14 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         public override async Task<T> GetAsync<T>(dynamic key = null)
         {
-            var keyValue = (object)key == null ? null : ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
+            // A key that can't be converted throws here, before any connection is used; the original key goes on, so a
+            // provider can tell a key given as text from a converted one.
+            if ((object)key != null)
+                ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
-                var (commandText, keyParameters) = CreateGetCommand<T>(keyValue);
+                var (commandText, keyParameters) = CreateGetCommand<T>((object)key);
 
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, keyParameters))
                 {
@@ -630,11 +633,14 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>An instance of <typeparamref name="T"/> if found; otherwise null.</returns>
         public override T Get<T>(dynamic key = null)
         {
-            var keyValue = (object)key == null ? null : ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
+            // A key that can't be converted throws here, before any connection is used; the original key goes on, so a
+            // provider can tell a key given as text from a converted one.
+            if ((object)key != null)
+                ConvertKeyToPrimaryKeyType((object)key, GetCachedPrimaryKey<T>(), typeof(T));
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
-                var (commandText, keyParameters) = CreateGetCommand<T>(keyValue);
+                var (commandText, keyParameters) = CreateGetCommand<T>((object)key);
 
                 using (var command = BuildSqlCommandObject(commandText, connectionScope.Connection, keyParameters))
                 {
