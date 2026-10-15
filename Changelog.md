@@ -2,6 +2,95 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.10.2] - Unreleased
+
+WHERE translation fixes for every provider (SQL Server, PostgreSQL, MySQL, SQLite). **Upgrade recommended:** the
+shapes under Fixed selected, and deleted, other rows than C# selects, without an error. One translation path serves
+`Query`, `Query<T>().Where`, `Count`/`Any`/`All`, SELECT projections and `Delete`; the parity tests
+(`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE.
+
+### Fixed
+- **A collection `Contains` whose item doesn't come from the row** (`ids.Contains(request.Id)`, a nested or a
+  static member) was translated as the entity's column of the same name: `x => x.Id == 3 || ids.Contains(request.Id)`
+  with `ids = {1, 2}` selected, and deleted, three rows where C# selects one. A local or a constant item threw
+  (`InvalidOperationException`, `NullReferenceException`). Each is now answered before the query, as C# answers it
+  (with the collection's own `Contains` and comparer, and with C# 14's span-based `array.Contains`), and sent as
+  `1=0` (false) or `NOT 1=0` (true). In `Where`, `Count`/`Any`/`All`, `Delete` and SELECT projections.
+- **A property of a captured object used as a search value** — the enclosing object's (`this`), a nested one, a
+  static one — was read as `null` or not at all: `x => x.Id == 2 || x.Name.Contains(Filter)` in an instance method
+  sent `LIKE '%%'` and selected every row with a non-null name. Search values of `Contains`, `StartsWith` and
+  `EndsWith` are now read as C# reads them. (A delete with this shape is still rejected by the delete guard: see
+  Known issues.)
+- **`StartsWith`/`EndsWith` on something other than an entity property** (`request.Name.StartsWith("al")`,
+  `x.Child.Name.StartsWith("a")`) were translated as the entity's `name` column, selecting the wrong rows. They now
+  throw (see Changed).
+- **A captured `ToString()` was sent as its raw value, without its format:** `x.Id == 2 || id.ToString() == "05"`
+  compared the number 5 with `'05'` and, on SQL Server and MySQL, selected every row; `ToString("D2")` lost its
+  format. `x.Code == x.Name.Length.ToString()` dropped `.Length` (`code = name`). A `ToString()` of anything but an
+  entity property now throws (see Changed).
+- **A string `Contains` that doesn't read the row** (`s.Contains("ZETA")`) was compared by the server, whose
+  collation could find it true where C# finds it false (every row on SQL Server, MySQL and SQLite). It's now
+  answered as C# answers it, except that a null string or search value matches no row (C# would throw).
+- **A null search value** (`x.Name.Contains(filter)` with `filter == null`) sent `LIKE '%%'`, which matched every row
+  with a non-null value. A null value for `Contains`, `StartsWith` or `EndsWith` now matches no row, negated or not
+  (inside `All`, see Known issues). The optional-filter idiom `filter == null || x.Name.Contains(filter)` still
+  returns every row, and the same idiom with `StartsWith`/`EndsWith` no longer throws.
+
+### Changed
+Method calls in a predicate or a projection that can't be answered correctly now throw `NotSupportedException`
+(unless noted) before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed or returned wrong rows
+before:
+- **A collection `Contains` whose item reads the row other than as an entity property**: `ids.Contains(x.Child.Id)`
+  (3.10.1 silently used `x.Id`), `lengths.Contains(x.Name.Length)`, `longIds.Contains(x.Id)` with a `List<long>`.
+  With an empty collection these returned no row; they now throw whatever the collection holds. A null collection
+  and a captured non-collection type with its own `Contains` throw too (a null collection threw before as well:
+  `NullReferenceException` for a local, a differently worded `NotSupportedException` for a property of an object you
+  hold).
+- **`.Value` on a nullable entity property inside `Contains`** (`ids.Contains(x.NullableId.Value)`) threw
+  `NullableExpressionException` only when the collection had values; with an empty collection it returned no row.
+  It now throws `NullableExpressionException` whatever the collection holds.
+- **`StartsWith`/`EndsWith` whose receiver isn't an entity property** (a captured value, a local, a static member,
+  `x.Child.Name`).
+- **A `ToString()` of anything but an entity property**: a local, a constant, a property of an object you hold
+  (including `this`) or a static one, with or without a format or an `IFormatProvider`; `Convert.ToString(...)`; a
+  `ToString()` that reads the row through another member (`x.Name.Length.ToString()`). Before, a captured value was
+  sent unconverted, which returned the right rows only when the value already was the text compared (an `object`
+  or interface variable holding a string, `s.ToString(CultureInfo.InvariantCulture)`) or when it was compared with
+  a column's own `ToString()` (`x.Id.ToString() == id.ToString()`; also with an enum, except on PostgreSQL, where
+  that threw). Those throw now too. Compute the string before the query: `var code = id.ToString("D2");`, then
+  `x.Code == code`.
+- **A value that throws while the predicate is translated** (a member of a null captured object,
+  `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
+  `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check in
+  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated. When the item
+  is an entity property (`ids.Contains(x.Id)`), a database error or a `NotSupportedException` thrown while the
+  collection is enumerated (a query used as the collection, say) passes through unchanged, as before. A collection
+  read to answer a `Contains` before the query (an item that doesn't come from the row) is wrapped like any value.
+
+### New public API
+- `Funcular.Data.Orm.Linq.RowIndependentEvaluator` (`IsRowIndependent`, `TryTranslateContains`, `TryReadValue`, and
+  the SQL it sends: `TrueSql`, `FalseSql`, `UnknownSql`), which the four translators use and a custom provider can
+  too. It evaluates by interpretation where the runtime has it (.NET Framework 4.7.1 and later, .NET Core) and
+  compiles otherwise.
+
+### Known issues
+- **The delete guard still rejects some shapes the translation now gets right.** `Delete` validates its predicate
+  before translating it (3.10.0's `DeletePredicateGuard`), and that check is unchanged in 3.10.2: a string
+  `Contains`/`StartsWith`/`EndsWith` whose search value is a property of an object you hold (`x.Name.Contains(Filter)`),
+  or is null or empty; a string `Contains` on a value that doesn't read the row (`x.Id == 2 || s.Contains("a")`); and
+  a comparison of two strings that don't read the row still throw `NotSupportedException` in a delete, though
+  `Query` with the same predicate now returns C#'s rows. The guard's messages still describe the earlier translation
+  ("which the translation reads as null"). A delete whose evaluated `Contains` makes the predicate always true
+  (`x.Id == 2 || ids.Contains(present.Id)`) is rejected with "Delete operation requires a non-trivial WHERE clause.",
+  and one that reads no column (`x => ids.Contains(request.Id)`) with the column-reference message. Whether the
+  guard should follow the translation is an open owner decision (docs/plans/DECISIONS-3.10.2.md, D-003).
+- **`All` counts a row whose predicate SQL finds null (unknown) as satisfying it**, as before. That's C#'s answer
+  when the null makes the predicate true (`All(x => x.NullableId != 5)`), but not when it makes it false:
+  `All(x => x.NullableId > 0)` returns `true` when a `NullableId` is null, where C# returns `false`. `All` over a null
+  search value (`All(x => x.Name.Contains(filter))` with `filter == null`) returns `true`, where C# throws. Test the
+  null yourself: `All(x => x.NullableId != null && x.NullableId > 0)`.
+- The 3.10.1 Known issues (aggregates; `Update` with an enum or unsigned key) still apply unless listed under Fixed.
+
 ## [3.10.1] - 2026-10-12
 
 Security release for every provider. **Upgrade recommended** from any earlier version.

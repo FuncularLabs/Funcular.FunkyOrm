@@ -496,6 +496,24 @@ var coastalPeople = provider.Query<Address>()
     .ToList();
 ```
 
+The item you test must be a property of the entity (`p.Id`, `a.StateCode`). When it doesn't come from the row at
+all — `allowedRoles.Contains(currentUser.Role)`, `ids.Contains(request.Id)`, a local or a constant — FunkyORM
+answers it before sending the query, exactly as C# would (with the collection's own `Contains` and comparer), and
+the condition becomes `1=0` (false) or `NOT 1=0` (true):
+
+```csharp
+// Admins see every project; everyone else sees only their own.
+// SQL, roughly: WHERE (owner_id = @p0 OR NOT 1=0) for an admin, WHERE (owner_id = @p0 OR 1=0) otherwise.
+var projects = provider.Query<Project>()
+    .Where(p => p.OwnerId == currentUser.Id || adminRoles.Contains(currentUser.Role))
+    .ToList();
+```
+
+An item that reads the row any other way — `ids.Contains(p.Address.Id)`, `lengths.Contains(p.Name.Length)`, or
+`longIds.Contains(p.Id)` with a `List<long>` against an `int` property — throws `NotSupportedException` before any
+query is sent. The same translation serves `Delete`, but the delete guard rejects a predicate that such an answer
+makes always true (`p.OwnerId == id || adminRoles.Contains("admin")` for an admin), or that reads no column at all.
+
 #### Chained Queries with Ordering and Paging
 You can chain multiple `Where` clauses, apply ordering, and paginate results for efficient data retrieval.
 
@@ -526,6 +544,38 @@ var smiths = provider.Query<Person>()
 // Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%'
 var scots = provider.Query<Person>()
     .Where(p => p.LastName.StartsWith("Mc"))
+    .ToList();
+```
+
+The search value can be a literal, a local, a property of an object you hold (including `this`) or a static
+member; FunkyORM reads it before the query. A `null` value matches no row, negated or not (except inside `All`: see
+the Changelog's Known issues), so an optional filter works:
+
+```csharp
+// When filter is null, every row is returned; otherwise the rows whose LastName contains it.
+var people = provider.Query<Person>()
+    .Where(p => filter == null || p.LastName.Contains(filter))
+    .ToList();
+```
+
+Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
+from the row (`role.Contains("admin")`) is answered before the query, as C# would, except that a null `role` (or a
+null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
+property throw `NotSupportedException` — test the value in C# before the query instead.
+
+`Delete` translates these the same way, but its guard still rejects a search value that is null, empty, or a
+property of an object you hold, and a string `Contains` on a value that doesn't come from the row: copy the value
+to a local, or test it in C#, before a delete.
+
+In a predicate or a projection, `ToString()` is translated only on a property of the entity. On anything else — a
+local, a constant, a property of an object you hold, with or without a format — it throws `NotSupportedException`:
+compute the string before the query and compare with that.
+
+```csharp
+// Not a.PostalCode == zip.ToString("D5"): that throws.
+var postalCode = zip.ToString("D5");
+var addresses = provider.Query<Address>()
+    .Where(a => a.PostalCode == postalCode)
     .ToList();
 ```
 
@@ -1337,7 +1387,8 @@ We try to give you helpful error messages. Here are some you might see and what 
 ### 2. "The expression ... is not supported in a Where clause"
 You tried to do something too fancy in your LINQ query that we can't translate to SQL.
 *   **Example**: `Where(p => p.FirstName.GetHashCode() == 123)`
-*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`). If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`) on entity properties. If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+*   **"Could not evaluate expression: ..."**: a value FunkyORM reads before the query threw — usually a member of a null captured object (`ids.Contains(request.Id)` with `request == null`), or a lazy collection that throws while it is read. The original exception is the inner one. Both sides of `||` are translated, so a null check inside the predicate (`request == null || ids.Contains(request.Id)`) doesn't prevent it: check the object before building the query. (A null *value* is different: `filter == null || p.Name.Contains(filter)` works, because a null search value matches no row.)
 
 ### 3. "Delete operations must be performed within an active transaction"
 You tried to call `.Delete()` without starting a transaction.

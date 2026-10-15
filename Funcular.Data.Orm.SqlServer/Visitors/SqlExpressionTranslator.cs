@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using Funcular.Data.Orm.Linq;
 
 namespace Funcular.Data.Orm.Visitors
 {
@@ -23,8 +24,21 @@ namespace Funcular.Data.Orm.Visitors
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
         }
 
+        private const string ItemMessage =
+            "Collection Contains is translated only as <property> IN (<values>), with a property of the entity as its item and a collection that doesn't read the row: ";
+        private const string NullCollectionMessage = "The collection of Contains is null: ";
+        private const string NotACollectionMessage = "Contains is translated only on a collection: ";
+        private const string ContainsReceiverMessage =
+            "Contains() is translated only on a property of the entity, or on a value that doesn't read the row: ";
+        private const string ToStringMessage =
+            "ToString() is translated only on a property of the entity; for a value that doesn't read the row, compute the string before the query: ";
+
         /// <summary>
-        /// Translates a method call expression into SQL, appending the result to the provided StringBuilder.
+        /// Translates a method call expression into SQL, appending the result to the provided StringBuilder. A
+        /// <c>Contains</c> or a value that doesn't read the row is evaluated as C# does
+        /// (<see cref="RowIndependentEvaluator"/>); a captured <c>ToString()</c> is rejected; a receiver or a collection
+        /// item is a column only when it is a property of the lambda parameter (docs/plans/WHERE_CAPTURED_VALUES_PLAN.md,
+        /// §5.2).
         /// </summary>
         /// <param name="node">The method call expression to translate.</param>
         /// <param name="commandTextBuilder">The StringBuilder to append the SQL to.</param>
@@ -36,56 +50,40 @@ namespace Funcular.Data.Orm.Visitors
             List<Microsoft.Data.SqlClient.SqlParameter> parameters,
             Func<PropertyInfo, string> getColumnName)
         {
-            // Inert change to trigger build
             if (node.Method.Name == "ToString")
             {
-                // ToString is a no-op in SQL; just visit the object
-                if (node.Object != null)
-                {
-                    TranslateExpression(node.Object, commandTextBuilder, parameters, getColumnName);
-                }
+                // Only a property's own ToString is translated: the column (D15). A ToString of anything else is
+                // rejected, never evaluated: the caller computes the string before the query (D16).
+                AppendColumn(node.Object, node, ToStringMessage, commandTextBuilder, getColumnName);
                 return;
             }
 
-            if (node.Method.Name == "Contains")
+            if (node.Method.Name == "Contains" && node.Object != null && node.Object.Type == typeof(string))
             {
-                // Handle string.Contains(substring) differently from collection.Contains(item)
-                if (node.Object != null && node.Object.Type == typeof(string))
+                // string's Contains that doesn't read the row is answered as C# answers it (D4, D7).
+                if (RowIndependentEvaluator.TryTranslateContains(node, out var literal))
                 {
-                    // String Contains - generate LIKE clause
-                    TranslateExpression(node.Object, commandTextBuilder, parameters, getColumnName);
-                    commandTextBuilder.Append(" LIKE ");
-                    
-                    var searchValueExpression = node.Arguments[0];
-                    if (searchValueExpression.NodeType == ExpressionType.Constant)
-                    {
-                        var searchValue = ((ConstantExpression)searchValueExpression).Value?.ToString();
-                        var param = _parameterGenerator.CreateParameter($"%{searchValue}%");
-                        parameters.Add(param);
-                        commandTextBuilder.Append(param.ParameterName);
-                    }
-                    else if (searchValueExpression.NodeType == ExpressionType.MemberAccess)
-                    {
-                        var memberExpression = (MemberExpression)searchValueExpression;
-                        if (memberExpression.Expression is ConstantExpression constantExpression)
-                        {
-                            var value = (memberExpression.Member as FieldInfo)?.GetValue(constantExpression.Value)?.ToString();
-                            var param = _parameterGenerator.CreateParameter($"%{value}%");
-                            parameters.Add(param);
-                            commandTextBuilder.Append(param.ParameterName);
-                        }
-                        else
-                        {
-                            throw new NotSupportedException($"Unsupported member expression in string Contains: {memberExpression}");
-                        }
-                    }
-                    else
-                    {
-                        throw new NotSupportedException($"Unsupported expression type in string Contains: {searchValueExpression.NodeType}. Expression: {searchValueExpression}");
-                    }
+                    commandTextBuilder.Append(literal);
                     return;
                 }
-                
+
+                var searchValueExpression = node.Arguments[0];
+                if (!RowIndependentEvaluator.TryReadValue(searchValueExpression, out var searchValue))
+                    throw new NotSupportedException($"Unsupported expression in string Contains: {searchValueExpression}");
+                AppendColumn(node.Object, node, ContainsReceiverMessage, commandTextBuilder, getColumnName);
+                if (searchValue == null)
+                {
+                    // A null search value matches no row (D8).
+                    commandTextBuilder.Append(" LIKE NULL");
+                    return;
+                }
+                commandTextBuilder.Append(" LIKE ");
+                AppendParameter($"%{searchValue}%", commandTextBuilder, parameters);
+                return;
+            }
+
+            if (node.Method.Name == "Contains" && node.Type == typeof(bool))
+            {
                 // Collection Contains - handle IN clause
                 Expression collectionExpression = node.Object;
 
@@ -115,130 +113,141 @@ namespace Funcular.Data.Orm.Visitors
                 }
                 if (collectionExpression != null)
                 {
-                    System.Collections.IEnumerable collection = null;
+                    // A Contains that doesn't read the row is answered as C# answers it, before anything else is read (D4).
+                    if (RowIndependentEvaluator.TryTranslateContains(node, out var literal))
+                    {
+                        commandTextBuilder.Append(literal);
+                        return;
+                    }
+
+                    var itemArgumentIndex = node.Object != null ? 0 : 1;
+                    var itemArgument = node.Arguments[itemArgumentIndex];
+
+                    // Detect .Value unwrap inside Contains (e.g., list.Contains(p.HospitalId.Value))
+                    if (itemArgument is MemberExpression valueUnwrap &&
+                        valueUnwrap.Member.Name == "Value" &&
+                        valueUnwrap.Expression is MemberExpression innerProp &&
+                        innerProp.Expression is ParameterExpression &&
+                        Nullable.GetUnderlyingType(innerProp.Type) != null)
+                    {
+                        var propName = innerProp.Member.Name;
+                        var underlyingType = Nullable.GetUnderlyingType(innerProp.Type).Name;
+                        throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(
+                            $"Do not use '.Value' to unwrap nullable property '{propName}' inside Contains(). " +
+                            $"FunkyORM automatically unwraps nullable types. " +
+                            $"Instead, cast your collection to match the nullable type: " +
+                            $"myList.Cast<{underlyingType}?>().ToList().Contains(p.{propName})");
+                    }
+
+                    // The item is checked before the collection is read, whatever the collection holds (D5).
+                    if (!(itemArgument is MemberExpression memberExpression) || !(memberExpression.Expression is ParameterExpression))
+                    {
+                        throw new NotSupportedException(ItemMessage + node);
+                    }
+                    var propertyInfo = memberExpression.Member as PropertyInfo;
+                    if (propertyInfo == null)
+                    {
+                        throw new InvalidOperationException($"Member {memberExpression.Member.Name} is not a property.");
+                    }
+
+                    object collectionValue;
                     if (collectionExpression.NodeType == ExpressionType.Constant)
                     {
-                        collection = ((ConstantExpression)collectionExpression).Value as System.Collections.IEnumerable;
+                        collectionValue = ((ConstantExpression)collectionExpression).Value;
                     }
                     else
                     {
+                        Delegate read;
                         try
                         {
-                            collection = Expression.Lambda(collectionExpression).Compile().DynamicInvoke() as System.Collections.IEnumerable;
+                            read = Expression.Lambda(collectionExpression).Compile();
                         }
                         catch (InvalidOperationException)
                         {
                             throw new NotSupportedException($"Collection Contains with parameter references is not supported: {collectionExpression}");
                         }
+                        try
+                        {
+                            collectionValue = read.DynamicInvoke();
+                        }
+                        catch (TargetInvocationException ex)
+                        {
+                            throw new NotSupportedException("Could not evaluate expression: " + collectionExpression, ex.InnerException ?? ex);
+                        }
                     }
 
-                    if (collection != null)
+                    if (collectionValue == null)
                     {
-                        var values = collection.Cast<object>().Where(v => v != null).ToList();
-                        if (!values.Any())
-                        {
-                            commandTextBuilder.Append("1=0");
-                            return;
-                        }
-
-                        var itemArgumentIndex = node.Object != null ? 0 : 1;
-                        var itemArgument = node.Arguments[itemArgumentIndex];
-
-                        // Detect .Value unwrap inside Contains (e.g., list.Contains(p.HospitalId.Value))
-                        if (itemArgument is MemberExpression valueUnwrap &&
-                            valueUnwrap.Member.Name == "Value" &&
-                            valueUnwrap.Expression is MemberExpression innerProp &&
-                            innerProp.Expression is ParameterExpression &&
-                            Nullable.GetUnderlyingType(innerProp.Type) != null)
-                        {
-                            var propName = innerProp.Member.Name;
-                            var underlyingType = Nullable.GetUnderlyingType(innerProp.Type).Name;
-                            throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(
-                                $"Do not use '.Value' to unwrap nullable property '{propName}' inside Contains(). " +
-                                $"FunkyORM automatically unwraps nullable types. " +
-                                $"Instead, cast your collection to match the nullable type: " +
-                                $"myList.Cast<{underlyingType}?>().ToList().Contains(p.{propName})");
-                        }
-
-                        if (itemArgument is MemberExpression memberExpression)
-                        {
-                            var propertyInfo = memberExpression.Member as PropertyInfo;
-                            if (propertyInfo == null)
-                            {
-                                throw new InvalidOperationException($"Member {memberExpression.Member.Name} is not a property.");
-                            }
-                            var memberName = getColumnName(propertyInfo);
-                            commandTextBuilder.Append($"{memberName} IN (");
-                            var first = true;
-                            int index = parameters.Count;
-                            foreach (var value in values)
-                            {
-                                if (!first) commandTextBuilder.Append(",");
-                                first = false;
-                                var param = _parameterGenerator.CreateParameterForInClause(value, index++);
-                                parameters.Add(param);
-                                commandTextBuilder.Append(param.ParameterName);
-                            }
-                            commandTextBuilder.Append(")");
-                            return;
-                        }
+                        throw new NotSupportedException(NullCollectionMessage + node);
                     }
+                    if (!(collectionValue is System.Collections.IEnumerable collection))
+                    {
+                        throw new NotSupportedException(NotACollectionMessage + node);
+                    }
+
+                    // A lazy collection runs the caller's code here; what it throws is reported as the read is (D9). A query
+                    // used as the collection runs a query here: a database error, or the query's own NotSupportedException,
+                    // passes through unchanged.
+                    List<object> values;
+                    try
+                    {
+                        values = collection.Cast<object>().Where(v => v != null).ToList();
+                    }
+                    catch (Exception ex) when (!(ex is NotSupportedException)
+                        && !(ex is System.Data.Common.DbException) && !(ex.InnerException is System.Data.Common.DbException))
+                    {
+                        throw new NotSupportedException("Could not evaluate expression: " + collectionExpression, ex);
+                    }
+                    if (!values.Any())
+                    {
+                        commandTextBuilder.Append("1=0");
+                        return;
+                    }
+
+                    var memberName = getColumnName(propertyInfo);
+                    commandTextBuilder.Append($"{memberName} IN (");
+                    var first = true;
+                    int index = parameters.Count;
+                    foreach (var value in values)
+                    {
+                        if (!first) commandTextBuilder.Append(",");
+                        first = false;
+                        var param = _parameterGenerator.CreateParameterForInClause(value, index++);
+                        parameters.Add(param);
+                        commandTextBuilder.Append(param.ParameterName);
+                    }
+                    commandTextBuilder.Append(")");
+                    return;
                 }
             }
 
-            if (node.Method.Name == "StartsWith" || node.Method.Name == "EndsWith" || node.Method.Name == "Contains")
+            if (node.Method.Name == "StartsWith" || node.Method.Name == "EndsWith")
             {
-                var memberExpression = node.Object as MemberExpression;
-                if (memberExpression != null)
+                // The receiver is a column only when it is a property of the lambda parameter (D6).
+                if (!(node.Object is MemberExpression receiver) || !(receiver.Expression is ParameterExpression) ||
+                    !(receiver.Member is PropertyInfo receiverProperty))
                 {
-                    var memberName = getColumnName(memberExpression.Member as PropertyInfo);
-                    var argExpr = node.Arguments[0];
-                    string value = null;
-                    if (argExpr.NodeType == ExpressionType.Constant)
-                    {
-                        value = ((ConstantExpression)argExpr).Value?.ToString();
-                    }
-                    else if (argExpr.NodeType == ExpressionType.MemberAccess)
-                    {
-                        var memberExpr = (MemberExpression)argExpr;
-                        if (memberExpr.Expression is ConstantExpression constExpr)
-                        {
-                            value = (memberExpr.Member as FieldInfo)?.GetValue(constExpr.Value)?.ToString();
-                        }
-                        else
-                        {
-                            throw new NotSupportedException($"Unsupported member expression in {node.Method.Name}: {memberExpr}");
-                        }
-                    }
-                    else
-                    {
-                        throw new NotSupportedException($"Unsupported expression type in {node.Method.Name}: {argExpr.NodeType}. Expression: {argExpr}");
-                    }
-                    if (value != null)
-                    {
-                        var param = _parameterGenerator.CreateParameter(value);
-                        parameters.Add(param);
-                        string pattern;
-                        if (node.Method.Name == "StartsWith")
-                        {
-                            pattern = $"{param.ParameterName} + '%'";
-                        }
-                        else if (node.Method.Name == "EndsWith")
-                        {
-                            pattern = $"'%' + {param.ParameterName}";
-                        }
-                        else if (node.Method.Name == "Contains")
-                        {
-                            pattern = $"'%' + {param.ParameterName} + '%'";
-                        }
-                        else
-                        {
-                            throw new NotSupportedException($"Unexpected method {node.Method.Name}");
-                        }
-                        commandTextBuilder.Append($"{memberName} LIKE {pattern}");
-                        return;
-                    }
+                    throw new NotSupportedException($"{node.Method.Name}() is translated only on a property of the entity: {node}");
                 }
+                var argExpr = node.Arguments[0];
+                if (!RowIndependentEvaluator.TryReadValue(argExpr, out var argument))
+                {
+                    throw new NotSupportedException($"Unsupported expression in {node.Method.Name}: {argExpr}");
+                }
+                var memberName = getColumnName(receiverProperty);
+                if (argument == null)
+                {
+                    // A null value matches no row (D8).
+                    commandTextBuilder.Append($"{memberName} LIKE NULL");
+                    return;
+                }
+                var param = _parameterGenerator.CreateParameter(argument.ToString());
+                parameters.Add(param);
+                var pattern = node.Method.Name == "StartsWith"
+                    ? $"{param.ParameterName} + '%'"
+                    : $"'%' + {param.ParameterName}";
+                commandTextBuilder.Append($"{memberName} LIKE {pattern}");
+                return;
             }
 
             throw new NotSupportedException($"Method call {node.Method.Name} is not supported. Expression: {node}");
@@ -289,54 +298,32 @@ namespace Funcular.Data.Orm.Visitors
             }
         }
 
+        /// <summary>Appends a parameter holding <paramref name="value"/>.</summary>
+        private void AppendParameter(object value, StringBuilder commandTextBuilder, List<Microsoft.Data.SqlClient.SqlParameter> parameters)
+        {
+            var param = _parameterGenerator.CreateParameter(value);
+            parameters.Add(param);
+            commandTextBuilder.Append(param.ParameterName);
+        }
+
         /// <summary>
-        /// Translates a general expression, handling nested expressions as needed.
+        /// Appends the column of <paramref name="receiver"/>, which must be a property of the lambda parameter; anything
+        /// else (a member of a member, a field, a captured value the evaluator didn't take) is rejected with
+        /// <paramref name="message"/>, never translated by dropping part of it (AC7).
         /// </summary>
-        private void TranslateExpression(
-            Expression node,
+        private static void AppendColumn(
+            Expression receiver,
+            MethodCallExpression node,
+            string message,
             StringBuilder commandTextBuilder,
-            List<Microsoft.Data.SqlClient.SqlParameter> parameters,
             Func<PropertyInfo, string> getColumnName)
         {
-            switch (node)
+            if (receiver is MemberExpression member && member.Expression is ParameterExpression && member.Member is PropertyInfo property)
             {
-                case MemberExpression member:
-                    if (member.Expression is ParameterExpression)
-                    {
-                        var property = member.Member as PropertyInfo;
-                        if (property != null)
-                        {
-                            var columnName = getColumnName(property);
-                            commandTextBuilder.Append(columnName);
-                        }
-                    }
-                    else if (member.Expression is ConstantExpression constantExpression)
-                    {
-                        var value = (member.Member as FieldInfo)?.GetValue(constantExpression.Value);
-                        var param = _parameterGenerator.CreateParameter(value);
-                        parameters.Add(param);
-                        commandTextBuilder.Append(param.ParameterName);
-                    }
-                    else if (member.Expression != null)
-                    {
-                        TranslateExpression(member.Expression, commandTextBuilder, parameters, getColumnName);
-                    }
-                    break;
-                case ConstantExpression constant:
-                    if (constant.Value == null)
-                    {
-                        commandTextBuilder.Append("NULL");
-                    }
-                    else
-                    {
-                        var param = _parameterGenerator.CreateParameter(constant.Value);
-                        parameters.Add(param);
-                        commandTextBuilder.Append(param.ParameterName);
-                    }
-                    break;
-                default:
-                    throw new NotSupportedException($"Expression type {node.NodeType} is not supported for translation. Expression: {node}");
+                commandTextBuilder.Append(getColumnName(property));
+                return;
             }
+            throw new NotSupportedException(message + node);
         }
     }
 }
