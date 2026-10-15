@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The consumer smoke check (docs/plans/DECISIONS-3.10.2.md FD-05): a throwaway console app that installs the
+       packed Funcular.Data.Orm package from a local feed and nothing else, so the drivers it gets are exactly the
+       minimums the package declares. Run-ConsumerSmoke.ps1 copies this folder under %TEMP% and runs it per target. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net8.0;net48</TargetFrameworks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <FunkyVersion Condition="'$(FunkyVersion)' == ''">3.11.0</FunkyVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Funcular.Data.Orm" Version="[$(FunkyVersion)]" />
+  </ItemGroup>
+
+</Project>

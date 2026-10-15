@@ -461,9 +461,17 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 | **Boolean Type** | `BIT` (0/1) | Native `BOOLEAN` | `TINYINT(1)` (0/1) | `INTEGER` (0/1) |
 | **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` |
 | **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` | `MySqlConnector` (MIT) | `Microsoft.Data.Sqlite` |
+| **Driver package (minimum)** | `Microsoft.Data.SqlClient` 6.0.0 | `Npgsql` 9.0.5 on `net8.0`, 8.0.9 on `netstandard2.0` | `MySqlConnector` 2.6.2 | `Microsoft.Data.Sqlite` 8.0.32 |
 | **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` | `JSON_EXTRACT(col, '$.path')` | `json_extract(col, '$.path')` |
 | **Stored Procedure Execution** | ✅ Full (result set, scalar, non-query, output params) | ⚠️ Scalar / non-query via `CALL` (use a `FUNCTION RETURNS TABLE` for result sets) | ✅ Full (result set, scalar, non-query, output params) | ❌ N/A (SQLite has no stored procedures) |
 | **JSON Collection** | `FOR JSON PATH` | `json_agg(row_to_json(…))` | `JSON_ARRAYAGG(JSON_OBJECT(…))` | `json_group_array(json_object(…))` |
+
+The `Funcular.Data.Orm` package declares each driver as a dependency at the minimum in the table (since 3.11.0), so
+`dotnet add package Funcular.Data.Orm` installs them; a newer driver already in your project is kept. On `net48` the
+package carries the SQL Server provider only, and declares only `Microsoft.Data.SqlClient`. The minimum is the version
+the provider is compiled against: a driver older than it fails to load (`FileNotFoundException: Npgsql, Version=…`).
+`tools/consumer-smoke/Run-ConsumerSmoke.ps1` (or `run-consumer-smoke.sh`) packs the package into a local feed and
+installs it into a throwaway console app that loads every provider at exactly those minimums.
 
 ### PostgreSQL-Specific Notes
 

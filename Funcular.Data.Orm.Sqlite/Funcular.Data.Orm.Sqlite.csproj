@@ -33,8 +33,10 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <!-- Pinned minimum (FD-05): the version the provider compiles against and the Funcular.Data.Orm package declares.
+       Change both together, and the README's provider table (PackagingTests pins the three). -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.32" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

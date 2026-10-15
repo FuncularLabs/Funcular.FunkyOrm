@@ -37,6 +37,17 @@ string `Contains` on a value that doesn't read the row, now delete exactly the r
 on every path. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003, D-004).
 
 ### Fixed
+- **The package now declares the drivers of every provider it bundles, at pinned minimums.** `Funcular.Data.Orm`
+  ships the PostgreSQL, MySQL and SQLite providers but declared only `Microsoft.Data.SqlClient`, and the providers'
+  own driver references floated (`Npgsql 9.*` / `8.0.*`, `MySqlConnector 2.*`, `Microsoft.Data.Sqlite 8.0.*`), so
+  what a consumer needed was whatever had resolved when the package was built, and a consumer on an older driver got
+  `FileNotFoundException: Npgsql, Version=9.0.5.0` when it first used the PostgreSQL provider; one that referenced no
+  driver couldn't compile against `Microsoft.Data.Sqlite` at all. The nuspec now declares, for `net8.0` and
+  `netstandard2.0`, `Npgsql` 9.0.5 (`net8.0`) / 8.0.9 (`netstandard2.0`), `MySqlConnector` 2.6.2 and
+  `Microsoft.Data.Sqlite` 8.0.32, next to `Microsoft.Data.SqlClient` 6.0.0; `net48` declares `Microsoft.Data.SqlClient`
+  only, as it carries SQL Server only. Each minimum is the version the provider is compiled against (the README's
+  provider table lists them); none floats. `tools/consumer-smoke/` holds a script that packs the package into a local
+  feed and installs it into a throwaway console app that loads every provider at exactly those minimums.
 - **Aggregates follow LINQ to objects** (the 3.10.0 Known issues, promised for this release):
   - `Average` is computed as `SUM / COUNT` in C#, in the arithmetic LINQ uses for the selector's type, from the two
     values the provider reads. It no longer truncates whole numbers on SQL Server (`AVG` over an `int` column gave `1`
