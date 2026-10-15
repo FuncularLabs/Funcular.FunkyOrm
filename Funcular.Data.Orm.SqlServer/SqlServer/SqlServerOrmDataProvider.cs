@@ -1435,8 +1435,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="operation">What the predicate is used for (D-003 as amended by D-128): for a
         /// <see cref="WhereOperation.MassMutation"/> the all-rows guard refuses a predicate that reads no column, compares a
         /// column with itself, always holds or searches a column for an empty value that nothing else bounds, before
-        /// discovery and on the translated clause; for a <see cref="WhereOperation.Read"/> (the default) it accepts
-        /// everything. One translation path, one flag.</param>
+        /// the mutation is built and on the translated clause (a shape no path translates is the translator's
+        /// rejection first, D-005); for a <see cref="WhereOperation.Read"/> (the default) it accepts everything. One
+        /// translation path, one flag.</param>
         /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
         protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
@@ -1444,6 +1445,30 @@ namespace Funcular.Data.Orm.SqlServer
             ParameterGenerator parameterGenerator,
             SqlExpressionTranslator translator) where T : class, new() =>
             GenerateWhereClause(expression, commandElements, parameterGenerator, translator, WhereOperation.Read);
+
+        /// <summary>
+        /// Translates <paramref name="expression"/> with a fresh visitor over the discovered columns of <typeparamref name="T"/>
+        /// and its remote joins (<paramref name="remoteInfo"/>). The one place a WHERE predicate is translated, for every
+        /// operation (D-001); a translator's rejection throws from here.
+        /// </summary>
+        private WhereClauseVisitor<T> TranslateWhere<T>(
+            Expression<Func<T, bool>> expression,
+            ParameterGenerator parameterGenerator,
+            SqlExpressionTranslator translator,
+            out ResolvedRemoteJoinInfo remoteInfo) where T : class, new()
+        {
+            var tableName = GetTableName<T>();
+            remoteInfo = ResolveRemoteJoins<T>(tableName);
+            var visitor = new WhereClauseVisitor<T>(
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
+                parameterGenerator,
+                translator,
+                tableName,
+                remoteInfo.PropertyToColumnMap);
+            visitor.Visit(expression);
+            return visitor;
+        }
 
         /// <summary>
         /// Translates a LINQ expression tree into SQL WHERE clause text and parameters using helper visitor and
@@ -1464,30 +1489,43 @@ namespace Funcular.Data.Orm.SqlServer
             SqlExpressionTranslator translator = null,
             WhereOperation operation = WhereOperation.Read) where T : class, new()
         {
-            // The all-rows guard runs first, before T's columns are discovered, so a refused mass mutation never sends a command.
-            WherePredicateGuard.Validate(expression, operation);
+            // Use the provided ParameterGenerator and translator, or create new ones if not specified
+            var paramGen = parameterGenerator ?? new ParameterGenerator();
+            var trans = translator ?? new SqlExpressionTranslator(paramGen);
+
+            // The all-rows guard runs first, so a refused mass mutation never sends the mutation. A refusal is held
+            // (D-005: the translator has the first word): the refused predicate is still translated, and a shape no
+            // path translates throws the translator's NotSupportedException here as on every read path. The guard's
+            // refusal stands for a predicate that translates, and for one whose table can't be discovered.
+            InvalidOperationException refusal = null;
+            try
+            {
+                WherePredicateGuard.Validate(expression, operation);
+            }
+            catch (InvalidOperationException ex)
+            {
+                refusal = ex;
+            }
+            if (refusal != null)
+            {
+                try
+                {
+                    DiscoverColumns<T>();
+                }
+                catch (Exception)
+                {
+                    throw refusal;
+                }
+                TranslateWhere(expression, paramGen, trans, out _);
+                throw refusal;
+            }
 
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
             DiscoverColumns<T>();
 
-            // Use the provided ParameterGenerator and translator, or create new ones if not specified
-            var paramGen = parameterGenerator ?? new ParameterGenerator();
-            var trans = translator ?? new SqlExpressionTranslator(paramGen);
-
-            // Resolve remote joins to get the property map
-            var tableName = GetTableName<T>();
-            var remoteInfo = ResolveRemoteJoins<T>(tableName);
-
-            var visitor = new WhereClauseVisitor<T>(
-                ColumnNameCache,
-                UnmappedPropertiesFor<T>(),
-                paramGen,
-                trans,
-                tableName,
-                remoteInfo.PropertyToColumnMap); // Pass the map
-            visitor.Visit(expression);
+            var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
             WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
             if (commandElements != null)
             {

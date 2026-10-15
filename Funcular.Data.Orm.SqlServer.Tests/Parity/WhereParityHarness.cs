@@ -201,14 +201,17 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nullableLeSelf": return x => x.NullableId <= x.NullableId;
                 // Review R-2 (A/N-1): a bool unboxed from a captured object is evaluated as a whole, on every path.
                 case "boxedTrueOrId": return x => (bool)boxedTrue || x.Id == 1;
-                // Review R-1 (A-3), R-2 (A/N-2): a member of a member compared with itself. The query's translator rejects
-                // it (nothing translates Child); the delete is refused first, by the guard's verdict.
+                // Review R-1 (A-3), R-2 (A/N-2), D-005: a member of a member compared with itself. The guard's verdict
+                // refuses it as a delete, but the translator has the first word (D-005): nothing translates Child, so
+                // every path, Delete included, throws the translator's NotSupportedException.
                 case "childIdSelf": return x => x.Child.Id == x.Child.Id;
                 // Review R-2 (A/N-3): an empty search on a member of a member is the translator's to reject, on every path.
                 case "childNameContainsEmpty": return x => x.Child.Name.Contains("");
                 // Review R-4 (round-3 A/N-2): a ToString() on the column isn't a property of the entity; the translator
                 // rejects the receiver on every path, and the guard doesn't call it unbounded.
                 case "nameToStringContainsEmpty": return x => x.Name.ToString().Contains("");
+                // Review R-5 (round-4 A/1, B/1): a cast around the column, likewise; the translators strip no cast.
+                case "castNameContainsEmpty": return x => ((string)(object)x.Name).Contains("");
                 // Review R-4 (round-3 A/N-1): a bool compared with a bool. The verdict composes the operands' truths, so an
                 // empty search or a self-comparison in a value position is refused as a delete (3.10.1 refused the first;
                 // at ee31854 the first two deleted every named row on SQLite, MySQL and PostgreSQL). A query runs them: the
@@ -431,8 +434,9 @@ namespace Funcular.Data.Orm.Tests.Parity
                         Exception thrown = null;
                         try { read.Value(); } catch (Exception ex) { thrown = ex; }
                         Assert.IsNotNull(thrown, key + " " + read.Key + ": expected the dialect to reject this SELECT");
-                        Assert.IsFalse(thrown is InvalidOperationException || thrown is NotSupportedException,
-                            key + " " + read.Key + ": refused before the database, not by it: " + thrown.Message);
+                        // The database's own error (review R-5, round-4 B/4): not the guard's, the translator's, or a crash on the way.
+                        Assert.IsInstanceOfType(thrown, typeof(System.Data.Common.DbException),
+                            key + " " + read.Key + ": not rejected by the database: " + thrown.GetType().Name + ": " + thrown.Message);
                     }
                 }
                 else
@@ -509,19 +513,10 @@ namespace Funcular.Data.Orm.Tests.Parity
         /// <summary>
         /// A shape no path translates is rejected by Query, QueryAsync, Query&lt;T&gt;().Where, Count, Delete and
         /// DeleteAsync alike, with the same exception type and message, before any command is sent; nothing is deleted.
+        /// D-005: the translator has the first word on a delete too, so a shape the all-rows guard would also refuse
+        /// (<c>childIdSelf</c>) is still the translator's rejection.
         /// </summary>
-        private void EveryPathRejectsIdentically(Expression<Func<WpRow, bool>> predicate, string key, Type exceptionType, string messagePrefix) =>
-            EveryPathRejects(predicate, key, exceptionType, messagePrefix, exceptionType, messagePrefix);
-
-        /// <summary>
-        /// Every path rejects the predicate before any command is sent, and nothing is deleted: the read paths (Query,
-        /// QueryAsync, Query&lt;T&gt;().Where, Count) with <paramref name="readType"/> and one message starting with
-        /// <paramref name="readPrefix"/>, the delete paths (Delete, DeleteAsync) with <paramref name="deleteType"/> and one
-        /// message starting with <paramref name="deletePrefix"/>. The two pairs differ when the all-rows guard refuses the
-        /// delete before the translator gets to reject the shape (review R-2, A/N-2).
-        /// </summary>
-        private void EveryPathRejects(Expression<Func<WpRow, bool>> predicate, string key, Type readType, string readPrefix,
-            Type deleteType, string deletePrefix)
+        private void EveryPathRejectsIdentically(Expression<Func<WpRow, bool>> predicate, string key, Type exceptionType, string messagePrefix)
         {
             WithTable((provider, log) =>
             {
@@ -534,7 +529,7 @@ namespace Funcular.Data.Orm.Tests.Parity
                     new KeyValuePair<string, Action>("delete", () => provider.Delete(predicate)),
                     new KeyValuePair<string, Action>("deleteAsync", () => provider.DeleteAsync(predicate).GetAwaiter().GetResult()),
                 };
-                string firstReadMessage = null, firstDeleteMessage = null;
+                string firstMessage = null;
                 foreach (var call in calls)
                 {
                     var path = key + " " + call.Key;
@@ -548,18 +543,10 @@ namespace Funcular.Data.Orm.Tests.Parity
                         Exception thrown = null;
                         try { call.Value(); } catch (Exception ex) { thrown = ex; }
                         Assert.IsNotNull(thrown, path + ": expected a rejection");
-                        Assert.AreEqual(isDelete ? deleteType : readType, thrown.GetType(), path + ": " + thrown.Message);
-                        StringAssert.StartsWith(thrown.Message, isDelete ? deletePrefix : readPrefix, path);
-                        if (isDelete)
-                        {
-                            firstDeleteMessage = firstDeleteMessage ?? thrown.Message;
-                            Assert.AreEqual(firstDeleteMessage, thrown.Message, path + ": the delete paths reject with different messages");
-                        }
-                        else
-                        {
-                            firstReadMessage = firstReadMessage ?? thrown.Message;
-                            Assert.AreEqual(firstReadMessage, thrown.Message, path + ": the read paths reject with different messages");
-                        }
+                        Assert.AreEqual(exceptionType, thrown.GetType(), path + ": " + thrown.Message);
+                        StringAssert.StartsWith(thrown.Message, messagePrefix, path);
+                        firstMessage = firstMessage ?? thrown.Message;
+                        Assert.AreEqual(firstMessage, thrown.Message, path + ": the paths reject with different messages");
                         Assert.IsFalse(log.Any(e => e != null && Regex.IsMatch(e, @"^\s*(SELECT|DELETE)\b", RegexOptions.IgnoreCase)),
                             path + ": a command was sent: " + string.Join(" | ", log.Select(Normalize)));
                         Assert.AreEqual(Rows.Length, Remaining(provider).Count, path + ": rows were deleted");
@@ -583,6 +570,9 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("postedAtHour", "Hour")]
         [DataRow("postedAtDate", "Date")]
         [DataRow("childId", "Id")]
+        // D-005 (review R-5): a self-comparison of a member of a member is the translator's rejection on Delete too, not
+        // the guard's; the guard's verdict is reserved for predicates that translate.
+        [DataRow("childIdSelf", "Id")]
         [DataRow("conditionalLength", "Length")]
         public void EveryPath_RejectsAMemberOfAMemberIdentically(string key, string member) =>
             EveryPathRejectsIdentically(Predicate(key), key, typeof(NotSupportedException), MemberNotTranslated(member));
@@ -595,18 +585,9 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("childNameContainsEmpty")]
         // Review R-4 (round-3 A/N-2): a ToString() receiver, likewise.
         [DataRow("nameToStringContainsEmpty")]
+        // Review R-5 (round-4 A/1, B/1): a cast receiver, likewise.
+        [DataRow("castNameContainsEmpty")]
         public void EveryPath_RejectsAnEmptySearchOnANonPropertyReceiverIdentically(string key) =>
             EveryPathRejectsIdentically(Predicate(key), key, typeof(NotSupportedException), ContainsReceiverMessage);
-
-        /// <summary>
-        /// Review R-2 (A/N-2): a member of a member compared with itself. The guard's verdict runs before translation, so
-        /// the delete paths are refused as a self-reference, where the read paths reach the translator and are rejected
-        /// there (nothing translates <c>Child</c>). Both refuse before any command; nothing is deleted.
-        /// </summary>
-        [TestMethod]
-        public void SelfComparisonOfAMemberOfAMember_IsRefusedByTheGuardOnDeleteAndByTheTranslatorOnRead() =>
-            EveryPathRejects(Predicate("childIdSelf"), "childIdSelf",
-                typeof(NotSupportedException), MemberNotTranslated("Id"),
-                typeof(InvalidOperationException), SelfReferenceMessage);
     }
 }

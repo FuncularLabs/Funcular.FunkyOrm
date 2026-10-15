@@ -272,8 +272,9 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key, selectedByQuery: 2);
 
         /// <summary>
-        /// The guard runs before the type's columns are discovered, so a rejected delete on a missing table reports the
-        /// guard, not discovery's "table doesn't exist".
+        /// A rejected delete on a missing table reports the guard, not discovery's "table doesn't exist": the guard
+        /// refuses first; discovery is then attempted so the translator can have the first word (D-005), and its
+        /// failure leaves the guard's refusal standing. The type is not left discovered.
         /// </summary>
         [DataTestMethod]
         [DataRow("idSelf", "sync")] [DataRow("idSelf", "async")]

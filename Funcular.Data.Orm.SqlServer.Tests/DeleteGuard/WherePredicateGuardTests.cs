@@ -34,6 +34,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             public double Amount { get; set; }
             public DateTime Created { get; set; }
             public Inner Child { get; set; }
+            public string Tag; // a field, which no translator accepts as a column (review R-5)
         }
 
         public class Inner
@@ -289,6 +290,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 // Review R-4 (round-3 A/N-2): the receiver of an unbounded search is a property of the entity, read
                 // directly; a ToString() on it is the translator's to reject, on every path.
                 ["nameToStringContainsEmpty"] = P(x => x.Name.ToString().Contains("")),
+                // Review R-5 (round-4 A/1, A/2, B/1): a cast around the property, or a field: neither is what the
+                // translators accept as a receiver, so neither is the guard's to call unbounded.
+                ["castNameContainsEmpty"] = P(x => ((string)(object)x.Name).Contains("")),
+                ["fieldContainsEmpty"] = P(x => x.Tag.Contains("")),
                 ["nameContainsThisProperty"] = P(x => x.Name.Contains(FilterProperty)),
                 ["nameEqualsCapturedToString"] = P(x => x.Name == capturedS.ToString()),
                 ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
@@ -444,8 +449,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idOrNameContainsEmpty", WherePredicateVerdict.UnboundedSearch)]
         [DataRow("idAndNameContainsEmpty", WherePredicateVerdict.Acceptable)]
         [DataRow("nameContainsNull", WherePredicateVerdict.Acceptable)]
-        // Review R-2 (A/N-2): the verdict is 3.10's — a column, or a member of one, compared with itself by any operator
-        // is refused as a mass mutation (it touches every row, or every non-null row), whatever the SQL fold does with it.
+        // Review R-2 (A/N-2): the verdict is 3.10's — a column, or a member of one, compared with itself by ==, >= or <=
+        // (or a negated !=, < or >) is refused as a mass mutation (it touches every row, or every non-null row), whatever
+        // the type and whatever the SQL fold does with it; the false shapes (!=, <, >) delete nothing and are accepted.
         [DataRow("nSelfGe", WherePredicateVerdict.SelfReference)]
         [DataRow("nSelfEq", WherePredicateVerdict.SelfReference)]
         [DataRow("amountSelfEq", WherePredicateVerdict.SelfReference)]
@@ -474,6 +480,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orCapturedTrueNeFalse", WherePredicateVerdict.AlwaysTrue)]
         // Review R-4 (round-3 A/N-2): a ToString() receiver isn't a property of the entity; the translators reject it on every path.
         [DataRow("nameToStringContainsEmpty", WherePredicateVerdict.Acceptable)]
+        // Review R-5 (round-4 A/1, A/2, B/1): a cast or field receiver, likewise.
+        [DataRow("castNameContainsEmpty", WherePredicateVerdict.Acceptable)]
+        [DataRow("fieldContainsEmpty", WherePredicateVerdict.Acceptable)]
         public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
             Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
@@ -565,6 +574,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("flagEqTrue")]
         [DataRow("nameToStringContainsEmpty")]
         [DataRow("nSelfGt")]
+        [DataRow("castNameContainsEmpty")]
+        [DataRow("fieldContainsEmpty")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>

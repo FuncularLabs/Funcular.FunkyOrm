@@ -875,6 +875,27 @@ namespace Funcular.Data.Orm.Sqlite
             return elements;
         }
 
+        /// <summary>
+        /// Translates <paramref name="expression"/> with a fresh visitor over the discovered columns of <typeparamref name="T"/>
+        /// and its remote joins (<paramref name="remoteInfo"/>). The one place a WHERE predicate is translated, for every
+        /// operation (D-001); a translator's rejection throws from here.
+        /// </summary>
+        private SqliteWhereClauseVisitor<T> TranslateWhere<T>(
+            Expression<Func<T, bool>> expression,
+            SqliteParameterGenerator parameterGenerator,
+            SqliteExpressionTranslator translator,
+            out ResolvedRemoteJoinInfo remoteInfo) where T : class, new()
+        {
+            var tableName = GetTableName<T>();
+            remoteInfo = ResolveRemoteJoins<T>(tableName);
+            var visitor = new SqliteWhereClauseVisitor<T>(
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
+                parameterGenerator, translator, tableName, remoteInfo.PropertyToColumnMap);
+            visitor.Visit(expression);
+            return visitor;
+        }
+
         /// <summary>The 3.10 four-argument signature, kept for a subclass compiled against it (review R-1, B-14): a read.</summary>
         protected internal SqliteQueryComponents GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
@@ -891,27 +912,44 @@ namespace Funcular.Data.Orm.Sqlite
             SqliteExpressionTranslator translator = null,
             WhereOperation operation = WhereOperation.Read) where T : class, new()
         {
-            // The all-rows guard runs first, before T's columns are discovered, so a refused mass mutation never sends a
-            // command; for a read it accepts everything (D-003 as amended by D-128: one translation path, one flag).
-            WherePredicateGuard.Validate(expression, operation);
-
-            // Discover T before anything reads its columns: a convention-mapped member of T counts as unmapped
-            // while its column-cache key is absent.
-            DiscoverColumns<T>();
-
             var paramGen = parameterGenerator ?? new SqliteParameterGenerator();
 #pragma warning disable CS0618 // The obsolete option is passed through; the translator doesn't read it either (FD-06).
             var trans = translator ?? new SqliteExpressionTranslator(paramGen, _stringComparison);
 #pragma warning restore CS0618
 
-            var tableName = GetTableName<T>();
-            var remoteInfo = ResolveRemoteJoins<T>(tableName);
+            // The all-rows guard runs first, so a refused mass mutation never sends the mutation; for a read it accepts
+            // everything (D-003 as amended by D-128: one translation path, one flag). A refusal is held (D-005: the
+            // translator has the first word): the refused predicate is still translated, and a shape no path
+            // translates throws the translator's NotSupportedException here as on every read path. The guard's refusal
+            // stands for a predicate that translates, and for one whose table can't be discovered.
+            InvalidOperationException refusal = null;
+            try
+            {
+                WherePredicateGuard.Validate(expression, operation);
+            }
+            catch (InvalidOperationException ex)
+            {
+                refusal = ex;
+            }
+            if (refusal != null)
+            {
+                try
+                {
+                    DiscoverColumns<T>();
+                }
+                catch (Exception)
+                {
+                    throw refusal;
+                }
+                TranslateWhere(expression, paramGen, trans, out _);
+                throw refusal;
+            }
 
-            var visitor = new SqliteWhereClauseVisitor<T>(
-                ColumnNameCache,
-                UnmappedPropertiesFor<T>(),
-                paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
-            visitor.Visit(expression);
+            // Discover T before anything reads its columns: a convention-mapped member of T counts as unmapped
+            // while its column-cache key is absent.
+            DiscoverColumns<T>();
+
+            var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
             WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
 
             if (commandElements != null)

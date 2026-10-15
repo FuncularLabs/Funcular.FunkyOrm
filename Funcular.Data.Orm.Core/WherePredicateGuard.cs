@@ -57,9 +57,10 @@ namespace Funcular.Data.Orm
     /// The all-rows guard for mass mutations, and the shared evaluation of the parts of a WHERE predicate that don't
     /// read the row (docs/plans/DECISIONS-3.10.2.md D-001, D-003 as amended by D-128).
     /// <para><b>Guard.</b> Every provider's shared WHERE translation calls <see cref="Validate(LambdaExpression, WhereOperation)"/>
-    /// before translating the predicate (before the entity's columns are discovered, so a refused predicate never
-    /// sends a command) and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE clause it produces,
-    /// passing the operation. For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
+    /// before translating the predicate and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE
+    /// clause it produces, passing the operation. A refused predicate never sends the mutation; it is still
+    /// translated, so a shape no path translates throws the translator's exception on every path alike and the
+    /// refusal here is reserved for predicates that translate (D-005). For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
     /// predicate) a predicate that reads no column, compares a column (or a member of one) with itself, always holds,
     /// or searches a column for an empty value that nothing else bounds (<see cref="WherePredicateVerdict.UnboundedSearch"/>)
     /// is refused; for a <see cref="WhereOperation.Read"/> (<c>Query(predicate)</c>, <c>Where</c>) both checks accept
@@ -531,9 +532,10 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// A string <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> whose receiver is a property of the entity read
-        /// directly (what the translators accept as the receiver; a member of a member, a <c>ToString()</c> or a field
-        /// is rejected by them on every path; review R-2 A/N-3, R-4 A/N-2) and whose search value reads no parameter
-        /// and is the empty string: <c>LIKE '%%'</c>, which matches every non-null row.
+        /// directly, with no cast around it (what the translators accept as the receiver; a member of a member, a
+        /// <c>ToString()</c>, a cast or a field is rejected by them on every path; review R-2 A/N-3, R-4 A/N-2, R-5)
+        /// and whose search value reads no parameter and is the empty string: <c>LIKE '%%'</c>, which matches every
+        /// non-null row.
         /// </summary>
         private static bool IsUnboundedSearch(MethodCallExpression call, Type entityType)
         {
@@ -543,7 +545,7 @@ namespace Funcular.Data.Orm
             var name = call.Method.Name;
             if (name != "Contains" && name != "StartsWith" && name != "EndsWith")
                 return false;
-            if (!(StripConvert(call.Object) is MemberExpression receiver) || !(receiver.Member is PropertyInfo)
+            if (!(call.Object is MemberExpression receiver) || !(receiver.Member is PropertyInfo)
                 || !(receiver.Expression is ParameterExpression parameter) || parameter.Type != entityType)
                 return false;
             var argument = call.Arguments[0];
