@@ -45,12 +45,15 @@ untranslatable shapes, listed under Changed, which threw or returned wrong rows 
   `Contains`/`StartsWith`/`EndsWith` on a column with an empty search value that nothing else bounds, alone, in an
   `||`, or compared with a `bool` (`x.Name.Contains("") == true`; "The WHERE clause's Contains, StartsWith or EndsWith
   has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required.") — with
-  `InvalidOperationException`, before any command,
+  `InvalidOperationException`, before the DELETE is built,
   where a query runs the same predicate and returns every row (every non-null row, for the empty search value). A
   shape no path translates (`x => x.Child.Id == x.Child.Id`, `x => x.Child.Name.Contains("")`) is the translator's
-  `NotSupportedException` on a delete as on a query, before any command, even where the guard would also refuse it.
+  `NotSupportedException` on a delete as on a query, before the SELECT or DELETE is built, even where the guard would
+  also refuse it; and on a type's first use its columns are discovered before the predicate is translated, so a
+  delete on a missing table reports that error, as a query does, refused predicate or not.
   3.10.0 refused the first three shapes with the same verdicts (except `(x.Id == x.Id) == true` and the like, a
-  comparison used as a value, which 3.10.x deleted and 3.11.0 refuses) and refused every empty search value in a
+  comparison used as a value, which 3.10.x sent to the database (deleting every row on SQLite and MySQL) and 3.11.0
+  refuses) and refused every empty search value in a
   delete, bounded or not, with `NotSupportedException`; the messages changed (they no longer say "Delete operation"),
   so code that matched the 3.10.0 text must match the new one, the empty value is now `InvalidOperationException`,
   and the bounded shape `x => x.Id == id && x.Name.Contains("")` is accepted. Decide the delete in C#:
@@ -159,10 +162,10 @@ rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128
 - **The all-rows guard is `Funcular.Data.Orm.WherePredicateGuard`** (see Behaviour change above for the shapes and
   messages). The shared WHERE translation runs it for every operation with a `WhereOperation` flag; it refuses only a
   `MassMutation` (`Delete`/`DeleteAsync`, any update by predicate), before the mutation is built, and on the translated
-  clause after. The translator has the first word (D-005): a refused predicate is still translated, so a shape no path
-  translates throws the translator's `NotSupportedException` on a delete exactly as on a query, and the guard's
-  `InvalidOperationException` is reserved for predicates that translate; a refused delete on a missing table still
-  reports the guard, not discovery. `Delete` no longer checks that
+  clause after. The translator has the first word (D-005): a refused predicate's type is discovered and the predicate
+  translated exactly as for a query, so a missing table reports discovery's error and a shape no path translates
+  throws the translator's `NotSupportedException` on a delete exactly as on a query, and the guard's
+  `InvalidOperationException` is reserved for predicates that translate. `Delete` no longer checks that
   the translated clause names a column of the table by text (the check would also have refused a legitimate
   predicate; a delete by a remote property alone isn't supported either way, since the DELETE has no JOIN, and now
   fails with the database's unknown-column error instead of the old guard message: see Known issues). The WHERE visitors of all four providers evaluate the parts of a predicate that don't read the row
@@ -242,8 +245,11 @@ before:
   too. Compute the string before the query: `var code = id.ToString("D2");`, then `x.Code == code`.
 - **A value that throws while the predicate is translated** (a member of a null captured object,
   `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
-  `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check in
-  the same predicate (`request == null || …`) doesn't prevent it: both sides of `||` are translated. When the item
+  `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check on
+  the object in the same predicate (`request == null || ids.Contains(request.Id)`) does prevent it: `request == null`
+  is evaluated in C# first, and a disjunction with a true side is sent as `NOT 1=0` without the other side being
+  read, so the query returns every row, as C# would (a delete of it is refused: it reads no column); check the object
+  before building the query when you want the rows filtered. When the item
   is an entity property (`ids.Contains(x.Id)`), a database error or a `NotSupportedException` thrown while the
   collection is enumerated (a query used as the collection, say) passes through unchanged, as before. A collection
   read to answer a `Contains` before the query (an item that doesn't come from the row) is wrapped like any value.

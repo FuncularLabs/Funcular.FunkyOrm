@@ -337,7 +337,7 @@ namespace Funcular.Data.Orm.Tests.LikeToString
                 $"{method}({value}) {form}");
 
         // Review R-1 (A-1), D-003's "unbounded": an empty search value sends LIKE '%%' ESCAPE '!', which matches every
-        // non-null name (the SELECT rows pin that it selects all eight); a delete of it is refused before any command.
+        // non-null name (the SELECT rows pin that it selects all eight); a delete of it is refused before the DELETE is built.
         [DataTestMethod]
         [DynamicData(nameof(EmptySearchValueRows), DynamicDataSourceType.Method)]
         public async Task EmptySearchValue_DeleteIsRefused(string method, string form, string path)

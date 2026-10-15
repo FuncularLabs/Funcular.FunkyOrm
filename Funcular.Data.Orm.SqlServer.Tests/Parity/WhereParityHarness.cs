@@ -131,6 +131,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         private readonly List<int> emptyIds = new List<int>();
         private readonly Request absent = new Request { Id = 99, Name = "zeta", Inner = new Request { Id = 99 } };
         private readonly Request present = new Request { Id = 1 };
+        private readonly Request nullRequest = null;
         private readonly string s = "zeta";
         private readonly string nullFilter = null;
         private readonly string emptySearch = "";
@@ -220,6 +221,15 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nameContainsEmptyEqTrue": return x => x.Name.Contains("") == true;
                 case "nameContainsEmptyNeFalse": return x => x.Name.Contains("") != false;
                 case "idSelfEqTrue": return x => (x.Id == x.Id) == true;
+                // Review R-6 (round-5 B/2): a null check on a captured object guards the member read to its right.
+                // `nullRequest == null` is evaluated in C# (true), the disjunction folds to NOT 1=0 as a whole, and
+                // `nullRequest.Id` is never read: every path returns every row, as C# does, and the delete is refused
+                // (no column is read). Usage.md and the Changelog said the null check didn't prevent the error until this round.
+                case "nullRequestOrContains": return x => nullRequest == null || ids.Contains(nullRequest.Id);
+                // Review R-6 (round-5 B/6): a translator rejection that is NOT a NotSupportedException. `.Value` on a
+                // nullable column is each translator's NullableExpressionException, an InvalidOperationException like the
+                // guard's own refusal; the guard's held verdict (self-reference) must not replace it on Delete.
+                case "nullableValueSelf": return x => x.NullableId.Value == x.NullableId.Value;
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
                 case "idsContainsColumn": return x => ids.Contains(x.Id);
@@ -262,7 +272,8 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "optionalFilterNull":
                 case "boxedTrueOrId":
                 case "notNullableLtSelf":
-                case "idSelfEqTrue": return "NOT 1=0";
+                case "idSelfEqTrue":
+                case "nullRequestOrContains": return "NOT 1=0";
                 case "nameContainsEmptyEqTrue":
                 case "nameContainsEmptyNeFalse": return " ESCAPE '!'";
                 // A collection Contains is answered by the translator, not the fold, so the literal sits in the OR.
@@ -297,6 +308,8 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "capturedItemAlone":
                 case "trueLiteral":
                 case "oneLtTwo":
+                // Review R-6 (round-5 B/2): neither side of the null-checked disjunction reads the row.
+                case "nullRequestOrContains":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), NoColumnMessage);
                 case "idSelf":
                 case "nullableGeSelf":
@@ -403,6 +416,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("nameContainsEmptyEqTrue")]
         [DataRow("nameContainsEmptyNeFalse")]
         [DataRow("idSelfEqTrue")]
+        [DataRow("nullRequestOrContains")]
         [DataRow("idEquals")]
         [DataRow("idsContainsColumn")]
         [DataRow("notIdsContainsColumn")]
@@ -494,7 +508,7 @@ namespace Funcular.Data.Orm.Tests.Parity
                         }
                         else
                         {
-                            // D-128: an all-rows predicate runs normally as a query and is refused as a delete, before any command.
+                            // D-128: an all-rows predicate runs normally as a query and is refused as a delete, before the DELETE is built.
                             Assert.IsNotNull(thrown, path + ": expected the all-rows guard to refuse this delete");
                             Assert.AreEqual(rejection.Value.Key, thrown.GetType(), path + ": " + thrown.Message);
                             Assert.AreEqual(rejection.Value.Value, thrown.Message, path);
@@ -512,11 +526,20 @@ namespace Funcular.Data.Orm.Tests.Parity
 
         /// <summary>
         /// A shape no path translates is rejected by Query, QueryAsync, Query&lt;T&gt;().Where, Count, Delete and
-        /// DeleteAsync alike, with the same exception type and message, before any command is sent; nothing is deleted.
-        /// D-005: the translator has the first word on a delete too, so a shape the all-rows guard would also refuse
-        /// (<c>childIdSelf</c>) is still the translator's rejection.
+        /// DeleteAsync alike, with the same exception type and message, before the SELECT or DELETE is built (the type
+        /// is discovered before the log is captured); nothing is deleted. D-005: the translator has the first word on a
+        /// delete too, so a shape the all-rows guard would also refuse (<c>childIdSelf</c>) is still the translator's
+        /// rejection.
         /// </summary>
-        private void EveryPathRejectsIdentically(Expression<Func<WpRow, bool>> predicate, string key, Type exceptionType, string messagePrefix)
+        private void EveryPathRejectsIdentically(Expression<Func<WpRow, bool>> predicate, string key, Type exceptionType, string messagePrefix) =>
+            EveryPathRejectsIdentically(predicate, key, t => t == exceptionType, exceptionType.Name, messagePrefix);
+
+        /// <summary>
+        /// As above, for an exception type each provider defines for itself (<paramref name="isExpectedType"/> tests
+        /// the thrown type; <paramref name="expectedTypeName"/> names it in failures). Every path must throw the same type.
+        /// </summary>
+        private void EveryPathRejectsIdentically(Expression<Func<WpRow, bool>> predicate, string key, Func<Type, bool> isExpectedType,
+            string expectedTypeName, string messagePrefix)
         {
             WithTable((provider, log) =>
             {
@@ -530,6 +553,7 @@ namespace Funcular.Data.Orm.Tests.Parity
                     new KeyValuePair<string, Action>("deleteAsync", () => provider.DeleteAsync(predicate).GetAwaiter().GetResult()),
                 };
                 string firstMessage = null;
+                Type firstType = null;
                 foreach (var call in calls)
                 {
                     var path = key + " " + call.Key;
@@ -543,8 +567,10 @@ namespace Funcular.Data.Orm.Tests.Parity
                         Exception thrown = null;
                         try { call.Value(); } catch (Exception ex) { thrown = ex; }
                         Assert.IsNotNull(thrown, path + ": expected a rejection");
-                        Assert.AreEqual(exceptionType, thrown.GetType(), path + ": " + thrown.Message);
+                        Assert.IsTrue(isExpectedType(thrown.GetType()), path + ": expected " + expectedTypeName + ", got " + thrown.GetType().Name + ": " + thrown.Message);
                         StringAssert.StartsWith(thrown.Message, messagePrefix, path);
+                        firstType = firstType ?? thrown.GetType();
+                        Assert.AreEqual(firstType, thrown.GetType(), path + ": the paths reject with different exception types");
                         firstMessage = firstMessage ?? thrown.Message;
                         Assert.AreEqual(firstMessage, thrown.Message, path + ": the paths reject with different messages");
                         Assert.IsFalse(log.Any(e => e != null && Regex.IsMatch(e, @"^\s*(SELECT|DELETE)\b", RegexOptions.IgnoreCase)),
@@ -589,5 +615,23 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("castNameContainsEmpty")]
         public void EveryPath_RejectsAnEmptySearchOnANonPropertyReceiverIdentically(string key) =>
             EveryPathRejectsIdentically(Predicate(key), key, typeof(NotSupportedException), ContainsReceiverMessage);
+
+        /// <summary>
+        /// Review R-6 (round-5 B/6): a translator rejection that isn't a <see cref="NotSupportedException"/> propagates
+        /// from Delete as from every read. <c>.Value</c> on a nullable column is each translator's
+        /// <c>NullableExpressionException</c> (derived from <see cref="InvalidOperationException"/>, the guard's own type),
+        /// and the guard's verdict for this self-comparison is held and must not replace it. Kills a held path that
+        /// re-throws the refusal for any translator exception that isn't a <see cref="NotSupportedException"/>.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("nullableValueSelf")]
+        public void EveryPath_RejectsANullableValueIdentically(string key)
+        {
+            var predicate = Predicate(key);
+            Assert.AreEqual(WherePredicateVerdict.SelfReference, WherePredicateGuard.Classify(predicate), key + ": the guard must refuse this delete for the row to test the held path");
+            EveryPathRejectsIdentically(predicate, key,
+                t => t.Name == "NullableExpressionException" && typeof(InvalidOperationException).IsAssignableFrom(t),
+                "NullableExpressionException", "Do not use '.Value' on nullable property 'NullableId'");
+        }
     }
 }

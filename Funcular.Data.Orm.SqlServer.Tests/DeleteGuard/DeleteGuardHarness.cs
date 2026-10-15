@@ -272,17 +272,19 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key, selectedByQuery: 2);
 
         /// <summary>
-        /// A rejected delete on a missing table reports the guard, not discovery's "table doesn't exist": the guard
-        /// refuses first; discovery is then attempted so the translator can have the first word (D-005), and its
-        /// failure leaves the guard's refusal standing. The type is not left discovered.
+        /// A refused delete on a missing table reports discovery's error, exactly as a query of the same predicate does
+        /// (D-005, with D-156's option 1 chosen in D-G04): on a type's first use its columns are discovered before the
+        /// predicate is translated, on every path alike, and a discovery failure propagates. Up to 7ef1b36 the held
+        /// refusal swallowed it and reported the guard, which on PostgreSQL hid the error that had already aborted the
+        /// caller's transaction (review R-5, A/N-1 = B/1). Neither path leaves the type discovered, and no DELETE is sent.
         /// </summary>
         [DataTestMethod]
         [DataRow("idSelf", "sync")] [DataRow("idSelf", "async")]
         [DataRow("orTrue", "sync")] [DataRow("orTrue", "async")]
-        public async Task RejectedOnAMissingTable_ReportsTheGuardNotDiscovery(string key, string path)
+        public async Task RejectedOnAMissingTable_ReportsDiscoveryAsAQueryDoes(string key, string path)
         {
             RequireDatabase();
-            var expected = key == "idSelf" ? SelfReferenceMessage : AlwaysTrueMessage;
+            var guardMessage = key == "idSelf" ? SelfReferenceMessage : AlwaysTrueMessage;
             try
             {
                 CreateTables();
@@ -290,18 +292,43 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 using var provider = CreateProvider();
                 var logged = Capture(provider);
                 var transactional = (ISqlOrmProvider)provider;
+                var predicate = Missing(key);
+
                 transactional.BeginTransaction();
+                Exception deleteFailure;
                 try
                 {
-                    var exception = await Throws(provider, Missing(key), path);
-                    Assert.AreEqual(expected, exception.Message, $"{key} {path}: message");
-                    AssertNoDeleteLogged(logged, key, path);
-                    Assert.IsFalse(IsDiscovered(provider, typeof(DgMissing)), $"{key} {path}: the type was discovered");
+                    deleteFailure = await Fails(async () =>
+                    {
+                        if (path == "async") await provider.DeleteAsync(predicate);
+                        else provider.Delete(predicate);
+                    });
                 }
                 finally
                 {
                     transactional.RollbackTransaction();
                 }
+                Assert.IsNotNull(deleteFailure, $"{key} {path}: the delete ran");
+                AssertNoDeleteLogged(logged, key, path);
+                Assert.IsFalse(IsDiscovered(provider, typeof(DgMissing)), $"{key} {path}: the type was discovered by the delete");
+
+                // The read path, under a transaction too, so discovery borrows the same connection.
+                transactional.BeginTransaction();
+                Exception queryFailure;
+                try
+                {
+                    queryFailure = await Fails(() => { provider.Query(predicate); return Task.CompletedTask; });
+                }
+                finally
+                {
+                    transactional.RollbackTransaction();
+                }
+                Assert.IsNotNull(queryFailure, $"{key}: the query ran");
+                Assert.IsFalse(IsDiscovered(provider, typeof(DgMissing)), $"{key}: the type was discovered by the query");
+
+                Assert.AreNotEqual(guardMessage, deleteFailure.Message, $"{key} {path}: the delete reported the guard, not discovery");
+                Assert.AreEqual(queryFailure.GetType(), deleteFailure.GetType(), $"{key} {path}: the delete's exception type differs from the query's: {deleteFailure.GetType().Name}: {deleteFailure.Message}");
+                Assert.AreEqual(queryFailure.Message, deleteFailure.Message, $"{key} {path}: the delete's message differs from the query's");
             }
             finally
             {
@@ -630,6 +657,20 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
             if (path == "async")
                 return await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(predicate));
             return Assert.ThrowsException<InvalidOperationException>(() => provider.Delete(predicate));
+        }
+
+        /// <summary>The exception <paramref name="action"/> throws, or null when it completes.</summary>
+        private static async Task<Exception> Fails(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
         }
 
         private static List<string> Capture(OrmDataProvider provider)

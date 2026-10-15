@@ -58,9 +58,10 @@ namespace Funcular.Data.Orm
     /// read the row (docs/plans/DECISIONS-3.10.2.md D-001, D-003 as amended by D-128).
     /// <para><b>Guard.</b> Every provider's shared WHERE translation calls <see cref="Validate(LambdaExpression, WhereOperation)"/>
     /// before translating the predicate and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE
-    /// clause it produces, passing the operation. A refused predicate never sends the mutation; it is still
-    /// translated, so a shape no path translates throws the translator's exception on every path alike and the
-    /// refusal here is reserved for predicates that translate (D-005). For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
+    /// clause it produces, passing the operation. A refused predicate never sends the mutation; its type is
+    /// discovered and it is translated exactly as for a read, so a missing table or a shape no path translates throws
+    /// discovery's or the translator's exception on every path alike, and the refusal here is reserved for
+    /// predicates that translate (D-005; D-156, option 1). For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
     /// predicate) a predicate that reads no column, compares a column (or a member of one) with itself, always holds,
     /// or searches a column for an empty value that nothing else bounds (<see cref="WherePredicateVerdict.UnboundedSearch"/>)
     /// is refused; for a <see cref="WhereOperation.Read"/> (<c>Query(predicate)</c>, <c>Where</c>) both checks accept

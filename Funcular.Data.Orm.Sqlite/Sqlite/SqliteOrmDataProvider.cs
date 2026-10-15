@@ -919,9 +919,9 @@ namespace Funcular.Data.Orm.Sqlite
 
             // The all-rows guard runs first, so a refused mass mutation never sends the mutation; for a read it accepts
             // everything (D-003 as amended by D-128: one translation path, one flag). A refusal is held (D-005: the
-            // translator has the first word): the refused predicate is still translated, and a shape no path
-            // translates throws the translator's NotSupportedException here as on every read path. The guard's refusal
-            // stands for a predicate that translates, and for one whose table can't be discovered.
+            // translator has the first word): the type is discovered and the predicate translated exactly as for a
+            // read, so a discovery failure (a missing table) or a shape no path translates throws here as on every
+            // read path, and the guard's refusal stands only for a predicate that translates (D-156, option 1).
             InvalidOperationException refusal = null;
             try
             {
@@ -931,25 +931,13 @@ namespace Funcular.Data.Orm.Sqlite
             {
                 refusal = ex;
             }
-            if (refusal != null)
-            {
-                try
-                {
-                    DiscoverColumns<T>();
-                }
-                catch (Exception)
-                {
-                    throw refusal;
-                }
-                TranslateWhere(expression, paramGen, trans, out _);
-                throw refusal;
-            }
 
             // Discover T before anything reads its columns: a convention-mapped member of T counts as unmapped
             // while its column-cache key is absent.
             DiscoverColumns<T>();
 
             var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
+            if (refusal != null) throw refusal;
             WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
 
             if (commandElements != null)
