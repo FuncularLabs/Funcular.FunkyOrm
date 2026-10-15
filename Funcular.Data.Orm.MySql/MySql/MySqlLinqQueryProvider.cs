@@ -524,12 +524,22 @@ namespace Funcular.Data.Orm.MySql
 
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
                 // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                if (methodName == "Min" || methodName == "Max")
+                    Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodName, lambda.Body.Type, property.Name,
+                        _dataProvider.QueryOptions.GuidOrdering, dateTimeOffsetOrdersByInstant: false);
                 joins = ResolveAggregateJoins(whereClause, remoteInfo,
                     fanOutSafe: methodName == "Min" || methodName == "Max");
-                var aggregateFunction = methodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : methodCall.Method.Name.ToUpper();
                 // Qualify the selector with the base table: once remote joins are present, a bare column
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
-                aggregateClause = $"SELECT {aggregateFunction}({table}.{columnExpression}) FROM {table}{joins}";
+                var qualifiedColumn = $"{table}.{columnExpression}";
+                // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
+                // so AVG's scale-4 rounding is gone (3.10.2, FD-04). MySQL's SUM is exact DECIMAL for integers and DOUBLE
+                // for FLOAT/DOUBLE, so no widening is needed.
+                if (methodName == "Average")
+                    aggregateClause = $"SELECT SUM({qualifiedColumn}), COUNT({qualifiedColumn}) FROM {table}{joins}";
+                else
+                    aggregateClause = $"SELECT {methodName.ToUpper()}({qualifiedColumn}) FROM {table}{joins}";
                 if (!string.IsNullOrEmpty(whereClause)) aggregateClause += $"\r\nWHERE {whereClause}";
             }
 
@@ -718,41 +728,44 @@ namespace Funcular.Data.Orm.MySql
             return parts;
         }
 
+        /// <summary>
+        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.10.2, FD-04;
+        /// <see cref="Funcular.Data.Orm.Linq.AggregateSemantics"/>): Average from SUM and COUNT in C#; an empty set gives
+        /// Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one InvalidOperationException.
+        /// </summary>
         private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
         {
+            var outerMethodName = components.OuterMethodCall?.Method.Name;
             using (var connectionScope = new MySqlOrmDataProvider.ConnectionScope(_dataProvider))
             {
                 using (var mySqlCommand = _dataProvider.BuildSqlCommandObject(components.AggregateClause, connectionScope.Connection, components.Parameters))
                 {
                     _dataProvider.InvokeLogAction(mySqlCommand);
-                    var result = mySqlCommand.ExecuteScalar();
-                    if (result == DBNull.Value)
+                    if (outerMethodName == "Average")
                     {
-                        if (components.OuterMethodCall?.Method.Name == "Average" || components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max")
-                            throw new InvalidOperationException($"Sequence contains no elements for {components.OuterMethodCall.Method.Name}.");
-                        result = 0;
+                        object sum = null;
+                        long count = 0;
+                        using (var reader = mySqlCommand.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                sum = reader.IsDBNull(0) ? null : reader.GetValue(0);
+                                count = reader.IsDBNull(1) ? 0 : Convert.ToInt64(reader.GetValue(1));
+                            }
+                        }
+                        var selector = (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;
+                        return (TResult)Funcular.Data.Orm.Linq.AggregateSemantics.Average(sum, count, selector.Body.Type, typeof(TResult));
                     }
 
-                    if (components.OuterMethodCall?.Method.Name == "Any" || components.OuterMethodCall?.Method.Name == "All")
+                    var result = mySqlCommand.ExecuteScalar();
+                    if (outerMethodName == "Any" || outerMethodName == "All")
                         return (TResult)(object)(Convert.ToInt32(result) == 1);
-                    else if (components.OuterMethodCall?.Method.Name == "Count")
+                    if (outerMethodName == "Count")
                         return (TResult)(object)Convert.ToInt32(result);
-                    else if (components.OuterMethodCall?.Method.Name == "LongCount")
+                    if (outerMethodName == "LongCount")
                         return (TResult)(object)Convert.ToInt64(result);
-                    else if (components.OuterMethodCall?.Method.Name == "Average")
-                        return (TResult)(object)Convert.ToDouble(result);
-                    else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max" || components.OuterMethodCall?.Method.Name == "Sum")
-                    {
-                        var lambda = (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;
-                        Type selectorType = GetSelectorType(lambda.Body);
-                        if (selectorType == typeof(DateTime)) return (TResult)(object)Convert.ToDateTime(result);
-                        if (selectorType == typeof(DateTime?)) return result is DBNull ? (TResult)(object)null : (TResult)(object)Convert.ToDateTime(result);
-                        if (selectorType == typeof(int)) return (TResult)(object)Convert.ToInt32(result);
-                        if (selectorType == typeof(long)) return (TResult)(object)Convert.ToInt64(result);
-                        if (selectorType == typeof(double)) return (TResult)(object)Convert.ToDouble(result);
-                        if (selectorType == typeof(decimal)) return (TResult)(object)Convert.ToDecimal(result);
-                        throw new NotSupportedException($"Unsupported selector type {selectorType} for {components.OuterMethodCall.Method.Name}.");
-                    }
+                    if (outerMethodName == "Min" || outerMethodName == "Max" || outerMethodName == "Sum")
+                        return (TResult)Funcular.Data.Orm.Linq.AggregateSemantics.ConvertResult(outerMethodName, result, typeof(TResult));
                     return default;
                 }
             }
@@ -778,12 +791,6 @@ namespace Funcular.Data.Orm.MySql
                     }
                 }
             }
-        }
-
-        private Type GetSelectorType(Expression body)
-        {
-            if (body is UnaryExpression unary) return Nullable.GetUnderlyingType(unary.Operand.Type) ?? unary.Operand.Type;
-            return Nullable.GetUnderlyingType(body.Type) ?? body.Type;
         }
 
         /// <summary>

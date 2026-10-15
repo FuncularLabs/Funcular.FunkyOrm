@@ -37,6 +37,8 @@
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Parity\WhereParityHarness.cs" Link="Parity\WhereParityHarness.cs" />
     <!-- The LIKE-escaping and column-ToString harness (docs/plans/LIKE_ESCAPING_TOSTRING_PLAN.md, §4.1), shared with SqlServer.Tests. -->
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\LikeToString\LikeToStringHarness.cs" Link="LikeToString\LikeToStringHarness.cs" />
+    <!-- Aggregate correctness rows (3.10.2, FD-04), shared with SqlServer.Tests. -->
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Aggregates\AggregateHarness.cs" Link="Aggregates\AggregateHarness.cs" />
   </ItemGroup>
 
 </Project>

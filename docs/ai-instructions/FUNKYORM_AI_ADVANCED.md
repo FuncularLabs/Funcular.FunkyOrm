@@ -99,7 +99,8 @@ resolves to an inline SQL fragment (JSON accessor, expression, correlated subque
 ### ✅ Works
 | Construct | Notes |
 |---|---|
-| `Query<T>().Count(x => x.Col == v)` / `.Any(...)` / `.Sum(x => x.Num)` / `.Min` / `.Max` / `.Average` | Translated to a SQL aggregate. |
+| `Query<T>().Count(x => x.Col == v)` / `.Any(...)` / `.Sum(x => x.Num)` / `.Min` / `.Max` / `.Average` | Translated to a SQL aggregate. v3.10.2: LINQ to objects' answers — `Average` is `SUM` and `COUNT` divided in C# (no truncation or rounding); an empty set gives `Sum` 0, a nullable or reference `Min`/`Max`/`Average` `null`, a non-nullable one `InvalidOperationException`. |
+| `Min`/`Max` over an enum, a `TimeSpan`, a `Guid`, or (MySQL, SQLite) a `DateTimeOffset` | v3.10.2: `NotSupportedException` before any command. Enum: `Max(x => (int)x.Status)`. `TimeSpan`: store an integer. `Guid`: opt in with `provider.QueryOptions.GuidOrdering = GuidOrdering.Database` (not on PostgreSQL, which has no `MIN`/`MAX` over `uuid`: use `OrderByDescending(x => x.Uid).Take(1).Select(x => x.Uid).ToList()`). `DateTimeOffset`: store a UTC `DateTime`; on SQL Server and PostgreSQL it orders by instant and works. |
 | `Query<T>().LongCount(...)` | v3.10: returns `long`, built like `Count` (SQL Server: `COUNT_BIG(*)`). |
 | Aggregate filtered by a **forward** `[RemoteProperty]`/`[RemoteKey]` — e.g. `Query<T>().Where(x => x.RemoteProp == v).Count()` | The required `LEFT JOIN` is injected into the aggregate `FROM` when the `WHERE` references a remote column (v3.8.2). |
 | Aggregate filtered by a computed attribute (`[JsonPath]` etc.) | Self-contained — resolves inline, no join. |

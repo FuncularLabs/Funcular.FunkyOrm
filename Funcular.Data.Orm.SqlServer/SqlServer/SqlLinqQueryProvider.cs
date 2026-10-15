@@ -683,12 +683,30 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
                 // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                if (methodName == "Min" || methodName == "Max")
+                    Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodName, lambda.Body.Type, property.Name,
+                        _dataProvider.QueryOptions.GuidOrdering, dateTimeOffsetOrdersByInstant: true);
                 joins = ResolveAggregateJoins(whereClause, remoteInfo,
                     fanOutSafe: methodName == "Min" || methodName == "Max");
-                var aggregateFunction = methodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : methodCall.Method.Name.ToUpper();
                 // Qualify the selector with the base table: once remote joins are present, a bare column
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
-                aggregateClause = $"SELECT {aggregateFunction}({table}.{columnExpression}) FROM {table}{joins}";
+                var qualifiedColumn = $"{table}.{columnExpression}";
+                // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
+                // so AVG's integer truncation is gone (3.10.2, FD-04). SUM(int) is int and SUM(real) is real on SQL
+                // Server, so those are widened to the types LINQ sums in.
+                if (methodName == "Average")
+                {
+                    var selectorType = Nullable.GetUnderlyingType(lambda.Body.Type) ?? lambda.Body.Type;
+                    var summed = selectorType == typeof(int) || selectorType == typeof(short) || selectorType == typeof(byte) || selectorType == typeof(sbyte) || selectorType == typeof(ushort)
+                        ? $"CAST({qualifiedColumn} AS BIGINT)"
+                        : selectorType == typeof(float) ? $"CAST({qualifiedColumn} AS FLOAT)" : qualifiedColumn;
+                    aggregateClause = $"SELECT SUM({summed}), COUNT({qualifiedColumn}) FROM {table}{joins}";
+                }
+                else
+                {
+                    aggregateClause = $"SELECT {methodName.ToUpper()}({qualifiedColumn}) FROM {table}{joins}";
+                }
                 if (!string.IsNullOrEmpty(whereClause))
                 {
                     aggregateClause += $"\r\nWHERE {whereClause}";
@@ -896,85 +914,41 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The aggregate result cast to TResult.</returns>
         private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
         {
+            // Converts with LINQ to objects' rules (3.10.2, FD-04; AggregateSemantics): Average from SUM and COUNT in C#;
+            // an empty set gives Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one
+            // InvalidOperationException.
+            var outerMethodName = components.OuterMethodCall?.Method.Name;
             using (var connectionScope = new SqlServerOrmDataProvider.ConnectionScope(_dataProvider))
             {
                 using (var sqlCommand = _dataProvider.BuildSqlCommandObject(components.AggregateClause,
                            connectionScope.Connection, components.Parameters))
                 {
                     _dataProvider.InvokeLogAction(sqlCommand);
+                    if (outerMethodName == "Average")
+                    {
+                        object sum = null;
+                        long count = 0;
+                        using (var reader = sqlCommand.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                sum = reader.IsDBNull(0) ? null : reader.GetValue(0);
+                                count = reader.IsDBNull(1) ? 0 : Convert.ToInt64(reader.GetValue(1));
+                            }
+                        }
+                        var selector = (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;
+                        return (TResult)Funcular.Data.Orm.Linq.AggregateSemantics.Average(sum, count, selector.Body.Type, typeof(TResult));
+                    }
+
                     var result = sqlCommand.ExecuteScalar();
-                    if (result == DBNull.Value)
-                    {
-                        if (components.OuterMethodCall?.Method.Name == "Average" || components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max")
-                        {
-                            throw new InvalidOperationException(
-                                $"Sequence contains no elements for {components.OuterMethodCall.Method.Name}.");
-                        }
-
-                        result = 0;
-                    }
-
-                    Debug.WriteLine($"Aggregate result type: {result?.GetType()?.FullName ?? "null"}");
-                    Debug.WriteLine($"Aggregate result value: {result}");
-
-                    if (components.OuterMethodCall?.Method.Name == "Any" || components.OuterMethodCall?.Method.Name == "All")
-                    {
-                        var boolResult = Convert.ToInt32(result) == 1;
-                        Debug.WriteLine($"Bool result after conversion: {boolResult}");
-                        return (TResult)(object)boolResult;
-                    }
-                    else if (components.OuterMethodCall?.Method.Name == "Count")
-                    {
+                    if (outerMethodName == "Any" || outerMethodName == "All")
+                        return (TResult)(object)(Convert.ToInt32(result) == 1);
+                    if (outerMethodName == "Count")
                         return (TResult)(object)Convert.ToInt32(result);
-                    }
-                    else if (components.OuterMethodCall?.Method.Name == "LongCount")
-                    {
+                    if (outerMethodName == "LongCount")
                         return (TResult)(object)Convert.ToInt64(result);
-                    }
-                    else if (components.OuterMethodCall?.Method.Name == "Average")
-                    {
-                        return (TResult)(object)Convert.ToDouble(result);
-                    }
-                    else if (components.OuterMethodCall?.Method.Name == "Min" || components.OuterMethodCall?.Method.Name == "Max" || components.OuterMethodCall?.Method.Name == "Sum")
-                    {
-                        var lambda =
-                            (LambdaExpression)((UnaryExpression)components.OuterMethodCall.Arguments[1]).Operand;
-                        Type selectorType = GetSelectorType(lambda.Body);
-
-                        if (selectorType == typeof(DateTime))
-                        {
-                            return (TResult)(object)Convert.ToDateTime(result);
-                        }
-
-                        if (selectorType == typeof(DateTime?))
-                        {
-                            return result is DBNull
-                                ? (TResult)(object)null
-                                : (TResult)(object)Convert.ToDateTime(result);
-                        }
-                        else if (selectorType == typeof(int))
-                        {
-                            return (TResult)(object)Convert.ToInt32(result);
-                        }
-                        else if (selectorType == typeof(long))
-                        {
-                            return (TResult)(object)Convert.ToInt64(result);
-                        }
-                        else if (selectorType == typeof(double))
-                        {
-                            return (TResult)(object)Convert.ToDouble(result);
-                        }
-                        else if (selectorType == typeof(decimal))
-                        {
-                            return (TResult)(object)Convert.ToDecimal(result);
-                        }
-                        else
-                        {
-                            throw new NotSupportedException(
-                                $"Unsupported selector type {selectorType} for {components.OuterMethodCall.Method.Name}.");
-                        }
-                    }
-
+                    if (outerMethodName == "Min" || outerMethodName == "Max" || outerMethodName == "Sum")
+                        return (TResult)Funcular.Data.Orm.Linq.AggregateSemantics.ConvertResult(outerMethodName, result, typeof(TResult));
                     return default;
                 }
             }
@@ -1017,32 +991,6 @@ namespace Funcular.Data.Orm.SqlServer
                         return (TResult)(object)result;
                     }
                 }
-            }
-        }
-
-        /// <summary>
-        /// Determines the type of the selector expression used in aggregate methods like Average, Min, and Max.
-        /// </summary>
-        /// <param name="selector">The selector expression.</param>
-        /// <returns>The type of the selector expression.</returns>
-        /// <exception cref="NotSupportedException">Thrown when the selector expression type is not supported.</exception>
-        private Type GetSelectorType(Expression selector)
-        {
-            if (selector is MemberExpression memberExpression)
-            {
-                return memberExpression.Type;
-            }
-            else if (selector is UnaryExpression unaryExpression)
-            {
-                return unaryExpression.Type;
-            }
-            else if (selector is MethodCallExpression methodCallExpression)
-            {
-                return methodCallExpression.Method.ReturnType;
-            }
-            else
-            {
-                throw new NotSupportedException("Unsupported selector expression type.");
             }
         }
 

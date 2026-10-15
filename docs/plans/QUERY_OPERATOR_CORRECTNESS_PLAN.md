@@ -3016,6 +3016,17 @@ Verdict: NOT CLEAN.
 
 ## 10. v3.10.1 — aggregate correctness (D9): owner direction and open questions
 
+> **Done in 3.10.2 as FD-04 (2026-10-14; docs/plans/DECISIONS-3.10.2.md D-119…).** Implemented as this section
+> directs: `Average` as `SUM`/`COUNT` divided in C# (`AggregateSemantics.Average`), the LINQ empty-set rules, the
+> `Min`/`Max` type rules with `OrmDataProvider.QueryOptions.GuidOrdering` (**the PostgreSQL prerequisite failed for
+> another reason: PostgreSQL has no `MIN`/`MAX` over `uuid` at all, error 42883, so a `Guid` is rejected there
+> whatever the option says and the message names `OrderBy(…).Take(1).Select(x => x.Uid).ToList()`; every provider
+> defaults to `Rejected`),
+> `DateTimeOffset` allowed
+> on SQL Server and PostgreSQL and rejected on MySQL and SQLite. The aggregate table is created per test by
+> `AggregateHarness` (`zz_ag_row`, every type F6 names) rather than added to the five schema scripts. F3–F6 and F15
+> folded in.
+
 **Owner direction (2026-09-30):** go with the recommended approach, with the refinements below.
 
 - **`Average`:** computed exactly as `SUM(wide) / COUNT` client-side (LINQ semantics); SQLite's `ROUND` is

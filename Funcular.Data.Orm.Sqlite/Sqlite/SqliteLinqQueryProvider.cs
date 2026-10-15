@@ -541,18 +541,23 @@ namespace Funcular.Data.Orm.Sqlite
                 }
                 else throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
 
-                var aggregateFunction = methodCall.Method.Name.ToUpper() == "AVERAGE" ? "AVG" : methodCall.Method.Name.ToUpper();
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                if (methodCall.Method.Name == "Min" || methodCall.Method.Name == "Max")
+                    Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodCall.Method.Name, lambda.Body.Type, property.Name,
+                        _dataProvider.QueryOptions.GuidOrdering, dateTimeOffsetOrdersByInstant: false);
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
                 // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
                 joins = ResolveAggregateJoins(whereClause, remoteInfo,
                     fanOutSafe: methodCall.Method.Name == "Min" || methodCall.Method.Name == "Max");
-                // For integer aggregates that produce REAL in SQLite, round to match SQL Server behavior
                 // Qualify the selector with the base table: once remote joins are present, a bare column
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
-                if (aggregateFunction == "AVG")
-                    aggregateClause = $"SELECT ROUND({aggregateFunction}({table}.{columnExpression}), 10) FROM {table}{joins}";
+                var qualifiedColumn = $"{table}.{columnExpression}";
+                // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
+                // so nothing is truncated or rounded by the database (3.10.2, FD-04: AVG and ROUND are gone).
+                if (methodCall.Method.Name == "Average")
+                    aggregateClause = $"SELECT SUM({qualifiedColumn}), COUNT({qualifiedColumn}) FROM {table}{joins}";
                 else
-                    aggregateClause = $"SELECT {aggregateFunction}({table}.{columnExpression}) FROM {table}{joins}";
+                    aggregateClause = $"SELECT {methodCall.Method.Name.ToUpper()}({qualifiedColumn}) FROM {table}{joins}";
                 if (!string.IsNullOrEmpty(whereClause)) aggregateClause += $"\r\nWHERE {whereClause}";
             }
 
@@ -719,46 +724,57 @@ namespace Funcular.Data.Orm.Sqlite
             return hasJoins ? $"ORDER BY {table}.rowid" : "ORDER BY rowid";
         }
 
+        /// <summary>
+        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.10.2, FD-04;
+        /// <see cref="Funcular.Data.Orm.Linq.AggregateSemantics"/>): Average from SUM and COUNT in C#; an empty set gives
+        /// Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one InvalidOperationException.
+        /// </summary>
         private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
         {
+            var outerMethodName = components.OuterMethodCall;
             using (var connectionScope = new SqliteOrmDataProvider.ConnectionScope(_dataProvider))
             {
                 using (var command = _dataProvider.BuildSqlCommandObject(components.AggregateClause, connectionScope.Connection, components.Parameters))
                 {
                     _dataProvider.InvokeLogAction(command);
-                    var result = command.ExecuteScalar();
-                    if (result == DBNull.Value || result == null)
+                    if (outerMethodName == "Average")
                     {
-                        var outerMethod = components.OuterMethodCall;
-                        if (outerMethod == "Average" || outerMethod == "Min" || outerMethod == "Max")
-                            throw new InvalidOperationException($"Sequence contains no elements for {outerMethod}.");
-                        result = 0;
+                        object sum = null;
+                        long count = 0;
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                sum = reader.IsDBNull(0) ? null : reader.GetValue(0);
+                                count = reader.IsDBNull(1) ? 0 : Convert.ToInt64(reader.GetValue(1));
+                            }
+                        }
+                        return (TResult)Funcular.Data.Orm.Linq.AggregateSemantics.Average(sum, count, AggregateSelectorType(expression), typeof(TResult));
                     }
 
-                    var outerMethodName = components.OuterMethodCall;
+                    var result = command.ExecuteScalar();
                     if (outerMethodName == "Any" || outerMethodName == "All")
                         return (TResult)(object)(Convert.ToInt64(result) == 1);
-                    else if (outerMethodName == "Count")
+                    if (outerMethodName == "Count")
                         return (TResult)(object)Convert.ToInt32(result);
-                    else if (outerMethodName == "LongCount")
+                    if (outerMethodName == "LongCount")
                         return (TResult)(object)Convert.ToInt64(result);
-                    else if (outerMethodName == "Average")
-                        return (TResult)(object)Convert.ToDouble(result);
-                    else if (outerMethodName == "Min" || outerMethodName == "Max" || outerMethodName == "Sum")
-                    {
-                        // Try to return the correct type
-                        var targetType = typeof(TResult);
-                        var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-                        if (underlyingType == typeof(int)) return (TResult)(object)Convert.ToInt32(result);
-                        if (underlyingType == typeof(long)) return (TResult)(object)Convert.ToInt64(result);
-                        if (underlyingType == typeof(double)) return (TResult)(object)Convert.ToDouble(result);
-                        if (underlyingType == typeof(decimal)) return (TResult)(object)Convert.ToDecimal(result);
-                        if (underlyingType == typeof(DateTime)) return (TResult)(object)Convert.ToDateTime(result);
-                        return (TResult)Convert.ChangeType(result, underlyingType);
-                    }
+                    if (outerMethodName == "Min" || outerMethodName == "Max" || outerMethodName == "Sum")
+                        return (TResult)Funcular.Data.Orm.Linq.AggregateSemantics.ConvertResult(outerMethodName, result, typeof(TResult));
                     return default;
                 }
             }
+        }
+
+        /// <summary>The aggregate selector's type, the lambda body's (so a cast counts: <c>x =&gt; (int)x.Status</c> is <c>int</c>).</summary>
+        private static Type AggregateSelectorType(Expression expression)
+        {
+            var call = expression as MethodCallExpression;
+            if (call == null || call.Arguments.Count < 2)
+                return typeof(object);
+            var argument = call.Arguments[1];
+            var lambda = ((argument as UnaryExpression)?.Operand ?? argument) as LambdaExpression;
+            return lambda?.Body.Type ?? typeof(object);
         }
 
         private TResult ExecuteQuery<TResult>(string commandText, List<SqliteParameter> parameters, bool isCollection, Expression expression)

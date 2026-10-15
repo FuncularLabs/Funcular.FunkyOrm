@@ -88,8 +88,11 @@ namespace Funcular.Data.Orm.Tests.Caching
         protected virtual string DiscoveredFirstName => "first_name";
         protected virtual string DiscoveredId => "id";
 
-        /// <summary>The aggregate fragment for Average of a qualified column.</summary>
-        protected virtual string AverageFragment(string qualifiedColumn) => $"AVG({qualifiedColumn})";
+        /// <summary>
+        /// The aggregate fragment for Average of a qualified integer column: since 3.10.2 (FD-04) Average is read as
+        /// SUM and COUNT and divided in C#; SQL Server widens the integer sum (its override).
+        /// </summary>
+        protected virtual string AverageFragment(string qualifiedColumn) => $"SUM({qualifiedColumn}), COUNT({qualifiedColumn})";
 
         /// <summary>Marks the test inconclusive when the provider's test database is unavailable.</summary>
         protected virtual void RequireDatabase() { }

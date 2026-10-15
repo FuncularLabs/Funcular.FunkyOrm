@@ -10,6 +10,19 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
 (`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE.
 
 ### Fixed
+- **Aggregates follow LINQ to objects** (the 3.10.0 Known issues, promised for this release):
+  - `Average` is computed as `SUM / COUNT` in C#, in the arithmetic LINQ uses for the selector's type, from the two
+    values the provider reads. It no longer truncates whole numbers on SQL Server (`AVG` over an `int` column gave `1`
+    for `{1, 1, 2}`), rounds to four decimals on MySQL, or rounds to ten on SQLite (`ROUND(AVG(…), 10)` is gone). SQL
+    Server widens an integer sum to `BIGINT` and a `float` sum to `FLOAT`; PostgreSQL widens a `float` sum to `DOUBLE
+    PRECISION`. `Average` over a `decimal`, `float` or `double` column no longer throws, and returns `decimal`,
+    `float` or `double` as LINQ does.
+  - An empty set gives `Sum` 0 (a nullable selector included), a nullable or reference `Min`/`Max`/`Average` `null`
+    (also when every value is null), and a non-nullable one `InvalidOperationException`, as LINQ does; before, a
+    nullable `Min`/`Max`/`Average` over no rows threw.
+  - `Min`/`Max` results convert to the operator's result type after the round-trip (`DateTime`, `DateTime?`,
+    `decimal?`, `string`, `float`, `Guid`, `DateTimeOffset`); before, some threw `InvalidCastException` or
+    `NotSupportedException` ("Unsupported selector type").
 - **String `Contains`, `StartsWith` and `EndsWith` treated `%`, `_` and `[` in the value as wildcards.** The value
   went into the `LIKE` pattern unescaped, so `x.Name.Contains("_")` matched every name of one character or more,
   `x.Name.Contains("%")` every name, and on SQL Server `x.Name.Contains("[x]")` every name containing `x`; on
@@ -60,6 +73,18 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
   returns every row, and the same idiom with `StartsWith`/`EndsWith` no longer throws.
 
 ### Changed
+- **`Min`/`Max` over a type the database can't order as .NET does throw `NotSupportedException` before any command is
+  sent:** an enum (aggregate its number and convert: `Max(x => (int)x.Status)`, which translates); `TimeSpan` (time
+  types differ by provider: SQL Server and PostgreSQL `time` hold values under 24 hours, MySQL `TIME` spans ±838
+  hours, Npgsql maps `TimeSpan` to an unbounded `interval`; store durations as integers and aggregate those); a `Guid`
+  unless the provider's `QueryOptions.GuidOrdering` is `GuidOrdering.Database` (the database's ordering differs from
+  `Guid.CompareTo` on SQL Server, which compares byte groups 10–15 first, and depends on the storage format on MySQL
+  and SQLite); on PostgreSQL a `Guid` is rejected whatever the option says, because PostgreSQL has no `MIN`/`MAX` over
+  `uuid` (error 42883) — order by the property and read the first row's value instead
+  (`OrderByDescending(x => x.Uid).Take(1).Select(x => x.Uid).ToList()`), which does follow .NET's ordering there; a
+  `DateTimeOffset` on MySQL and SQLite, which have no offset-aware type (store a UTC `DateTime`); on SQL Server and
+  PostgreSQL a `DateTimeOffset` orders by instant, as .NET does. The `Guid` guard doesn't cover `OrderBy`/`ThenBy`,
+  whose ordering follows the database. String `Min`/`Max` follow the database's collation.
 - **`ToString()` on a property is translated only on an integer or `string` property, with no argument** (see
   Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, `char`, …), and with any
   argument (a format string or a format provider, `CultureInfo.InvariantCulture` included, on a `string` property
@@ -130,6 +155,11 @@ before:
   compiles otherwise.
 - `Funcular.Data.Orm.Linq.LikePattern` (`Escape`, `EscapeCharacter`, `EscapeClause`): the escaping every provider
   applies to a string `Contains`, `StartsWith` or `EndsWith` value.
+- `OrmDataProvider.QueryOptions` (`Funcular.Data.Orm.Linq.QueryOptions`, with `GuidOrdering` of type
+  `Funcular.Data.Orm.Linq.GuidOrdering`: `Rejected` or `Database`), a provider-wide option set at startup:
+  `new SqlServerOrmDataProvider(conn) { QueryOptions = { GuidOrdering = GuidOrdering.Database } }`.
+- `Funcular.Data.Orm.Linq.AggregateSemantics` (`EnsureMinMaxSupported`, `Average`, `ConvertResult`): LINQ to objects'
+  aggregate rules, which the four LINQ query providers share and a custom provider can use.
 - Each provider's expression translator gains `TranslateMemberOfMember(MemberExpression, StringBuilder,
   Func<PropertyInfo, string>)`, which the WHERE visitors call for every member of a member; `TranslateDateMember`
   is unchanged and shares its date-part SQL.
@@ -160,7 +190,9 @@ before:
   stores (a lower-case `Guid`; `yyyy-MM-dd HH:mm:ss.fff`). So `x => x.Id == id` finds no row FunkyORM wrote when `id`
   has hex letters, and a date comparison can be off. `Get<T>(id)` finds the row. Before, `x.Id.ToString() == idText`
   happened to match on SQLite; it now throws (see Changed). Pre-existing, not yet scheduled.
-- The 3.10.1 Known issues (aggregates; `Update` with an enum or unsigned key) still apply unless listed under Fixed.
+- **SQLite has no `decimal` type**, so `Sum`, `Average`, `Min` and `Max` over a `decimal` property read the `REAL`
+  SQLite stores and can differ from LINQ to objects in the last digits.
+- The 3.10.1 Known issue (`Update` with an enum or unsigned key) still applies. The aggregate issues it listed are fixed above.
 
 ## [3.10.1] - 2026-10-12
 

@@ -42,6 +42,8 @@
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\CapturedValues\CapturedValueHarness.cs" Link="CapturedValues\CapturedValueHarness.cs" />
     <!-- WHERE parity rows (docs/plans/DECISIONS-3.10.2.md, D-001), shared with SqlServer.Tests. -->
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Parity\WhereParityHarness.cs" Link="Parity\WhereParityHarness.cs" />
+    <!-- Aggregate correctness rows (3.10.2, FD-04), shared with SqlServer.Tests. -->
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Aggregates\AggregateHarness.cs" Link="Aggregates\AggregateHarness.cs" />
   </ItemGroup>
 
 </Project>

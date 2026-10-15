@@ -438,6 +438,17 @@ it with `COUNT_BIG(*)`.
 long total = provider.Query<Person>().LongCount(p => p.Gender == "Female");
 ```
 
+**`Sum`, `Average`, `Min` and `Max` give LINQ to objects' answers** (v3.10.2). `Average` is read as `SUM` and
+`COUNT` and divided in C# in the selector type's arithmetic, so `{1, 1, 2}` averages 1.333…, not 1, and a
+`decimal`, `float` or `double` property returns that type. Over no rows, `Sum` is 0 (a nullable selector too), a
+nullable or reference `Min`/`Max`/`Average` is `null`, and a non-nullable one throws `InvalidOperationException`.
+`Min`/`Max` over an enum (`Max(p => (int)p.Status)` works), a `TimeSpan` (store an integer), a `Guid` (opt in with
+`provider.QueryOptions.GuidOrdering = GuidOrdering.Database` to take the database's ordering; on PostgreSQL, which
+has no `MIN`/`MAX` over `uuid`, order and read the first row's value instead:
+`OrderByDescending(p => p.Uid).Take(1).Select(p => p.Uid).ToList()`)
+or, on MySQL and SQLite, a `DateTimeOffset` (store a UTC `DateTime`) throw `NotSupportedException` before any
+command is sent. String `Min`/`Max` follow the database's collation.
+
 **Filtering aggregates by computed & remote attributes:** aggregates honor the same view-replacing
 attributes as any other query. You can `Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average` filtered by a
 `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, or `[RemoteProperty]`/`[RemoteKey]` — the generated
