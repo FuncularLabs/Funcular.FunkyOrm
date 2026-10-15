@@ -70,8 +70,9 @@ namespace Funcular.Data.Orm
     /// rejects the shapes it can prove touch every row (or every non-null row); it doesn't prove that every always-true
     /// predicate is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.
     /// What no path can translate (a member of a member the dialect has no function for, a <c>ToString()</c> the
-    /// evaluation can't answer, a nested receiver) is rejected by the translators with
-    /// <see cref="NotSupportedException"/> on every path, read or mutation.</para>
+    /// evaluation can't answer, a nested receiver) is rejected by the translators with their own exception
+    /// (<see cref="NotSupportedException"/>; the provider's <c>NullableExpressionException</c> for <c>.Value</c> or
+    /// <c>.HasValue</c> on a nullable column) on every path, read or mutation.</para>
     /// <para><b>Evaluation.</b> Every provider's WHERE visitor calls <see cref="Fold"/> on each part of a predicate in a
     /// truth position (the body, an operand of <c>&amp;&amp;</c>, <c>||</c> or <c>!</c>) and sends a part that doesn't
     /// read the row as a literal (<c>NOT 1=0</c> or <c>1=0</c>), so a comparison of captured values, a captured

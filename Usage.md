@@ -629,8 +629,8 @@ var people = provider.Query<Person>()
 ```
 
 Any other member of a member — `p.Birthdate.Hour`, `p.Birthdate.Date`, `p.Birthdate.DayOfWeek`, a part of a
-`DateTimeOffset`, a member of a nested object — throws `NotSupportedException` naming the member before any command
-is sent, in `Where`, `Count` and `Delete` alike. Compute the value before the query, or compare the property itself
+`DateTimeOffset`, a member of a nested object — throws `NotSupportedException` naming the member before the SELECT or
+DELETE is built (on a type's first use its columns are discovered first), in `Where`, `Count` and `Delete` alike. Compute the value before the query, or compare the property itself
 (`p.Birthdate >= from && p.Birthdate < to` instead of `p.Birthdate.Date == day`). The database counts a string's
 length in its own units (characters, not UTF-16 code units), so an emoji counts once where C# counts twice.
 

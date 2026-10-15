@@ -164,7 +164,8 @@ rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128
   `MassMutation` (`Delete`/`DeleteAsync`, any update by predicate), before the mutation is built, and on the translated
   clause after. The translator has the first word (D-005): a refused predicate's type is discovered and the predicate
   translated exactly as for a query, so a missing table reports discovery's error and a shape no path translates
-  throws the translator's `NotSupportedException` on a delete exactly as on a query, and the guard's
+  throws the translator's exception (`NotSupportedException`; `NullableExpressionException` for `.Value` or
+  `.HasValue` on a nullable column) on a delete exactly as on a query, and the guard's
   `InvalidOperationException` is reserved for predicates that translate. `Delete` no longer checks that
   the translated clause names a column of the table by text (the check would also have refused a legitimate
   predicate; a delete by a remote property alone isn't supported either way, since the DELETE has no JOIN, and now
@@ -205,7 +206,8 @@ rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128
 - **The SQL of a string `Contains`, `StartsWith` or `EndsWith` ends with `ESCAPE '!'`**, and its value has `%`, `_`,
   `[` and `!` prefixed by `!`. Code that reads the SQL text, such as a `Log` callback, sees the new form.
 - **Any member of a member of the row other than those date parts and `Length`** now throws `NotSupportedException`
-  naming the member, before any command is sent, by `Query`, `Count` and `Delete` alike: `x.D.Hour`, `x.D.Date`,
+  naming the member, before the SELECT or DELETE is built (on a type's first use its columns are discovered first),
+  by `Query`, `Count` and `Delete` alike: `x.D.Hour`, `x.D.Date`,
   `x.D.DayOfWeek`, a `DateTimeOffset` or `DateOnly` part, `x.Tags.Count` on a list, a member of a nested object
   (`x.Child.Id`), a member of a computed value (`(cond ? x.Name : "zz").Length`), a member of a newly constructed
   object (`new Holder().Flag`, formerly sent as `1=1` whatever the flag). Before, the outer member was dropped and

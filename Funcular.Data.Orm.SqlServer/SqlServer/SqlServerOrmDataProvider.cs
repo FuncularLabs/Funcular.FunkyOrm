@@ -275,9 +275,10 @@ namespace Funcular.Data.Orm.SqlServer
         /// <c>x =&gt; x.Id == x.Id</c> and <c>x =&gt; x.Id == id || true</c> are rejected to prevent accidental data loss.</param>
         /// <returns>The number of rows affected by the delete operation.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the
-        /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
-        /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
-        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
+        /// guard rejects the predicate or its WHERE clause; also, whatever the predicate, if <typeparamref name="T"/>'s
+        /// table doesn't exist when its columns are first discovered (the <see cref="SqlException"/> is then the
+        /// <see cref="Exception.InnerException"/>): on a type's first use its columns are discovered before the
+        /// predicate is translated or refused, as for a query.</exception>
         /// <exception cref="NotSupportedException">The predicate holds a shape no path translates.</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
@@ -823,6 +824,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// returns every row) to prevent accidental data loss. The checks don't catch every predicate that is true for
         /// every row.</param>
         /// <returns>The number of rows deleted.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the
+        /// guard rejects the predicate or its WHERE clause; also, whatever the predicate, if <typeparamref name="T"/>'s
+        /// table doesn't exist when its columns are first discovered (the <see cref="SqlException"/> is then the
+        /// <see cref="Exception.InnerException"/>): on a type's first use its columns are discovered before the
+        /// predicate is translated or refused, as for a query.</exception>
         /// <exception cref="NotSupportedException">The predicate holds a shape no path translates.</exception>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {

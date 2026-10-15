@@ -274,9 +274,10 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         /// <summary>
         /// A refused delete on a missing table reports discovery's error, exactly as a query of the same predicate does
         /// (D-005, with D-156's option 1 chosen in D-G04): on a type's first use its columns are discovered before the
-        /// predicate is translated, on every path alike, and a discovery failure propagates. Up to 7ef1b36 the held
-        /// refusal swallowed it and reported the guard, which on PostgreSQL hid the error that had already aborted the
-        /// caller's transaction (review R-5, A/N-1 = B/1). Neither path leaves the type discovered, and no DELETE is sent.
+        /// predicate is translated, on every path alike, and a discovery failure propagates. From 7ef1b36 to 3b03526 the
+        /// held refusal swallowed it and reported the guard, which on PostgreSQL hid the error that had already aborted
+        /// the caller's transaction (review R-5, A/N-1 = B/1); before D-005 the guard threw before discovery. Neither
+        /// path leaves the type discovered, and no DELETE is sent.
         /// </summary>
         [DataTestMethod]
         [DataRow("idSelf", "sync")] [DataRow("idSelf", "async")]

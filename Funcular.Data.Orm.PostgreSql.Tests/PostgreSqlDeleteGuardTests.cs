@@ -55,8 +55,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         /// missing fails with discovery's error, an <see cref="InvalidOperationException"/> carrying the
         /// <see cref="PostgresException"/> 42P01, exactly as a query of the same predicate does; that error is what tells
         /// the caller why the transaction is now aborted. The discovery SELECT ran on the caller's transaction, so the
-        /// next statement fails with 25P02 after either path. Up to 7ef1b36 the delete reported the guard's refusal with
-        /// no inner exception, and the next statement failed with 25P02 for no stated reason. Option (1) doesn't keep the
+        /// next statement fails with 25P02 after either path. From 7ef1b36 to 3b03526 the delete reported the guard's
+        /// refusal with no inner exception, and the next statement failed with 25P02 for no stated reason (before D-005
+        /// the guard threw before discovery and the transaction stayed usable). Option (1) doesn't keep the
         /// transaction usable (D-G04 asked for that test; it was red before and after the fix, D-157): a server error
         /// inside a PostgreSQL transaction aborts it whichever path ran it; only a savepoint (option 2) or no discovery
         /// on the held path (option 3), both declined, would.
