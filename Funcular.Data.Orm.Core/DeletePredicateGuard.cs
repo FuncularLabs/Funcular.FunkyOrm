@@ -5,8 +5,7 @@ namespace Funcular.Data.Orm
 {
     /// <summary>
     /// The verdict <see cref="DeletePredicateGuard.Classify"/> gives a predicate: the 3.10.0 name of
-    /// <see cref="WherePredicateVerdict"/>, with the 3.10.0 members (3.11.0's <c>UnboundedSearch</c> is reported as
-    /// <see cref="AlwaysTrue"/>).
+    /// <see cref="WherePredicateVerdict"/>, member for member (3.11.0 adds <see cref="UnboundedSearch"/> to both).
     /// </summary>
     [Obsolete("Use WherePredicateVerdict: since 3.11.0 the guard is WherePredicateGuard, which refuses an all-rows predicate for a mass mutation (Delete, an update by predicate) only.")]
     public enum DeletePredicateVerdict
@@ -17,11 +16,14 @@ namespace Funcular.Data.Orm
         /// <summary>The predicate references no column of the entity.</summary>
         NoColumn,
 
-        /// <summary>The predicate is a comparison of a member with itself that always holds.</summary>
+        /// <summary>The predicate is a comparison of a column, or a member of one, with itself.</summary>
         SelfReference,
 
         /// <summary>The predicate always holds.</summary>
-        AlwaysTrue
+        AlwaysTrue,
+
+        /// <summary><see cref="WherePredicateVerdict.UnboundedSearch"/>: an empty search value on a column that nothing else bounds (3.11.0).</summary>
+        UnboundedSearch
     }
 
     /// <summary>
@@ -39,21 +41,17 @@ namespace Funcular.Data.Orm
     public static class DeletePredicateGuard
     {
         /// <summary>
-        /// <see cref="WherePredicateGuard.Classify"/>, as a <see cref="DeletePredicateVerdict"/>; 3.11.0's
-        /// <c>UnboundedSearch</c> is reported as <see cref="DeletePredicateVerdict.AlwaysTrue"/>.
+        /// <see cref="WherePredicateGuard.Classify"/>, as a <see cref="DeletePredicateVerdict"/> (the same verdict by
+        /// name, <see cref="DeletePredicateVerdict.UnboundedSearch"/> included), so that <see cref="Validate"/>'s message
+        /// is always the message of the verdict <see cref="Classify"/> reports.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <returns>The verdict.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is null.</exception>
         /// <exception cref="ArgumentException"><paramref name="predicate"/> doesn't have exactly one parameter, or its
         /// body isn't <c>bool</c>.</exception>
-        public static DeletePredicateVerdict Classify(LambdaExpression predicate)
-        {
-            var verdict = WherePredicateGuard.Classify(predicate);
-            return verdict == WherePredicateVerdict.UnboundedSearch
-                ? DeletePredicateVerdict.AlwaysTrue
-                : (DeletePredicateVerdict)(int)verdict;
-        }
+        public static DeletePredicateVerdict Classify(LambdaExpression predicate) =>
+            (DeletePredicateVerdict)(int)WherePredicateGuard.Classify(predicate);
 
         /// <summary><see cref="WherePredicateGuard.Validate(LambdaExpression)"/>: the mass-mutation form.</summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>

@@ -27,7 +27,8 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
     /// applied to a delete (and any update by predicate) only; translation and evaluation are shared with every
     /// query, which runs the same predicate normally. Each rejected row here is also run through <c>Query</c> and
     /// <c>Count</c>, which must return LINQ to objects' rows (every row for an always-true or self-comparing
-    /// predicate; <see cref="AssertRejected"/>). The 3.10.0 D9 rejections (a LIKE wildcard, a null or empty search
+    /// predicate; <see cref="AssertRejected"/>). Of the 3.10.0 D9 rejections only the empty search value stays, as
+    /// <c>UnboundedSearch</c> (<see cref="UnboundedSearch_IsRejected"/>); the rest (a LIKE wildcard, a null search
     /// value, a property of a captured object as the search value, a string <c>Contains</c> on a value that doesn't
     /// read the row, two strings that don't read the row) are gone: the translation now escapes, sends
     /// <c>LIKE NULL</c>, reads the property and evaluates the <c>Contains</c> and the comparison in C#, so those rows
@@ -109,6 +110,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         private readonly string roles = "admin,user";
         private string FilterProperty { get; } = "a";
         private readonly string capturedUpperA = "A";
+        private readonly object boxedTrue = true;
 
         #region Provider seam
 
@@ -153,6 +155,10 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 case "orCapturedNullIsNull": return x => x.Id == 2 || capturedNull == null;
                 case "deMorganAnd": return x => !(x.Id != x.Id && x.Id == 2);
                 case "deMorganOr": return x => !(x.Id != x.Id || x.Id > x.Id);
+                // Review R-2 (A/N-1): a bool unboxed from a captured object; at e19c907 this deleted every row on three providers.
+                case "orBoxedTrue": return x => (bool)boxedTrue || x.Id == 2;
+                // Review R-2 (A/N-2): a member of a column compared with itself holds for every non-null name.
+                case "orFirstNameLengthSelf": return x => x.Id == 2 || x.FirstName.Length == x.FirstName.Length;
                 // Not evaluated by the guard and not translated by any visitor (plan section 6).
                 case "orArithmetic": return x => x.Id == 2 || capturedA + 1 == 8;
                 case "orNegate": return x => x.Id == 2 || -capturedA == -7;
@@ -251,8 +257,19 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("rolesContainsOr", "sync")] [DataRow("rolesContainsOr", "async")]
         [DataRow("orToString", "sync")] [DataRow("orToString", "async")]
         [DataRow("orToStringFormat", "sync")] [DataRow("orToStringFormat", "async")]
+        [DataRow("orBoxedTrue", "sync")] [DataRow("orBoxedTrue", "async")]
         public async Task AlwaysTrue_IsRejected(string key, string path) =>
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key);
+
+        /// <summary>
+        /// Review R-2 (A/N-2): a self-comparison of a member of a column (<c>FirstName.Length</c>) in a disjunction is
+        /// refused as a delete, as 3.10.0 refused it; a query translates it as written and selects the two rows with a
+        /// name (<c>LENGTH(NULL)</c> is null on every provider, as C# would throw on the null name).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("orFirstNameLengthSelf", "sync")] [DataRow("orFirstNameLengthSelf", "async")]
+        public async Task AlwaysTrueThroughAMemberOfAColumn_IsRejected(string key, string path) =>
+            await AssertRejected(Row(key), path, AlwaysTrueMessage, key, selectedByQuery: 2);
 
         /// <summary>
         /// The guard runs before the type's columns are discovered, so a rejected delete on a missing table reports the

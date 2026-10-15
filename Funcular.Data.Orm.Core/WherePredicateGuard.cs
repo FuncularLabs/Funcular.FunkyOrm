@@ -55,12 +55,13 @@ namespace Funcular.Data.Orm
     /// before translating the predicate (before the entity's columns are discovered, so a refused predicate never
     /// sends a command) and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE clause it produces,
     /// passing the operation. For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
-    /// predicate) a predicate that reads no column, compares a column with itself, or always holds is refused; for a
-    /// <see cref="WhereOperation.Read"/> (<c>Query(predicate)</c>, <c>Where</c>) both checks accept everything, and the
-    /// predicate runs and returns every row, as LINQ to objects would; the LINQ <c>Count</c>/<c>Any</c>/<c>All</c>
-    /// build the same visitor directly and are reads by construction. The guard rejects the shapes it can prove always
-    /// hold, and an empty search value on a column (<see cref="WherePredicateVerdict.UnboundedSearch"/>); it doesn't
-    /// prove that every always-true predicate is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.
+    /// predicate) a predicate that reads no column, compares a column (or a member of one) with itself, always holds,
+    /// or searches a column for an empty value that nothing else bounds (<see cref="WherePredicateVerdict.UnboundedSearch"/>)
+    /// is refused; for a <see cref="WhereOperation.Read"/> (<c>Query(predicate)</c>, <c>Where</c>) both checks accept
+    /// everything, and the predicate runs and returns every row, as LINQ to objects would; the LINQ
+    /// <c>Count</c>/<c>Any</c>/<c>All</c> build the same visitor directly and are reads by construction. The guard
+    /// rejects the shapes it can prove touch every row (or every non-null row); it doesn't prove that every always-true
+    /// predicate is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.
     /// What no path can translate (a member of a member the dialect has no function for, a <c>ToString()</c> the
     /// evaluation can't answer, a nested receiver) is rejected by the translators with
     /// <see cref="NotSupportedException"/> on every path, read or mutation.</para>
@@ -106,20 +107,25 @@ namespace Funcular.Data.Orm
         /// <list type="bullet">
         /// <item><see cref="WherePredicateVerdict.NoColumn"/>: the body reads no member of the entity parameter
         /// (<c>x =&gt; true</c>, <c>x =&gt; 1 &lt; 2</c>, a captured <c>bool</c>, <c>x =&gt; ids.Contains(request.Id)</c>).</item>
-        /// <item><see cref="WherePredicateVerdict.SelfReference"/>: the body always holds and is a comparison of a
-        /// property of the entity with itself by <c>==</c>, <c>&gt;=</c> or <c>&lt;=</c> (also through a cast or a
-        /// no-argument <c>ToString()</c>), or the negation of one by <c>!=</c>, <c>&gt;</c> or <c>&lt;</c>. Only where
-        /// C# makes it always hold: not an ordered comparison of a nullable property (<c>n &gt;= n</c> is false for a
-        /// null <c>n</c>), not a <c>float</c>/<c>double</c> property (<c>NaN == NaN</c> is false), and not a member of a
-        /// member (<c>x.Child.Id == x.Child.Id</c>), which is the translator's to accept or reject.</item>
-        /// <item><see cref="WherePredicateVerdict.AlwaysTrue"/>: the body always holds otherwise, for example a
-        /// disjunction with a <c>true</c> literal, a captured or static <c>true</c>, a <c>true</c> property of a captured
-        /// object, a comparison of constants and captured values that holds (<c>filter == null || …</c> with a null
-        /// <c>filter</c>), or a <c>Contains</c> on a captured string that holds (<c>roles.Contains("admin") || …</c>).</item>
+        /// <item><see cref="WherePredicateVerdict.SelfReference"/>: the body is a comparison of a property of the entity,
+        /// or of a member of one (<c>x.Name.Length</c>, <c>x.Created.Year</c>, <c>x.Child.Id</c>), with itself by
+        /// <c>==</c>, <c>&gt;=</c> or <c>&lt;=</c> (also through a cast or a no-argument <c>ToString()</c>), or the
+        /// negation of one by <c>!=</c>, <c>&gt;</c> or <c>&lt;</c>: 3.10's rule, whatever the type. A nullable's
+        /// <c>n &gt;= n</c> and a <c>double</c>'s <c>d == d</c> are refused too, although C# answers false for a null
+        /// or a NaN: a mass mutation of them would touch every other row, and the verdict is about that, not about
+        /// what the SQL sends (<see cref="Fold"/> folds only where C# answers the same for every row).</item>
+        /// <item><see cref="WherePredicateVerdict.AlwaysTrue"/>: the body always holds otherwise (a self-comparison
+        /// counted as above), for example a disjunction with a <c>true</c> literal, a captured or static <c>true</c>, a
+        /// <c>bool</c> unboxed from a captured <see cref="object"/>, a <c>true</c> property of a captured object, a
+        /// comparison of constants and captured values that holds (<c>filter == null || …</c> with a null
+        /// <c>filter</c>), a <c>Contains</c> on a captured string that holds (<c>roles.Contains("admin") || …</c>), or
+        /// <c>x.Id == 2 || x.Name.Length == x.Name.Length</c>.</item>
         /// <item><see cref="WherePredicateVerdict.UnboundedSearch"/>: the body holds for every non-null row once a
-        /// <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a column with an empty search value (a literal, a
-        /// captured <c>""</c>, <c>string.Empty</c>) counts as true: <c>x.Name.Contains("")</c> alone or in an <c>||</c>;
-        /// not <c>x.Id == 2 &amp;&amp; x.Name.Contains("")</c>, which the other operand bounds.</item>
+        /// <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a property of the entity with an empty search value
+        /// (a literal, a captured <c>""</c>, <c>string.Empty</c>) counts as true: <c>x.Name.Contains("")</c> alone or in
+        /// an <c>||</c>; not <c>x.Id == 2 &amp;&amp; x.Name.Contains("")</c>, which the other operand bounds, and not a
+        /// search on a member of a member (<c>x.Child.Name.Contains("")</c>), whose receiver the translators reject on
+        /// every path.</item>
         /// <item><see cref="WherePredicateVerdict.Acceptable"/>: anything else.</item>
         /// </list>
         /// Parameter-free <c>bool</c> parts built from constants, field and property reads, casts, the logical
@@ -146,13 +152,15 @@ namespace Funcular.Data.Orm
             if (!finder.Found)
                 return WherePredicateVerdict.NoColumn;
 
-            if (FoldTruth(predicate.Body, entityType, false, null) == Truth.True)
-                return IsSelfComparison(StripNotAndConvert(predicate.Body), entityType)
+            // The verdict counts every self-comparison as holding (3.10's rule): what it decides is whether a mass
+            // mutation would touch every row, or every non-null row, not what C# answers for a null (review R-2, A/N-2).
+            if (FoldTruth(predicate.Body, entityType, FoldRules.Verdict, null) == Truth.True)
+                return IsSelfComparison(StripNotAndConvert(predicate.Body), entityType, broad: true)
                     ? WherePredicateVerdict.SelfReference
                     : WherePredicateVerdict.AlwaysTrue;
 
             // D-003's "unbounded": with an empty search value on a column counted as true, does the whole hold?
-            return FoldTruth(predicate.Body, entityType, true, null) == Truth.True
+            return FoldTruth(predicate.Body, entityType, FoldRules.VerdictWithUnboundedSearch, null) == Truth.True
                 ? WherePredicateVerdict.UnboundedSearch
                 : WherePredicateVerdict.Acceptable;
         }
@@ -215,11 +223,15 @@ namespace Funcular.Data.Orm
         /// no parameter and is built from constants, field and property reads, casts, <c>!</c>, the logical operators,
         /// comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c> and a core type's
         /// <c>ToString()</c> (as <see cref="Classify"/> evaluates them: no code outside the core library runs, except
-        /// property getters); or a comparison of a member of the entity with itself (<c>x.Id == x.Id</c> is true,
-        /// <c>x.Id != x.Id</c> false). Null when the part reads the row otherwise, calls anything else, or its
-        /// evaluation throws (a <c>Contains</c> of null). The WHERE visitors send a known truth as a literal
-        /// (<c>NOT 1=0</c> / <c>1=0</c>) on every path, so Query and Delete agree, and so does
-        /// <see cref="Classify"/>'s verdict.
+        /// property getters); or a comparison of a property of the entity with itself where C# answers the same for
+        /// every row (<c>x.Id == x.Id</c> is true, <c>x.Id != x.Id</c> false, a nullable's <c>x.N &lt; x.N</c> false;
+        /// not a nullable's <c>x.N &gt;= x.N</c>, which is false for null and true otherwise, not a <c>float</c>/<c>double</c>
+        /// property, since NaN isn't equal to itself, and not a member of a member such as <c>x.Name.Length</c>, which
+        /// the translator accepts or rejects; those translate as written). An empty search value on a column is a
+        /// column read, not a truth (<c>LIKE '%%'</c> excludes a NULL column). Null when the part reads the row
+        /// otherwise, calls anything else, or its evaluation throws (a <c>Contains</c> of null). The WHERE visitors
+        /// send a known truth as a literal (<c>NOT 1=0</c> / <c>1=0</c>) on every path, so Query and Delete agree.
+        /// <see cref="Classify"/>'s verdict counts more self-comparisons than this fold does, on purpose: see there.
         /// </summary>
         /// <param name="expression">The part to evaluate.</param>
         /// <param name="entityType">The entity type of the predicate's parameter.</param>
@@ -244,7 +256,7 @@ namespace Funcular.Data.Orm
                 throw new ArgumentNullException(nameof(expression));
             if (entityType == null)
                 throw new ArgumentNullException(nameof(entityType));
-            return ToNullable(FoldTruth(expression, entityType, false, memo));
+            return ToNullable(FoldTruth(expression, entityType, FoldRules.Sql, memo));
         }
 
         private static bool? ToNullable(Truth truth) => truth == Truth.True ? true : truth == Truth.False ? false : (bool?)null;
@@ -373,6 +385,17 @@ namespace Funcular.Data.Orm
 
         private enum Truth { Unknown, False, True }
 
+        /// <summary>
+        /// Which self-comparisons a fold counts as holding. <see cref="Sql"/> decides the SQL every path sends, so it
+        /// folds only where C# answers the same for every row: a direct property, not <c>float</c>/<c>double</c>
+        /// (NaN), and not a nullable's <c>&gt;=</c>/<c>&lt;=</c> (false for null, true otherwise); a nullable's
+        /// <c>&lt;</c>/<c>&gt;</c> is false for every row and folds. <see cref="Verdict"/> decides whether a mass
+        /// mutation would touch every row, or every non-null row, and counts any member chain of the entity compared
+        /// with itself, by any operator, as 3.10 did; <see cref="VerdictWithUnboundedSearch"/> also counts an empty
+        /// search value on a column as true. A memo belongs to one rule set; the verdict folds never take one.
+        /// </summary>
+        private enum FoldRules { Sql, Verdict, VerdictWithUnboundedSearch }
+
         private static Truth FromValue(object? value) =>
             value is bool b ? (b ? Truth.True : Truth.False) : Truth.Unknown;
 
@@ -395,22 +418,22 @@ namespace Funcular.Data.Orm
         /// The truth of <paramref name="expression"/>. The logical operators, <c>!</c>, casts and the conditional
         /// operator compose their operands' truths (the composition equals C#'s short-circuit evaluation wherever a
         /// part can be evaluated at all); a leaf (a constant, a comparison, a call, a member) that reads no parameter is
-        /// evaluated. <paramref name="unboundedSearchIsTrue"/> counts an empty search value on a column as true, for
-        /// <see cref="WherePredicateVerdict.UnboundedSearch"/>; the fold that decides the SQL never does. The optional
-        /// <paramref name="memo"/> is read and written for every node, so the visitors' folds of the body and of each
-        /// truth position inside it are one pass (review R-1, A-4).
+        /// evaluated. <paramref name="rules"/> says which self-comparisons count as holding and whether an empty search
+        /// value on a column does (<see cref="FoldRules"/>). The optional <paramref name="memo"/> is read and written
+        /// for every node, so the visitors' folds of the body and of each truth position inside it are one pass
+        /// (review R-1, A-4).
         /// </summary>
-        private static Truth FoldTruth(Expression expression, Type entityType, bool unboundedSearchIsTrue, IDictionary<Expression, bool?>? memo)
+        private static Truth FoldTruth(Expression expression, Type entityType, FoldRules rules, IDictionary<Expression, bool?>? memo)
         {
             if (memo != null && memo.TryGetValue(expression, out var known))
                 return FromNullable(known);
-            var truth = FoldNode(expression, entityType, unboundedSearchIsTrue, memo);
+            var truth = FoldNode(expression, entityType, rules, memo);
             if (memo != null)
                 memo[expression] = ToNullable(truth);
             return truth;
         }
 
-        private static Truth FoldNode(Expression expression, Type entityType, bool unboundedSearchIsTrue, IDictionary<Expression, bool?>? memo)
+        private static Truth FoldNode(Expression expression, Type entityType, FoldRules rules, IDictionary<Expression, bool?>? memo)
         {
             if (!IsBoolean(expression.Type))
                 return Truth.Unknown;
@@ -422,20 +445,23 @@ namespace Funcular.Data.Orm
                 case ExpressionType.Not:
                 {
                     var unary = (UnaryExpression)expression;
-                    return unary.Method == null ? Not(FoldTruth(unary.Operand, entityType, unboundedSearchIsTrue, memo)) : Truth.Unknown;
+                    return unary.Method == null ? Not(FoldTruth(unary.Operand, entityType, rules, memo)) : Truth.Unknown;
                 }
                 case ExpressionType.Convert:
                 case ExpressionType.ConvertChecked:
                 {
                     var unary = (UnaryExpression)expression;
-                    return unary.Method == null ? FoldTruth(unary.Operand, entityType, unboundedSearchIsTrue, memo) : Truth.Unknown;
+                    var operand = unary.Method == null ? FoldTruth(unary.Operand, entityType, rules, memo) : Truth.Unknown;
+                    // A cast whose operand isn't bool (a bool unboxed from a captured object) composes nothing: the cast
+                    // itself is the leaf to read (review R-2, A/N-1).
+                    return operand != Truth.Unknown ? operand : EvaluateLeaf(expression);
                 }
                 case ExpressionType.AndAlso:
                 case ExpressionType.And:
                 {
                     var binary = (BinaryExpression)expression;
                     return binary.Method == null
-                        ? And(FoldTruth(binary.Left, entityType, unboundedSearchIsTrue, memo), FoldTruth(binary.Right, entityType, unboundedSearchIsTrue, memo))
+                        ? And(FoldTruth(binary.Left, entityType, rules, memo), FoldTruth(binary.Right, entityType, rules, memo))
                         : Truth.Unknown;
                 }
                 case ExpressionType.OrElse:
@@ -443,30 +469,30 @@ namespace Funcular.Data.Orm
                 {
                     var binary = (BinaryExpression)expression;
                     return binary.Method == null
-                        ? Or(FoldTruth(binary.Left, entityType, unboundedSearchIsTrue, memo), FoldTruth(binary.Right, entityType, unboundedSearchIsTrue, memo))
+                        ? Or(FoldTruth(binary.Left, entityType, rules, memo), FoldTruth(binary.Right, entityType, rules, memo))
                         : Truth.Unknown;
                 }
                 case ExpressionType.Conditional:
                 {
                     var conditional = (ConditionalExpression)expression;
-                    var test = FoldTruth(conditional.Test, entityType, unboundedSearchIsTrue, memo);
+                    var test = FoldTruth(conditional.Test, entityType, rules, memo);
                     if (test == Truth.True)
-                        return FoldTruth(conditional.IfTrue, entityType, unboundedSearchIsTrue, memo);
+                        return FoldTruth(conditional.IfTrue, entityType, rules, memo);
                     if (test == Truth.False)
-                        return FoldTruth(conditional.IfFalse, entityType, unboundedSearchIsTrue, memo);
-                    var ifTrue = FoldTruth(conditional.IfTrue, entityType, unboundedSearchIsTrue, memo);
-                    return ifTrue == FoldTruth(conditional.IfFalse, entityType, unboundedSearchIsTrue, memo) ? ifTrue : Truth.Unknown;
+                        return FoldTruth(conditional.IfFalse, entityType, rules, memo);
+                    var ifTrue = FoldTruth(conditional.IfTrue, entityType, rules, memo);
+                    return ifTrue == FoldTruth(conditional.IfFalse, entityType, rules, memo) ? ifTrue : Truth.Unknown;
                 }
                 case ExpressionType.Equal:
                 case ExpressionType.GreaterThanOrEqual:
                 case ExpressionType.LessThanOrEqual:
-                    return IsSelfComparison(expression, entityType) ? Truth.True : EvaluateLeaf(expression);
+                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.True : EvaluateLeaf(expression);
                 case ExpressionType.NotEqual:
                 case ExpressionType.GreaterThan:
                 case ExpressionType.LessThan:
-                    return IsSelfComparison(expression, entityType) ? Truth.False : EvaluateLeaf(expression);
+                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.False : EvaluateLeaf(expression);
                 case ExpressionType.Call:
-                    return unboundedSearchIsTrue && IsUnboundedSearch((MethodCallExpression)expression, entityType)
+                    return rules == FoldRules.VerdictWithUnboundedSearch && IsUnboundedSearch((MethodCallExpression)expression, entityType)
                         ? Truth.True
                         : EvaluateLeaf(expression);
                 default:
@@ -479,7 +505,8 @@ namespace Funcular.Data.Orm
             IsEvaluable(expression) ? Evaluate(expression) : Truth.Unknown;
 
         /// <summary>
-        /// A string <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a property of the entity whose search value
+        /// A string <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a property of the entity (a direct one: on a
+        /// member of a member the translators reject the receiver, on every path; review R-2, A/N-3) whose search value
         /// reads no parameter and is the empty string: <c>LIKE '%%'</c>, which matches every non-null row.
         /// </summary>
         private static bool IsUnboundedSearch(MethodCallExpression call, Type entityType)
@@ -490,7 +517,7 @@ namespace Funcular.Data.Orm
             var name = call.Method.Name;
             if (name != "Contains" && name != "StartsWith" && name != "EndsWith")
                 return false;
-            if (MemberChain(call.Object, entityType) == null)
+            if (MemberChain(call.Object, entityType)?.Count != 1)
                 return false;
             var argument = call.Arguments[0];
             return IsEvaluable(argument) && TryRead(argument, out var value) && value is string text && text.Length == 0;
@@ -641,7 +668,16 @@ namespace Funcular.Data.Orm
                 : null;
         }
 
-        private static bool IsSelfComparison(Expression expression, Type entityType)
+        /// <summary>
+        /// Whether <paramref name="expression"/> compares a member chain of the entity with the same chain. With
+        /// <paramref name="broad"/> (the verdict's rule, 3.10's), any chain, type and operator; without it (the rule for
+        /// the SQL every path sends), only where C# answers the same for every row: a direct property (a member of a
+        /// member is the translator's to accept or reject; review R-1, A-3), not <c>float</c>/<c>double</c> (NaN isn't
+        /// equal to itself; A-2), and not a nullable's <c>&gt;=</c>/<c>&lt;=</c> (false for a null operand, true
+        /// otherwise, which translating it as written reproduces; A-2). A nullable's <c>&lt;</c>/<c>&gt;</c> is false for
+        /// every row, null included, so it does fold (review R-2, A/N-4: <c>!(x.N &lt; x.N)</c> keeps the null rows, as C# does).
+        /// </summary>
+        private static bool IsSelfComparison(Expression expression, Type entityType, bool broad)
         {
             switch (expression.NodeType)
             {
@@ -658,18 +694,31 @@ namespace Funcular.Data.Orm
             var binary = (BinaryExpression)expression;
             var left = MemberChain(binary.Left, entityType);
             var right = MemberChain(binary.Right, entityType);
-            // A property of the entity only (review R-1, A-3): a member of a member is the translator's to accept or reject.
-            if (left == null || right == null || left.Count != 1 || right.Count != 1 || !SameMember(left[0], right[0]))
+            if (left == null || right == null || !SameChain(left, right))
                 return false;
+            if (broad)
+                return true;
 
-            // Only where C# makes the comparison always hold (review R-1, A-2): NaN isn't equal to itself, and a lifted
-            // ordered comparison is false for a null operand (`n >= n` excludes the null rows, as SQL does).
+            if (left.Count != 1)
+                return false;
             var type = binary.Left.Type;
             var underlying = Nullable.GetUnderlyingType(type) ?? type;
             if (underlying == typeof(double) || underlying == typeof(float))
                 return false;
-            var ordered = expression.NodeType != ExpressionType.Equal && expression.NodeType != ExpressionType.NotEqual;
-            return !(ordered && Nullable.GetUnderlyingType(type) != null);
+            var orEqual = expression.NodeType == ExpressionType.GreaterThanOrEqual || expression.NodeType == ExpressionType.LessThanOrEqual;
+            return !(orEqual && Nullable.GetUnderlyingType(type) != null);
+        }
+
+        private static bool SameChain(List<MemberInfo> left, List<MemberInfo> right)
+        {
+            if (left.Count != right.Count)
+                return false;
+            for (var i = 0; i < left.Count; i++)
+            {
+                if (!SameMember(left[i], right[i]))
+                    return false;
+            }
+            return true;
         }
 
         private static bool SameMember(MemberInfo left, MemberInfo right) =>

@@ -51,13 +51,17 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
             }
         }
 
+        // One memo per translation: the folds of the body and of each truth position inside it are one pass (review R-1, A-4).
+        private readonly Dictionary<Expression, bool?> _truths = new Dictionary<Expression, bool?>();
+
+        /// <summary>The truths folded so far, keyed by the expression node (for the tests that pin the memo; review R-2, B/N-4).</summary>
+        internal IReadOnlyDictionary<Expression, bool?> Truths => _truths;
+
         /// <summary>
         /// Visits a part of the predicate in a truth position (the body, an operand of <c>&amp;&amp;</c>, <c>||</c> or
         /// <c>!</c>). A part whose truth is known without a row (<see cref="WherePredicateGuard.Fold"/>) is sent as a
         /// literal, so every path answers it as C# does (D-003 as amended by D-128).
         /// </summary>
-        private readonly Dictionary<Expression, bool?> _truths = new Dictionary<Expression, bool?>();
-
         private void VisitPredicate(Expression node)
         {
             var truth = WherePredicateGuard.Fold(node, typeof(T), _truths);

@@ -169,7 +169,8 @@ namespace Funcular.Data.Orm.MySql
         /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
         /// translated by the WHERE path every query takes, and refused by the all-rows guard
         /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
-        /// column, compares a column with itself or always holds, where a query would run it and return every row.
+        /// column, compares a column with itself, always holds or searches a column for an empty value that nothing else
+        /// bounds, where a query would run it and return every row.
         /// </summary>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
@@ -362,7 +363,8 @@ namespace Funcular.Data.Orm.MySql
         /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
         /// translated by the WHERE path every query takes, and refused by the all-rows guard
         /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
-        /// column, compares a column with itself or always holds, where a query would run it and return every row.
+        /// column, compares a column with itself, always holds or searches a column for an empty value that nothing else
+        /// bounds, where a query would run it and return every row.
         /// </summary>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {

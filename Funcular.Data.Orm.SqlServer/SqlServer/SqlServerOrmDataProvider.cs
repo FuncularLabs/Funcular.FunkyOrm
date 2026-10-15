@@ -265,9 +265,10 @@ namespace Funcular.Data.Orm.SqlServer
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
         /// cref="InvalidOperationException"/> is thrown. The predicate is translated by the WHERE path every query
         /// takes, and checked by the all-rows guard (<see cref="WherePredicateGuard"/>) before it is translated and on
-        /// its WHERE clause after: a predicate that reads no column, compares a column with itself, or is always true
-        /// through literals or captured values is refused here, where a query would run it and return every row. The
-        /// checks don't catch every predicate that is true for every row.</remarks>
+        /// its WHERE clause after: a predicate that reads no column, compares a column with itself, is always true
+        /// through literals or captured values, or searches a column for an empty value that nothing else bounds is
+        /// refused here, where a query would run it and return every row. The checks don't catch every predicate that
+        /// is true for every row.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
         /// delete operation. It must not be null, and must not plainly match every row: <c>x =&gt; true</c>,
@@ -1433,8 +1434,9 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="translator">Optional <see cref="SqlExpressionTranslator"/> to assist with translating method calls and members.</param>
         /// <param name="operation">What the predicate is used for (D-003 as amended by D-128): for a
         /// <see cref="WhereOperation.MassMutation"/> the all-rows guard refuses a predicate that reads no column, compares a
-        /// column with itself or always holds, before discovery and on the translated clause; for a
-        /// <see cref="WhereOperation.Read"/> (the default) it accepts everything. One translation path, one flag.</param>
+        /// column with itself, always holds or searches a column for an empty value that nothing else bounds, before
+        /// discovery and on the translated clause; for a <see cref="WhereOperation.Read"/> (the default) it accepts
+        /// everything. One translation path, one flag.</param>
         /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
         protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,

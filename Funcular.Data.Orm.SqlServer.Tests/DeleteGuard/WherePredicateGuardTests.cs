@@ -31,6 +31,27 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             public bool Flag { get; set; }
             public int? N { get; set; }
             public double Amount { get; set; }
+            public DateTime Created { get; set; }
+            public Inner Child { get; set; }
+        }
+
+        public class Inner
+        {
+            public string Name { get; set; }
+        }
+
+        /// <summary>Counts the reads of its property, to show whether a path evaluated the captured part at all.</summary>
+        public class CountingHolder
+        {
+            public static int Reads;
+            public bool Flag
+            {
+                get
+                {
+                    Reads++;
+                    return true;
+                }
+            }
         }
 
         public static class StaticFlags
@@ -152,6 +173,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly Bag capturedBag = new Bag();
         private readonly CountingProvider capturedProvider = new CountingProvider();
         private readonly KeyValuePair<string, Named> capturedPair = new KeyValuePair<string, Named>("k", new Named());
+        private readonly object boxedTrue = true;
+        private readonly CountingHolder counting = new CountingHolder();
 
         private Dictionary<string, LambdaExpression> Predicates()
         {
@@ -234,6 +257,20 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["nSelfEq"] = P(x => x.N == x.N),
                 ["amountSelfEq"] = P(x => x.Amount == x.Amount),
                 ["nameLengthSelf"] = P(x => x.Name.Length == x.Name.Length),
+                // Review R-2 (A/N-1): a bool unboxed from a captured object is evaluated as a whole, as 6daabcd did.
+                ["orBoxedTrue"] = P(x => (bool)boxedTrue || x.Id == 1),
+                ["orNotBoxedTrue"] = P(x => x.Id == 2 || !(bool)boxedTrue),
+                // Review R-2 (A/N-2): the verdict keeps 3.10's broad self-comparison (any member chain, any type, any
+                // operator); only the fold that decides the SQL is narrowed to where C# makes the answer the same for every row.
+                ["idOrNameLengthSelf"] = P(x => x.Id == -1 || x.Name.Length == x.Name.Length),
+                ["idOrYearSelf"] = P(x => x.Id == -1 || x.Created.Year == x.Created.Year),
+                ["notAmountNeSelf"] = P(x => !(x.Amount != x.Amount)),
+                ["idOrNullableGeSelf"] = P(x => x.Id == -1 || x.N >= x.N),
+                // Review R-2 (A/N-4): C#'s lifted < is false for every row, null included, so it folds (and !(n < n) holds).
+                ["nSelfLt"] = P(x => x.N < x.N),
+                ["notNSelfLt"] = P(x => !(x.N < x.N)),
+                // Review R-2 (A/N-3): an empty search on a member of a member is the translator's to reject, on every path.
+                ["childNameContainsEmpty"] = P(x => x.Child.Name.Contains("")),
                 ["nameContainsThisProperty"] = P(x => x.Name.Contains(FilterProperty)),
                 ["nameEqualsCapturedToString"] = P(x => x.Name == capturedS.ToString()),
                 ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
@@ -389,11 +426,23 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idOrNameContainsEmpty", WherePredicateVerdict.UnboundedSearch)]
         [DataRow("idAndNameContainsEmpty", WherePredicateVerdict.Acceptable)]
         [DataRow("nameContainsNull", WherePredicateVerdict.Acceptable)]
-        // Review R-1 (A-2, A-3): C#'s lifted >= is false for null, == is false for NaN, and a member of a member isn't a column.
-        [DataRow("nSelfGe", WherePredicateVerdict.Acceptable)]
+        // Review R-2 (A/N-2): the verdict is 3.10's — a column, or a member of one, compared with itself by any operator
+        // is refused as a mass mutation (it touches every row, or every non-null row), whatever the SQL fold does with it.
+        [DataRow("nSelfGe", WherePredicateVerdict.SelfReference)]
         [DataRow("nSelfEq", WherePredicateVerdict.SelfReference)]
-        [DataRow("amountSelfEq", WherePredicateVerdict.Acceptable)]
-        [DataRow("nameLengthSelf", WherePredicateVerdict.Acceptable)]
+        [DataRow("amountSelfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("nameLengthSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("idOrNameLengthSelf", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("idOrYearSelf", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("notAmountNeSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("idOrNullableGeSelf", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("nSelfLt", WherePredicateVerdict.Acceptable)]
+        [DataRow("notNSelfLt", WherePredicateVerdict.SelfReference)]
+        // Review R-2 (A/N-1): a cast from a captured object is evaluated as a whole.
+        [DataRow("orBoxedTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orNotBoxedTrue", WherePredicateVerdict.Acceptable)]
+        // Review R-2 (A/N-3): an empty search on a member of a member isn't the guard's; the translators reject it on every path.
+        [DataRow("childNameContainsEmpty", WherePredicateVerdict.Acceptable)]
         public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
             Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
@@ -477,6 +526,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orContainsWildcard")]
         [DataRow("orCapturedStringEquals")]
         [DataRow("orCapturedStringNotEquals")]
+        [DataRow("childNameContainsEmpty")]
+        [DataRow("nSelfLt")]
+        [DataRow("orNotBoxedTrue")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>
@@ -493,6 +545,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("rolesContainsOr", AlwaysTrueMessage)]
         [DataRow("orCapturedSEqS", AlwaysTrueMessage)]
         [DataRow("nameContainsEmpty", UnboundedSearchMessage)]
+        // Review R-2: the shapes the round-1 fixes let through (A/N-1, A/N-2) and the lifted-< fold (A/N-4).
+        [DataRow("orBoxedTrue", AlwaysTrueMessage)]
+        [DataRow("idOrNullableGeSelf", AlwaysTrueMessage)]
+        [DataRow("idOrNameLengthSelf", AlwaysTrueMessage)]
+        [DataRow("notAmountNeSelf", SelfReferenceMessage)]
+        [DataRow("notNSelfLt", SelfReferenceMessage)]
         public void Validate_RejectsAnAllRowsPredicate_OnlyForAMassMutation(string key, string expectedMessage)
         {
             var predicate = Predicates()[key];
@@ -567,6 +625,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("nameLengthSelf", null)]
         [DataRow("nameContainsEmpty", null)]
         [DataRow("nSelfEq", true)]
+        // Review R-2 (A/N-2): the broad verdict doesn't widen the SQL fold.
+        [DataRow("idOrNameLengthSelf", null)]
+        [DataRow("idOrYearSelf", null)]
+        [DataRow("notAmountNeSelf", null)]
+        [DataRow("idOrNullableGeSelf", null)]
+        [DataRow("childNameContainsEmpty", null)]
+        // Review R-2 (A/N-4): C#'s lifted < is false for every row, so it folds, and its negation holds for every row.
+        [DataRow("nSelfLt", false)]
+        [DataRow("notNSelfLt", true)]
+        // Review R-2 (A/N-1): a bool unboxed from a captured object is read.
+        [DataRow("orBoxedTrue", true)]
+        [DataRow("orNotBoxedTrue", null)]
         public void Fold_GivesCSharpsTruthOrNull(string key, bool? expected)
         {
             var predicate = Predicates()[key];
@@ -586,35 +656,157 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Fold(orFalse, null));
         }
 
-        /// <summary>
-        /// Review R-1 (A-4, B-4): a memo makes the folds of a predicate's truth positions one pass over the tree, so a
-        /// long disjunction translates in linear time; and a <see cref="WhereOperation.Read"/> doesn't classify at all.
-        /// 1500 terms, each reading the row, through the guard and a visitor: the cubic-cost version took far longer
-        /// than the bound (measured in the red run, D-141).
-        /// </summary>
-        [TestMethod]
-        public void Fold_WithAMemo_TranslatesALongDisjunctionInLinearTime()
+        private const int DisjunctionTerms = 1500;
+
+        /// <summary>A left-deep disjunction of <see cref="DisjunctionTerms"/> terms, each reading the row: 1500 comparisons under 1499 <c>||</c>.</summary>
+        private static Expression<Func<GuardRow, bool>> LongDisjunction()
         {
             var x = Expression.Parameter(typeof(GuardRow), "x");
             Expression body = Expression.Equal(Expression.Property(x, nameof(GuardRow.Id)), Expression.Constant(0));
-            for (var i = 1; i < 1500; i++)
+            for (var i = 1; i < DisjunctionTerms; i++)
                 body = Expression.OrElse(body, Expression.Equal(Expression.Property(x, nameof(GuardRow.Id)), Expression.Constant(i)));
-            var predicate = Expression.Lambda<Func<GuardRow, bool>>(body, x);
+            return Expression.Lambda<Func<GuardRow, bool>>(body, x);
+        }
 
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-            WherePredicateGuard.Validate(predicate, WhereOperation.Read);
-            var memo = new Dictionary<Expression, bool?>();
+        /// <summary>Every truth position of a disjunction: each <c>||</c> and each of its operands.</summary>
+        private static IEnumerable<Expression> TruthPositions(Expression body)
+        {
+            var pending = new Stack<Expression>();
+            pending.Push(body);
+            while (pending.Count > 0)
+            {
+                var node = pending.Pop();
+                yield return node;
+                if (node is BinaryExpression binary && binary.NodeType == ExpressionType.OrElse)
+                {
+                    pending.Push(binary.Left);
+                    pending.Push(binary.Right);
+                }
+            }
+        }
+
+        /// <summary>A memo that counts its reads that hit and its writes, so a test can tell a lookup from a fold.</summary>
+        private sealed class CountingMemo : IDictionary<Expression, bool?>
+        {
+            private readonly Dictionary<Expression, bool?> _inner = new Dictionary<Expression, bool?>();
+            public int Hits;
+            public int Writes;
+
+            public bool TryGetValue(Expression key, out bool? value)
+            {
+                var found = _inner.TryGetValue(key, out value);
+                if (found)
+                    Hits++;
+                return found;
+            }
+
+            public bool? this[Expression key]
+            {
+                get => _inner[key];
+                set
+                {
+                    Writes++;
+                    _inner[key] = value;
+                }
+            }
+
+            public int Count => _inner.Count;
+            public bool IsReadOnly => false;
+            public ICollection<Expression> Keys => _inner.Keys;
+            public ICollection<bool?> Values => _inner.Values;
+            public void Add(Expression key, bool? value) { Writes++; _inner.Add(key, value); }
+            public void Add(KeyValuePair<Expression, bool?> item) => Add(item.Key, item.Value);
+            public bool ContainsKey(Expression key) => _inner.ContainsKey(key);
+            public bool Contains(KeyValuePair<Expression, bool?> item) => _inner.ContainsKey(item.Key);
+            public bool Remove(Expression key) => _inner.Remove(key);
+            public bool Remove(KeyValuePair<Expression, bool?> item) => _inner.Remove(item.Key);
+            public void Clear() => _inner.Clear();
+            public void CopyTo(KeyValuePair<Expression, bool?>[] array, int arrayIndex) => ((ICollection<KeyValuePair<Expression, bool?>>)_inner).CopyTo(array, arrayIndex);
+            public IEnumerator<KeyValuePair<Expression, bool?>> GetEnumerator() => _inner.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _inner.GetEnumerator();
+        }
+
+        /// <summary>
+        /// Review R-1 (A-4, B-4) and R-2 (B/N-4, A/N-6): the memo is pinned by counting, not by a clock. Folding the body
+        /// records every <c>bool</c> node once (1500 comparisons and 1499 <c>||</c>); folding each truth position
+        /// afterwards with the same memo is all lookups and no new fold, so the per-position folds a visitor makes are
+        /// one pass over the tree, not one per level.
+        /// </summary>
+        [TestMethod]
+        public void Fold_WithAMemo_FoldsEachTruthPositionOnce()
+        {
+            var body = LongDisjunction().Body;
+            var memo = new CountingMemo();
+
             Assert.IsNull(WherePredicateGuard.Fold(body, typeof(GuardRow), memo), "the whole reads the row");
-            Assert.IsTrue(memo.ContainsKey(((BinaryExpression)body).Left), "the memo doesn't record the operands");
-            var generator = new Funcular.Data.Orm.Visitors.ParameterGenerator();
-            var visitor = new Funcular.Data.Orm.Visitors.WhereClauseVisitor<GuardRow>(
-                new System.Collections.Concurrent.ConcurrentDictionary<string, string>(), new List<System.Reflection.PropertyInfo>(),
-                generator, new Funcular.Data.Orm.Visitors.SqlExpressionTranslator(generator), "t");
-            visitor.Visit(predicate);
-            watch.Stop();
+            Assert.AreEqual(2 * DisjunctionTerms - 1, memo.Writes, "the body's fold should record each bool node once");
+            Assert.AreEqual(0, memo.Hits, "the body's fold shouldn't look up what it hasn't recorded");
 
-            Assert.AreEqual(1500, visitor.Parameters.Count, "every term became a parameter");
-            Assert.IsTrue(watch.ElapsedMilliseconds < 5000, "1500 terms took " + watch.ElapsedMilliseconds + " ms");
+            var positions = 0;
+            foreach (var position in TruthPositions(body))
+            {
+                positions++;
+                Assert.IsNull(WherePredicateGuard.Fold(position, typeof(GuardRow), memo), "every position reads the row");
+            }
+            Assert.AreEqual(2 * DisjunctionTerms - 1, positions);
+            Assert.AreEqual(2 * DisjunctionTerms - 1, memo.Writes, "a truth position folded with the memo was folded again");
+            Assert.AreEqual(positions, memo.Hits, "a truth position wasn't answered from the memo");
+        }
+
+        /// <summary>
+        /// Review R-2 (B/N-4): each provider's WHERE visitor keeps one memo per translation and folds through it, so
+        /// after translating the long disjunction its memo holds every <c>bool</c> node; a visitor that folded without
+        /// the memo would hold none.
+        /// </summary>
+        [TestMethod]
+        public void EveryVisitor_FoldsThroughItsMemo()
+        {
+            var predicate = LongDisjunction();
+            var expected = 2 * DisjunctionTerms - 1;
+            var columns = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+            var unmapped = new List<System.Reflection.PropertyInfo>();
+
+            var sqlGenerator = new Funcular.Data.Orm.Visitors.ParameterGenerator();
+            var sqlServer = new Funcular.Data.Orm.Visitors.WhereClauseVisitor<GuardRow>(columns, unmapped, sqlGenerator,
+                new Funcular.Data.Orm.Visitors.SqlExpressionTranslator(sqlGenerator), "t");
+            sqlServer.Visit(predicate);
+            Assert.AreEqual(DisjunctionTerms, sqlServer.Parameters.Count, "SQL Server: every term became a parameter");
+            Assert.AreEqual(expected, sqlServer.Truths.Count, "SQL Server: the visitor didn't fold through its memo");
+
+            var pgGenerator = new Funcular.Data.Orm.PostgreSql.Visitors.PostgreSqlParameterGenerator();
+            var postgres = new Funcular.Data.Orm.PostgreSql.Visitors.PostgreSqlWhereClauseVisitor<GuardRow>(columns, unmapped, pgGenerator,
+                new Funcular.Data.Orm.PostgreSql.Visitors.PostgreSqlExpressionTranslator(pgGenerator), "t");
+            postgres.Visit(predicate);
+            Assert.AreEqual(expected, postgres.Truths.Count, "PostgreSQL: the visitor didn't fold through its memo");
+
+            var myGenerator = new Funcular.Data.Orm.MySql.Visitors.MySqlParameterGenerator();
+            var mySql = new Funcular.Data.Orm.MySql.Visitors.MySqlWhereClauseVisitor<GuardRow>(columns, unmapped, myGenerator,
+                new Funcular.Data.Orm.MySql.Visitors.MySqlExpressionTranslator(myGenerator), "t");
+            mySql.Visit(predicate);
+            Assert.AreEqual(expected, mySql.Truths.Count, "MySQL: the visitor didn't fold through its memo");
+
+            var liteGenerator = new Funcular.Data.Orm.Sqlite.Visitors.SqliteParameterGenerator();
+            var sqlite = new Funcular.Data.Orm.Sqlite.Visitors.SqliteWhereClauseVisitor<GuardRow>(columns, unmapped, liteGenerator,
+                new Funcular.Data.Orm.Sqlite.Visitors.SqliteExpressionTranslator(liteGenerator), "t");
+            sqlite.Visit(predicate);
+            Assert.AreEqual(expected, sqlite.Truths.Count, "SQLite: the visitor didn't fold through its memo");
+        }
+
+        /// <summary>
+        /// Review R-1 (A-4) and R-2 (B/N-4): a <see cref="WhereOperation.Read"/> isn't classified, so the captured part
+        /// of the predicate isn't read at all; the mass-mutation form reads it to reach its verdict.
+        /// </summary>
+        [TestMethod]
+        public void Validate_ForARead_DoesNotEvaluateThePredicate()
+        {
+            Expression<Func<GuardRow, bool>> predicate = x => counting.Flag || x.Id == 1;
+
+            CountingHolder.Reads = 0;
+            WherePredicateGuard.Validate(predicate, WhereOperation.Read);
+            Assert.AreEqual(0, CountingHolder.Reads, "a read evaluated the captured part");
+
+            Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation));
+            Assert.IsTrue(CountingHolder.Reads >= 1, "the mass-mutation classification didn't read the captured part");
         }
 
         /// <summary>
@@ -652,11 +844,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         {
 #pragma warning disable CS0618 // The obsolete API is the subject.
             var predicates = Predicates();
-            foreach (var key in new[] { "idEq2", "true", "selfEq", "orTrue" })
+            // Review R-2 (A/N-5): the 3.10.0 enum gained UnboundedSearch, so Classify's verdict and Validate's message agree.
+            foreach (var key in new[] { "idEq2", "true", "selfEq", "orTrue", "nameContainsEmpty" })
                 Assert.AreEqual(WherePredicateGuard.Classify(predicates[key]).ToString(),
                     DeletePredicateGuard.Classify(predicates[key]).ToString(), key);
-            // The 3.10.0 enum has no UnboundedSearch: the forwarder reports it as AlwaysTrue, the nearest 3.10.0 verdict.
-            Assert.AreEqual(DeletePredicateVerdict.AlwaysTrue, DeletePredicateGuard.Classify(predicates["nameContainsEmpty"]));
+            Assert.AreEqual(DeletePredicateVerdict.UnboundedSearch, DeletePredicateGuard.Classify(predicates["nameContainsEmpty"]));
+            var unbounded = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicates["nameContainsEmpty"]));
+            Assert.AreEqual(UnboundedSearchMessage, unbounded.Message);
             var selfReference = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicates["selfEq"]));
             Assert.AreEqual(SelfReferenceMessage, selfReference.Message);
             DeletePredicateGuard.Validate(predicates["orCapturedStringEquals"]); // D9's string-comparison rejection is gone (D-128)
