@@ -465,8 +465,6 @@ namespace Funcular.Data.Orm.Sqlite
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
-                    // The shared guard (D-003): the same checks as GenerateWhereClause, before and after translation.
-                    WherePredicateGuard.Validate(predicateExpression);
                     var whereVisitor = new SqliteWhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -474,7 +472,6 @@ namespace Funcular.Data.Orm.Sqlite
                         parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
-                    WherePredicateGuard.ValidateTranslation(whereVisitor.WhereClauseBody);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
                     if (whereVisitor.Parameters != null)

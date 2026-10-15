@@ -43,12 +43,28 @@ namespace Funcular.Data.Orm.MySql.Visitors
         {
             if (expression is LambdaExpression lambda)
             {
-                Visit(lambda.Body);
+                VisitPredicate(lambda.Body);
             }
             else
             {
                 VisitExpression(expression);
             }
+        }
+
+        /// <summary>
+        /// Visits a part of the predicate in a truth position (the body, an operand of <c>&amp;&amp;</c>, <c>||</c> or
+        /// <c>!</c>). A part whose truth is known without a row (<see cref="WherePredicateGuard.Fold"/>) is sent as a
+        /// literal, so every path answers it as C# does (D-003 as amended by D-128).
+        /// </summary>
+        private void VisitPredicate(Expression node)
+        {
+            var truth = WherePredicateGuard.Fold(node, typeof(T));
+            if (truth == true)
+                _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.TrueSql);
+            else if (truth == false)
+                _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.FalseSql);
+            else
+                VisitExpression(node);
         }
 
         private void VisitExpression(Expression node)
@@ -72,7 +88,7 @@ namespace Funcular.Data.Orm.MySql.Visitors
             if (node.NodeType == ExpressionType.Not)
             {
                 _commandTextBuilder.Append("NOT ");
-                Visit(node.Operand);
+                VisitPredicate(node.Operand);
             }
             else if (node.NodeType == ExpressionType.Convert)
             {
@@ -99,6 +115,13 @@ namespace Funcular.Data.Orm.MySql.Visitors
                 Expression nonNullSide = node.Left is ConstantExpression ? node.Right : node.Left;
                 Visit(nonNullSide);
                 _commandTextBuilder.Append(isEquality ? " IS NULL" : " IS NOT NULL");
+            }
+            else if (needsParentheses)
+            {
+                // The operands of && and || are truth positions: a part that doesn't read the row is sent as a literal.
+                VisitPredicate(node.Left);
+                _commandTextBuilder.Append(GetOperator(node.NodeType));
+                VisitPredicate(node.Right);
             }
             else
             {

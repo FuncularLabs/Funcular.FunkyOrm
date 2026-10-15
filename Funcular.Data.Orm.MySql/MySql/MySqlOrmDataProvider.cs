@@ -98,7 +98,6 @@ namespace Funcular.Data.Orm.MySql
 
         public override async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression)
         {
-            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -167,16 +166,18 @@ namespace Funcular.Data.Orm.MySql
         }
 
         /// <summary>
-        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate takes the
-        /// WHERE path every query takes (<see cref="WherePredicateGuard"/> before and after translation, D-003), so a
-        /// predicate that reads no column, compares a column with itself or always holds is rejected as it is by
-        /// <c>Query</c> and <c>Count</c>.
+        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
+        /// translated by the WHERE path every query takes, and refused by the all-rows guard
+        /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
+        /// column, compares a column with itself or always holds, where a query would run it and return every row.
         /// </summary>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery
             var components = GenerateWhereClause(predicate);
+            WherePredicateGuard.ValidateTranslation(components.WhereClause);
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -290,7 +291,6 @@ namespace Funcular.Data.Orm.MySql
         [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         public override ICollection<T> Query<T>(Expression<Func<T, bool>> expression)
         {
-            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -361,16 +361,18 @@ namespace Funcular.Data.Orm.MySql
         }
 
         /// <summary>
-        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate takes the
-        /// WHERE path every query takes (<see cref="WherePredicateGuard"/> before and after translation, D-003), so a
-        /// predicate that reads no column, compares a column with itself or always holds is rejected as it is by
-        /// <c>Query</c> and <c>Count</c>.
+        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
+        /// translated by the WHERE path every query takes, and refused by the all-rows guard
+        /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
+        /// column, compares a column with itself or always holds, where a query would run it and return every row.
         /// </summary>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
+            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery
             var components = GenerateWhereClause(predicate);
+            WherePredicateGuard.ValidateTranslation(components.WhereClause);
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -884,11 +886,6 @@ namespace Funcular.Data.Orm.MySql
             MySqlParameterGenerator parameterGenerator = null,
             MySqlExpressionTranslator translator = null) where T : class, new()
         {
-            // The shared guard (D-003) runs first, before T's columns are discovered: a predicate that reads no
-            // column, compares a column with itself, always holds, or compares two strings that don't read the row is
-            // rejected before any command, on this path as on every other.
-            WherePredicateGuard.Validate(expression);
-
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
@@ -905,7 +902,6 @@ namespace Funcular.Data.Orm.MySql
                 UnmappedPropertiesFor<T>(),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
-            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody);
 
             if (commandElements != null)
             {

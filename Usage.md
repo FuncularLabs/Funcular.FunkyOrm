@@ -512,23 +512,21 @@ var coastalPeople = provider.Query<Address>()
 The item you test must be a property of the entity (`p.Id`, `a.StateCode`). When it doesn't come from the row at
 all — `allowedRoles.Contains(currentUser.Role)`, `ids.Contains(request.Id)`, a local or a constant — FunkyORM
 answers it before sending the query, exactly as C# would (with the collection's own `Contains` and comparer), and
-the condition becomes `1=0` (false) or `NOT 1=0` (true). A predicate that such an answer makes always true is
-rejected (v3.11.0, on every path: `Query`, `Count`/`Any`/`All` and `Delete` alike), as is one that reads no column at
-all, so decide in C# what the query is:
+the condition becomes `1=0` (false) or `NOT 1=0` (true):
 
 ```csharp
 // Admins see every project; everyone else sees only their own.
-// Not `p.OwnerId == currentUser.Id || adminRoles.Contains(currentUser.Role)`: for an admin that predicate always
-// holds (SQL `owner_id = @p0 OR NOT 1=0`) and throws InvalidOperationException ("The WHERE clause is trivially true").
-var query = provider.Query<Project>();
-if (!adminRoles.Contains(currentUser.Role))
-    query = query.Where(p => p.OwnerId == currentUser.Id);
-var projects = query.ToList();
+// SQL, roughly: WHERE (owner_id = @p0 OR NOT 1=0) for an admin, WHERE (owner_id = @p0 OR 1=0) otherwise.
+var projects = provider.Query<Project>()
+    .Where(p => p.OwnerId == currentUser.Id || adminRoles.Contains(currentUser.Role))
+    .ToList();
 ```
 
 An item that reads the row any other way — `ids.Contains(p.Address.Id)`, `lengths.Contains(p.Name.Length)`, or
 `longIds.Contains(p.Id)` with a `List<long>` against an `int` property — throws `NotSupportedException` before any
-query is sent. The same translation, and the same guard, serve `Delete` (see [Delete by predicate](#4-a-where-clause-predicate-is-required-for-deletes)).
+query is sent. The same translation serves `Delete`, but a delete refuses a predicate that such an answer makes
+always true (`p.OwnerId == id || adminRoles.Contains("admin")` for an admin), or that reads no column at all (see
+[Delete by predicate](#4-a-where-clause-predicate-is-required-for-deletes)); the query runs it and returns every row.
 
 #### Chained Queries with Ordering and Paging
 You can chain multiple `Where` clauses, apply ordering, and paginate results for efficient data retrieval.
@@ -571,16 +569,14 @@ var underscored = provider.Query<Person>()
 
 The search value can be a literal, a local, a property of an object you hold (including `this`) or a static
 member; FunkyORM reads it before the query. A `null` value matches no row, negated or not (except inside `All`: see
-the Changelog's Known issues). An optional filter is decided in C#, not inside the predicate: since v3.11.0,
-`p => filter == null || p.LastName.Contains(filter)` with a null `filter` is rejected on every path
-(`InvalidOperationException`, "The WHERE clause is trivially true"), because the predicate then holds for every row.
+the Changelog's Known issues), and a comparison that doesn't read the row (`filter == null`) is evaluated in C# and
+sent as a literal, so an optional filter works:
 
 ```csharp
-// When filter is null, every row is returned; otherwise the rows whose LastName contains it.
-var query = provider.Query<Person>();
-if (filter != null)
-    query = query.Where(p => p.LastName.Contains(filter));
-var people = query.ToList();
+// When filter is null, every row is returned (SQL: WHERE NOT 1=0); otherwise the rows whose LastName contains it.
+var people = provider.Query<Person>()
+    .Where(p => filter == null || p.LastName.Contains(filter))
+    .ToList();
 ```
 
 Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
@@ -588,10 +584,11 @@ from the row (`role.Contains("admin")`) is answered before the query, as C# woul
 null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
 property throw `NotSupportedException` — test the value in C# before the query instead.
 
-`Delete`, `Count`, `Any` and `All` translate these the same way, with the same guard (v3.11.0): a search value that
-is null, empty, a wildcard character or a property of an object you hold, and a string `Contains` on a value that
-doesn't come from the row, are no longer rejected in a delete; a predicate that reads no column or always holds is
-rejected on every path.
+`Delete`, `Count`, `Any` and `All` translate these the same way (v3.11.0): a search value that is null, empty, a
+wildcard character or a property of an object you hold, and a string `Contains` on a value that doesn't come from
+the row, delete exactly the rows the query selects. A delete alone refuses a predicate that reads no column or
+always holds — the optional filter above with a null `filter` included: decide the delete in C#,
+`if (filter != null) provider.Delete<Person>(p => p.LastName.Contains(filter));`.
 
 `ToString()` on an integer property (`sbyte` through `ulong`, nullable or not) compares the column's text:
 `p => p.Id.ToString() == "42"`, and a null value's text is `""`, as in C#. The text is the invariant form (`-5`),
@@ -1449,14 +1446,15 @@ You tried to call `.Delete()` without starting a transaction.
 *   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
 
 ### 4. "A WHERE clause (predicate) is required for deletes"
-You passed `null` as the predicate. Every WHERE predicate — `Query(predicate)`, `Query<T>().Where(...)`, `Count`/`Any`/`All` with a predicate, `Delete(predicate)` and `DeleteAsync(predicate)` — is also checked by the same guard (v3.11.0, `WherePredicateGuard`; before, only a delete was), before any command is sent, with one of these messages:
+You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also refuse a predicate that plainly matches every row (v3.11.0: `WherePredicateGuard`, the 3.10.0 delete guard renamed; a query runs the same predicate normally and returns every row), before the DELETE is sent, with one of these messages:
 *   **"The WHERE clause must reference at least one column of the entity."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`, `x => ids.Contains(request.Id)`).
 *   **"The WHERE clause cannot be a self-referencing column expression."**: it compares a column with itself (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`).
 *   **"The WHERE clause is trivially true; a non-trivial WHERE clause is required."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null — the optional-filter idiom), or with a `Contains` on a captured string or collection that holds (`x => roles.Contains("admin") || x.OwnerId == me` for an admin); or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
-*   **`NotSupportedException`**, for a predicate the checks above accept, when it compares two strings neither of which reads the row and neither of which is a `null` literal (`x => x.Id == 2 || role == "admin"`): the database would compare them under its collation where C# compares them ordinally, so compute the comparison before the query. Comparisons that read a column are never rejected for case or collation; the database's collation decides them, as before. (A `Contains`, `StartsWith`, `EndsWith` or `ToString()` on a value that doesn't read the row, and a search value that is null, empty, a wildcard or a property of your own class, are no longer rejected in a delete: the translation answers or escapes them, as it does in a query; see the LIKE section above.)
 
-The first three usually come before any SQL runs, and before the type's columns are discovered. The third can also come once the WHERE clause is built: for the negated-`Contains` shape, for a `Contains` on a captured collection that holds (the SQL holds a literal `NOT 1=0`), and for a literal `1=1` in the SQL. For those, on a type's first use its columns are discovered first, and if its table doesn't exist you get that error instead.
-*   **The Fix**: Decide in C# what the query is, and pass only the column condition: `if (filter != null) provider.Delete<Person>(x => x.LastName == filter);`, or `var q = provider.Query<Person>(); if (filter != null) q = q.Where(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss, and since v3.11.0 a query is held to the same rule, so a predicate behaves the same wherever it is used.
+The 3.10.0 messages began with "Delete operation"; match the new text. The 3.10.0 `NotSupportedException` rejections of a delete (a search value that is null, empty, a wildcard or a property of your own class; a `Contains`, `StartsWith`, `EndsWith` or `ToString()` on a value that doesn't read the row; two strings that don't read the row) are gone: the translation now escapes the value, reads the property, and evaluates the `Contains`, the `ToString()` and the comparison in C#, as it does in a query (see the LIKE section above); a `StartsWith`/`EndsWith`/`ToString()` it can't evaluate throws on every path. Comparisons that read a column are never rejected for case or collation; the database's collation decides them, as in 3.9.
+
+The first two messages come before any SQL runs, and before the type's columns are discovered, and so does the third for a predicate that is always true before translation. The third can also come once the WHERE clause is built: for the negated-`Contains` shape, for a `Contains` on a captured collection that holds (the SQL holds a literal `NOT 1=0`), and for a literal `1=1` in the SQL. For those, on a type's first use its columns are discovered first, and if its table doesn't exist you get that error instead.
+*   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (filter != null) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss; a query is not blocked, because selecting every row loses nothing.
     *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). They evaluate as C# does, and the database can disagree in ways they don't list. Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
     *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.
 

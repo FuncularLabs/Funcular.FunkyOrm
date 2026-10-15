@@ -36,10 +36,9 @@ namespace Funcular.Data.Orm.Tests.LikeToString
 
         public const string NullableExpressionExceptionName = "Funcular.Data.Orm.Exceptions.NullableExpressionException";
 
-        // WherePredicateGuard (D-003) messages, the same on every path.
+        // WherePredicateGuard (D-003/D-128) messages: a delete's rejection of an all-rows predicate.
         public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
         public const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
-        public const string StringComparisonPrefix = "Comparing strings that don't read the row isn't supported in a WHERE clause";
 
         /// <summary>The message for <c>x.NCode.Value.ToString()</c> (D4; the guidance of <c>x.N.Value == 7</c>).</summary>
         public const string NullableValueToStringMessage =
@@ -253,16 +252,20 @@ namespace Funcular.Data.Orm.Tests.LikeToString
                     yield return new object[] { method, value, "Cap", path };
         }
 
-        // 3.11.0 (D-003): a string Contains on a value that doesn't read the row is answered in C# by the translation
-        // (FD-02) on every path; "abc".Contains("b") holds, so that predicate is always true and rejected on every path.
+        // 3.11.0 (D-003/D-128): a string Contains on a value that doesn't read the row is answered in C# on every path;
+        // "abc".Contains("b") holds, so x.Id == 1 || … selects every row, and a delete of it is refused (all rows).
         public static IEnumerable<object[]> CapturedContainsRows()
         {
             foreach (var value in new[] { "_", "%", "[a]" })
                 foreach (var path in Paths)
                     yield return new object[] { value, path };
+            foreach (var path in QueryPaths)
+                yield return new object[] { "b", path };
         }
 
         public static IEnumerable<object[]> PathRows() => Paths.Select(p => new object[] { p });
+
+        public static IEnumerable<object[]> DeletePathRows() => DeletePaths.Select(p => new object[] { p });
 
         public static IEnumerable<object[]> IntegerToStringRows()
         {
@@ -282,10 +285,17 @@ namespace Funcular.Data.Orm.Tests.LikeToString
                     yield return new object[] { key, path };
         }
 
-        public static IEnumerable<object[]> ToStringSelfRows()
+        public static IEnumerable<object[]> ToStringSelfDeleteRows()
         {
             foreach (var key in new[] { "codeSelf", "ncodeSelf", "nameSelf" })
-                foreach (var path in Paths)
+                foreach (var path in DeletePaths)
+                    yield return new object[] { key, path };
+        }
+
+        public static IEnumerable<object[]> ToStringSelfQueryRows()
+        {
+            foreach (var key in new[] { "codeSelf", "ncodeSelf", "nameSelf" })
+                foreach (var path in QueryPaths)
                     yield return new object[] { key, path };
         }
 
@@ -316,16 +326,17 @@ namespace Funcular.Data.Orm.Tests.LikeToString
             await AssertSelects(form == "Lit" ? Literal(method, value) : Captured(method, value), RowSeed, path,
                 $"{method}({value}) {form}");
 
-        // AC2: "abc".Contains(v) is false for these, so x.Id == 1 || … selects and deletes row 1 on every path.
+        // AC2: "abc".Contains(v) is false for "_", "%", "[a]", so x.Id == 1 || … selects and deletes row 1 on every
+        // path; it holds for "b", so the query selects every row (C#'s answer).
         [DataTestMethod]
         [DynamicData(nameof(CapturedContainsRows), DynamicDataSourceType.Method)]
         public async Task CapturedStringContains_SelectsWhatCSharpSelects(string value, string path) =>
             await AssertSelects(CapturedContains("abc", value), RowSeed, path, $"\"abc\".Contains({value})");
 
-        // AC2, 3.11.0 (D-003): "abc".Contains("b") holds, so x.Id == 1 || … always holds; the shared guard rejects it on every path.
+        // AC2, 3.11.0 (D-128): "abc".Contains("b") holds, so x.Id == 1 || … always holds; a delete of it is refused.
         [DataTestMethod]
-        [DynamicData(nameof(PathRows), DynamicDataSourceType.Method)]
-        public async Task CapturedStringContains_AlwaysTrue_IsRejectedOnEveryPath(string path)
+        [DynamicData(nameof(DeletePathRows), DynamicDataSourceType.Method)]
+        public async Task CapturedStringContains_AlwaysTrue_DeleteIsRefused(string path)
         {
             var exception = await AssertRejected(CapturedContains("abc", "b"), path, "\"abc\".Contains(b)");
             Assert.AreEqual(typeof(InvalidOperationException), exception.GetType(), $"\"abc\".Contains(b) {path}: {exception}");
@@ -423,16 +434,12 @@ namespace Funcular.Data.Orm.Tests.LikeToString
             }
         }
 
-        // AC10, under D-003: d.ToString() == d.ToString() compares two strings that don't read the row, which the shared
-        // guard rejects before the translator sees the ToString() (distinct from D4's "ToString() on a column of type").
+        // AC10, under D-128: d.ToString() == d.ToString() doesn't read the row and is a core type's ToString(), so the
+        // shared evaluation answers it in C# (true) and x.Id == 2 && … selects, and deletes, row 2 on every path.
         [DataTestMethod]
         [DynamicData(nameof(PathRows), DynamicDataSourceType.Method)]
-        public async Task NonColumnReceiverToString_IsRejected(string path)
-        {
-            var exception = await AssertRejected(NonColumnReceiver(1.5m), path, "d.ToString() == d.ToString()");
-            Assert.AreEqual(typeof(NotSupportedException), exception.GetType(), $"{path}: {exception}");
-            StringAssert.StartsWith(exception.Message, StringComparisonPrefix, path);
-        }
+        public async Task NonColumnReceiverToString_IsEvaluated(string path) =>
+            await AssertSelects(NonColumnReceiver(1.5m), RowSeed, path, "d.ToString() == d.ToString()");
 
         // The merge notes' rows: a column's ToString() compared with a captured value's is rejected for the captured side,
         // so the culture difference between the cast's invariant text and C#'s current-culture text can't arise.
@@ -462,15 +469,21 @@ namespace Funcular.Data.Orm.Tests.LikeToString
             }
         }
 
-        // T4-1, under D-003: the shared guard rejects a self-comparison through a no-argument ToString() on every path and provider.
+        // T4-1, under D-128: a self-comparison through a no-argument ToString() is refused as a delete on every provider…
         [DataTestMethod]
-        [DynamicData(nameof(ToStringSelfRows), DynamicDataSourceType.Method)]
-        public async Task ToStringSelfComparison_IsRejectedOnEveryPath(string key, string path)
+        [DynamicData(nameof(ToStringSelfDeleteRows), DynamicDataSourceType.Method)]
+        public async Task ToStringSelfComparison_DeleteIsRefused(string key, string path)
         {
             var exception = await AssertRejected(RowToString(key), path, key);
             Assert.AreEqual(typeof(InvalidOperationException), exception.GetType(), $"{key} {path}: {exception}");
             Assert.AreEqual(SelfReferenceMessage, exception.Message, $"{key} {path}");
         }
+
+        // …and selects every row as a query, as C# does (the row-independent truth of a self-comparison is sent as a literal).
+        [DataTestMethod]
+        [DynamicData(nameof(ToStringSelfQueryRows), DynamicDataSourceType.Method)]
+        public async Task ToStringSelfComparison_QuerySelectsEveryRow(string key, string path) =>
+            await AssertSelects(RowToString(key), RowSeed, path, key);
 
         // AC11
         [DataTestMethod]

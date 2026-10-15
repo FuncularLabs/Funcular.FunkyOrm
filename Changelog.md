@@ -10,31 +10,33 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
 (`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE, or
 throws the same exception on every path.
 
-**Behaviour change — one guard for every WHERE clause.** The checks that 3.10.0 ran only on `Delete(predicate)`
-(`DeletePredicateGuard`) now run on every WHERE predicate, before any command is sent: `Query(predicate)`,
-`Query<T>().Where(...)`, `Count`/`LongCount`/`Any`/`All` with a predicate, `Delete` and `DeleteAsync` all throw the
-same exception with the same message for the same predicate. So `Query` and `Count` now reject, with
-`InvalidOperationException`, shapes that returned rows in 3.10.x:
-- a predicate that reads no column of the entity: `x => true`, `x => 1 < 2`, `x => someFlag`,
-  `x => ids.Contains(request.Id)` ("The WHERE clause must reference at least one column of the entity.");
-- a comparison of a column with itself: `x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `(long)x.Id == (long)x.Id`,
-  `x.Code.ToString() == x.Code.ToString()` ("The WHERE clause cannot be a self-referencing column expression.");
-- a predicate that always holds: an `||` with `true`, a captured or static `true`, a comparison of captured values
-  that holds, or a `Contains` on a captured string or collection that holds — **including the optional-filter idiom
-  `x => filter == null || x.Name.Contains(filter)` when `filter` is null, and the admin idiom
-  `x => x.OwnerId == me || roles.Contains("admin")` for an admin** — and a negated `Contains` over an empty
-  collection in an `||` (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty) ("The WHERE clause is trivially
-  true; a non-trivial WHERE clause is required."). Decide in C# and compose the query:
-  `var q = provider.Query<Person>(); if (filter != null) q = q.Where(x => x.Name.Contains(filter));`;
-- and, with `NotSupportedException`, a comparison (`==`/`!=`) of two strings neither of which reads the row
-  (`x => x.Id == 2 || role == "admin"`): the database would compare them under its collation where C# compares them
-  ordinally; compute it before the query.
-The messages changed too (they no longer say "Delete operation"); code that matched the 3.10.0 text must match the new
-one. The other 3.10.0 delete-only rejections (D9) are gone, because the translation they guarded is fixed in this
-release (see Fixed): a search value that is a LIKE wildcard, null, empty or a property of an object you hold, and a
-string `Contains` on a value that doesn't read the row, now delete exactly the rows `Query` selects; a `StartsWith`,
-`EndsWith` or `ToString()` on a value that doesn't read the row is rejected by the translator with its own message,
-on every path. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003, D-004).
+**Behaviour change — shared evaluation; the all-rows guard refuses mass deletes only.** Translation and evaluation
+of a WHERE predicate are one path for `Query(predicate)`, `Query<T>().Where(...)`, `Count`/`LongCount`/`Any`/`All`
+and `Delete`/`DeleteAsync`, so a predicate selects exactly the rows it would delete. Two things change for callers:
+- **Parts of a predicate that don't read the row are evaluated in C# and sent as a literal** (`NOT 1=0` or `1=0`):
+  a constant (`x => true` now selects every row; before 3.11.0 it was a SQL error), a captured or static `bool`, a
+  comparison of captured values (`filter == null`), a captured string's `Contains`, a core type's `ToString()` with no
+  argument or a format string (`id.ToString() == "05"`; a user type's, an `IFormatProvider`'s or an arithmetic
+  result's `ToString()` is still rejected, see Changed), and a comparison of a column with itself (`x.Id == x.Id` is
+  true for every row, null included, as in C#). Two strings that don't read the row are therefore compared as C#
+  compares them (ordinal), never under the database's collation. The optional-filter idiom
+  `x => filter == null || x.Name.Contains(filter)` with a null `filter`, the admin idiom
+  `x => x.OwnerId == me || roles.Contains("admin")` for an admin, and `x => !emptyIds.Contains(x.Id)` select every
+  row, as C# does.
+- **`Delete(predicate)` and `DeleteAsync` refuse an all-rows predicate** — one that reads no column of the entity
+  ("The WHERE clause must reference at least one column of the entity."), compares a column with itself ("The WHERE
+  clause cannot be a self-referencing column expression."), or always holds, before translation or by a literal
+  `NOT 1=0` after it ("The WHERE clause is trivially true; a non-trivial WHERE clause is required.") — with
+  `InvalidOperationException`, before any command, where a query runs the same predicate and returns every row.
+  3.10.0 refused the same shapes; the messages changed (they no longer say "Delete operation"), so code that matched
+  the 3.10.0 text must match the new one. Decide the delete in C#: `if (filter != null) provider.Delete<Person>(x =>
+  x.Name == filter);`.
+The other 3.10.0 delete-only rejections (D9) are gone, because the translation they guarded is fixed in this release
+(see Fixed): a search value that is a LIKE wildcard, null, empty or a property of an object you hold, a string
+`Contains` on a value that doesn't read the row, and two strings that don't read the row, now delete exactly the rows
+`Query` selects; a `StartsWith`, `EndsWith` or `ToString()` the shared evaluation can't answer is rejected by the
+translator with its own message, on every path. Any future update by predicate takes the same path and the same
+guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128, D-004).
 
 ### Fixed
 - **The package now declares the drivers of every provider it bundles, at pinned minimums.** `Funcular.Data.Orm`
@@ -107,16 +109,17 @@ on every path. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003,
 - **A null search value** (`x.Name.Contains(filter)` with `filter == null`) sent `LIKE '%%'`, which matched every row
   with a non-null value. A null value for `Contains`, `StartsWith` or `EndsWith` now matches no row, negated or not
   (inside `All`, see Known issues). The optional-filter idiom `filter == null || x.Name.Contains(filter)` with a
-  null `filter` is rejected as always true (see Behaviour change): build the query conditionally instead.
+  null `filter` selects every row (`filter == null` is evaluated in C#, see Behaviour change), and the same idiom
+  with `StartsWith`/`EndsWith` no longer throws; a delete of it is refused as an all-rows delete.
 
 ### Changed
-- **Every WHERE predicate is checked by the shared guard** (`Funcular.Data.Orm.WherePredicateGuard`; see Behaviour
-  change above for the shapes and messages). The check runs before the entity's columns are discovered, on
-  `Query`/`QueryAsync`/`Delete`/`DeleteAsync` and on a LINQ `Where`, so a rejected predicate on a missing table
-  reports the guard, not discovery; `Count`/`Any`/`All` run it on their predicate too. `Delete` no longer checks that
-  the translated clause names a column of the table by text (a predicate on a remote property only is accepted,
-  as it is in a query). `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` and forward to the new
-  class, with its messages.
+- **The all-rows guard is `Funcular.Data.Orm.WherePredicateGuard`** (see Behaviour change above for the shapes and
+  messages). `Delete`/`DeleteAsync` run it before the entity's columns are discovered, so a refused delete on a
+  missing table reports the guard, not discovery, and on the translated clause after. `Delete` no longer checks that
+  the translated clause names a column of the table by text (a predicate on a remote property only is accepted, as it
+  is in a query). The WHERE visitors of all four providers evaluate the parts of a predicate that don't read the row
+  through the same class (`WherePredicateGuard.Fold`), so the guard's verdict and the SQL every path sends agree.
+  `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` and forward to the new class, with its messages.
 - **`Min`/`Max` over a type the database can't order as .NET does throw `NotSupportedException` before any command is
   sent:** an enum (aggregate its number and convert: `Max(x => (int)x.Status)`, which translates); `TimeSpan` (time
   types differ by provider: SQL Server and PostgreSQL `time` hold values under 24 hours, MySQL `TIME` spans ±838
@@ -193,10 +196,10 @@ before:
   read to answer a `Contains` before the query (an item that doesn't come from the row) is wrapped like any value.
 
 ### New public API
-- `Funcular.Data.Orm.WherePredicateGuard` (`Classify`, `Validate`, `ValidateTranslation`, `HasLiteralTautology`, and
-  its message constants) with `WherePredicateVerdict`: the guard every provider runs on every WHERE predicate, which
-  a custom provider can call too. `DeletePredicateGuard` and `DeletePredicateVerdict` (3.10.0) are `[Obsolete]`
-  forwarders.
+- `Funcular.Data.Orm.WherePredicateGuard` (`Classify`, `Validate`, `ValidateTranslation`, `HasLiteralTautology`,
+  `Fold`, and its message constants) with `WherePredicateVerdict`: the all-rows guard every provider's `Delete` runs,
+  and the evaluation of row-independent parts every provider's WHERE visitor uses, which a custom provider can call
+  too. `DeletePredicateGuard` and `DeletePredicateVerdict` (3.10.0) are `[Obsolete]` forwarders.
 - `Funcular.Data.Orm.Linq.RowIndependentEvaluator` (`IsRowIndependent`, `TryTranslateContains`, `TryReadValue`, and
   the SQL it sends: `TrueSql`, `FalseSql`, `UnknownSql`), which the four translators use and a custom provider can
   too. It evaluates by interpretation where the runtime has it (.NET Framework 4.7.1 and later, .NET Core) and

@@ -9,13 +9,17 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
-> **Status (2026-10-14, 3.11.0):** rev 16. **Task 6 is done under D-003 (decided 19:02 CT):** the delete guard is
-> now `WherePredicateGuard`, run on every WHERE path before and after translation; `IsContainsOfNull` is gone (a
-> `Contains` of null is unknown, as the translation's `NULL LIKE NULL` is); D9 keeps only the string-comparison
-> rejection; the harness's delete-only rows (`Delete_RejectedByDeleteGuard`, `Delete_AlwaysTrueAfterEvaluation_IsRejected`,
-> `GuardRejectsDelete`) are gone — every row either agrees on every path or is rejected identically on every path
-> (`Rejected_BeforeAnyCommand`), the always-true and column-free rows now rejected by Query too. The release is
-> 3.11.0 (D-004), not 3.10.2; the Changelog's Behaviour change note lists the shapes.
+> **Status (2026-10-14, 3.11.0):** rev 17. **Task 6 is done under D-003 as amended by Paul's D-128 (23:29 CT):**
+> translation and evaluation are one shared path — the four WHERE visitors send every part of a predicate that
+> doesn't read the row as a literal through `WherePredicateGuard.Fold` (a comparison of captured values, a captured
+> string's `Contains`, a core type's `ToString()`, a self-comparison), so `x => true`, the optional filter with a null
+> filter and `x.Id == 2 || ids.Contains(present.Id)` select every row as C# does — and the all-rows guard
+> (`WherePredicateGuard`, the renamed delete guard) refuses only a delete. `IsContainsOfNull` is gone (a `Contains` of
+> null is unknown, as the translation's `NULL LIKE NULL` is); D9 is gone entirely (its string comparison is evaluated
+> in C#). The harness: the all-rows rows are back in the Query rows and refused in
+> `Delete_RejectedByTheGuard_WhileQueryRunsNormally`; `Rejected_BeforeAnyCommand` keeps only what no path evaluates or
+> translates (D16's unevaluable `ToString()`s, nested receivers, null collections). Rev 16's "rejected by Query too"
+> (D-003 before the amendment, commit `712c7bb`) is superseded. The release is 3.11.0 (D-004), not 3.10.2.
 >
 > **Status (2026-10-14, 3.10.2):** rev 15. Landed on `release/3.10.2` as FD-02 (docs/plans/DECISIONS-3.10.2.md), with
 > Task 6 done against the 3.10.1 delete guard **without modifying the guard** (D-003 was open at the time): the rows

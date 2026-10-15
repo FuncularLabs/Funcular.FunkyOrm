@@ -17,14 +17,16 @@
 > direct harness pins the same branches with FD-02's messages. The branch `fix/like-escaping-tostring` is superseded
 > by that landing.
 >
-> **D-003 (decided 2026-10-14 19:02 CT; release 3.11.0 per D-004):** the delete guard's wildcard rejection is gone
-> with the escaping that made it moot, and the guard is shared by every WHERE path (`WherePredicateGuard`). The
-> harness rows that pinned delete-only rejections (`ColumnStringMethods_DeleteIsRejectedByGuard`,
-> `CapturedStringContains_DeleteIsRejectedByGuard`) are replaced: every literal and captured value deletes what it
-> selects (`ColumnDeleteRows` = the SELECT rows), `"abc".Contains("b")` is rejected as always true on every path
-> (`CapturedStringContains_AlwaysTrue_IsRejectedOnEveryPath`), a self-comparison through `ToString()` is rejected on
-> every path (`ToStringSelfComparison_IsRejectedOnEveryPath`), and AC10's `d.ToString() == d.ToString()` is the
-> guard's string-comparison rejection on every path (it reaches the guard before the translator).
+> **D-003 as amended by D-128 (2026-10-14; release 3.11.0 per D-004):** the delete guard's wildcard rejection is
+> gone with the escaping that made it moot; the guard (`WherePredicateGuard`) refuses an all-rows delete only, and
+> every path evaluates the parts of a predicate that don't read the row in C#. The harness rows that pinned
+> delete-only rejections (`ColumnStringMethods_DeleteIsRejectedByGuard`, `CapturedStringContains_DeleteIsRejectedByGuard`)
+> are replaced: every literal and captured value deletes what it selects (`ColumnDeleteRows` = the SELECT rows);
+> `"abc".Contains("b")` selects every row and its delete is refused (`CapturedStringContains_AlwaysTrue_DeleteIsRefused`);
+> a self-comparison through `ToString()` selects every row and its delete is refused
+> (`ToStringSelfComparison_QuerySelectsEveryRow`, `ToStringSelfComparison_DeleteIsRefused`); AC10's
+> `d.ToString() == d.ToString()` is evaluated in C# (true) and `x.Id == 2 && …` selects and deletes row 2 on every path
+> (`NonColumnReceiverToString_IsEvaluated`).
 >
 > **Status (2026-10-03):** rev 10. Task 0 is CLEAN at rev 5 (`288cda3`, §9.5). Task 1's seam is `049e45e` (§5.1),
 > Task 2 carries rev 6 (§5.2), Task 3 carries rev 7 (§5.3). Task 4's review of `ca82741..921c995` (§9.6) found 7,

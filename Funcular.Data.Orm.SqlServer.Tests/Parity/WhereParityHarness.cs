@@ -18,14 +18,14 @@ namespace Funcular.Data.Orm.Tests.Parity
     /// WHERE text and parameter values are byte-identical to the SELECT's: one translation path, no per-operation branch.
     /// There is no update-by-predicate API (D-102), so UPDATE has no row.
     /// <para>
-    /// D-003 (Paul, 2026-10-14): the former delete-only guard (<c>DeletePredicateGuard</c>, 3.10.0) is now the shared
-    /// <c>WherePredicateGuard</c>, run for every WHERE before any command: a predicate that reads no column, compares
-    /// a column with itself, always holds, or compares two strings that don't read the row is rejected identically by
-    /// Query, Count and Delete. A key in <see cref="ExpectedRejection"/> asserts that every path throws the same
-    /// exception type and message and sends nothing; every other key must agree with LINQ to objects on every path.
-    /// There are no delete-only rejections. The file is compiled into SqlServer.Tests and linked into
-    /// PostgreSql.Tests, MySql.Tests and Sqlite.Tests; one derived [TestClass] per provider supplies the table and the
-    /// provider.
+    /// D-003 as amended by D-128 (Paul, 2026-10-14): translation and evaluation are one shared path, so every path
+    /// selects (or deletes) the rows LINQ to objects selects, with the parts of a predicate that don't read the row
+    /// evaluated in C# (<c>x =&gt; true</c> is <c>NOT 1=0</c>, <c>s == "ZETA"</c> is <c>1=0</c>); the all-rows guard
+    /// (<c>WherePredicateGuard</c>: no column, a self-comparison, always true) applies to Delete only. A key in
+    /// <see cref="ExpectedDeleteRejection"/> asserts that Query, QueryAsync, Where and Count return C#'s rows while
+    /// Delete and DeleteAsync throw that exception and send nothing. The file is compiled into SqlServer.Tests and
+    /// linked into PostgreSql.Tests, MySql.Tests and Sqlite.Tests; one derived [TestClass] per provider supplies the
+    /// table and the provider.
     /// </para>
     /// </summary>
     public abstract class WhereParityHarness
@@ -35,7 +35,6 @@ namespace Funcular.Data.Orm.Tests.Parity
         public const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
         public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
         public const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
-        public const string StringComparisonMessage = "Comparing strings that don't read the row isn't supported in a WHERE clause";
 
         /// <summary>The start of the translators' message for a member of a member that isn't translated (FD-01).</summary>
         public static string MemberNotTranslated(string member) => "Member '" + member + "' of '";
@@ -159,14 +158,14 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "codeToStringEq7": return x => x.Code.ToString() == "7";
                 case "codeToStringEq07": return x => x.Code.ToString() == "07";
                 case "codeToStringEq70": return x => x.Code.ToString() == "70";
-                // D-003: the shared guard's shapes, rejected identically on every path before any command.
+                // D-003/D-128: the all-rows shapes. Query returns every row (C#'s answer); Delete rejects them.
                 case "trueLiteral": return x => true;
                 case "oneLtTwo": return x => 1 < 2;
                 case "idSelf": return x => x.Id == x.Id;
                 case "idOrTrue": return x => x.Id == 2 || true;
                 case "notEmptyContains": return x => !emptyIds.Contains(x.Id);
                 case "optionalFilterNull": return x => nullFilter == null || x.Name.Contains(nullFilter);
-                // False in C# (ordinal), true under a case-insensitive collation: the D9 hazard the guard keeps rejecting.
+                // False in C# (ordinal), true under a case-insensitive collation: evaluated in C# on every path (1=0).
                 case "idOrCapturedStringEquals": return x => x.Id == 3 || s == "ZETA";
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
@@ -205,18 +204,17 @@ namespace Funcular.Data.Orm.Tests.Parity
         }
 
         /// <summary>
-        /// A rejection the shared guard makes on every path (D-003), as the exception type and the start of its message;
-        /// null when every path must agree with LINQ to objects.
+        /// The all-rows guard's rejection of a delete (D-003 as amended by D-128), as the exception type and its exact
+        /// message; null when Delete must agree with Query. Query, QueryAsync, Where and Count run every key normally.
         /// </summary>
-        protected virtual KeyValuePair<Type, string>? ExpectedRejection(string key)
+        protected virtual KeyValuePair<Type, string>? ExpectedDeleteRejection(string key)
         {
             switch (key)
             {
                 // The evaluated Contains is true, so the WHERE is `… OR NOT 1=0`: the literal check after translation.
                 case "idOrCapturedItemPresent":
                 case "notEmptyContains":
-                // Always true before translation: `true`, or `nullFilter == null` with a null filter (the optional-filter
-                // idiom with no filter: compose the Where in C# instead).
+                // Always true before translation: `true`, or `nullFilter == null` with a null filter.
                 case "idOrTrue":
                 case "optionalFilterNull":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), AlwaysTrueMessage);
@@ -227,10 +225,6 @@ namespace Funcular.Data.Orm.Tests.Parity
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), NoColumnMessage);
                 case "idSelf":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), SelfReferenceMessage);
-                // Two strings that don't read the row: the database would compare them under its collation (a
-                // comparison that holds in C# is rejected as always true instead, as `s == "zeta"` would be).
-                case "idOrCapturedStringEquals":
-                    return new KeyValuePair<Type, string>(typeof(NotSupportedException), StringComparisonMessage);
                 default: return null;
             }
         }
@@ -324,13 +318,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         public void SelectCountAndDelete_AgreeWithLinqToObjects(string key)
         {
             var predicate = Predicate(key);
-            var rejection = ExpectedRejection(key);
-            if (rejection != null)
-            {
-                EveryPathRejectsIdentically(predicate, key, rejection.Value.Key, rejection.Value.Value);
-                return;
-            }
-
+            var rejection = ExpectedDeleteRejection(key);
             var expected = Ids(Rows.Where(predicate.Compile()));
             var expectedCount = expected.Length == 0 ? 0 : expected.Split(',').Length;
             var fragment = ExpectedWhereFragment(key);
@@ -378,12 +366,24 @@ namespace Funcular.Data.Orm.Tests.Parity
                             thrown = ex;
                         }
 
-                        Assert.IsNull(thrown, path + ": Delete threw where Query returned rows: " + thrown?.Message);
-                        var remaining = Remaining(provider);
-                        var deleted = string.Join(",", Rows.Select(r => r.Id).Where(id => !remaining.Contains(id)));
-                        Assert.AreEqual(expected, deleted, path + ": Delete removed other rows than Query selects");
-                        Assert.AreEqual(selectWhere, WhereOf(log, "DELETE", path), path + ": the DELETE's WHERE text differs from the SELECT's");
-                        Assert.AreEqual(selectParameters, ParametersOf(log), path + ": the DELETE's parameters differ from the SELECT's");
+                        if (rejection == null)
+                        {
+                            Assert.IsNull(thrown, path + ": Delete threw where Query returned rows: " + thrown?.Message);
+                            var remaining = Remaining(provider);
+                            var deleted = string.Join(",", Rows.Select(r => r.Id).Where(id => !remaining.Contains(id)));
+                            Assert.AreEqual(expected, deleted, path + ": Delete removed other rows than Query selects");
+                            Assert.AreEqual(selectWhere, WhereOf(log, "DELETE", path), path + ": the DELETE's WHERE text differs from the SELECT's");
+                            Assert.AreEqual(selectParameters, ParametersOf(log), path + ": the DELETE's parameters differ from the SELECT's");
+                        }
+                        else
+                        {
+                            // D-128: an all-rows predicate runs normally as a query and is refused as a delete, before any command.
+                            Assert.IsNotNull(thrown, path + ": expected the all-rows guard to refuse this delete");
+                            Assert.AreEqual(rejection.Value.Key, thrown.GetType(), path + ": " + thrown.Message);
+                            Assert.AreEqual(rejection.Value.Value, thrown.Message, path);
+                            Assert.IsFalse(log.Any(e => e != null && Regex.IsMatch(e, @"^\s*DELETE\b", RegexOptions.IgnoreCase)), path + ": a DELETE was sent");
+                            Assert.AreEqual(Rows.Length, Remaining(provider).Count, path + ": rows were deleted");
+                        }
                     }
                     finally
                     {
@@ -394,8 +394,8 @@ namespace Funcular.Data.Orm.Tests.Parity
         }
 
         /// <summary>
-        /// D-003: a shape the shared guard rejects is rejected by Query, QueryAsync, Query&lt;T&gt;().Where, Count, Delete
-        /// and DeleteAsync alike, with the same exception type and message, before any command is sent; nothing is deleted.
+        /// A shape no path translates is rejected by Query, QueryAsync, Query&lt;T&gt;().Where, Count, Delete and
+        /// DeleteAsync alike, with the same exception type and message, before any command is sent; nothing is deleted.
         /// </summary>
         private void EveryPathRejectsIdentically(Expression<Func<WpRow, bool>> predicate, string key, Type exceptionType, string messagePrefix)
         {

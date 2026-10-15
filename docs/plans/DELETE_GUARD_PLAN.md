@@ -8,17 +8,22 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
-> **Status (2026-10-14, 3.11.0, docs/plans/DECISIONS-3.10.2.md D-003):** the guard is now
-> `Funcular.Data.Orm.WherePredicateGuard`, shared by every WHERE path (`Query`, `Where`, `Count`/`Any`/`All`,
-> `Delete`), run before the entity's columns are discovered and on the translated clause after; `DeletePredicateGuard`
-> and `DeletePredicateVerdict` are `[Obsolete]` forwarders. Messages are operation-neutral ("The WHERE clause must
-> reference at least one column of the entity." / "… cannot be a self-referencing column expression." / "… is
-> trivially true; a non-trivial WHERE clause is required."). Of D9 (§5.8) only the string-comparison rejection
-> remains; the wildcard, null/empty, captured-property and row-independent-call rejections are gone, because the
-> 3.11.0 translation fixes what they guarded (FD-02, FD-03). `IsContainsOfNull` is gone (a `Contains` of null is
-> unknown, as the translation's `NULL LIKE NULL` is). The providers' post-translation "names a column of the table"
-> text check is gone (it would reject a remote-property predicate in a query). Tests: `WherePredicateGuardTests`
-> (was `DeletePredicateGuardTests`), `DeleteGuardHarness` (every rejected row also run through `Query` and `Count`).
+> **Status (2026-10-14, 3.11.0, docs/plans/DECISIONS-3.10.2.md D-003 as amended by D-128):** the guard is now
+> `Funcular.Data.Orm.WherePredicateGuard`: `Delete`/`DeleteAsync` (and any future update by predicate) run `Validate`
+> before the entity's columns are discovered and `ValidateTranslation` on the translated clause; a query runs the
+> same predicate normally and returns every row. Its `Fold` is public and is what the four WHERE visitors use to send
+> every part of a predicate that doesn't read the row as a literal (`NOT 1=0`/`1=0`), so the verdict and the SQL
+> agree by construction. `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` forwarders. Messages
+> are operation-neutral ("The WHERE clause must reference at least one column of the entity." / "… cannot be a
+> self-referencing column expression." / "… is trivially true; a non-trivial WHERE clause is required."). D9 (§5.8)
+> is gone entirely: the wildcard, null/empty, captured-property and row-independent-call rejections because the
+> 3.11.0 translation fixes what they guarded (FD-02, FD-03), and the string-comparison rejection because the
+> comparison is evaluated in C# on every path. `IsContainsOfNull` is gone (a `Contains` of null is unknown, as the
+> translation's `NULL LIKE NULL` is). The providers' post-translation "names a column of the table" text check is
+> gone (it would reject a remote-property predicate). Tests: `WherePredicateGuardTests` (was
+> `DeletePredicateGuardTests`; `Fold` rows), `DeleteGuardHarness` (every refused row also run through `Query` and
+> `Count`, which select every row — except `archivedOrNotEmpty`: a bare `bool` member in a truth position is sent as
+> the column alone, which SQL Server rejects; pre-existing, backlog).
 >
 > **Status (2026-10-05):** rev 16. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
 > 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and D9, the

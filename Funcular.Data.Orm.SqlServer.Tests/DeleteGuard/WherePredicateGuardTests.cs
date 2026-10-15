@@ -8,10 +8,11 @@ using System.Threading;
 namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
 {
     /// <summary>
-    /// The DB-free rows of the delete-guard plan (docs/plans/DELETE_GUARD_PLAN.md, §4.1), on the shared guard of
-    /// docs/plans/DECISIONS-3.10.2.md D-003: <see cref="WherePredicateGuard"/>'s classification of predicates (D2), its
-    /// argument contract (D1), its SQL check (D3) and the string-comparison rejection that survives of D9; and the
-    /// obsolete <see cref="DeletePredicateGuard"/>, which forwards to it.
+    /// The DB-free rows of the delete-guard plan (docs/plans/DELETE_GUARD_PLAN.md, §4.1), on the guard of
+    /// docs/plans/DECISIONS-3.10.2.md D-003 as amended by D-128: <see cref="WherePredicateGuard"/>'s classification of
+    /// predicates (D2), its argument contract (D1), its SQL check (D3), its <c>Fold</c> (the C# truth of a part that
+    /// doesn't read the row, which every path sends as a literal); and the obsolete <see cref="DeletePredicateGuard"/>,
+    /// which forwards to it. D9's rejections are gone: what they guarded is evaluated in C# on every path.
     /// </summary>
     [TestClass]
     public class WherePredicateGuardTests
@@ -411,38 +412,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             Assert.AreEqual(expectedMessage, exception.Message, key);
         }
 
-        private const string StringComparisonMessage = "Comparing strings that don't read the row isn't supported in a WHERE clause";
-
         /// <summary>
-        /// D9 (owner decision 2026-10-05), as kept by D-003: of the shapes the 3.10.0 delete guard rejected,
-        /// <see cref="WherePredicateGuard.Validate"/> still throws <see cref="NotSupportedException"/> for a comparison
-        /// of two strings neither of which reads the row (the database compares them under its collation). A verdict's
-        /// rejection comes first and keeps its message.
-        /// </summary>
-        [DataTestMethod]
-        [DataRow("orCapturedStringEquals", StringComparisonMessage)]
-        [DataRow("orCapturedStringNotEquals", StringComparisonMessage)]
-        public void Validate_RejectsAStringComparisonThatDoesntReadTheRow(string key, string expectedPrefix)
-        {
-            Exception thrown = null;
-            try
-            {
-                WherePredicateGuard.Validate(Predicates()[key]);
-            }
-            catch (Exception ex)
-            {
-                thrown = ex;
-            }
-            Assert.IsNotNull(thrown, $"{key}: accepted");
-            Assert.AreEqual(typeof(NotSupportedException), thrown.GetType(), $"{key}: {thrown}");
-            StringAssert.StartsWith(thrown.Message, expectedPrefix, key);
-        }
-
-        /// <summary>
-        /// The other D9 rejections are gone (D-003): the translation now escapes a wildcard, sends <c>LIKE NULL</c> for a
-        /// null value, reads a property of a captured object and answers a row-independent <c>Contains</c> in C#, and
-        /// the translators reject a <c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> on a value that doesn't read the
-        /// row themselves, on every path. The guard accepts them.
+        /// D9's rejections are gone (D-003/D-128): the translation now escapes a wildcard, sends <c>LIKE NULL</c> for a
+        /// null value, reads a property of a captured object, evaluates a row-independent <c>Contains</c> or string
+        /// comparison in C#, and the translators reject a <c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> on a
+        /// value that doesn't read the row themselves, on every path. The guard accepts them.
         /// </summary>
         [DataTestMethod]
         [DataRow("nameContains")]
@@ -468,17 +442,61 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orContainsNullOrdinal")]
         [DataRow("orNullContainsNull")]
         [DataRow("orContainsWildcard")]
+        [DataRow("orCapturedStringEquals")]
+        [DataRow("orCapturedStringNotEquals")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
-        /// <summary>A verdict's rejection is thrown before the string-comparison check, with its own message.</summary>
+        /// <summary>An evaluated part that makes the predicate always true is the verdict, with its message.</summary>
         [DataTestMethod]
         [DataRow("rolesContainsOr", AlwaysTrueMessage)]
         [DataRow("orCapturedContains", AlwaysTrueMessage)]
         [DataRow("orCapturedSEqS", AlwaysTrueMessage)]
-        public void Validate_VerdictComesBeforeTheUnsafeCallCheck(string key, string expectedMessage)
+        public void Validate_ThrowsAlwaysTrueForAnEvaluatedDisjunction(string key, string expectedMessage)
         {
             var exception = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.Validate(Predicates()[key]), key);
             Assert.AreEqual(expectedMessage, exception.Message, key);
+        }
+
+        /// <summary>
+        /// <see cref="WherePredicateGuard.Fold"/> (D-128): the C# truth of a part of a predicate that doesn't read the
+        /// row, or of a self-comparison, which every path sends as a literal; null when the part reads the row or can't
+        /// be evaluated without running code outside the core library.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("true", true)]
+        [DataRow("false", false)]
+        [DataRow("oneLtTwo", true)]
+        [DataRow("capturedTrue", true)]
+        [DataRow("orTrue", true)]
+        [DataRow("orCapturedSEqS", true)]
+        [DataRow("orLiteralContains", true)]
+        [DataRow("selfEq", true)]
+        [DataRow("selfNe", false)]
+        [DataRow("idToStringSelf", true)]
+        [DataRow("idEq2", null)]
+        [DataRow("orCapturedFalse", null)]
+        [DataRow("orCapturedStringEquals", null)]
+        [DataRow("orArithmetic", null)]
+        [DataRow("orObjectToString", null)]
+        [DataRow("orContainsNull", null)]
+        [DataRow("condUnknown", null)]
+        public void Fold_GivesCSharpsTruthOrNull(string key, bool? expected)
+        {
+            var predicate = Predicates()[key];
+            Assert.AreEqual(expected, WherePredicateGuard.Fold(predicate.Body, typeof(GuardRow)), key);
+        }
+
+        /// <summary>The right side of an OR whose left reads the row: the part itself folds even when the whole doesn't.</summary>
+        [TestMethod]
+        public void Fold_EvaluatesTheRowIndependentOperandOfADisjunction()
+        {
+            var orFalse = (BinaryExpression)Predicates()["orCapturedFalse"].Body;
+            var orStringEquals = (BinaryExpression)Predicates()["orCapturedStringEquals"].Body;
+            Assert.IsNull(WherePredicateGuard.Fold(orFalse.Left, typeof(GuardRow)), "x.Id == 2 reads the row");
+            Assert.AreEqual(false, WherePredicateGuard.Fold(orFalse.Right, typeof(GuardRow)), "capturedFalse");
+            Assert.AreEqual(false, WherePredicateGuard.Fold(orStringEquals.Right, typeof(GuardRow)), "\"A\" == \"a\" is false in C# (ordinal)");
+            Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Fold(null, typeof(GuardRow)));
+            Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Fold(orFalse, null));
         }
 
         /// <summary>
@@ -520,8 +538,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                     DeletePredicateGuard.Classify(predicates[key]).ToString(), key);
             var selfReference = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicates["selfEq"]));
             Assert.AreEqual(SelfReferenceMessage, selfReference.Message);
-            var comparison = Assert.ThrowsException<NotSupportedException>(() => DeletePredicateGuard.Validate(predicates["orCapturedStringEquals"]));
-            StringAssert.StartsWith(comparison.Message, StringComparisonMessage);
+            DeletePredicateGuard.Validate(predicates["orCapturedStringEquals"]); // D9's string-comparison rejection is gone (D-128)
             DeletePredicateGuard.Validate(predicates["idEq2"]);
             Assert.IsTrue(DeletePredicateGuard.HasLiteralTautology("t.id = @p OR NOT 1=0"));
             Assert.IsFalse(DeletePredicateGuard.HasLiteralTautology("t.id = @p"));

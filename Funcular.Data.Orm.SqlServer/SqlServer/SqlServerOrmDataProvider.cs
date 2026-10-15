@@ -152,7 +152,6 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         public override async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression)
         {
-            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -264,11 +263,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// predicate.
         /// </summary>
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
-        /// cref="InvalidOperationException"/> is thrown. The predicate takes the WHERE path every query takes
-        /// (<see cref="WherePredicateGuard"/> before it is translated, and on its WHERE clause after): a predicate that
-        /// reads no column, compares a column with itself, or is always true through literals or captured values is
-        /// rejected, as it is by <c>Query</c> and <c>Count</c>. The checks don't catch every predicate that is true for
-        /// every row.</remarks>
+        /// cref="InvalidOperationException"/> is thrown. The predicate is translated by the WHERE path every query
+        /// takes, and checked by the all-rows guard (<see cref="WherePredicateGuard"/>) before it is translated and on
+        /// its WHERE clause after: a predicate that reads no column, compares a column with itself, or is always true
+        /// through literals or captured values is refused here, where a query would run it and return every row. The
+        /// checks don't catch every predicate that is true for every row.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
         /// delete operation. It must not be null, and must not plainly match every row: <c>x =&gt; true</c>,
@@ -278,8 +277,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
         /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
         /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
-        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates (see
-        /// <see cref="WherePredicateGuard.Validate"/> and the translator).</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates.</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -288,7 +286,9 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
+            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery (D-003/D-128)
             var components = GenerateWhereClause(predicate);
+            WherePredicateGuard.ValidateTranslation(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -663,7 +663,6 @@ namespace Funcular.Data.Orm.SqlServer
         [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         public override ICollection<T> Query<T>(Expression<Func<T, bool>> expression)
         {
-            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -820,12 +819,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
         /// It must not plainly match every row: <c>x =&gt; true</c>, <c>x =&gt; x.Id == x.Id</c> and
-        /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="WherePredicateGuard"/>, on this path as on
-        /// <c>Query</c> and <c>Count</c>, to prevent accidental data loss. The checks don't catch every predicate that is
-        /// true for every row.</param>
+        /// <c>x =&gt; x.Id == id || true</c> are refused by <see cref="WherePredicateGuard"/> (a query runs them and
+        /// returns every row) to prevent accidental data loss. The checks don't catch every predicate that is true for
+        /// every row.</param>
         /// <returns>The number of rows deleted.</returns>
-        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates (see
-        /// <see cref="WherePredicateGuard.Validate"/> and the translator).</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates.</exception>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -834,7 +832,9 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
+            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery (D-003/D-128)
             var components = GenerateWhereClause(predicate);
+            WherePredicateGuard.ValidateTranslation(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -1440,11 +1440,6 @@ namespace Funcular.Data.Orm.SqlServer
             ParameterGenerator parameterGenerator = null,
             SqlExpressionTranslator translator = null) where T : class, new()
         {
-            // The shared guard (D-003) runs first, before T's columns are discovered: a predicate that reads no
-            // column, compares a column with itself, always holds, or compares two strings that don't read the row is
-            // rejected before any command, on this path as on every other.
-            WherePredicateGuard.Validate(expression);
-
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
@@ -1466,7 +1461,6 @@ namespace Funcular.Data.Orm.SqlServer
                 tableName,
                 remoteInfo.PropertyToColumnMap); // Pass the map
             visitor.Visit(expression);
-            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody);
             if (commandElements != null)
             {
                 commandElements.WhereClause = visitor.WhereClauseBody;

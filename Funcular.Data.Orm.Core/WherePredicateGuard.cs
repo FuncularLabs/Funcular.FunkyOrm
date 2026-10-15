@@ -30,15 +30,21 @@ namespace Funcular.Data.Orm
     }
 
     /// <summary>
-    /// Rejects WHERE predicates that would match every row, or that the database would answer otherwise than C# does,
-    /// on every path that translates one: <c>Query(predicate)</c>, <c>Query&lt;T&gt;().Where(...)</c>,
-    /// <c>Count</c>/<c>Any</c>/<c>All</c> with a predicate, and <c>Delete(predicate)</c> (one shared path,
-    /// docs/plans/DECISIONS-3.10.2.md D-001 and D-003). Each provider calls <see cref="Validate"/> before translating a
-    /// predicate (before the entity's columns are discovered, so a rejected predicate never sends a command) and
-    /// <see cref="ValidateTranslation"/> on the WHERE clause the translation produces. A custom provider can call them
-    /// too. This class is the former delete-only <c>DeletePredicateGuard</c> (3.10.0), which now forwards here.
-    /// <para>The guard rejects the shapes it can prove always hold. It doesn't prove that every always-true predicate
-    /// is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.</para>
+    /// The all-rows guard for mass mutations, and the shared evaluation of the parts of a WHERE predicate that don't
+    /// read the row (docs/plans/DECISIONS-3.10.2.md D-001, D-003 as amended by D-128).
+    /// <para><b>Guard.</b> <c>Delete(predicate)</c> (and any update by predicate) calls <see cref="Validate"/> before
+    /// translating the predicate, before the entity's columns are discovered, so a rejected predicate never sends a
+    /// command, and <see cref="ValidateTranslation"/> on the WHERE clause the translation produces: a predicate that
+    /// reads no column, compares a column with itself, or always holds is refused. Queries (<c>Query(predicate)</c>,
+    /// <c>Where</c>, <c>Count</c>/<c>Any</c>/<c>All</c>) run such predicates normally and return every row, as LINQ
+    /// to objects would. The guard rejects the shapes it can prove always hold; it doesn't prove that every always-true
+    /// predicate is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.</para>
+    /// <para><b>Evaluation.</b> Every provider's WHERE visitor calls <see cref="Fold"/> on each part of a predicate in a
+    /// truth position (the body, an operand of <c>&amp;&amp;</c>, <c>||</c> or <c>!</c>) and sends a part that doesn't
+    /// read the row as a literal (<c>NOT 1=0</c> or <c>1=0</c>), so a comparison of captured values, a captured
+    /// string's <c>Contains</c> or a core type's <c>ToString()</c> is answered as C# answers it, under C#'s ordinal
+    /// string comparison, on every path alike. A custom provider can call all of these. This class is the former
+    /// delete-only <c>DeletePredicateGuard</c> (3.10.0), which now forwards here.</para>
     /// </summary>
     public static class WherePredicateGuard
     {
@@ -109,7 +115,7 @@ namespace Funcular.Data.Orm
             if (!finder.Found)
                 return WherePredicateVerdict.NoColumn;
 
-            if (Fold(predicate.Body, entityType) != Truth.True)
+            if (FoldTruth(predicate.Body, entityType) != Truth.True)
                 return WherePredicateVerdict.Acceptable;
 
             return IsSelfComparison(StripNotAndConvert(predicate.Body), entityType)
@@ -119,19 +125,14 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// Throws <see cref="InvalidOperationException"/> with the message of the verdict when
-        /// <see cref="Classify"/> rejects <paramref name="predicate"/>. When it is
-        /// <see cref="WherePredicateVerdict.Acceptable"/>, throws <see cref="NotSupportedException"/> for a comparison
-        /// (<c>==</c> or <c>!=</c>) of two strings neither of which reads the row, unless one is a <c>null</c> literal:
-        /// the database would compare them under its collation, where C# compares them ordinally, so the predicate
-        /// could match other rows than C# selects. Otherwise returns. Run before the predicate is translated, on every
-        /// path.
+        /// <see cref="Classify"/> rejects <paramref name="predicate"/>; otherwise returns. A mass mutation (a delete,
+        /// an update by predicate) calls it before translating its predicate; a query doesn't.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is null.</exception>
         /// <exception cref="ArgumentException"><paramref name="predicate"/> doesn't have exactly one parameter, or its
         /// body isn't <c>bool</c>.</exception>
         /// <exception cref="InvalidOperationException">The predicate is rejected.</exception>
-        /// <exception cref="NotSupportedException">The predicate compares two strings that don't read the row.</exception>
         public static void Validate(LambdaExpression predicate)
         {
             switch (Classify(predicate))
@@ -143,17 +144,43 @@ namespace Funcular.Data.Orm
                 case WherePredicateVerdict.AlwaysTrue:
                     throw new InvalidOperationException(AlwaysTrueMessage);
             }
-            var finder = new RowIndependentStringComparisonFinder();
-            finder.Visit(predicate.Body);
-            if (finder.Message != null)
-                throw new NotSupportedException(finder.Message);
         }
 
         /// <summary>
-        /// Checks the WHERE clause a predicate translated to, on every path: it must not be empty, must not hold by its
+        /// The C# truth of <paramref name="expression"/>, a <c>bool</c> (or <c>bool?</c>) part of a predicate over an
+        /// entity of <paramref name="entityType"/>, when it can be known without a row: a constant; a part that reads
+        /// no parameter and is built from constants, field and property reads, casts, <c>!</c>, the logical operators,
+        /// comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c> and a core type's
+        /// <c>ToString()</c> (as <see cref="Classify"/> evaluates them: no code outside the core library runs, except
+        /// property getters); or a comparison of a member of the entity with itself (<c>x.Id == x.Id</c> is true,
+        /// <c>x.Id != x.Id</c> false). Null when the part reads the row otherwise, calls anything else, or its
+        /// evaluation throws (a <c>Contains</c> of null). The WHERE visitors send a known truth as a literal
+        /// (<c>NOT 1=0</c> / <c>1=0</c>) on every path, so Query and Delete agree, and so does
+        /// <see cref="Classify"/>'s verdict.
+        /// </summary>
+        /// <param name="expression">The part to evaluate.</param>
+        /// <param name="entityType">The entity type of the predicate's parameter.</param>
+        /// <returns>True, false, or null for unknown.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="expression"/> or <paramref name="entityType"/> is null.</exception>
+        public static bool? Fold(Expression expression, Type entityType)
+        {
+            if (expression == null)
+                throw new ArgumentNullException(nameof(expression));
+            if (entityType == null)
+                throw new ArgumentNullException(nameof(entityType));
+            switch (FoldTruth(expression, entityType))
+            {
+                case Truth.True: return true;
+                case Truth.False: return false;
+                default: return null;
+            }
+        }
+
+        /// <summary>
+        /// Checks the WHERE clause a delete's predicate translated to: it must not be empty, must not hold by its
         /// literals (<see cref="HasLiteralTautology(string)"/>: a <c>1=1</c>, or <c>t.id = @p OR NOT 1=0</c>, which a
-        /// negated <c>Contains</c> over an empty collection or a row-independent <c>Contains</c> that holds produces),
-        /// and must not be one operand compared with itself (<c>CAST(t.id AS TEXT) = CAST(t.id AS TEXT)</c>).
+        /// negated <c>Contains</c> over an empty collection or an evaluated part that holds produces), and must not be
+        /// one operand compared with itself (<c>CAST(t.id AS TEXT) = CAST(t.id AS TEXT)</c>).
         /// </summary>
         /// <param name="whereClause">The translated WHERE clause of one predicate, without the <c>WHERE</c> keyword.</param>
         /// <exception cref="ArgumentNullException"><paramref name="whereClause"/> is null.</exception>
@@ -276,7 +303,7 @@ namespace Funcular.Data.Orm
 
         private static bool IsBoolean(Type type) => type == typeof(bool) || type == typeof(bool?);
 
-        private static Truth Fold(Expression expression, Type entityType)
+        private static Truth FoldTruth(Expression expression, Type entityType)
         {
             if (!IsBoolean(expression.Type))
                 return Truth.Unknown;
@@ -295,20 +322,20 @@ namespace Funcular.Data.Orm
                 case ExpressionType.Not:
                 {
                     var unary = (UnaryExpression)expression;
-                    return unary.Method == null ? Not(Fold(unary.Operand, entityType)) : Truth.Unknown;
+                    return unary.Method == null ? Not(FoldTruth(unary.Operand, entityType)) : Truth.Unknown;
                 }
                 case ExpressionType.Convert:
                 case ExpressionType.ConvertChecked:
                 {
                     var unary = (UnaryExpression)expression;
-                    return unary.Method == null ? Fold(unary.Operand, entityType) : Truth.Unknown;
+                    return unary.Method == null ? FoldTruth(unary.Operand, entityType) : Truth.Unknown;
                 }
                 case ExpressionType.AndAlso:
                 case ExpressionType.And:
                 {
                     var binary = (BinaryExpression)expression;
                     return binary.Method == null
-                        ? And(Fold(binary.Left, entityType), Fold(binary.Right, entityType))
+                        ? And(FoldTruth(binary.Left, entityType), FoldTruth(binary.Right, entityType))
                         : Truth.Unknown;
                 }
                 case ExpressionType.OrElse:
@@ -316,19 +343,19 @@ namespace Funcular.Data.Orm
                 {
                     var binary = (BinaryExpression)expression;
                     return binary.Method == null
-                        ? Or(Fold(binary.Left, entityType), Fold(binary.Right, entityType))
+                        ? Or(FoldTruth(binary.Left, entityType), FoldTruth(binary.Right, entityType))
                         : Truth.Unknown;
                 }
                 case ExpressionType.Conditional:
                 {
                     var conditional = (ConditionalExpression)expression;
-                    var test = Fold(conditional.Test, entityType);
+                    var test = FoldTruth(conditional.Test, entityType);
                     if (test == Truth.True)
-                        return Fold(conditional.IfTrue, entityType);
+                        return FoldTruth(conditional.IfTrue, entityType);
                     if (test == Truth.False)
-                        return Fold(conditional.IfFalse, entityType);
-                    var ifTrue = Fold(conditional.IfTrue, entityType);
-                    return ifTrue == Fold(conditional.IfFalse, entityType) ? ifTrue : Truth.Unknown;
+                        return FoldTruth(conditional.IfFalse, entityType);
+                    var ifTrue = FoldTruth(conditional.IfTrue, entityType);
+                    return ifTrue == FoldTruth(conditional.IfFalse, entityType) ? ifTrue : Truth.Unknown;
                 }
                 case ExpressionType.Equal:
                 case ExpressionType.GreaterThanOrEqual:
@@ -515,48 +542,6 @@ namespace Funcular.Data.Orm
 
         private static bool SameMember(MemberInfo left, MemberInfo right) =>
             left == right || (left.Module == right.Module && left.MetadataToken == right.MetadataToken);
-
-        /// <summary>
-        /// Finds the first <c>==</c> or <c>!=</c> of two strings neither of which reads the row (nor is a null literal),
-        /// which the database would compare under its collation, and holds its message.
-        /// </summary>
-        private sealed class RowIndependentStringComparisonFinder : ExpressionVisitor
-        {
-            public string? Message { get; private set; }
-
-            protected override Expression VisitBinary(BinaryExpression node)
-            {
-                if (Message == null && (node.NodeType == ExpressionType.Equal || node.NodeType == ExpressionType.NotEqual)
-                    && node.Left.Type == typeof(string) && node.Right.Type == typeof(string)
-                    && !IsNullLiteral(node.Left) && !IsNullLiteral(node.Right)
-                    && !ParameterFinder.Reads(node.Left) && !ParameterFinder.Reads(node.Right))
-                    Message = "Comparing strings that don't read the row isn't supported in a WHERE clause; the database " +
-                              $"compares them under its collation, so compute it before the query: {node}";
-                return Message == null ? base.VisitBinary(node) : node;
-            }
-
-            private static bool IsNullLiteral(Expression expression) =>
-                expression is ConstantExpression constant && constant.Value == null;
-        }
-
-        /// <summary>Whether an expression reads any lambda parameter.</summary>
-        private sealed class ParameterFinder : ExpressionVisitor
-        {
-            private bool _found;
-
-            public static bool Reads(Expression expression)
-            {
-                var finder = new ParameterFinder();
-                finder.Visit(expression);
-                return finder._found;
-            }
-
-            protected override Expression VisitParameter(ParameterExpression node)
-            {
-                _found = true;
-                return node;
-            }
-        }
 
         /// <summary>Finds a member chain that ends at a parameter of the entity type, anywhere in a tree.</summary>
         private sealed class MemberChainFinder : ExpressionVisitor
