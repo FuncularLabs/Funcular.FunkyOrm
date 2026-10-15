@@ -56,5 +56,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.Parity
             "CAST(strftime('%" + (part == "Year" ? "Y" : part == "Month" ? "m" : "d") + "', " + column + ") AS INTEGER)";
 
         protected override string LengthSql(string column) => "LENGTH(" + column + ")";
+
+        protected override string CastToTextSql(string column) => "CAST(" + column + " AS TEXT)";
     }
 }

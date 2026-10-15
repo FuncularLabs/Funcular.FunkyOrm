@@ -131,6 +131,8 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
         .ToList();
     ```
 
+    The same goes for `ToString()`: `p.HospitalId.Value.ToString()` throws `NullableExpressionException`. On an integer property like this one, write `p.HospitalId.ToString()`, whose text is `""` when the value is null; on other types `ToString()` isn't translated (see [The `LIKE` Clause](#the-like-clause)).
+
     When using `List<int>.Contains()` with a nullable entity property, cast the list to match the nullable type rather than unwrapping the property:
 
     ```csharp
@@ -533,17 +535,23 @@ var results = provider.Query<Person>()
 ```
 
 #### The `LIKE` Clause
-Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property.
+Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property. The value is matched literally: `%`, `_` and `[` in it are ordinary characters, not wildcards. The SQL escapes them with `!` and names it with `ESCAPE '!'`.
 
 ```csharp
-// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%'
+// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%' ESCAPE '!'
 var smiths = provider.Query<Person>()
     .Where(p => p.LastName.Contains("Smith"))
     .ToList();
 
-// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%'
+// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%' ESCAPE '!'
 var scots = provider.Query<Person>()
     .Where(p => p.LastName.StartsWith("Mc"))
+    .ToList();
+
+// Query: SELECT * FROM Person WHERE LastName LIKE '%!_%' ESCAPE '!'
+// Only the last names that contain an underscore.
+var underscored = provider.Query<Person>()
+    .Where(p => p.LastName.Contains("_"))
     .ToList();
 ```
 
@@ -563,13 +571,23 @@ from the row (`role.Contains("admin")`) is answered before the query, as C# woul
 null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
 property throw `NotSupportedException` — test the value in C# before the query instead.
 
-`Delete` translates these the same way, but its guard still rejects a search value that is null, empty, or a
-property of an object you hold, and a string `Contains` on a value that doesn't come from the row: copy the value
-to a local, or test it in C#, before a delete.
+`Delete` translates these the same way, but its guard still rejects a search value that is null, empty, a
+property of an object you hold, or one that contains `%`, `_`, `[` or a backslash, and a string `Contains` on a
+value that doesn't come from the row: copy the value to a local, or test it in C#, before a delete.
 
-In a predicate or a projection, `ToString()` is translated only on a property of the entity. On anything else — a
-local, a constant, a property of an object you hold, with or without a format — it throws `NotSupportedException`:
-compute the string before the query and compare with that.
+`ToString()` on an integer property (`sbyte` through `ulong`, nullable or not) compares the column's text:
+`p => p.Id.ToString() == "42"`, and a null value's text is `""`, as in C#. The text is the invariant form (`-5`),
+while .NET formats a number in the current culture (`−5`, with U+2212, under fi-FI), so build the text you compare
+it with using `CultureInfo.InvariantCulture` before the query. The comparison is on the cast text, so it can't use
+an index on the column; where that matters, parse the text in C# and compare the integer. On a string property,
+`ToString()` is the property itself. On a property of any other type (a `char` included), or with an argument
+(`ToString("D2")`, `ToString(CultureInfo.InvariantCulture)`, on a string property too), it throws
+`NotSupportedException`: compare the property's value instead, computed before the query (for a `Guid` key,
+`var id = Guid.Parse(idText);` and then `p => p.Id == id`; on SQLite, see the Changelog's Known issues).
+
+In a predicate or a projection, `ToString()` on anything but a property of the entity — a local, a constant, a
+property of an object you hold, with or without a format — throws `NotSupportedException`: compute the string
+before the query and compare with that.
 
 ```csharp
 // Not a.PostalCode == zip.ToString("D5"): that throws.

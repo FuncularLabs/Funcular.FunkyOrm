@@ -73,5 +73,7 @@ namespace Funcular.Data.Orm.MySql.Tests.Parity
         protected override string DatePartSql(string part, string column) => "EXTRACT(" + part.ToUpperInvariant() + " FROM " + column + ")";
 
         protected override string LengthSql(string column) => "CHAR_LENGTH(" + column + ")";
+
+        protected override string CastToTextSql(string column) => "CAST(" + column + " AS CHAR)";
     }
 }

@@ -235,7 +235,7 @@ await Task.WhenAll(
         .ToList();
     ```
 
-*   **IN Clauses**: Use `list.Contains(item.Prop)`.
+*   **IN Clauses**: Use `list.Contains(item.Prop)`. The item must be a property of the entity; an item that doesn't come from the row (`ids.Contains(request.Id)`) is answered in C# before the query (`1=0` / `NOT 1=0`), and an item that reads the row any other way (`ids.Contains(p.Address.Id)`) throws `NotSupportedException`.
     ```csharp
     var ids = new[] { 1, 2, 3 };
     var results = provider.Query<Person>().Where(p => ids.Contains(p.Id)).ToList();
@@ -243,7 +243,9 @@ await Task.WhenAll(
 
 *   **Nullable Properties in Queries**: The ORM automatically unwraps nullables. Do NOT use `.Value` or `.HasValue` -- use the property directly. When using `list.Contains()` with a nullable entity property, cast the list to the nullable type (see Critical Rule #5 above).
 
-*   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on strings.
+*   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on a string property. The value is matched literally (`%`, `_` and `[` are escaped with `!`, and the pattern ends with `ESCAPE '!'`); a `null` value matches no row. Call them on a property of the entity; `StartsWith`/`EndsWith` on anything else throw, and a `Contains` on a value that doesn't come from the row is answered in C#.
+
+*   **Date parts and length**: `p.D.Year`/`.Month`/`.Day` on a `DateTime` property and `p.Name.Length` on a string property translate to the dialect's functions; any other member of a member (`.Hour`, `.Date`, a nested object's member) throws `NotSupportedException` — compute it before the query. `p.Code.ToString()` on an integer property compares the column's invariant text; on other types, or with an argument, it throws.
 
 *   **Complexity Warning**: Do not put complex in-memory logic (e.g., `x.Name.GetHashCode()`) inside `.Where()`.
 

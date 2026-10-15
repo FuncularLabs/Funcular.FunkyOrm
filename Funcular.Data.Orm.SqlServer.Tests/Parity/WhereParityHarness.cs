@@ -37,6 +37,9 @@ namespace Funcular.Data.Orm.Tests.Parity
         /// <summary>The start of the translators' message for a member of a member that isn't translated (FD-01).</summary>
         public static string MemberNotTranslated(string member) => "Member '" + member + "' of '";
 
+        /// <summary>The delete guard's D9 message for a LIKE wildcard in a search value (FD-03: the value is now escaped, the guard unchanged).</summary>
+        public static string GuardWildcardValue(string method) => method + "()'s search value contains a LIKE wildcard";
+
         [Table(Table)]
         public class WpRow
         {
@@ -82,6 +85,9 @@ namespace Funcular.Data.Orm.Tests.Parity
 
         /// <summary>The dialect's SQL for the character length of <paramref name="column"/> (FD-01).</summary>
         protected abstract string LengthSql(string column);
+
+        /// <summary>The dialect's cast of an integer <paramref name="column"/> to text, for a column's <c>ToString()</c> (FD-03, D4).</summary>
+        protected abstract string CastToTextSql(string column);
 
         #endregion
 
@@ -142,6 +148,15 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "postedAtDate": return x => x.PostedAt.Date == midnight;
                 case "childId": return x => x.Child.Id == 1;
                 case "conditionalLength": return x => (x.Id > 2 ? x.Name : "zz").Length > 2;
+                // FD-03: LIKE metacharacters in a search value are matched literally (rows 5 'a_b' and 6 'a%b'); a column's
+                // ToString() compares as text.
+                case "nameContainsUnderscore": return x => x.Name.Contains("_");
+                case "nameContainsPercent": return x => x.Name.Contains("%");
+                case "nameStartsWithAPercent": return x => x.Name.StartsWith("a%");
+                case "nameEndsWithUnderscoreB": return x => x.Name.EndsWith("_b");
+                case "codeToStringEq7": return x => x.Code.ToString() == "7";
+                case "codeToStringEq07": return x => x.Code.ToString() == "07";
+                case "codeToStringEq70": return x => x.Code.ToString() == "70";
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
                 case "idsContainsColumn": return x => ids.Contains(x.Id);
@@ -167,6 +182,13 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "postedAtYear2020AndMonth12": return DatePartSql("Month", Table + ".posted_at");
                 case "nameLengthGt3":
                 case "nameLengthEq3": return LengthSql(Table + ".name");
+                case "nameContainsUnderscore":
+                case "nameContainsPercent":
+                case "nameStartsWithAPercent":
+                case "nameEndsWithUnderscoreB": return " ESCAPE '!'";
+                case "codeToStringEq7":
+                case "codeToStringEq07":
+                case "codeToStringEq70": return CastToTextSql(Table + ".code") + " = ";
                 default: return null;
             }
         }
@@ -184,6 +206,11 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nameContainsThisProperty": return new KeyValuePair<Type, string>(typeof(NotSupportedException), GuardCapturedPropertyValue);
                 // D9: a string Contains on a value that doesn't read the row (the translation now answers it in C#).
                 case "idOrRowIndependentContains": return new KeyValuePair<Type, string>(typeof(NotSupportedException), GuardRowIndependentContains);
+                // D9: a LIKE wildcard in the search value (the translation now escapes it; the guard's reason "sent unescaped" is stale).
+                case "nameContainsUnderscore":
+                case "nameContainsPercent": return new KeyValuePair<Type, string>(typeof(NotSupportedException), GuardWildcardValue("Contains"));
+                case "nameStartsWithAPercent": return new KeyValuePair<Type, string>(typeof(NotSupportedException), GuardWildcardValue("StartsWith"));
+                case "nameEndsWithUnderscoreB": return new KeyValuePair<Type, string>(typeof(NotSupportedException), GuardWildcardValue("EndsWith"));
                 default: return null;
             }
         }
@@ -255,6 +282,13 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("idOrPostedAtYearGt2021")]
         [DataRow("nameLengthGt3")]
         [DataRow("nameLengthEq3")]
+        [DataRow("nameContainsUnderscore")]
+        [DataRow("nameContainsPercent")]
+        [DataRow("nameStartsWithAPercent")]
+        [DataRow("nameEndsWithUnderscoreB")]
+        [DataRow("codeToStringEq7")]
+        [DataRow("codeToStringEq07")]
+        [DataRow("codeToStringEq70")]
         [DataRow("idEquals")]
         [DataRow("idsContainsColumn")]
         [DataRow("notIdsContainsColumn")]

@@ -49,9 +49,11 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
         {
             if (node.Method.Name == "ToString")
             {
-                // Only a property's own ToString is translated: the column (D15). A ToString of anything else is
-                // rejected, never evaluated: the caller computes the string before the query (D16).
-                AppendColumn(node.Object, node, ToStringMessage, commandTextBuilder, getColumnName);
+                // A property's own ToString(): an integer column as its invariant text, a string column as itself, any
+                // other type or any argument rejected (3.10.2, FD-03, D4); x.N.Value.ToString() throws
+                // NullableExpressionException. A ToString of anything else is rejected, never evaluated: the caller
+                // computes the string before the query (FD-02, D16).
+                TranslateToString(node, commandTextBuilder, getColumnName);
                 return;
             }
 
@@ -75,7 +77,11 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
                     return;
                 }
                 commandTextBuilder.Append(" LIKE ");
-                AppendParameter($"%{searchValue}%", commandTextBuilder, parameters);
+                // LIKE metacharacters in the value are matched literally (3.10.2, FD-03): LikePattern escapes them
+                // with '!' and the pattern names it with ESCAPE '!', which also replaces PostgreSQL's default backslash
+                // escape, so a backslash in the value is literal.
+                AppendParameter($"%{LikePattern.Escape(searchValue.ToString())}%", commandTextBuilder, parameters);
+                commandTextBuilder.Append(LikePattern.EscapeClause);
                 return;
             }
 
@@ -238,17 +244,77 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
                     commandTextBuilder.Append($"{memberName} LIKE NULL");
                     return;
                 }
-                var param = _parameterGenerator.CreateParameter(argument.ToString());
+                var param = _parameterGenerator.CreateParameter(LikePattern.Escape(argument.ToString()));
                 parameters.Add(param);
                 var pattern = node.Method.Name == "StartsWith"
                     ? $"{param.ParameterName} || '%'"
                     : $"'%' || {param.ParameterName}";
-                commandTextBuilder.Append($"{memberName} LIKE {pattern}");
+                commandTextBuilder.Append($"{memberName} LIKE {pattern}{LikePattern.EscapeClause}");
                 return;
             }
 
             throw new NotSupportedException($"Method call {node.Method.Name} is not supported. Expression: {node}");
         }
+
+        /// <summary>
+        /// Translates <c>ToString</c> on a property of the entity (3.10.2, FD-03; docs/plans/LIKE_ESCAPING_TOSTRING_PLAN.md
+        /// D4): an integer column (<c>sbyte</c> through <c>ulong</c>) is its text in the invariant form, a nullable one
+        /// <c>''</c> for null as <c>int?.ToString()</c> gives, a string column is itself; any other column type, and any
+        /// argument (a format or a format provider), throws <see cref="NotSupportedException"/>, because the database's
+        /// text isn't .NET's. <c>x.N.Value.ToString()</c> throws <see cref="Funcular.Data.Orm.Exceptions.NullableExpressionException"/>,
+        /// whose message gives the rule above where the property's own <c>ToString()</c> isn't translated either. Any
+        /// other receiver is rejected (FD-02, D16), never evaluated.
+        /// </summary>
+        private void TranslateToString(MethodCallExpression node, StringBuilder commandTextBuilder, Func<PropertyInfo, string> getColumnName)
+        {
+            if (node.Object is MemberExpression valueMember && valueMember.Member.Name == "Value" &&
+                valueMember.Expression is MemberExpression nullableMember && nullableMember.Expression is ParameterExpression &&
+                Nullable.GetUnderlyingType(nullableMember.Type) != null)
+            {
+                var propName = nullableMember.Member.Name;
+                var underlying = Nullable.GetUnderlyingType(nullableMember.Type);
+                // The advice holds only where D4 translates the property's ToString(): an integer, with no argument.
+                var notTranslated = node.Arguments.Count > 0
+                    ? $"ToString() on a column of type {underlying.Name} isn't translated with an argument (a format or a format provider)"
+                    : !IsIntegerType(underlying)
+                        ? $"ToString() on a column of type {underlying.Name} isn't translated, because the database's text for it isn't .NET's"
+                        : null;
+                throw new Funcular.Data.Orm.Exceptions.NullableExpressionException(notTranslated == null
+                    ? $"Do not use '.Value' on nullable property '{propName}' in LINQ expressions. " +
+                      $"FunkyORM automatically unwraps nullable types. " +
+                      $"Use '{propName}' directly (e.g., p.{propName}.ToString() instead of p.{propName}.Value.ToString())."
+                    : $"Do not use '.Value' on nullable property '{propName}' in LINQ expressions. " +
+                      $"FunkyORM automatically unwraps nullable types, but {notTranslated}; compare the column's value instead: {node}");
+            }
+
+            if (node.Object is MemberExpression member && member.Expression is ParameterExpression &&
+                member.Member is PropertyInfo property)
+            {
+                var type = Nullable.GetUnderlyingType(member.Type) ?? member.Type;
+                if (node.Arguments.Count > 0)
+                    throw new NotSupportedException(
+                        $"ToString() on a column of type {type.Name} isn't translated with an argument (a format or a format provider); " +
+                        $"compare the column's value instead: {node}");
+                if (type == typeof(string))
+                {
+                    commandTextBuilder.Append(getColumnName(property));
+                    return;
+                }
+                if (!IsIntegerType(type))
+                    throw new NotSupportedException(
+                        $"ToString() on a column of type {type.Name} isn't translated, because the database's text for it isn't .NET's; " +
+                        $"compare the column's value instead: {node}");
+                var cast = $"CAST({getColumnName(property)} AS TEXT)";
+                commandTextBuilder.Append(member.Type == type ? cast : $"COALESCE({cast}, '')");
+                return;
+            }
+
+            throw new NotSupportedException(ToStringMessage + node);
+        }
+
+        private static bool IsIntegerType(Type type) =>
+            type == typeof(sbyte) || type == typeof(byte) || type == typeof(short) || type == typeof(ushort) ||
+            type == typeof(int) || type == typeof(uint) || type == typeof(long) || type == typeof(ulong);
 
         /// <summary>
         /// Translates date member access (Year, Month, Day) into PostgreSQL EXTRACT syntax.

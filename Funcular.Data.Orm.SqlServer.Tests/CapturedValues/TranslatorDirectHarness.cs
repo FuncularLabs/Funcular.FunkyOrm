@@ -32,6 +32,10 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         protected const string CouldNotEvaluateMessage = "Could not evaluate expression: ";
         protected const string ParameterReferencesMessage = "Collection Contains with parameter references is not supported: ";
         protected const string StringContainsValueMessage = "Unsupported expression in string Contains: ";
+        /// <summary>FD-03 (D4): a column's <c>ToString()</c> the dialect can't render as .NET's text.</summary>
+        protected const string ColumnToStringPrefix = "ToString() on a column of type ";
+        /// <summary>FD-03: the clause every LIKE pattern ends with.</summary>
+        protected const string Escape = " ESCAPE '!'";
 
         protected static string ReceiverMessage(string method) => method + "() is translated only on a property of the entity: ";
 
@@ -65,6 +69,9 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         /// <summary>The dialect's character-length function over <paramref name="column"/>.</summary>
         protected abstract string LengthSql(string column);
+
+        /// <summary>The dialect's cast of an integer <paramref name="column"/> to text (FD-03, D4).</summary>
+        protected abstract string CastToTextSql(string column);
 
         protected abstract string StartsWithPattern(string parameterName);
 
@@ -101,6 +108,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             public DateTime? Birth { get; set; }
             public DateTime Posted { get; set; }
             public DateTimeOffset Stamp { get; set; }
+            public decimal Amount { get; set; }
             public List<int> Tags { get; set; }
             public DtRange Window { get; set; }
             public DtInner Child { get; set; }
@@ -445,8 +453,26 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         public void StringContains_ConstantValue()
         {
             var result = Translate(CallOnRow(x => x.Name.Contains("a")));
-            Assert.AreEqual($"c.Name LIKE {result.Name(0)}", result.Sql);
+            Assert.AreEqual($"c.Name LIKE {result.Name(0)}{Escape}", result.Sql);
             Assert.AreEqual("%a%", result.Value(0));
+        }
+
+        // FD-03: LIKE metacharacters in the value are escaped with '!' and the pattern names it; a backslash isn't
+        // special once ESCAPE is explicit, so it isn't escaped.
+        [TestMethod]
+        public void StringContains_WildcardsEscaped()
+        {
+            var result = Translate(CallOnRow(x => x.Name.Contains("a_b%c[d!e\\f")));
+            Assert.AreEqual($"c.Name LIKE {result.Name(0)}{Escape}", result.Sql);
+            Assert.AreEqual("%a!_b!%c![d!!e\\f%", result.Value(0));
+        }
+
+        [TestMethod]
+        public void StringContains_CapturedWildcardEscaped()
+        {
+            var needle = "50%";
+            var result = Translate(CallOnRow(x => x.Name.Contains(needle)));
+            Assert.AreEqual("%50!%%", result.Value(0));
         }
 
         [TestMethod]
@@ -460,7 +486,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         public void StringContains_CapturedThisPropertyValue()
         {
             var result = Translate(new Holder().NameContainsFilter());
-            Assert.AreEqual($"c.Name LIKE {result.Name(0)}", result.Sql);
+            Assert.AreEqual($"c.Name LIKE {result.Name(0)}{Escape}", result.Sql);
             Assert.AreEqual("%zz%", result.Value(0), "a property of a captured this is read as C# reads it");
         }
 
@@ -531,7 +557,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         public void StartsWith_Column()
         {
             var result = Translate(CallOnRow(x => x.Name.StartsWith("al")));
-            Assert.AreEqual($"c.Name LIKE {StartsWithPattern(result.Name(0))}", result.Sql);
+            Assert.AreEqual($"c.Name LIKE {StartsWithPattern(result.Name(0))}{Escape}", result.Sql);
             Assert.AreEqual("al", result.Value(0));
         }
 
@@ -539,15 +565,31 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         public void EndsWith_Column()
         {
             var result = Translate(CallOnRow(x => x.Name.EndsWith("ha")));
-            Assert.AreEqual($"c.Name LIKE {EndsWithPattern(result.Name(0))}", result.Sql);
+            Assert.AreEqual($"c.Name LIKE {EndsWithPattern(result.Name(0))}{Escape}", result.Sql);
             Assert.AreEqual("ha", result.Value(0));
+        }
+
+        [TestMethod]
+        public void StartsWith_WildcardsEscaped()
+        {
+            var result = Translate(CallOnRow(x => x.Name.StartsWith("a%_[!")));
+            Assert.AreEqual($"c.Name LIKE {StartsWithPattern(result.Name(0))}{Escape}", result.Sql);
+            Assert.AreEqual("a!%!_![!!", result.Value(0));
+        }
+
+        [TestMethod]
+        public void EndsWith_BackslashKeptLiteral()
+        {
+            var result = Translate(CallOnRow(x => x.Name.EndsWith("\\b")));
+            Assert.AreEqual($"c.Name LIKE {EndsWithPattern(result.Name(0))}{Escape}", result.Sql);
+            Assert.AreEqual("\\b", result.Value(0));
         }
 
         [TestMethod]
         public void StartsWith_CapturedThisPropertyArgument()
         {
             var result = Translate(new Holder().NameStartsWithFilter());
-            Assert.AreEqual($"c.Name LIKE {StartsWithPattern(result.Name(0))}", result.Sql);
+            Assert.AreEqual($"c.Name LIKE {StartsWithPattern(result.Name(0))}{Escape}", result.Sql);
             Assert.AreEqual("zz", result.Value(0));
         }
 
@@ -602,8 +644,41 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         #region ToString
 
+        // FD-03 (D4): an integer column's ToString() is the dialect's cast to text; a nullable one gives '' for null,
+        // as int?.ToString() does; a string column is itself; other types and any argument are rejected.
         [TestMethod]
-        public void ToString_Column() => Assert.AreEqual("c.Id", Translate(CallOnRow(x => x.Id.ToString())).Sql);
+        public void ToString_Column() => Assert.AreEqual(CastToTextSql("c.Id"), Translate(CallOnRow(x => x.Id.ToString())).Sql);
+
+        [TestMethod]
+        public void ToString_NullableIntegerColumn_Coalesces() =>
+            Assert.AreEqual($"COALESCE({CastToTextSql("c.NullableId")}, '')", Translate(CallOnRow(x => x.NullableId.ToString())).Sql);
+
+        [TestMethod]
+        public void ToString_StringColumn_IsTheColumn() => Assert.AreEqual("c.Name", Translate(CallOnRow(x => x.Name.ToString())).Sql);
+
+        [TestMethod]
+        public void ToString_NonIntegerColumn_NotSupported() =>
+            AssertRejected<NotSupportedException>(CallOnRow(x => x.Amount.ToString()), ColumnToStringPrefix + "Decimal");
+
+        [TestMethod]
+        public void ToString_DateColumn_NotSupported() =>
+            AssertRejected<NotSupportedException>(CallOnRow(x => x.Posted.ToString()), ColumnToStringPrefix + "DateTime");
+
+        [TestMethod]
+        public void ToString_ColumnWithFormat_NotSupported() =>
+            AssertRejected<NotSupportedException>(CallOnRow(x => x.Id.ToString("D2")), ColumnToStringPrefix + "Int32 isn't translated with an argument");
+
+        [TestMethod]
+        public void ToString_StringColumnWithProvider_NotSupported() =>
+            AssertRejected<NotSupportedException>(CallOnRow(x => x.Name.ToString(CultureInfo.InvariantCulture)), ColumnToStringPrefix + "String isn't translated with an argument");
+
+        [TestMethod]
+        public void ToString_NullableValue_NullableExpressionException() =>
+            AssertRejectedNullableExpression(CallOnRow(x => x.NullableId.Value.ToString()), "Do not use '.Value' on nullable property 'NullableId'");
+
+        [TestMethod]
+        public void ToString_NullableValueWithFormat_NullableExpressionException() =>
+            AssertRejectedNullableExpression(CallOnRow(x => x.NullableId.Value.ToString("D2")), "Do not use '.Value' on nullable property 'NullableId'");
 
         /// <summary>D16: a ToString that doesn't read the row is rejected, never evaluated or sent raw.</summary>
         private void AssertRejectedToString(MethodCallExpression call) => AssertRejected<NotSupportedException>(call, ToStringMessage);

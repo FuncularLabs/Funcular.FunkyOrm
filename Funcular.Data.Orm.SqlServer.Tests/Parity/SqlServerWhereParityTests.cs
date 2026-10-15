@@ -56,5 +56,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Parity
 
         // LEN alone ignores trailing spaces, which C#'s Length counts (the translator's remark).
         protected override string LengthSql(string column) => "(LEN(" + column + " + N'x') - 1)";
+
+        protected override string CastToTextSql(string column) => "CAST(" + column + " AS NVARCHAR(20))";
     }
 }

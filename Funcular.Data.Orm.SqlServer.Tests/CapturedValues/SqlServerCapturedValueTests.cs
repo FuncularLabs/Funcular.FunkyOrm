@@ -40,6 +40,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.CapturedValues
         }
 
         protected override string LengthSql(string column) => "(LEN(" + column + " + N'x') - 1)";
+        protected override string CastToTextSql(string column) => "CAST(" + column + " AS NVARCHAR(20))";
         protected override string StartsWithPattern(string parameterName) => parameterName + " + '%'";
         protected override string EndsWithPattern(string parameterName) => "'%' + " + parameterName;
         protected override string YearSql(string column) => "YEAR(" + column + ")";

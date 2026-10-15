@@ -41,6 +41,7 @@ namespace Funcular.Data.Orm.Sqlite.Tests.CapturedValues
         }
 
         protected override string LengthSql(string column) => "LENGTH(" + column + ")";
+        protected override string CastToTextSql(string column) => "CAST(" + column + " AS TEXT)";
         protected override string StartsWithPattern(string parameterName) => parameterName + " || '%'";
         protected override string EndsWithPattern(string parameterName) => "'%' || " + parameterName;
         protected override string YearSql(string column) => "CAST(strftime('%Y', " + column + ") AS INTEGER)";
