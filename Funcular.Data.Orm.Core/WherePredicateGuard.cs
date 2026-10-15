@@ -122,12 +122,14 @@ namespace Funcular.Data.Orm
         /// <c>x.Id == 2 || x.Name.Length == x.Name.Length</c>.</item>
         /// <item><see cref="WherePredicateVerdict.UnboundedSearch"/>: the body holds for every non-null row once a
         /// <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a property of the entity with an empty search value
-        /// (a literal, a captured <c>""</c>, <c>string.Empty</c>) counts as true: <c>x.Name.Contains("")</c> alone or in
-        /// an <c>||</c>; not <c>x.Id == 2 &amp;&amp; x.Name.Contains("")</c>, which the other operand bounds, and not a
-        /// search on a member of a member (<c>x.Child.Name.Contains("")</c>), whose receiver the translators reject on
-        /// every path.</item>
+        /// (a literal, a captured <c>""</c>, <c>string.Empty</c>) counts as true: <c>x.Name.Contains("")</c> alone, in
+        /// an <c>||</c>, or compared with a <c>bool</c> (<c>x.Name.Contains("") == true</c>, <c>!= false</c>); not
+        /// <c>x.Id == 2 &amp;&amp; x.Name.Contains("")</c>, which the other operand bounds, and not a search on a member
+        /// of a member (<c>x.Child.Name.Contains("")</c>), whose receiver the translators reject on every path.</item>
         /// <item><see cref="WherePredicateVerdict.Acceptable"/>: anything else.</item>
         /// </list>
+        /// A <c>bool</c> compared with a <c>bool</c> by <c>==</c>/<c>!=</c> composes its operands' truths, so
+        /// <c>(x.Id == x.Id) == true</c> always holds and <c>x.Name.Contains("") == true</c> is unbounded.
         /// Parameter-free <c>bool</c> parts built from constants, field and property reads, casts, the logical
         /// operators, comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c>, and <c>ToString()</c>
         /// with no argument or a format string on a receiver declared as an enum or a non-generic, sealed or value type of
@@ -484,10 +486,26 @@ namespace Funcular.Data.Orm
                     return ifTrue == FoldTruth(conditional.IfFalse, entityType, rules, memo) ? ifTrue : Truth.Unknown;
                 }
                 case ExpressionType.Equal:
+                case ExpressionType.NotEqual:
+                {
+                    // A bool compared with a bool composes its operands' truths (review R-4, round-3 A/N-1): an empty
+                    // search or a self-comparison in a value position (`x.Name.Contains("") == true`) is then seen by
+                    // the verdict, as 3.10.1's tree walk saw it. An operand that reads the row keeps the whole unknown.
+                    var binary = (BinaryExpression)expression;
+                    if (binary.Method == null && IsBoolean(binary.Left.Type) && IsBoolean(binary.Right.Type))
+                    {
+                        var left = FoldTruth(binary.Left, entityType, rules, memo);
+                        var right = left == Truth.Unknown ? Truth.Unknown : FoldTruth(binary.Right, entityType, rules, memo);
+                        if (left != Truth.Unknown && right != Truth.Unknown)
+                            return (left == right) == (expression.NodeType == ExpressionType.Equal) ? Truth.True : Truth.False;
+                    }
+                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql)
+                        ? (expression.NodeType == ExpressionType.Equal ? Truth.True : Truth.False)
+                        : EvaluateLeaf(expression);
+                }
                 case ExpressionType.GreaterThanOrEqual:
                 case ExpressionType.LessThanOrEqual:
                     return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.True : EvaluateLeaf(expression);
-                case ExpressionType.NotEqual:
                 case ExpressionType.GreaterThan:
                 case ExpressionType.LessThan:
                     return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.False : EvaluateLeaf(expression);

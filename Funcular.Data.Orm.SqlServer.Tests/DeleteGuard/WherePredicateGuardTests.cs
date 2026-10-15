@@ -271,6 +271,16 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["notNSelfLt"] = P(x => !(x.N < x.N)),
                 // Review R-2 (A/N-3): an empty search on a member of a member is the translator's to reject, on every path.
                 ["childNameContainsEmpty"] = P(x => x.Child.Name.Contains("")),
+                // Review R-4 (round-3 A/N-1): a bool compared with a bool composes its operands' truths, so an empty
+                // search or a self-comparison in a value position doesn't escape the verdict (3.10.1 refused the first).
+                ["nameContainsEmptyEqTrue"] = P(x => x.Name.Contains("") == true),
+                ["nameContainsEmptyNeFalse"] = P(x => x.Name.Contains("") != false),
+                ["nameContainsEmptyEqFalse"] = P(x => x.Name.Contains("") == false),
+                ["idSelfEqTrue"] = P(x => (x.Id == x.Id) == true),
+                ["idSelfNeTrue"] = P(x => (x.Id == x.Id) != true),
+                ["flagEqTrue"] = P(x => x.Flag == true),
+                ["orCapturedTrueEqFalse"] = P(x => x.Id == 2 || capturedTrue == false),
+                ["orCapturedTrueNeFalse"] = P(x => x.Id == 2 || capturedTrue != false),
                 ["nameContainsThisProperty"] = P(x => x.Name.Contains(FilterProperty)),
                 ["nameEqualsCapturedToString"] = P(x => x.Name == capturedS.ToString()),
                 ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
@@ -443,6 +453,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orNotBoxedTrue", WherePredicateVerdict.Acceptable)]
         // Review R-2 (A/N-3): an empty search on a member of a member isn't the guard's; the translators reject it on every path.
         [DataRow("childNameContainsEmpty", WherePredicateVerdict.Acceptable)]
+        // Review R-4 (round-3 A/N-1): a bool compared with a bool composes the operands' truths.
+        [DataRow("nameContainsEmptyEqTrue", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("nameContainsEmptyNeFalse", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("nameContainsEmptyEqFalse", WherePredicateVerdict.Acceptable)]
+        [DataRow("idSelfEqTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("idSelfNeTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("flagEqTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("orCapturedTrueEqFalse", WherePredicateVerdict.Acceptable)]
+        [DataRow("orCapturedTrueNeFalse", WherePredicateVerdict.AlwaysTrue)]
         public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
             Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
@@ -529,6 +548,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("childNameContainsEmpty")]
         [DataRow("nSelfLt")]
         [DataRow("orNotBoxedTrue")]
+        [DataRow("nameContainsEmptyEqFalse")]
+        [DataRow("idSelfNeTrue")]
+        [DataRow("flagEqTrue")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>
@@ -551,6 +573,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idOrNameLengthSelf", AlwaysTrueMessage)]
         [DataRow("notAmountNeSelf", SelfReferenceMessage)]
         [DataRow("notNSelfLt", SelfReferenceMessage)]
+        // Review R-4 (round-3 A/N-1).
+        [DataRow("nameContainsEmptyEqTrue", UnboundedSearchMessage)]
+        [DataRow("nameContainsEmptyNeFalse", UnboundedSearchMessage)]
+        [DataRow("idSelfEqTrue", AlwaysTrueMessage)]
         public void Validate_RejectsAnAllRowsPredicate_OnlyForAMassMutation(string key, string expectedMessage)
         {
             var predicate = Predicates()[key];
@@ -637,6 +663,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         // Review R-2 (A/N-1): a bool unboxed from a captured object is read.
         [DataRow("orBoxedTrue", true)]
         [DataRow("orNotBoxedTrue", null)]
+        // Review R-4 (round-3 A/N-1): a bool compared with a bool composes the operands' truths; one that reads the
+        // row stays unknown, and an empty search value is a column read for the SQL fold.
+        [DataRow("idSelfEqTrue", true)]
+        [DataRow("idSelfNeTrue", false)]
+        [DataRow("nameContainsEmptyEqTrue", null)]
+        [DataRow("flagEqTrue", null)]
+        [DataRow("orCapturedTrueEqFalse", null)]
+        [DataRow("orCapturedTrueNeFalse", true)]
         public void Fold_GivesCSharpsTruthOrNull(string key, bool? expected)
         {
             var predicate = Predicates()[key];

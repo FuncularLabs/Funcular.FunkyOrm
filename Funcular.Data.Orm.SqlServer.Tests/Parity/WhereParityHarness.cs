@@ -95,6 +95,14 @@ namespace Funcular.Data.Orm.Tests.Parity
         /// <summary>The dialect's cast of an integer <paramref name="column"/> to text, for a column's <c>ToString()</c> (FD-03, D4).</summary>
         protected abstract string CastToTextSql(string column);
 
+        /// <summary>
+        /// True when the dialect itself rejects the SELECT this key translates to (SQL Server: a <c>LIKE</c> compared
+        /// with a value, <c>… LIKE @p ESCAPE '!' = @p1</c>, isn't an expression there; pre-existing, like the bare
+        /// <c>bool</c> member of D-133(b)). The read paths must then reach the database and fail there, not be refused
+        /// by the guard or the translator; the delete paths are asserted as for any key.
+        /// </summary>
+        protected virtual bool ReadRejectedByTheDialect(string key) => false;
+
         #endregion
 
         #region Captured values and predicates
@@ -194,6 +202,14 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "childIdSelf": return x => x.Child.Id == x.Child.Id;
                 // Review R-2 (A/N-3): an empty search on a member of a member is the translator's to reject, on every path.
                 case "childNameContainsEmpty": return x => x.Child.Name.Contains("");
+                // Review R-4 (round-3 A/N-1): a bool compared with a bool. The verdict composes the operands' truths, so an
+                // empty search or a self-comparison in a value position is refused as a delete (3.10.1 refused the first;
+                // at ee31854 the first two deleted every named row on SQLite, MySQL and PostgreSQL). A query runs them: the
+                // whole self-comparison folds to NOT 1=0; the empty search translates as written, which SQL Server's
+                // dialect rejects in a value position (ReadRejectedByTheDialect) and the other three answer as C# does.
+                case "nameContainsEmptyEqTrue": return x => x.Name.Contains("") == true;
+                case "nameContainsEmptyNeFalse": return x => x.Name.Contains("") != false;
+                case "idSelfEqTrue": return x => (x.Id == x.Id) == true;
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
                 case "idsContainsColumn": return x => ids.Contains(x.Id);
@@ -235,7 +251,10 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "idOrTrue":
                 case "optionalFilterNull":
                 case "boxedTrueOrId":
-                case "notNullableLtSelf": return "NOT 1=0";
+                case "notNullableLtSelf":
+                case "idSelfEqTrue": return "NOT 1=0";
+                case "nameContainsEmptyEqTrue":
+                case "nameContainsEmptyNeFalse": return " ESCAPE '!'";
                 // A collection Contains is answered by the translator, not the fold, so the literal sits in the OR.
                 case "idOrCapturedItemPresent": return "OR NOT 1=0)";
                 case "idOrCapturedStringEquals": return "OR 1=0)";
@@ -262,6 +281,7 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "boxedTrueOrId":
                 case "idOrNullableGeSelf":
                 case "idOrNameLengthSelf":
+                case "idSelfEqTrue":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), AlwaysTrueMessage);
                 // The predicate reads no column.
                 case "capturedItemAlone":
@@ -272,8 +292,10 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nullableGeSelf":
                 case "notNullableLtSelf":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), SelfReferenceMessage);
-                // An empty search value: LIKE '%%' matches every non-null name (review R-1, A-1).
+                // An empty search value: LIKE '%%' matches every non-null name (review R-1, A-1; R-4 for the value position).
                 case "nameContainsEmpty":
+                case "nameContainsEmptyEqTrue":
+                case "nameContainsEmptyNeFalse":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), UnboundedSearchMessage);
                 default: return null;
             }
@@ -366,6 +388,9 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("idOrNameLengthSelf")]
         [DataRow("notNullableLtSelf")]
         [DataRow("boxedTrueOrId")]
+        [DataRow("nameContainsEmptyEqTrue")]
+        [DataRow("nameContainsEmptyNeFalse")]
+        [DataRow("idSelfEqTrue")]
         [DataRow("idEquals")]
         [DataRow("idsContainsColumn")]
         [DataRow("notIdsContainsColumn")]
@@ -381,25 +406,48 @@ namespace Funcular.Data.Orm.Tests.Parity
 
             WithTable((provider, log) =>
             {
-                log.Clear();
-                Assert.AreEqual(expected, Ids(provider.Query(predicate)), key + " query");
-                var selectWhere = WhereOf(log, "SELECT", key + " query");
-                var selectParameters = ParametersOf(log);
-                if (fragment != null)
-                    StringAssert.Contains(selectWhere, fragment, key + ": the WHERE doesn't apply the dialect's function to the qualified column");
+                string selectWhere = null, selectParameters = null;
+                if (ReadRejectedByTheDialect(key))
+                {
+                    // The reads aren't guarded: each reaches the database, which rejects the dialect's shape.
+                    var reads = new List<KeyValuePair<string, Action>>
+                    {
+                        new KeyValuePair<string, Action>("query", () => provider.Query(predicate)),
+                        new KeyValuePair<string, Action>("queryAsync", () => provider.QueryAsync(predicate).GetAwaiter().GetResult()),
+                        new KeyValuePair<string, Action>("linq", () => provider.Query<WpRow>().Where(predicate).ToList()),
+                        new KeyValuePair<string, Action>("count", () => provider.Query<WpRow>().Count(predicate)),
+                    };
+                    foreach (var read in reads)
+                    {
+                        Exception thrown = null;
+                        try { read.Value(); } catch (Exception ex) { thrown = ex; }
+                        Assert.IsNotNull(thrown, key + " " + read.Key + ": expected the dialect to reject this SELECT");
+                        Assert.IsFalse(thrown is InvalidOperationException || thrown is NotSupportedException,
+                            key + " " + read.Key + ": refused before the database, not by it: " + thrown.Message);
+                    }
+                }
+                else
+                {
+                    log.Clear();
+                    Assert.AreEqual(expected, Ids(provider.Query(predicate)), key + " query");
+                    selectWhere = WhereOf(log, "SELECT", key + " query");
+                    selectParameters = ParametersOf(log);
+                    if (fragment != null)
+                        StringAssert.Contains(selectWhere, fragment, key + ": the WHERE doesn't apply the dialect's function to the qualified column");
 
-                log.Clear();
-                Assert.AreEqual(expected, Ids(provider.QueryAsync(predicate).GetAwaiter().GetResult()), key + " queryAsync");
-                Assert.AreEqual(selectWhere, WhereOf(log, "SELECT", key + " queryAsync"), key + ": QueryAsync sent a different WHERE");
+                    log.Clear();
+                    Assert.AreEqual(expected, Ids(provider.QueryAsync(predicate).GetAwaiter().GetResult()), key + " queryAsync");
+                    Assert.AreEqual(selectWhere, WhereOf(log, "SELECT", key + " queryAsync"), key + ": QueryAsync sent a different WHERE");
 
-                log.Clear();
-                Assert.AreEqual(expected, Ids(provider.Query<WpRow>().Where(predicate).ToList()), key + " linq");
-                Assert.AreEqual(selectWhere, WhereOf(log, "SELECT", key + " linq"), key + ": Query<T>().Where sent a different WHERE");
-                Assert.AreEqual(selectParameters, ParametersOf(log), key + ": Query<T>().Where sent different parameters");
+                    log.Clear();
+                    Assert.AreEqual(expected, Ids(provider.Query<WpRow>().Where(predicate).ToList()), key + " linq");
+                    Assert.AreEqual(selectWhere, WhereOf(log, "SELECT", key + " linq"), key + ": Query<T>().Where sent a different WHERE");
+                    Assert.AreEqual(selectParameters, ParametersOf(log), key + ": Query<T>().Where sent different parameters");
 
-                log.Clear();
-                Assert.AreEqual(expectedCount, provider.Query<WpRow>().Count(predicate), key + " count");
-                Assert.AreEqual(selectWhere, WhereOf(log, "SELECT", key + " count"), key + ": Count(predicate) sent a different WHERE");
+                    log.Clear();
+                    Assert.AreEqual(expectedCount, provider.Query<WpRow>().Count(predicate), key + " count");
+                    Assert.AreEqual(selectWhere, WhereOf(log, "SELECT", key + " count"), key + ": Count(predicate) sent a different WHERE");
+                }
 
                 foreach (var async in new[] { false, true })
                 {

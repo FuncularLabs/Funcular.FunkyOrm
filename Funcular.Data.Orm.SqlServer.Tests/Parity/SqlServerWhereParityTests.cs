@@ -58,5 +58,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Parity
         protected override string LengthSql(string column) => "(LEN(" + column + " + N'x') - 1)";
 
         protected override string CastToTextSql(string column) => "CAST(" + column + " AS NVARCHAR(20))";
+
+        // T-SQL has no boolean expression type: `name LIKE @p ESCAPE '!' = @p1` is a syntax error (pre-existing, D-133(b)).
+        protected override bool ReadRejectedByTheDialect(string key) =>
+            key == "nameContainsEmptyEqTrue" || key == "nameContainsEmptyNeFalse";
     }
 }
