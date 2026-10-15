@@ -360,12 +360,14 @@ namespace Funcular.Data.Orm.Tests.Caching
                 case "Select":
                     return (p => p.Query<LinqUnmappedA>().Select(x => new LinqUnmappedA { FirstName = x.FirstName }).ToList(),
                         "Unmapped properties cannot be selected directly.", $"{Table}.{DiscoveredFirstName} AS FirstName");
+                // 3.10.2 (FD-01): the WHERE visitor names the unmapped member; before it recursed into the parameter
+                // and failed with "Expression type Parameter is not supported".
                 case "Count(predicate)":
                     return (p => p.Query<LinqUnmappedA>().Count(x => x.FirstName == "x"),
-                        "Expression type Parameter", $"WHERE {Table}.{DiscoveredFirstName} = ");
+                        "Member 'FirstName' of the entity isn't mapped to a column", $"WHERE {Table}.{DiscoveredFirstName} = ");
                 case "Where":
                     return (p => p.Query<LinqUnmappedA>().Where(x => x.FirstName == "x").ToList(),
-                        "Expression type Parameter", $"WHERE {Table}.{DiscoveredFirstName} = ");
+                        "Member 'FirstName' of the entity isn't mapped to a column", $"WHERE {Table}.{DiscoveredFirstName} = ");
                 case "Last":
                     return (p => p.Query<LinqUnmappedB>().Last(),
                         "Only simple member access", $"ORDER BY {DiscoveredId} DESC");

@@ -51,5 +51,10 @@ namespace Funcular.Data.Orm.Sqlite.Tests.Parity
         }
 
         protected override OrmDataProvider CreateProvider() => new SqliteOrmDataProvider("Data Source=" + _path);
+
+        protected override string DatePartSql(string part, string column) =>
+            "CAST(strftime('%" + (part == "Year" ? "Y" : part == "Month" ? "m" : "d") + "', " + column + ") AS INTEGER)";
+
+        protected override string LengthSql(string column) => "LENGTH(" + column + ")";
     }
 }

@@ -80,8 +80,8 @@ All subsequent CRUD, Query, and Remote Attribute examples work identically with 
 | String concat | `+` | `\|\|` | `\|\|` |
 | Boolean type | `BIT` | `BOOLEAN` | `INTEGER (0/1)` |
 | Date storage | `DATETIME2` | `TIMESTAMP` | `TEXT (ISO 8601)` |
-| Date parts | `YEAR()`, `MONTH()` | `EXTRACT(YEAR FROM ...)` |
-| Boolean type | `BIT` (0/1) | Native `BOOLEAN` |
+| Date parts (`p.D.Year`, also `p.D.Value.Year`) | `YEAR(t.c)`, `MONTH(t.c)`, `DAY(t.c)` | `EXTRACT(YEAR FROM t.c)` | `CAST(strftime('%Y', t.c) AS INTEGER)` |
+| String length (`p.Name.Length`) | `LEN(t.c + N'x') - 1` | `LENGTH(t.c)` | `LENGTH(t.c)` |
 
 ### PostgreSQL-Specific Caveats
 

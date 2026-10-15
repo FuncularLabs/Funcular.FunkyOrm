@@ -51,5 +51,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Parity
         protected override void DropTable() => Execute($"IF OBJECT_ID(N'dbo.{Table}', N'U') IS NOT NULL DROP TABLE dbo.{Table};");
 
         protected override OrmDataProvider CreateProvider() => new SqlServerOrmDataProvider(ConnectionString);
+
+        protected override string DatePartSql(string part, string column) => part.ToUpperInvariant() + "(" + column + ")";
+
+        // LEN alone ignores trailing spaces, which C#'s Length counts (the translator's remark).
+        protected override string LengthSql(string column) => "(LEN(" + column + " + N'x') - 1)";
     }
 }

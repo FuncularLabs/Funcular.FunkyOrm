@@ -213,15 +213,11 @@ namespace Funcular.Data.Orm.Visitors
                     _commandTextBuilder.Append(columnName);
                     return;
                 }
-            }
 
-            // Nullable<T>.Value date handling (e.g., p.Birthdate.Value.Year)
-            if (node.Expression is MemberExpression memberExpression &&
-                memberExpression.Expression is ParameterExpression &&
-                memberExpression.Member.Name == "Value")
-            {
-                _translator.TranslateDateMember(node, _commandTextBuilder, _parameters, GetColumnName);
-                return;
+                // A member of the entity with no column: [NotMapped], or a field (3.10.2, FD-01; before, the visitor
+                // recursed into the parameter and failed with "Expression type Parameter is not supported").
+                throw new NotSupportedException(
+                    $"Member '{node.Member.Name}' of the entity isn't mapped to a column, so it can't be used in a WHERE clause: {node}");
             }
 
             // Captured value in closure: constantExpression.Value is the closure instance.
@@ -256,15 +252,6 @@ namespace Funcular.Data.Orm.Visitors
                 return;
             }
 
-            // Date member helpers (Year/Month/Day) for Nullable.Value chains
-            if ((node.Member.Name == "Year" || node.Member.Name == "Month" || node.Member.Name == "Day") &&
-                node.Expression is MemberExpression valueMember && valueMember.Member.Name == "Value" &&
-                valueMember.Expression is MemberExpression dateMember && dateMember.Expression is ParameterExpression)
-            {
-                _translator.TranslateDateMember(node, _commandTextBuilder, _parameters, GetColumnName);
-                return;
-            }
-
             // Handle nested member access on constants (e.g. closure.Inner.Field) or static members
             if (IsConstantMemberAccess(node))
             {
@@ -285,11 +272,25 @@ namespace Funcular.Data.Orm.Visitors
                 return;
             }
 
-            // otherwise recurse into inner expression
+            // A member of a member (x.D.Year, x.D.Value.Year, x.Name.Length, x.Child.Id, …): the translator has the
+            // dialect's function for it, or rejects it by name (3.10.2, FD-01). Before, the visitor recursed into the
+            // receiver and silently dropped the outer member (x.Name.Length > 3 became name > 3), on every operation.
             if (node.Expression != null)
             {
-                Visit(node.Expression);
+                _translator.TranslateMemberOfMember(node, _commandTextBuilder, ColumnFor);
+                return;
             }
+
+            throw new NotSupportedException($"Member {node.Member.Name} is not supported. Expression: {node}");
+        }
+
+        /// <summary>The column for a property of the row: its remote alias, or its name qualified with the table's.</summary>
+        private string ColumnFor(PropertyInfo prop)
+        {
+            if (_remotePropertyMap != null && _remotePropertyMap.TryGetValue(prop.Name, out string remoteColumn))
+                return remoteColumn;
+            var col = GetColumnName(prop);
+            return !string.IsNullOrEmpty(_tableName) ? $"{_tableName}.{col}" : col;
         }
 
         private bool IsConstantMemberAccess(MemberExpression node)
@@ -348,13 +349,7 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         private void VisitMethodCall(MethodCallExpression node)
         {
-            _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, prop =>
-            {
-                if (_remotePropertyMap != null && _remotePropertyMap.TryGetValue(prop.Name, out string remoteColumn))
-                    return remoteColumn;
-                var col = GetColumnName(prop);
-                return !string.IsNullOrEmpty(_tableName) ? $"{_tableName}.{col}" : col;
-            });
+            _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, ColumnFor);
         }
 
         /// <summary>

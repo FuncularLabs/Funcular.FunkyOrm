@@ -268,31 +268,80 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                 var property = dateMember.Member as PropertyInfo;
                 if (property != null)
                 {
-                    var columnName = getColumnName(property);
                     var propertyName = node.Member.Name;
-                    // SQLite uses strftime for date parts, cast to integer
-                    if (propertyName == "Year")
-                    {
-                        commandTextBuilder.Append($"CAST(strftime('%Y', {columnName}) AS INTEGER)");
-                    }
-                    else if (propertyName == "Month")
-                    {
-                        commandTextBuilder.Append($"CAST(strftime('%m', {columnName}) AS INTEGER)");
-                    }
-                    else if (propertyName == "Day")
-                    {
-                        commandTextBuilder.Append($"CAST(strftime('%d', {columnName}) AS INTEGER)");
-                    }
-                    else
-                    {
+                    if (propertyName != "Year" && propertyName != "Month" && propertyName != "Day")
                         throw new NotSupportedException($"Unsupported property {propertyName} in nested expression.");
-                    }
+                    AppendDatePart(propertyName, getColumnName(property), commandTextBuilder);
                 }
             }
             else
             {
                 throw new NotSupportedException($"Unsupported date member expression: {node}");
             }
+        }
+
+        /// <summary>
+        /// Translates a member of a member of the row (3.10.2, FD-01): <c>x.D.Year</c>, <c>.Month</c> or <c>.Day</c> on a
+        /// <see cref="DateTime"/> property (also through <c>.Value</c> on a nullable one) as the dialect's date part, and
+        /// <c>x.Name.Length</c> on a <see cref="string"/> property as its character length, both over the column
+        /// <paramref name="getColumnName"/> gives (the visitor's table-qualified, remote-aware name). Any other member of
+        /// a member — another date part, a <see cref="DateTimeOffset"/> part, a member of a nested object, a member of a
+        /// computed value — throws <see cref="NotSupportedException"/> naming the member, before any command is sent;
+        /// the outer member is never dropped. The WHERE visitor routes every such shape here, whatever the operation
+        /// (SELECT, COUNT, DELETE), so the rule is one.
+        /// </summary>
+        /// <param name="node">The member access whose receiver is itself a member access.</param>
+        /// <param name="commandTextBuilder">The StringBuilder to append the SQL to.</param>
+        /// <param name="getColumnName">A function to map properties to column names.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="node"/> is null.</exception>
+        /// <exception cref="NotSupportedException">The shape has no translation.</exception>
+        public void TranslateMemberOfMember(MemberExpression node, StringBuilder commandTextBuilder, Func<PropertyInfo, string> getColumnName)
+        {
+            if (node == null)
+                throw new ArgumentNullException(nameof(node));
+            if (TryGetRowProperty(node.Expression, out var property))
+            {
+                var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+                var member = node.Member.Name;
+                if (type == typeof(DateTime) && (member == "Year" || member == "Month" || member == "Day"))
+                {
+                    AppendDatePart(member, getColumnName(property), commandTextBuilder);
+                    return;
+                }
+                if (type == typeof(string) && member == "Length")
+                {
+                    commandTextBuilder.Append($"LENGTH({getColumnName(property)})");
+                    return;
+                }
+                throw new NotSupportedException(
+                    $"Member '{member}' of '{property.Name}' isn't translated in a WHERE clause: only Year, Month and Day of a DateTime " +
+                    $"property and Length of a string property are; compare the property itself, or compute the value before the query: {node}");
+            }
+            throw new NotSupportedException(
+                $"Member '{node.Member.Name}' of '{node.Expression}' isn't translated in a WHERE clause; compare a property of the " +
+                $"entity, or compute the value before the query: {node}");
+        }
+
+        /// <summary>The property of the lambda parameter that <paramref name="receiver"/> reads: <c>x.P</c>, or <c>x.P.Value</c> on a nullable <c>P</c>.</summary>
+        private static bool TryGetRowProperty(Expression receiver, out PropertyInfo property)
+        {
+            property = null;
+            if (receiver is MemberExpression value && value.Member.Name == "Value" && value.Expression is MemberExpression inner
+                && Nullable.GetUnderlyingType(inner.Type) != null)
+                receiver = inner;
+            if (receiver is MemberExpression member && member.Expression is ParameterExpression && member.Member is PropertyInfo found)
+            {
+                property = found;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The dialect's date part: SQLite reads it with <c>strftime</c>, cast to an integer.</summary>
+        private static void AppendDatePart(string part, string columnName, StringBuilder commandTextBuilder)
+        {
+            var format = part == "Year" ? "%Y" : part == "Month" ? "%m" : "%d";
+            commandTextBuilder.Append($"CAST(strftime('{format}', {columnName}) AS INTEGER)");
         }
 
         /// <summary>Appends a parameter holding <paramref name="value"/>.</summary>

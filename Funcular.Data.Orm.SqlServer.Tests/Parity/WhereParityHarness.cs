@@ -34,6 +34,9 @@ namespace Funcular.Data.Orm.Tests.Parity
         public const string GuardRowIndependentContains = "Contains() on a value that doesn't read the row isn't supported in a delete";
         public const string GuardCapturedPropertyValue = "Contains()'s search value is a property of a captured object";
 
+        /// <summary>The start of the translators' message for a member of a member that isn't translated (FD-01).</summary>
+        public static string MemberNotTranslated(string member) => "Member '" + member + "' of '";
+
         [Table(Table)]
         public class WpRow
         {
@@ -42,6 +45,12 @@ namespace Funcular.Data.Orm.Tests.Parity
             [Column("code")] public int Code { get; set; }
             [Column("posted_at")] public DateTime PostedAt { get; set; }
             [Column("nullable_id")] public int? NullableId { get; set; }
+            [NotMapped] public WpInner Child { get; set; }
+        }
+
+        public class WpInner
+        {
+            public int Id { get; set; }
         }
 
         /// <summary>The seed, which the derived class inserts verbatim (<see cref="CreateTable"/>).</summary>
@@ -67,6 +76,12 @@ namespace Funcular.Data.Orm.Tests.Parity
         protected abstract void DropTable();
 
         protected abstract OrmDataProvider CreateProvider();
+
+        /// <summary>The dialect's SQL for a date part (<c>Year</c>, <c>Month</c>, <c>Day</c>) of <paramref name="column"/> (FD-01, AC-A2).</summary>
+        protected abstract string DatePartSql(string part, string column);
+
+        /// <summary>The dialect's SQL for the character length of <paramref name="column"/> (FD-01).</summary>
+        protected abstract string LengthSql(string column);
 
         #endregion
 
@@ -112,6 +127,21 @@ namespace Funcular.Data.Orm.Tests.Parity
                 // FD-02: a captured object's property as a search value, and a row-independent string Contains.
                 case "nameContainsThisProperty": return holder.NameContainsFilter();
                 case "idOrRowIndependentContains": return x => x.Id == 3 || s.Contains("ZZ");
+                // FD-01: a member of a member of the row (Appendix B: Year > 2020 deleted 3 rows, C# 2; Length > 3
+                // deleted every row, C# 2). Row 5 (2020-12-31) sits on the year boundary; row 6 on the month's.
+                case "postedAtYearGt2020": return x => x.PostedAt.Year > 2020;
+                case "postedAtYearEq2021": return x => x.PostedAt.Year == 2021;
+                case "postedAtMonthEq6": return x => x.PostedAt.Month == 6;
+                case "postedAtDayEq1": return x => x.PostedAt.Day == 1;
+                case "postedAtYear2020AndMonth12": return x => x.PostedAt.Year == 2020 && x.PostedAt.Month == 12;
+                case "idOrPostedAtYearGt2021": return x => x.Id == 4 || x.PostedAt.Year > 2021;
+                case "nameLengthGt3": return x => x.Name.Length > 3;
+                case "nameLengthEq3": return x => x.Name.Length == 3;
+                // FD-01: member-of-member shapes that are rejected on every path (AC-A3).
+                case "postedAtHour": return x => x.PostedAt.Hour == 0;
+                case "postedAtDate": return x => x.PostedAt.Date == midnight;
+                case "childId": return x => x.Child.Id == 1;
+                case "conditionalLength": return x => (x.Id > 2 ? x.Name : "zz").Length > 2;
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
                 case "idsContainsColumn": return x => ids.Contains(x.Id);
@@ -119,6 +149,25 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nameStartsWithLiteral": return x => x.Name.StartsWith("ab");
                 case "nullableIsNull": return x => x.NullableId == null;
                 default: throw new ArgumentException("Unknown predicate " + key, nameof(key));
+            }
+        }
+
+        private readonly DateTime midnight = new DateTime(2021, 6, 1);
+
+        /// <summary>A fragment the SELECT's (and so the DELETE's) WHERE text must contain: the dialect's function on the qualified column (FD-01, AC-A2).</summary>
+        protected virtual string ExpectedWhereFragment(string key)
+        {
+            switch (key)
+            {
+                case "postedAtYearGt2020":
+                case "postedAtYearEq2021":
+                case "idOrPostedAtYearGt2021": return DatePartSql("Year", Table + ".posted_at");
+                case "postedAtMonthEq6": return DatePartSql("Month", Table + ".posted_at");
+                case "postedAtDayEq1": return DatePartSql("Day", Table + ".posted_at");
+                case "postedAtYear2020AndMonth12": return DatePartSql("Month", Table + ".posted_at");
+                case "nameLengthGt3":
+                case "nameLengthEq3": return LengthSql(Table + ".name");
+                default: return null;
             }
         }
 
@@ -198,6 +247,14 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("capturedItemAlone")]
         [DataRow("nameContainsThisProperty")]
         [DataRow("idOrRowIndependentContains")]
+        [DataRow("postedAtYearGt2020")]
+        [DataRow("postedAtYearEq2021")]
+        [DataRow("postedAtMonthEq6")]
+        [DataRow("postedAtDayEq1")]
+        [DataRow("postedAtYear2020AndMonth12")]
+        [DataRow("idOrPostedAtYearGt2021")]
+        [DataRow("nameLengthGt3")]
+        [DataRow("nameLengthEq3")]
         [DataRow("idEquals")]
         [DataRow("idsContainsColumn")]
         [DataRow("notIdsContainsColumn")]
@@ -209,6 +266,7 @@ namespace Funcular.Data.Orm.Tests.Parity
             var expected = Ids(Rows.Where(predicate.Compile()));
             var expectedCount = expected.Length == 0 ? 0 : expected.Split(',').Length;
             var rejection = ExpectedDeleteRejection(key);
+            var fragment = ExpectedWhereFragment(key);
 
             WithTable((provider, log) =>
             {
@@ -216,6 +274,8 @@ namespace Funcular.Data.Orm.Tests.Parity
                 Assert.AreEqual(expected, Ids(provider.Query(predicate)), key + " query");
                 var selectWhere = WhereOf(log, "SELECT", key + " query");
                 var selectParameters = ParametersOf(log);
+                if (fragment != null)
+                    StringAssert.Contains(selectWhere, fragment, key + ": the WHERE doesn't apply the dialect's function to the qualified column");
 
                 log.Clear();
                 Assert.AreEqual(expected, Ids(provider.QueryAsync(predicate).GetAwaiter().GetResult()), key + " queryAsync");
@@ -273,6 +333,60 @@ namespace Funcular.Data.Orm.Tests.Parity
                     finally
                     {
                         transactional.RollbackTransaction();
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// FD-01, AC-A3: a member of a member the dialect can't express is rejected with <see cref="NotSupportedException"/>
+        /// naming the member, before any command is sent, by every path alike: Query, QueryAsync, Query&lt;T&gt;().Where,
+        /// Count, Delete and DeleteAsync. Nothing is deleted. Before 3.10.2 the outer member was silently dropped
+        /// (<c>x.PostedAt.Hour == 0</c> was sent as <c>posted_at = 0</c>).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("postedAtHour", "Hour")]
+        [DataRow("postedAtDate", "Date")]
+        [DataRow("childId", "Id")]
+        [DataRow("conditionalLength", "Length")]
+        public void EveryPath_RejectsAMemberOfAMemberIdentically(string key, string member)
+        {
+            var predicate = Predicate(key);
+            var prefix = MemberNotTranslated(member);
+            WithTable((provider, log) =>
+            {
+                var calls = new List<KeyValuePair<string, Action>>
+                {
+                    new KeyValuePair<string, Action>("query", () => provider.Query(predicate)),
+                    new KeyValuePair<string, Action>("queryAsync", () => provider.QueryAsync(predicate).GetAwaiter().GetResult()),
+                    new KeyValuePair<string, Action>("linq", () => provider.Query<WpRow>().Where(predicate).ToList()),
+                    new KeyValuePair<string, Action>("count", () => provider.Query<WpRow>().Count(predicate)),
+                    new KeyValuePair<string, Action>("delete", () => provider.Delete(predicate)),
+                    new KeyValuePair<string, Action>("deleteAsync", () => provider.DeleteAsync(predicate).GetAwaiter().GetResult()),
+                };
+                string firstMessage = null;
+                foreach (var call in calls)
+                {
+                    var path = key + " " + call.Key;
+                    var transactional = (ISqlOrmProvider)provider;
+                    var isDelete = call.Key.StartsWith("delete", StringComparison.Ordinal);
+                    if (isDelete)
+                        transactional.BeginTransaction();
+                    try
+                    {
+                        log.Clear();
+                        var ex = Assert.ThrowsException<NotSupportedException>(call.Value, path);
+                        StringAssert.StartsWith(ex.Message, prefix, path);
+                        firstMessage = firstMessage ?? ex.Message;
+                        Assert.AreEqual(firstMessage, ex.Message, path + ": the paths reject with different messages");
+                        Assert.IsFalse(log.Any(e => e != null && Regex.IsMatch(e, @"^\s*(SELECT|DELETE)\b", RegexOptions.IgnoreCase)),
+                            path + ": a command was sent: " + string.Join(" | ", log.Select(Normalize)));
+                        Assert.AreEqual(Rows.Length, Remaining(provider).Count, path + ": rows were deleted");
+                    }
+                    finally
+                    {
+                        if (isDelete)
+                            transactional.RollbackTransaction();
                     }
                 }
             });

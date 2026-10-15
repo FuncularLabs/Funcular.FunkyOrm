@@ -32,6 +32,14 @@ namespace Funcular.Data.Orm.MySql.Tests.CapturedValues
                 parameters.Select(p => new KeyValuePair<string, object>(p.ParameterName, p.Value)).ToList());
         }
 
+        protected override Translation TranslateMemberOfMember(MemberExpression node, Func<PropertyInfo, string> getColumnName)
+        {
+            var sql = new StringBuilder();
+            new MySqlExpressionTranslator(new MySqlParameterGenerator()).TranslateMemberOfMember(node, sql, getColumnName);
+            return new Translation(sql.ToString(), new List<KeyValuePair<string, object>>());
+        }
+
+        protected override string LengthSql(string column) => "CHAR_LENGTH(" + column + ")";
         protected override string StartsWithPattern(string parameterName) => "CONCAT(" + parameterName + ", '%')";
         protected override string EndsWithPattern(string parameterName) => "CONCAT('%', " + parameterName + ")";
         protected override string YearSql(string column) => "EXTRACT(YEAR FROM " + column + ")";

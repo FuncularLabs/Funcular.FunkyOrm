@@ -10,6 +10,13 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
 (`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE.
 
 ### Fixed
+- **A member of a member of the row was silently dropped from the WHERE clause.** `x.PostedAt.Year > 2020` was sent
+  as `posted_at > @p` (with `2020` as the value), `x.Name.Length > 3` as `name > @p`: `Delete(x => x.Name.Length > 3)`
+  removed every row. `Year`, `Month` and `Day` of a `DateTime` property (nullable or not; `x.D.Year` and `x.D.Value.Year`
+  alike) are now the dialect's date part, and `Length` of a `string` property its character length: `YEAR(c)` /
+  `LEN(c + N'x') - 1` on SQL Server, `EXTRACT(YEAR FROM c)` / `LENGTH(c)` on PostgreSQL, `EXTRACT(YEAR FROM c)` /
+  `CHAR_LENGTH(c)` on MySQL, `CAST(strftime('%Y', c) AS INTEGER)` / `LENGTH(c)` on SQLite. Every other member of a
+  member throws (see Changed). In `Where`, `Count`/`Any`/`All` and `Delete`, on all four providers.
 - **A collection `Contains` whose item doesn't come from the row** (`ids.Contains(request.Id)`, a nested or a
   static member) was translated as the entity's column of the same name: `x => x.Id == 3 || ids.Contains(request.Id)`
   with `ids = {1, 2}` selected, and deleted, three rows where C# selects one. A local or a constant item threw
@@ -37,6 +44,20 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
   returns every row, and the same idiom with `StartsWith`/`EndsWith` no longer throws.
 
 ### Changed
+- **Any member of a member of the row other than those date parts and `Length`** now throws `NotSupportedException`
+  naming the member, before any command is sent, by `Query`, `Count` and `Delete` alike: `x.D.Hour`, `x.D.Date`,
+  `x.D.DayOfWeek`, a `DateTimeOffset` or `DateOnly` part, `x.Tags.Count` on a list, a member of a nested object
+  (`x.Child.Id`), a member of a computed value (`(cond ? x.Name : "zz").Length`), a member of a newly constructed
+  object (`new Holder().Flag`, formerly sent as `1=1` whatever the flag). Before, the outer member was dropped and
+  the inner column compared instead, which returned the right rows only by coincidence (for example `x.D.Date == d`
+  when every stored time is midnight). Compute the value before the query, or compare the property itself.
+  `x.D.Value.Hour` keeps its earlier message ("Unsupported property Hour in nested expression."). A property of the
+  entity that has no column (`[NotMapped]`) is rejected with a message naming it, where before the visitor failed with
+  "Expression type Parameter is not supported".
+- **Date parts are now qualified with the table name** (`YEAR(person.birthdate)` instead of `YEAR(birthdate)`), as
+  every other column in a WHERE is, so a predicate on a date part no longer fails with an ambiguous column when the
+  entity has remote joins. The SQL text of an existing `x.D.Value.Year` predicate changes accordingly.
+
 Method calls in a predicate or a projection that can't be answered correctly now throw `NotSupportedException`
 (unless noted) before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed or returned wrong rows
 before:
@@ -74,6 +95,11 @@ before:
   compiles otherwise.
 
 ### Known issues
+- **`Length` counts what the database counts.** All four providers count characters (code points), where C#'s
+  `Length` counts UTF-16 code units, so a string holding a character outside the Basic Multilingual Plane (an emoji)
+  is one shorter in SQL than in C# (SQL Server under a non-`_SC` collation counts as C# does). A `CHAR(n)` column's
+  padding is counted or not as the database decides. Trailing spaces are counted on every provider (SQL Server's
+  `LEN` would drop them; FunkyORM sends `LEN(c + N'x') - 1`).
 - **The delete guard still rejects some shapes the translation now gets right.** `Delete` validates its predicate
   before translating it (3.10.0's `DeletePredicateGuard`), and that check is unchanged in 3.10.2: a string
   `Contains`/`StartsWith`/`EndsWith` whose search value is a property of an object you hold (`x.Name.Contains(Filter)`),

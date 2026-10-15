@@ -49,5 +49,9 @@ namespace Funcular.Data.Orm.PostgreSql.Tests.Parity
         protected override void DropTable() => Execute($"DROP TABLE IF EXISTS {Table};");
 
         protected override OrmDataProvider CreateProvider() => new PostgreSqlOrmDataProvider(ConnectionString);
+
+        protected override string DatePartSql(string part, string column) => "EXTRACT(" + part.ToUpperInvariant() + " FROM " + column + ")";
+
+        protected override string LengthSql(string column) => "LENGTH(" + column + ")";
     }
 }

@@ -354,7 +354,9 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
 - **AC4 — Literal tautologies in the SQL are rejected.** A translated WHERE clause that contains a `1=1` outside
   quotes, or that folds to True (D3), is rejected with the AlwaysTrue message; one that folds to False or Unknown
   isn't. Integration, on all four providers, sync and async:
-  - rejected: `x.Id == 2 || new Holder().Flag` and `x.Id == 2 || new Holder().Flag == true` (the visitor's `1=1`);
+  - rejected: `x.Id == 2 || new Holder().Flag` and `x.Id == 2 || new Holder().Flag == true` (the visitor's `1=1`;
+    **3.10.2, FD-01:** the visitor no longer drops the member, so these two throw `NotSupportedException` before any
+    SQL exists — `MemberOfNewObject_IsRejectedBeforeTranslation` — and the `1=1` rule is pinned by the string rows);
     `x.Id == 2 || !emptyIds.Contains(x.Id)` (`OR NOT 1=0`); `!(emptyIds.Contains(x.Id) && x.Id == 2)`
     (`NOT (1=0 AND …)`); `x.FirstName != null || !emptyIds.Contains(x.Id)` (`IS NOT NULL OR NOT 1=0`);
     `ids.Contains(x.Id) || !emptyIds.Contains(x.Id)` (`IN (…) OR NOT 1=0`) (rev 4, T2-1);

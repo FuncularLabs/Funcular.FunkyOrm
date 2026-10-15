@@ -33,6 +33,14 @@ namespace Funcular.Data.Orm.Sqlite.Tests.CapturedValues
                 parameters.Select(p => new KeyValuePair<string, object>(p.ParameterName, p.Value)).ToList());
         }
 
+        protected override Translation TranslateMemberOfMember(MemberExpression node, Func<PropertyInfo, string> getColumnName)
+        {
+            var sql = new StringBuilder();
+            new SqliteExpressionTranslator(new SqliteParameterGenerator()).TranslateMemberOfMember(node, sql, getColumnName);
+            return new Translation(sql.ToString(), new List<KeyValuePair<string, object>>());
+        }
+
+        protected override string LengthSql(string column) => "LENGTH(" + column + ")";
         protected override string StartsWithPattern(string parameterName) => parameterName + " || '%'";
         protected override string EndsWithPattern(string parameterName) => "'%' || " + parameterName;
         protected override string YearSql(string column) => "CAST(strftime('%Y', " + column + ") AS INTEGER)";

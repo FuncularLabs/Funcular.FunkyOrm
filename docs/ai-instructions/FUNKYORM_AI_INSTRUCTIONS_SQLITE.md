@@ -114,13 +114,14 @@ var provider = new SqliteOrmDataProvider(connectionString, SqliteStringCompariso
 
 ### Date/Time Handling
 
-SQLite stores dates as TEXT (ISO 8601 format). FunkyORM handles parsing automatically. For date-part extraction in queries, SQLite uses `strftime()`:
+SQLite stores dates as TEXT (ISO 8601 format). FunkyORM handles parsing automatically. For date-part extraction in queries, SQLite uses `strftime()` on the table-qualified column (a nullable property through `.Value`, a non-nullable one directly; any other member of a member, such as `.Hour` or `.Date`, throws `NotSupportedException`):
 
 | C# Expression | SQLite SQL |
 |:---|:---|
-| `p.Birthdate.Value.Year` | `CAST(strftime('%Y', birthdate) AS INTEGER)` |
-| `p.Birthdate.Value.Month` | `CAST(strftime('%m', birthdate) AS INTEGER)` |
-| `p.Birthdate.Value.Day` | `CAST(strftime('%d', birthdate) AS INTEGER)` |
+| `p.Birthdate.Value.Year`, `p.PostedAt.Year` | `CAST(strftime('%Y', person.birthdate) AS INTEGER)` |
+| `p.Birthdate.Value.Month` | `CAST(strftime('%m', person.birthdate) AS INTEGER)` |
+| `p.Birthdate.Value.Day` | `CAST(strftime('%d', person.birthdate) AS INTEGER)` |
+| `p.LastName.Length` | `LENGTH(person.last_name)` |
 
 ---
 

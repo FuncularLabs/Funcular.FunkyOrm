@@ -121,13 +121,14 @@ var provider = new MySqlOrmDataProvider(connectionString, MySqlStringComparison.
 
 ### Date/Time Handling
 
-`DateTime` maps to `DATETIME(6)`. Date-part extraction uses `EXTRACT()` (same as PostgreSQL):
+`DateTime` maps to `DATETIME(6)`. Date-part extraction uses `EXTRACT()` (same as PostgreSQL) on the table-qualified column (a nullable property through `.Value`, a non-nullable one directly; any other member of a member, such as `.Hour` or `.Date`, throws `NotSupportedException`):
 
 | C# Expression | MySQL SQL |
 |:---|:---|
-| `p.Birthdate.Value.Year` | `EXTRACT(YEAR FROM birthdate)` |
-| `p.Birthdate.Value.Month` | `EXTRACT(MONTH FROM birthdate)` |
-| `p.Birthdate.Value.Day` | `EXTRACT(DAY FROM birthdate)` |
+| `p.Birthdate.Value.Year`, `p.PostedAt.Year` | `EXTRACT(YEAR FROM person.birthdate)` |
+| `p.Birthdate.Value.Month` | `EXTRACT(MONTH FROM person.birthdate)` |
+| `p.Birthdate.Value.Day` | `EXTRACT(DAY FROM person.birthdate)` |
+| `p.LastName.Length` | `CHAR_LENGTH(person.last_name)` |
 
 ---
 

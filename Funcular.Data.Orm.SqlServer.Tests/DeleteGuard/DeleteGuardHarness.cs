@@ -296,9 +296,49 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 await AssertDeletes(Row(key), path, new[] { 2, 3 }, key);
         }
 
+        /// <summary>
+        /// 3.10.2 (FD-01): a member of a newly constructed object (<c>new Holder().Flag</c>) is rejected by the
+        /// translator before any SQL exists, with <see cref="NotSupportedException"/> naming the member. Before, the
+        /// visitor dropped the member and sent <c>1=1</c> (whatever the flag), which this guard's literal check caught
+        /// (AC4). Nothing is deleted either way.
+        /// </summary>
         [DataTestMethod]
         [DataRow("orNewHolder", "sync")] [DataRow("orNewHolder", "async")]
         [DataRow("orNewHolderEqTrue", "sync")] [DataRow("orNewHolderEqTrue", "async")]
+        public async Task MemberOfNewObject_IsRejectedBeforeTranslation(string key, string path)
+        {
+            RequireDatabase();
+            try
+            {
+                CreateTables();
+                using var provider = CreateProvider();
+                var logged = Capture(provider);
+                var transactional = (ISqlOrmProvider)provider;
+                transactional.BeginTransaction();
+                try
+                {
+                    var predicate = Row(key);
+                    NotSupportedException exception;
+                    if (path == "async")
+                        exception = await Assert.ThrowsExceptionAsync<NotSupportedException>(() => provider.DeleteAsync(predicate));
+                    else
+                        exception = Assert.ThrowsException<NotSupportedException>(() => provider.Delete(predicate));
+                    StringAssert.StartsWith(exception.Message, "Member 'Flag' of 'new Holder()'", $"{key} {path}: message");
+                    AssertNoDeleteLogged(logged, key, path);
+                    Assert.AreEqual(3, provider.GetList<DgRow>().Count, $"{key} {path}: rows were deleted");
+                }
+                finally
+                {
+                    transactional.RollbackTransaction();
+                }
+            }
+            finally
+            {
+                DropTables();
+            }
+        }
+
+        [DataTestMethod]
         [DataRow("orNotEmptyContains", "sync")] [DataRow("orNotEmptyContains", "async")]
         [DataRow("notEmptyContainsAndId2", "sync")] [DataRow("notEmptyContainsAndId2", "async")]
         [DataRow("firstNameNotNullOrNotEmpty", "sync")] [DataRow("firstNameNotNullOrNotEmpty", "async")]

@@ -60,6 +60,12 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         protected abstract Translation TranslateDateMember(MemberExpression node, Func<PropertyInfo, string> getColumnName);
 
+        /// <summary>The provider's <c>TranslateMemberOfMember</c> (FD-01): a date part or a string length on a property of the row, else a rejection.</summary>
+        protected abstract Translation TranslateMemberOfMember(MemberExpression node, Func<PropertyInfo, string> getColumnName);
+
+        /// <summary>The dialect's character-length function over <paramref name="column"/>.</summary>
+        protected abstract string LengthSql(string column);
+
         protected abstract string StartsWithPattern(string parameterName);
 
         protected abstract string EndsWithPattern(string parameterName);
@@ -93,6 +99,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             public string Code { get; set; }
             public int? NullableId { get; set; }
             public DateTime? Birth { get; set; }
+            public DateTime Posted { get; set; }
+            public DateTimeOffset Stamp { get; set; }
             public List<int> Tags { get; set; }
             public DtRange Window { get; set; }
             public DtInner Child { get; set; }
@@ -716,6 +724,77 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [TestMethod]
         public void UnsupportedMethod_NotSupported() =>
             AssertRejected<NotSupportedException>(CallOnRow(x => x.Name.ToUpper()), "Method call ToUpper is not supported.");
+
+        #endregion
+
+        #region Member of a member (FD-01)
+
+        private static MemberExpression Member<T>(Expression<Func<DtRow, T>> expression) => (MemberExpression)expression.Body;
+
+        private Translation TranslateMember(MemberExpression node) => TranslateMemberOfMember(node, Column);
+
+        private void AssertMemberRejected(MemberExpression node, string member, string receiver)
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() => TranslateMemberOfMember(node, Column));
+            StringAssert.StartsWith(ex.Message, "Member '" + member + "' of '" + receiver + "'");
+            StringAssert.Contains(ex.Message, member, "the message names the member");
+        }
+
+        [TestMethod]
+        public void MemberOfMember_NonNullableDateParts()
+        {
+            Assert.AreEqual(YearSql("c.Posted"), TranslateMember(Member(x => x.Posted.Year)).Sql);
+            Assert.AreEqual(MonthSql("c.Posted"), TranslateMember(Member(x => x.Posted.Month)).Sql);
+            Assert.AreEqual(DaySql("c.Posted"), TranslateMember(Member(x => x.Posted.Day)).Sql);
+        }
+
+        [TestMethod]
+        public void MemberOfMember_NullableValueDateParts_SameAsTranslateDateMember()
+        {
+            Assert.AreEqual(YearSql("c.Birth"), TranslateMember(Member(x => x.Birth.Value.Year)).Sql);
+            Assert.AreEqual(MonthSql("c.Birth"), TranslateMember(Member(x => x.Birth.Value.Month)).Sql);
+            Assert.AreEqual(DaySql("c.Birth"), TranslateMember(Member(x => x.Birth.Value.Day)).Sql);
+        }
+
+        [TestMethod]
+        public void MemberOfMember_StringLength() =>
+            Assert.AreEqual(LengthSql("c.Name"), TranslateMember(Member(x => x.Name.Length)).Sql);
+
+        [TestMethod]
+        public void MemberOfMember_UsesTheColumnItIsGiven()
+        {
+            // The visitor passes its qualified, remote-aware column resolver; the translator must use it, not the bare name.
+            var result = TranslateMemberOfMember(Member(x => x.Posted.Year), p => "t." + p.Name.ToLowerInvariant());
+            Assert.AreEqual(YearSql("t.posted"), result.Sql);
+        }
+
+        [TestMethod]
+        public void MemberOfMember_Hour_NotSupported() => AssertMemberRejected(Member(x => x.Posted.Hour), "Hour", "Posted");
+
+        [TestMethod]
+        public void MemberOfMember_Date_NotSupported() => AssertMemberRejected(Member(x => x.Posted.Date), "Date", "Posted");
+
+        [TestMethod]
+        public void MemberOfMember_NullableValueHour_NotSupported() => AssertMemberRejected(Member(x => x.Birth.Value.Hour), "Hour", "Birth");
+
+        [TestMethod]
+        public void MemberOfMember_DateTimeOffsetYear_NotSupported() => AssertMemberRejected(Member(x => x.Stamp.Year), "Year", "Stamp");
+
+        // (An array's Length is an ArrayLength unary node, not a member access; the visitor rejects it as an unsupported
+        // unary operator, as before.)
+        [TestMethod]
+        public void MemberOfMember_ListCount_NotSupported() => AssertMemberRejected(Member(x => x.Tags.Count), "Count", "Tags");
+
+        [TestMethod]
+        public void MemberOfMember_NestedEntityMember_NotSupported() => AssertMemberRejected(Member(x => x.Child.Id), "Id", "Child");
+
+        [TestMethod]
+        public void MemberOfMember_DeeperChain_NotSupported() =>
+            AssertMemberRejected(Member(x => x.Child.Name.Length), "Length", "x.Child.Name");
+
+        [TestMethod]
+        public void MemberOfMember_ReceiverNotARowMember_NotSupported() =>
+            AssertMemberRejected(Member(x => (x.Id > 2 ? x.Name : "zz").Length), "Length", "IIF((x.Id > 2), x.Name, \"zz\")");
 
         #endregion
     }

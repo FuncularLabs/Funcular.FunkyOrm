@@ -579,6 +579,24 @@ var addresses = provider.Query<Address>()
     .ToList();
 ```
 
+#### Date Parts and String Length
+`Year`, `Month` and `Day` of a `DateTime` property (nullable or not) and `Length` of a string property translate to
+the database's own functions, on every provider:
+
+```csharp
+// SQL Server: WHERE YEAR(person.birthdate) = @p0 AND (LEN(person.last_name + N'x') - 1) > @p1
+// PostgreSQL: WHERE EXTRACT(YEAR FROM person.birthdate) = @p0 AND LENGTH(person.last_name) > @p1
+var people = provider.Query<Person>()
+    .Where(p => p.Birthdate.Year == 1990 && p.LastName.Length > 3)
+    .ToList();
+```
+
+Any other member of a member — `p.Birthdate.Hour`, `p.Birthdate.Date`, `p.Birthdate.DayOfWeek`, a part of a
+`DateTimeOffset`, a member of a nested object — throws `NotSupportedException` naming the member before any command
+is sent, in `Where`, `Count` and `Delete` alike. Compute the value before the query, or compare the property itself
+(`p.Birthdate >= from && p.Birthdate < to` instead of `p.Birthdate.Date == day`). The database counts a string's
+length in its own units (characters, not UTF-16 code units), so an emoji counts once where C# counts twice.
+
 ### Advanced: Ternary Operators
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
 
