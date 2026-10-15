@@ -15,31 +15,37 @@ Translation and evaluation of a WHERE predicate are one path for `Query(predicat
 `Count`/`LongCount`/`Any`/`All` and `Delete`/`DeleteAsync`, with one flag (`WhereOperation.Read` or
 `WhereOperation.MassMutation`) that decides whether the all-rows guard applies, so a predicate selects exactly the
 rows it would delete. For the optional-filter idiom, the admin idiom and an empty `NOT IN`, queries return every row
-as they did in 3.10.1; nothing a query accepted in 3.10.1 is refused now. Two things change for callers:
+as they did in 3.10.1; the all-rows guard refuses nothing a query accepted in 3.10.1 (what a query now throws for is
+untranslatable shapes, listed under Changed, which threw or returned wrong rows before). Two things change for callers:
 - **Parts of a predicate that don't read the row are evaluated in C# and sent as a literal** (`NOT 1=0` or `1=0`):
-  a constant (`x => true` now selects every row; before 3.11.0 it was a SQL error), a captured or static `bool`, a
-  comparison of captured values (`filter == null`), a captured string's `Contains`, a core type's `ToString()` with no
-  argument or a format string (`id.ToString() == "05"`; a user type's, an `IFormatProvider`'s or an arithmetic
-  result's `ToString()` is still rejected, see Changed), and a comparison of a column with itself (`x.Id == x.Id` is
-  true for every row, null included, as in C#). Two strings that don't read the row are therefore compared as C#
-  compares them (ordinal), never under the database's collation. The optional-filter idiom
+  a constant (`x => true` now selects every row; before 3.11.0 it was sent as a parameter, a SQL error on SQL
+  Server), a captured or static `bool`, a comparison of captured values (`filter == null`), a captured string's
+  `Contains`, a core type's `ToString()` with no argument or a format string compared with another value that doesn't
+  read the row (`id.ToString() == "05"`; a user type's, an `IFormatProvider`'s or an arithmetic result's `ToString()`,
+  and any `ToString()` compared with a column, are still rejected, see Changed), and an equality of a column with
+  itself (`x.Id == x.Id` is true for every row, null included, as in C#; an ordered self-comparison of a nullable
+  property, `x.N >= x.N`, and any self-comparison of a `float`/`double` property are translated as written, because
+  C#'s lifted `>=` is false for null and `NaN` isn't equal to itself). Two strings that don't read the row are
+  therefore compared as C# compares them (ordinal), never under the database's collation. The optional-filter idiom
   `x => filter == null || x.Name.Contains(filter)` with a null `filter`, the admin idiom
   `x => x.OwnerId == me || roles.Contains("admin")` for an admin, and `x => !emptyIds.Contains(x.Id)` select every
   row, as C# does.
 - **`Delete(predicate)` and `DeleteAsync` refuse an all-rows predicate** — one that reads no column of the entity
   ("The WHERE clause must reference at least one column of the entity."), compares a column with itself ("The WHERE
-  clause cannot be a self-referencing column expression."), or always holds, before translation or by a literal
-  `NOT 1=0` after it ("The WHERE clause is trivially true; a non-trivial WHERE clause is required.") — with
-  `InvalidOperationException`, before any command, where a query runs the same predicate and returns every row.
-  3.10.0 refused the same shapes; the messages changed (they no longer say "Delete operation"), so code that matched
-  the 3.10.0 text must match the new one. Decide the delete in C#: `if (filter != null) provider.Delete<Person>(x =>
-  x.Name == filter);`.
+  clause cannot be a self-referencing column expression."), always holds, before translation or by a literal
+  `NOT 1=0` after it ("The WHERE clause is trivially true; a non-trivial WHERE clause is required."), or is a
+  `Contains`/`StartsWith`/`EndsWith` on a column with an empty search value that nothing else bounds ("The WHERE
+  clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a
+  non-trivial WHERE clause is required.") — with `InvalidOperationException`, before any command, where a query runs
+  the same predicate and returns every row (every non-null row, for the empty search value). 3.10.0 refused the same
+  shapes; the messages changed (they no longer say "Delete operation"), so code that matched the 3.10.0 text must
+  match the new one. Decide the delete in C#: `if (filter != null) provider.Delete<Person>(x => x.Name == filter);`.
 The other 3.10.0 delete-only rejections (D9) are gone, because the translation they guarded is fixed in this release
-(see Fixed): a search value that is a LIKE wildcard, null, empty or a property of an object you hold, a string
-`Contains` on a value that doesn't read the row, and two strings that don't read the row, now delete exactly the rows
-`Query` selects; a `StartsWith`, `EndsWith` or `ToString()` the shared evaluation can't answer is rejected by the
-translator with its own message, on every path. Any future update by predicate takes the same path and the same
-guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128, D-004).
+(see Fixed): a search value that is a LIKE wildcard, null or a property of an object you hold, a string `Contains` on
+a value that doesn't read the row, and two strings that don't read the row, now delete exactly the rows `Query`
+selects; a `StartsWith`, `EndsWith` or `ToString()` the shared evaluation can't answer is rejected by the translator
+with its own message, on every path. Any future update by predicate takes the same path and the same guard. The
+rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128, D-004).
 
 ### Fixed
 - **The ORDER BY visitors no longer write to the console.** Every ordered query on every provider wrote
@@ -110,8 +116,9 @@ guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amend
   throw (see Changed).
 - **A captured `ToString()` was sent as its raw value, without its format:** `x.Id == 2 || id.ToString() == "05"`
   compared the number 5 with `'05'` and, on SQL Server and MySQL, selected every row; `ToString("D2")` lost its
-  format. `x.Code == x.Name.Length.ToString()` dropped `.Length` (`code = name`). A `ToString()` of anything but an
-  entity property now throws (see Changed).
+  format. `x.Code == x.Name.Length.ToString()` dropped `.Length` (`code = name`). A core type's `ToString()` compared
+  with another value that doesn't read the row is now evaluated in C# (see Behaviour change); compared with a column,
+  or on a value the evaluation can't run, it throws (see Changed).
 - **A string `Contains` that doesn't read the row** (`s.Contains("ZETA")`) was compared by the server, whose
   collation could find it true where C# finds it false (every row on SQL Server, MySQL and SQLite). It's now
   answered as C# answers it, except that a null string or search value matches no row (C# would throw).
@@ -138,8 +145,9 @@ guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amend
   messages). The shared WHERE translation runs it for every operation with a `WhereOperation` flag; it refuses only a
   `MassMutation` (`Delete`/`DeleteAsync`, any update by predicate), before the entity's columns are discovered, so a
   refused delete on a missing table reports the guard, not discovery, and on the translated clause after. `Delete` no longer checks that
-  the translated clause names a column of the table by text (a predicate on a remote property only is accepted, as it
-  is in a query). The WHERE visitors of all four providers evaluate the parts of a predicate that don't read the row
+  the translated clause names a column of the table by text (the check would also have refused a legitimate
+  predicate; a delete by a remote property alone isn't supported either way, since the DELETE has no JOIN, and now
+  fails with the database's unknown-column error instead of the old guard message: see Known issues). The WHERE visitors of all four providers evaluate the parts of a predicate that don't read the row
   through the same class (`WherePredicateGuard.Fold`), so the guard's verdict and the SQL every path sends agree.
   `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` and forward to the new class, with its messages.
 - **`Min`/`Max` over a type the database can't order as .NET does throw `NotSupportedException` before any command is
@@ -201,14 +209,17 @@ before:
   It now throws `NullableExpressionException` whatever the collection holds.
 - **`StartsWith`/`EndsWith` whose receiver isn't an entity property** (a captured value, a local, a static member,
   `x.Child.Name`).
-- **A `ToString()` of anything but an entity property**: a local, a constant, a property of an object you hold
-  (including `this`) or a static one, with or without a format or an `IFormatProvider`; `Convert.ToString(...)`; a
-  `ToString()` that reads the row through another member (`x.Name.Length.ToString()`). Before, a captured value was
-  sent unconverted, which returned the right rows only when the value already was the text compared (an `object`
-  or interface variable holding a string, `s.ToString(CultureInfo.InvariantCulture)`) or when it was compared with
-  a column's own `ToString()` (`x.Id.ToString() == id.ToString()`; also with an enum, except on PostgreSQL, where
-  that threw). Those throw now too. Compute the string before the query: `var code = id.ToString("D2");`, then
-  `x.Code == code`.
+- **A `ToString()` of anything but an entity property, unless the shared evaluation can answer it**: compared with
+  a column (`x.Code == id.ToString("D2")`, `x.Id.ToString() == id.ToString()`), in a projection, or on a value the
+  evaluation doesn't run — a receiver declared as `object` or an interface, your own type, an `IFormatProvider`
+  argument, an arithmetic, indexer or method result, a generic type such as `KeyValuePair`; `Convert.ToString(...)`;
+  a `ToString()` that reads the row through another member (`x.Name.Length.ToString()`). A core type's `ToString()`
+  with no argument or a format string, compared with a constant or another captured value, is evaluated in C# instead
+  (see Behaviour change). Before, a captured value was sent unconverted, which returned the right rows only when the
+  value already was the text compared (an `object` or interface variable holding a string,
+  `s.ToString(CultureInfo.InvariantCulture)`) or when it was compared with a column's own `ToString()`
+  (`x.Id.ToString() == id.ToString()`; also with an enum, except on PostgreSQL, where that threw). Those throw now
+  too. Compute the string before the query: `var code = id.ToString("D2");`, then `x.Code == code`.
 - **A value that throws while the predicate is translated** (a member of a null captured object,
   `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
   `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check in
@@ -244,8 +255,11 @@ before:
   is one shorter in SQL than in C# (SQL Server under a non-`_SC` collation counts as C# does). A `CHAR(n)` column's
   padding is counted or not as the database decides. Trailing spaces are counted on every provider (SQL Server's
   `LEN` would drop them; FunkyORM sends `LEN(c + N'x') - 1`).
-- **The guard proves only the plain shapes.** `x => x.Id == 2 || x.Id != 2` is accepted on every path, though it
-  holds for every row; a `Contains("")` on a column matches every non-null value, as in C#, and is accepted.
+- **The guard proves only the plain shapes.** `x => x.Id == 2 || x.Id != 2` is accepted as a delete, though it
+  holds for every row.
+- **A delete by a remote property alone isn't supported.** The DELETE statement has no JOIN, so a predicate that
+  reads only a `[RemoteProperty]`/`[RemoteKey]` column fails with the database's unknown-column error; 3.10.0 refused
+  it with the "must reference at least one column" message. Delete by a column of the entity's own table.
 - **`All` counts a row whose predicate SQL finds null (unknown) as satisfying it**, as before. That's C#'s answer
   when the null makes the predicate true (`All(x => x.NullableId != 5)`), but not when it makes it false:
   `All(x => x.NullableId > 0)` returns `true` when a `NullableId` is null, where C# returns `false`. `All` over a null

@@ -35,6 +35,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         public const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
         public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
         public const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+        public const string UnboundedSearchMessage = "The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required.";
 
         /// <summary>The start of the translators' message for a member of a member that isn't translated (FD-01).</summary>
         public static string MemberNotTranslated(string member) => "Member '" + member + "' of '";
@@ -64,6 +65,8 @@ namespace Funcular.Data.Orm.Tests.Parity
             new WpRow { Id = 4, Name = "ab", Code = 0, PostedAt = new DateTime(2020, 6, 1), NullableId = 4 },
             new WpRow { Id = 5, Name = "a_b", Code = 1, PostedAt = new DateTime(2020, 12, 31), NullableId = null },
             new WpRow { Id = 6, Name = "a%b", Code = 2, PostedAt = new DateTime(2021, 1, 15), NullableId = 6 },
+            // A trailing space: Length counts it on every provider (SQL Server's LEN alone would not; review R-1).
+            new WpRow { Id = 7, Name = "ab ", Code = 8, PostedAt = new DateTime(2023, 3, 3), NullableId = null },
         };
 
         #region Provider seam
@@ -117,6 +120,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         private readonly Request present = new Request { Id = 1 };
         private readonly string s = "zeta";
         private readonly string nullFilter = null;
+        private readonly string emptySearch = "";
         private readonly Holder holder = new Holder();
 
         protected Expression<Func<WpRow, bool>> Predicate(string key)
@@ -167,6 +171,14 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "optionalFilterNull": return x => nullFilter == null || x.Name.Contains(nullFilter);
                 // False in C# (ordinal), true under a case-insensitive collation: evaluated in C# on every path (1=0).
                 case "idOrCapturedStringEquals": return x => x.Id == 3 || s == "ZETA";
+                // Review R-1 (A-1): an empty search value matches every non-null name; a query runs it, a delete is refused.
+                case "nameContainsEmpty": return x => x.Name.Contains(emptySearch);
+                // Review R-1 (A-2): C#'s lifted >= is false for a null operand, so this isn't folded to a truth; the
+                // query translates it (`nullable_id >= nullable_id`, the null rows excluded by SQL as by C#), and the
+                // delete is refused by the translated-clause check, as any self-comparison is.
+                case "nullableGeSelf": return x => x.NullableId >= x.NullableId;
+                // Review R-1 (A-3): a member of a member compared with itself is the translator's to reject, on every path.
+                case "childIdSelf": return x => x.Child.Id == x.Child.Id;
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
                 case "idsContainsColumn": return x => ids.Contains(x.Id);
@@ -195,10 +207,21 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nameContainsUnderscore":
                 case "nameContainsPercent":
                 case "nameStartsWithAPercent":
-                case "nameEndsWithUnderscoreB": return " ESCAPE '!'";
+                case "nameEndsWithUnderscoreB":
+                case "nameContainsEmpty": return " ESCAPE '!'";
                 case "codeToStringEq7":
                 case "codeToStringEq07":
                 case "codeToStringEq70": return CastToTextSql(Table + ".code") + " = ";
+                // The literals the shared evaluation sends (review R-1: a result-only check lets a missing literal pass
+                // on SQLite, which accepts a bool parameter in a truth position).
+                // A disjunction with a known-true operand folds true as a whole (as C# short-circuits it).
+                case "trueLiteral":
+                case "idOrTrue":
+                case "optionalFilterNull": return "NOT 1=0";
+                // A collection Contains is answered by the translator, not the fold, so the literal sits in the OR.
+                case "idOrCapturedItemPresent": return "OR NOT 1=0)";
+                case "idOrCapturedStringEquals": return "OR 1=0)";
+                case "idSelf": return "NOT 1=0";
                 default: return null;
             }
         }
@@ -224,7 +247,11 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "oneLtTwo":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), NoColumnMessage);
                 case "idSelf":
+                case "nullableGeSelf":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), SelfReferenceMessage);
+                // An empty search value: LIKE '%%' matches every non-null name (review R-1, A-1).
+                case "nameContainsEmpty":
+                    return new KeyValuePair<Type, string>(typeof(InvalidOperationException), UnboundedSearchMessage);
                 default: return null;
             }
         }
@@ -310,6 +337,8 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("notEmptyContains")]
         [DataRow("optionalFilterNull")]
         [DataRow("idOrCapturedStringEquals")]
+        [DataRow("nameContainsEmpty")]
+        [DataRow("nullableGeSelf")]
         [DataRow("idEquals")]
         [DataRow("idsContainsColumn")]
         [DataRow("notIdsContainsColumn")]
@@ -451,6 +480,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("postedAtHour", "Hour")]
         [DataRow("postedAtDate", "Date")]
         [DataRow("childId", "Id")]
+        [DataRow("childIdSelf", "Id")]
         [DataRow("conditionalLength", "Length")]
         public void EveryPath_RejectsAMemberOfAMemberIdentically(string key, string member) =>
             EveryPathRejectsIdentically(Predicate(key), key, typeof(NotSupportedException), MemberNotTranslated(member));

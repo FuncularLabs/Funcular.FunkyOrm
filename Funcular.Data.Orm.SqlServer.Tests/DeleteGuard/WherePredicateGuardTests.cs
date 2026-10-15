@@ -21,6 +21,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
         private const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
         private const string EmptyMessage = "The WHERE clause translated to nothing; a non-trivial WHERE clause is required.";
+        private const string UnboundedSearchMessage = "The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required.";
 
         public class GuardRow
         {
@@ -28,6 +29,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             public int Other { get; set; }
             public string Name { get; set; }
             public bool Flag { get; set; }
+            public int? N { get; set; }
+            public double Amount { get; set; }
         }
 
         public static class StaticFlags
@@ -132,6 +135,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly string capturedS = "s";
         private readonly string capturedWildcard = "a%";
         private readonly string capturedUpperA = "A";
+        private readonly string capturedEmpty = "";
         private string FilterProperty { get; } = "b";
         private readonly Request request = new Request();
         private readonly Wrapper capturedWrapper = new Wrapper();
@@ -217,6 +221,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["nameContainsCapturedWildcard"] = P(x => x.Name.Contains(capturedWildcard)),
                 ["nameContainsNull"] = P(x => x.Name.Contains(capturedNull)),
                 ["nameContainsEmpty"] = P(x => x.Name.Contains("")),
+                // Review R-1 (A-1): an empty search value matches every non-null row, so a mass mutation is unbounded.
+                ["nameStartsWithEmpty"] = P(x => x.Name.StartsWith("")),
+                ["nameEndsWithEmpty"] = P(x => x.Name.EndsWith("")),
+                ["nameContainsCapturedEmpty"] = P(x => x.Name.Contains(capturedEmpty)),
+                ["nameContainsStringEmpty"] = P(x => x.Name.Contains(string.Empty)),
+                ["idAndNameContainsEmpty"] = P(x => x.Id == 2 && x.Name.Contains("")),
+                ["idOrNameContainsEmpty"] = P(x => x.Id == 2 || x.Name.Contains("")),
+                // Review R-1 (A-2, A-3): a self-comparison folds to a truth only where C# makes it one — not an ordered
+                // comparison of a nullable, not a floating-point equality (NaN), not a member of a member.
+                ["nSelfGe"] = P(x => x.N >= x.N),
+                ["nSelfEq"] = P(x => x.N == x.N),
+                ["amountSelfEq"] = P(x => x.Amount == x.Amount),
+                ["nameLengthSelf"] = P(x => x.Name.Length == x.Name.Length),
                 ["nameContainsThisProperty"] = P(x => x.Name.Contains(FilterProperty)),
                 ["nameEqualsCapturedToString"] = P(x => x.Name == capturedS.ToString()),
                 ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
@@ -363,6 +380,20 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("abcEqAbc", WherePredicateVerdict.NoColumn)]
         [DataRow("capturedTrue", WherePredicateVerdict.NoColumn)]
         [DataRow("false", WherePredicateVerdict.NoColumn)]
+        // Review R-1 (A-1): an empty search value on a column is unbounded (every non-null row) unless something else bounds it.
+        [DataRow("nameContainsEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("nameStartsWithEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("nameEndsWithEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("nameContainsCapturedEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("nameContainsStringEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("idOrNameContainsEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("idAndNameContainsEmpty", WherePredicateVerdict.Acceptable)]
+        [DataRow("nameContainsNull", WherePredicateVerdict.Acceptable)]
+        // Review R-1 (A-2, A-3): C#'s lifted >= is false for null, == is false for NaN, and a member of a member isn't a column.
+        [DataRow("nSelfGe", WherePredicateVerdict.Acceptable)]
+        [DataRow("nSelfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("amountSelfEq", WherePredicateVerdict.Acceptable)]
+        [DataRow("nameLengthSelf", WherePredicateVerdict.Acceptable)]
         public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
             Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
@@ -399,6 +430,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("true", NoColumnMessage)]
         [DataRow("selfEq", SelfReferenceMessage)]
         [DataRow("orTrue", AlwaysTrueMessage)]
+        [DataRow("nameContainsEmpty", UnboundedSearchMessage)]
         [DataRow("idEq2", "")]
         public void Validate_ThrowsTheMessageOfEachVerdict(string key, string expectedMessage)
         {
@@ -413,10 +445,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         }
 
         /// <summary>
-        /// D9's rejections are gone (D-003/D-128): the translation now escapes a wildcard, sends <c>LIKE NULL</c> for a
-        /// null value, reads a property of a captured object, evaluates a row-independent <c>Contains</c> or string
-        /// comparison in C#, and the translators reject a <c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> on a
-        /// value that doesn't read the row themselves, on every path. The guard accepts them.
+        /// Of D9's rejections (3.10.0) only the empty search value survives, as the <see cref="WherePredicateVerdict.UnboundedSearch"/>
+        /// verdict (review R-1, A-1): the translation now escapes a wildcard, sends <c>LIKE NULL</c> for a null value,
+        /// reads a property of a captured object, evaluates a row-independent <c>Contains</c> or string comparison in
+        /// C#, and the translators reject a <c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> they can't evaluate
+        /// themselves, on every path. The guard accepts these.
         /// </summary>
         [DataTestMethod]
         [DataRow("nameContains")]
@@ -433,7 +466,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("nameContainsCharUnderscore")]
         [DataRow("nameContainsCapturedWildcard")]
         [DataRow("nameContainsNull")]
-        [DataRow("nameContainsEmpty")]
+        [DataRow("idAndNameContainsEmpty")]
         [DataRow("nameContainsThisProperty")]
         [DataRow("orContainsFalse")]
         [DataRow("orStartsWith")]
@@ -459,6 +492,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orTrue", AlwaysTrueMessage)]
         [DataRow("rolesContainsOr", AlwaysTrueMessage)]
         [DataRow("orCapturedSEqS", AlwaysTrueMessage)]
+        [DataRow("nameContainsEmpty", UnboundedSearchMessage)]
         public void Validate_RejectsAnAllRowsPredicate_OnlyForAMassMutation(string key, string expectedMessage)
         {
             var predicate = Predicates()[key];
@@ -525,6 +559,14 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orObjectToString", null)]
         [DataRow("orContainsNull", null)]
         [DataRow("condUnknown", null)]
+        // Review R-1: the fold that decides the SQL never makes these true — C#'s `n >= n` is false for a null n, NaN
+        // isn't equal to itself, a member of a member is the translator's to accept or reject, and an empty search value
+        // is a column read (LIKE '%%' excludes a NULL column, as C# would throw on it).
+        [DataRow("nSelfGe", null)]
+        [DataRow("amountSelfEq", null)]
+        [DataRow("nameLengthSelf", null)]
+        [DataRow("nameContainsEmpty", null)]
+        [DataRow("nSelfEq", true)]
         public void Fold_GivesCSharpsTruthOrNull(string key, bool? expected)
         {
             var predicate = Predicates()[key];
@@ -545,9 +587,41 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         }
 
         /// <summary>
-        /// The check on the translated SQL (D3), shared by every path since D-003: an empty clause, a literal tautology
+        /// Review R-1 (A-4, B-4): a memo makes the folds of a predicate's truth positions one pass over the tree, so a
+        /// long disjunction translates in linear time; and a <see cref="WhereOperation.Read"/> doesn't classify at all.
+        /// 1500 terms, each reading the row, through the guard and a visitor: the cubic-cost version took far longer
+        /// than the bound (measured in the red run, D-141).
+        /// </summary>
+        [TestMethod]
+        public void Fold_WithAMemo_TranslatesALongDisjunctionInLinearTime()
+        {
+            var x = Expression.Parameter(typeof(GuardRow), "x");
+            Expression body = Expression.Equal(Expression.Property(x, nameof(GuardRow.Id)), Expression.Constant(0));
+            for (var i = 1; i < 1500; i++)
+                body = Expression.OrElse(body, Expression.Equal(Expression.Property(x, nameof(GuardRow.Id)), Expression.Constant(i)));
+            var predicate = Expression.Lambda<Func<GuardRow, bool>>(body, x);
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            WherePredicateGuard.Validate(predicate, WhereOperation.Read);
+            var memo = new Dictionary<Expression, bool?>();
+            Assert.IsNull(WherePredicateGuard.Fold(body, typeof(GuardRow), memo), "the whole reads the row");
+            Assert.IsTrue(memo.ContainsKey(((BinaryExpression)body).Left), "the memo doesn't record the operands");
+            var generator = new Funcular.Data.Orm.Visitors.ParameterGenerator();
+            var visitor = new Funcular.Data.Orm.Visitors.WhereClauseVisitor<GuardRow>(
+                new System.Collections.Concurrent.ConcurrentDictionary<string, string>(), new List<System.Reflection.PropertyInfo>(),
+                generator, new Funcular.Data.Orm.Visitors.SqlExpressionTranslator(generator), "t");
+            visitor.Visit(predicate);
+            watch.Stop();
+
+            Assert.AreEqual(1500, visitor.Parameters.Count, "every term became a parameter");
+            Assert.IsTrue(watch.ElapsedMilliseconds < 5000, "1500 terms took " + watch.ElapsedMilliseconds + " ms");
+        }
+
+        /// <summary>
+        /// The check on the translated SQL (D3), in its mass-mutation form: an empty clause, a literal tautology
         /// (<c>1=1</c>, or a fold such as <c>t.id = @p OR NOT 1=0</c>) and a whole-clause self-comparison are rejected
-        /// with <see cref="InvalidOperationException"/>; anything else passes.
+        /// with <see cref="InvalidOperationException"/>; anything else passes. (A read accepts every clause:
+        /// <see cref="ValidateTranslation_RejectsAnAllRowsClause_OnlyForAMassMutation"/>.)
         /// </summary>
         [DataTestMethod]
         [DataRow("", EmptyMessage)]
@@ -581,6 +655,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             foreach (var key in new[] { "idEq2", "true", "selfEq", "orTrue" })
                 Assert.AreEqual(WherePredicateGuard.Classify(predicates[key]).ToString(),
                     DeletePredicateGuard.Classify(predicates[key]).ToString(), key);
+            // The 3.10.0 enum has no UnboundedSearch: the forwarder reports it as AlwaysTrue, the nearest 3.10.0 verdict.
+            Assert.AreEqual(DeletePredicateVerdict.AlwaysTrue, DeletePredicateGuard.Classify(predicates["nameContainsEmpty"]));
             var selfReference = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicates["selfEq"]));
             Assert.AreEqual(SelfReferenceMessage, selfReference.Message);
             DeletePredicateGuard.Validate(predicates["orCapturedStringEquals"]); // D9's string-comparison rejection is gone (D-128)

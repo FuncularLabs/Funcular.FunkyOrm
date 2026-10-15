@@ -35,13 +35,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+# Forward slashes: Join-Path on Linux/macOS would keep a backslash as part of the file name (review R-1, B-8).
+$repo = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $projects = @(
-    "Funcular.Data.Orm.Core\Funcular.Data.Orm.Core.csproj",
-    "Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj",
-    "Funcular.Data.Orm.PostgreSql\Funcular.Data.Orm.PostgreSql.csproj",
-    "Funcular.Data.Orm.MySql\Funcular.Data.Orm.MySql.csproj",
-    "Funcular.Data.Orm.Sqlite\Funcular.Data.Orm.Sqlite.csproj")
+    "Funcular.Data.Orm.Core/Funcular.Data.Orm.Core.csproj",
+    "Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj",
+    "Funcular.Data.Orm.PostgreSql/Funcular.Data.Orm.PostgreSql.csproj",
+    "Funcular.Data.Orm.MySql/Funcular.Data.Orm.MySql.csproj",
+    "Funcular.Data.Orm.Sqlite/Funcular.Data.Orm.Sqlite.csproj")
+# net48 runs on Windows only (the .NET Framework runtime); Windows PowerShell 5.1 has no $IsWindows, so ask the runtime.
+$onWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+if (-not $onWindows -and -not $SkipNet48) { Write-Host "Not on Windows: skipping the net48 target."; $SkipNet48 = $true }
 
 $floating = @()
 foreach ($project in $projects) {
@@ -65,12 +69,12 @@ New-Item -ItemType Directory -Path $feed, $app | Out-Null
 Write-Host "Work directory: $work"
 
 Write-Host "Packing Funcular.Data.Orm $Version ($Configuration) into the local feed..."
-& dotnet pack (Join-Path $repo "Funcular.Data.Orm.SqlServer\Funcular.Data.Orm.SqlServer.csproj") -c $Configuration -o $feed --nologo -v q
+& dotnet pack (Join-Path $repo "Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj") -c $Configuration -o $feed --nologo -v q
 if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: pack" -ForegroundColor Red; exit 3 }
 $nupkg = Join-Path $feed "Funcular.Data.Orm.$Version.nupkg"
 if (-not (Test-Path $nupkg)) { Write-Host "FAIL: $nupkg not produced (is <Version> $Version?)" -ForegroundColor Red; exit 3 }
 
-Copy-Item (Join-Path $PSScriptRoot "ConsumerSmoke\*") $app -Recurse
+Copy-Item (Join-Path $PSScriptRoot "ConsumerSmoke/*") $app -Recurse
 $env:FUNKY_SMOKE_FEED = $feed
 # A packages folder of its own: the machine's global cache may already hold a Funcular.Data.Orm of this version
 # (an earlier pack, or the published one), and NuGet would use that instead of the package just packed.

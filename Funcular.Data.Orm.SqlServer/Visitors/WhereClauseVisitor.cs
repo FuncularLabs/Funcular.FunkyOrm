@@ -78,9 +78,11 @@ namespace Funcular.Data.Orm.Visitors
         /// comparison of captured values, a captured string's <c>Contains</c>, a core type's <c>ToString()</c>, a
         /// self-comparison) is sent as a literal, so every path answers it as C# does (D-003 as amended by D-128).
         /// </summary>
+        private readonly Dictionary<Expression, bool?> _truths = new Dictionary<Expression, bool?>();
+
         private void VisitPredicate(Expression node)
         {
-            var truth = WherePredicateGuard.Fold(node, typeof(T));
+            var truth = WherePredicateGuard.Fold(node, typeof(T), _truths);
             if (truth == true)
                 _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.TrueSql);
             else if (truth == false)

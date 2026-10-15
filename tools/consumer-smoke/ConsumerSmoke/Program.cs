@@ -22,8 +22,9 @@ namespace ConsumerSmoke
     /// "loaded" when a query through it reaches the driver: the connection attempt against an unreachable address
     /// fails, which is expected, but a missing or mismatched driver assembly would fail earlier, with
     /// FileNotFoundException or FileLoadException. SQLite runs a real round trip on a temp file.
-    /// Arguments: SqlClient=6.0.0 Npgsql=9.0.5 MySqlConnector=2.6.2 Sqlite=8.0.32 (name=expected informational version).
-    /// Exit code 0 when every check passes.
+    /// Arguments, one per driver, keyed by the driver's ASSEMBLY name: Microsoft.Data.SqlClient=6.0.0 Npgsql=9.0.5
+    /// MySqlConnector=2.6.2 Microsoft.Data.Sqlite=8.0.32 (name=expected informational version). A probed driver with no
+    /// expected version is a failure, so a misspelt key can't skip a check. Exit code 0 when every check passes.
     /// </summary>
     public static class Program
     {
@@ -105,7 +106,9 @@ namespace ConsumerSmoke
             }
             var version = Informational(assembly);
             Console.WriteLine($"{provider}: {driver} {version} (assembly {assembly.GetName().Version})");
-            if (expected.TryGetValue(driver, out var want) && !version.Equals(want, StringComparison.OrdinalIgnoreCase))
+            if (!expected.TryGetValue(driver, out var want))
+                Failures.Add($"{provider}: no expected version was given for {driver} (pass {driver}=<version>), so its minimum wasn't checked");
+            else if (!version.Equals(want, StringComparison.OrdinalIgnoreCase))
                 Failures.Add($"{provider}: {driver} is {version}; the package's declared minimum is {want}, and a consumer that installs the package alone must get exactly that");
         }
 

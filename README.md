@@ -471,7 +471,9 @@ The `Funcular.Data.Orm` package declares each driver as a dependency at the mini
 package carries the SQL Server provider only, and declares only `Microsoft.Data.SqlClient`. The minimum is the version
 the provider is compiled against: a driver older than it fails to load (`FileNotFoundException: Npgsql, Version=…`).
 `tools/consumer-smoke/Run-ConsumerSmoke.ps1` (or `run-consumer-smoke.sh`) packs the package into a local feed and
-installs it into a throwaway console app that loads every provider at exactly those minimums.
+installs it into a throwaway console app that loads every provider at exactly those minimums on `net8.0`, and the SQL
+Server provider on `net48`; the `netstandard2.0` build (`Npgsql` 8.0.9) is covered by the declared pin, not by the
+smoke check.
 
 ### PostgreSQL-Specific Notes
 

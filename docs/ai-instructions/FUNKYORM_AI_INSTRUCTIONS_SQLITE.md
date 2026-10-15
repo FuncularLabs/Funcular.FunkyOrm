@@ -103,7 +103,7 @@ public class User
 
 FunkyORM emits no `COLLATE` of its own on SQLite; comparisons follow SQLite's rules:
 
-- `Contains`, `StartsWith`, `EndsWith` use `LIKE`, which folds ASCII case whatever the column's collation (case-insensitive for ASCII; the value's `%`, `_` and `\` are escaped and matched literally, and the pattern ends with `ESCAPE '!'`).
+- `Contains`, `StartsWith`, `EndsWith` use `LIKE`, which folds ASCII case whatever the column's collation (case-insensitive for ASCII; the value's `%`, `_`, `[` and `!` are prefixed with `!` and matched literally, a backslash is literal, and the pattern ends with `ESCAPE '!'`).
 - `==`, `!=`, `<`, `>` follow the column's collation: SQLite's default `BINARY` is **case-sensitive**. For case-insensitive equality, declare the column `COLLATE NOCASE` in the table (`name TEXT COLLATE NOCASE`).
 
 Do **not** suggest the `SqliteStringComparison` constructor parameter (or `SqliteOrmDataProvider.StringComparison`): it has no effect — the provider stores it and never reads it — and is `[Obsolete]` since 3.11.0.

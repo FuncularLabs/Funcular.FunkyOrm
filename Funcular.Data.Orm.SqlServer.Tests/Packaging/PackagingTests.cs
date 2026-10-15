@@ -79,13 +79,46 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             Assert.IsTrue(compiledAgainst.Count > 0, providerProject + " references no " + driver);
             Assert.AreEqual(compiledAgainst.Count, declared.Count,
                 $"the package declares {driver} {declared.Count} time(s); the provider project references it {compiledAgainst.Count} time(s) (one per target framework condition)");
+            var providerFrameworks = TargetFrameworksOf(providerProject);
+            var packageFrameworks = TargetFrameworksOf("Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj");
             foreach (var reference in compiledAgainst)
             {
-                var match = declared.FirstOrDefault(d => d.Version == reference.Version);
-                Assert.IsNotNull(match, $"the package doesn't declare {driver} {reference.Version} (the provider project's minimum{(reference.Condition == null ? "" : " for " + reference.Condition)})");
-                Assert.IsTrue(match.Condition == null || !match.Condition.Contains("net48") || match.Condition.Contains("!="),
+                // Review R-1 (B-7): the version must be declared for the SAME target framework the provider compiles it
+                // for (Npgsql 9.0.5 on net8.0, 8.0.9 on netstandard2.0), not merely somewhere in the package project.
+                var frameworks = FrameworksOf(reference.Condition, providerFrameworks);
+                var match = declared.FirstOrDefault(d => d.Version == reference.Version
+                    && frameworks.All(f => FrameworksOf(d.Condition, packageFrameworks).Contains(f)));
+                Assert.IsNotNull(match, $"the package doesn't declare {driver} {reference.Version} for {string.Join("/", frameworks)} (the provider project's minimum there)");
+                Assert.IsFalse(FrameworksOf(match.Condition, packageFrameworks).Contains("net48"),
                     $"{driver} must not be declared for net48, which carries SQL Server only: {match.Condition}");
             }
+        }
+
+        private static string[] TargetFrameworksOf(string project)
+        {
+            var document = XDocument.Load(Path.Combine(RepositoryRoot(), project));
+            var frameworks = document.Descendants("TargetFrameworks").Select(e => e.Value).FirstOrDefault()
+                             ?? document.Descendants("TargetFramework").Select(e => e.Value).FirstOrDefault();
+            Assert.IsNotNull(frameworks, project + " declares no target framework");
+            return frameworks.Split(';').Select(f => f.Trim()).Where(f => f.Length > 0).ToArray();
+        }
+
+        /// <summary>
+        /// The target frameworks a csproj condition selects, out of <paramref name="projectFrameworks"/>: a null condition
+        /// selects them all, <c>== 'x'</c> selects x, <c>!= 'x'</c> selects the others.
+        /// </summary>
+        private static string[] FrameworksOf(string condition, string[] projectFrameworks)
+        {
+            if (condition == null)
+                return projectFrameworks;
+            var equals = Regex.Match(condition, @"==\s*'([^']+)'");
+            if (equals.Success)
+                return new[] { equals.Groups[1].Value };
+            var differs = Regex.Match(condition, @"!=\s*'([^']+)'");
+            if (differs.Success)
+                return projectFrameworks.Where(f => f != differs.Groups[1].Value).ToArray();
+            Assert.Fail("unrecognized condition: " + condition);
+            return projectFrameworks;
         }
 
         [TestMethod]

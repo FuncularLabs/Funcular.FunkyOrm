@@ -56,9 +56,11 @@ namespace Funcular.Data.Orm.PostgreSql.Visitors
         /// <c>!</c>). A part whose truth is known without a row (<see cref="WherePredicateGuard.Fold"/>) is sent as a
         /// literal, so every path answers it as C# does (D-003 as amended by D-128).
         /// </summary>
+        private readonly Dictionary<Expression, bool?> _truths = new Dictionary<Expression, bool?>();
+
         private void VisitPredicate(Expression node)
         {
-            var truth = WherePredicateGuard.Fold(node, typeof(T));
+            var truth = WherePredicateGuard.Fold(node, typeof(T), _truths);
             if (truth == true)
                 _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.TrueSql);
             else if (truth == false)

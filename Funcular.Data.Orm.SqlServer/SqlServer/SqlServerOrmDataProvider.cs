@@ -1438,6 +1438,25 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
         protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
+            SqlQueryComponents<T> commandElements,
+            ParameterGenerator parameterGenerator,
+            SqlExpressionTranslator translator) where T : class, new() =>
+            GenerateWhereClause(expression, commandElements, parameterGenerator, translator, WhereOperation.Read);
+
+        /// <summary>
+        /// Translates a LINQ expression tree into SQL WHERE clause text and parameters using helper visitor and
+        /// translator classes, for <paramref name="operation"/>. The four-argument overload above keeps the 3.10 binary
+        /// signature for a subclass compiled against it (review R-1, B-14).
+        /// </summary>
+        /// <typeparam name="T">The entity type referred to by the expression.</typeparam>
+        /// <param name="expression">The expression to translate into SQL.</param>
+        /// <param name="commandElements">Optional existing command components to augment.</param>
+        /// <param name="parameterGenerator">Optional <see cref="ParameterGenerator"/> used for parameter naming; a new one is created if not supplied.</param>
+        /// <param name="translator">Optional <see cref="SqlExpressionTranslator"/> to assist with translating method calls and members.</param>
+        /// <param name="operation">What the predicate is used for (D-003 as amended by D-128).</param>
+        /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
+        protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
+            Expression<Func<T, bool>> expression,
             SqlQueryComponents<T> commandElements = null,
             ParameterGenerator parameterGenerator = null,
             SqlExpressionTranslator translator = null,

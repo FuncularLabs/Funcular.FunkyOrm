@@ -39,6 +39,7 @@ namespace Funcular.Data.Orm.Tests.LikeToString
         // WherePredicateGuard (D-003/D-128) messages: a delete's rejection of an all-rows predicate.
         public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
         public const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+        public const string UnboundedSearchMessage = "The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required.";
 
         /// <summary>The message for <c>x.NCode.Value.ToString()</c> (D4; the guidance of <c>x.N.Value == 7</c>).</summary>
         public const string NullableValueToStringMessage =
@@ -240,16 +241,25 @@ namespace Funcular.Data.Orm.Tests.LikeToString
                     yield return new object[] { method, value, "Cap", path };
         }
 
-        // 3.11.0 (D-003): one shared path; every value the SELECT rows match literally, a delete matches literally too
-        // (the former delete-only wildcard rejection is gone with the escaping that made it moot).
+        // 3.11.0 (D-003/D-128): one shared path; every value the SELECT rows match literally, a delete matches literally too
+        // (the former delete-only wildcard rejection is gone with the escaping that made it moot). The empty value is
+        // the exception (review R-1, A-1): it matches every non-null row, so a delete of it is refused (EmptySearchValueRows).
         public static IEnumerable<object[]> ColumnDeleteRows()
         {
-            foreach (var (method, value) in LiteralCases)
+            foreach (var (method, value) in LiteralCases.Where(c => c.Value.Length > 0))
                 foreach (var path in DeletePaths)
                     yield return new object[] { method, value, "Lit", path };
             foreach (var (method, value) in CapturedCases)
                 foreach (var path in DeletePaths)
                     yield return new object[] { method, value, "Cap", path };
+        }
+
+        public static IEnumerable<object[]> EmptySearchValueRows()
+        {
+            foreach (var method in new[] { "Contains", "StartsWith", "EndsWith" })
+                foreach (var form in new[] { "Lit", "Cap" })
+                    foreach (var path in DeletePaths)
+                        yield return new object[] { method, form, path };
         }
 
         // 3.11.0 (D-003/D-128): a string Contains on a value that doesn't read the row is answered in C# on every path;
@@ -325,6 +335,17 @@ namespace Funcular.Data.Orm.Tests.LikeToString
         public async Task ColumnStringMethods_DeleteDeletesWhatCSharpSelects(string method, string value, string form, string path) =>
             await AssertSelects(form == "Lit" ? Literal(method, value) : Captured(method, value), RowSeed, path,
                 $"{method}({value}) {form}");
+
+        // Review R-1 (A-1), D-003's "unbounded": an empty search value sends LIKE '%%' ESCAPE '!', which matches every
+        // non-null name (the SELECT rows pin that it selects all eight); a delete of it is refused before any command.
+        [DataTestMethod]
+        [DynamicData(nameof(EmptySearchValueRows), DynamicDataSourceType.Method)]
+        public async Task EmptySearchValue_DeleteIsRefused(string method, string form, string path)
+        {
+            var exception = await AssertRejected(form == "Lit" ? Literal(method, "") : Captured(method, ""), path, $"{method}(\"\") {form}");
+            Assert.AreEqual(typeof(InvalidOperationException), exception.GetType(), $"{method}(\"\") {form} {path}: {exception}");
+            Assert.AreEqual(UnboundedSearchMessage, exception.Message, $"{method}(\"\") {form} {path}");
+        }
 
         // AC2: "abc".Contains(v) is false for "_", "%", "[a]", so x.Id == 1 || … selects and deletes row 1 on every
         // path; it holds for "b", so the query selects every row (C#'s answer).

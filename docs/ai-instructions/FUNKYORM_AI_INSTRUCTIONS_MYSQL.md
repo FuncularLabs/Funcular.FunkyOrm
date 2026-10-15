@@ -106,7 +106,7 @@ public string FullName { get; set; }
 
 ### String Comparison
 
-MySQL's default collations (e.g., `utf8mb4_0900_ai_ci`) are **case-insensitive**, matching SQL Server's default behavior — so no case-folding workaround is emitted. `Contains`/`StartsWith`/`EndsWith` use `LIKE` with `CONCAT()` patterns (the value's `%`, `_` and `\` are escaped and matched literally; the pattern ends with `ESCAPE '!'`).
+MySQL's default collations (e.g., `utf8mb4_0900_ai_ci`) are **case-insensitive**, matching SQL Server's default behavior — so no case-folding workaround is emitted. `Contains`/`StartsWith`/`EndsWith` use `LIKE` with `CONCAT()` patterns (the value's `%`, `_`, `[` and `!` are prefixed with `!` and matched literally, and a backslash is literal because the pattern ends with `ESCAPE '!'`, which replaces MySQL's default backslash escape).
 
 FunkyORM emits no `COLLATE` of its own: a comparison follows the column's collation. If you need case-sensitive comparisons, declare the column with a `_bin` or `_cs` collation (`VARCHAR(100) COLLATE utf8mb4_bin`). Do **not** suggest a `MySqlStringComparison` constructor option: the enum has no effect (no constructor accepts it, nothing reads it) and is `[Obsolete]` since 3.11.0.
 

@@ -43,6 +43,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         public const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
         public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
         public const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+        public const string UnboundedSearchMessage = "The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required.";
         public const string NullPredicateMessage = "A WHERE clause (predicate) is required for deletes.";
         public const string TransactionMessage = "Delete operations must be performed within an active transaction.";
 
@@ -498,7 +499,6 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         // a Contains that doesn't read the row is answered in C# (false here, and unknown for a null value).
         [DataRow("firstNameContainsUnderscore", "sync", "1,2,3")] [DataRow("firstNameContainsUnderscore", "async", "1,2,3")]
         [DataRow("firstNameContainsNull", "sync", "1,2,3")] [DataRow("firstNameContainsNull", "async", "1,2,3")]
-        [DataRow("firstNameContainsEmpty", "sync", "3")] [DataRow("firstNameContainsEmpty", "async", "3")]
         [DataRow("firstNameContainsThisProperty", "sync", "2,3")] [DataRow("firstNameContainsThisProperty", "async", "2,3")]
         [DataRow("orContainsFalse", "sync", "1,3")] [DataRow("orContainsFalse", "async", "1,3")]
         [DataRow("orContainsNull", "sync", "1,3")] [DataRow("orContainsNull", "async", "1,3")]
@@ -506,6 +506,15 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("orCapturedUpperEqualsA", "sync", "1,3")] [DataRow("orCapturedUpperEqualsA", "async", "1,3")]
         public async Task NonTrivialPredicates_DeleteTheMatchingRows(string key, string path, string survivors) =>
             await AssertDeletes(Row(key), path, survivors.Split(',').Select(int.Parse).ToArray(), key);
+
+        /// <summary>
+        /// Review R-1 (A-1), D-003's "unbounded": an empty search value sends <c>LIKE '%%'</c>, which matches every
+        /// non-null name, so a delete of it is refused; a query runs it and selects the two named rows.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("firstNameContainsEmpty", "sync")] [DataRow("firstNameContainsEmpty", "async")]
+        public async Task UnboundedSearch_IsRejected(string key, string path) =>
+            await AssertRejected(Row(key), path, UnboundedSearchMessage, key, selectedByQuery: 2);
 
         #endregion
 

@@ -876,6 +876,15 @@ namespace Funcular.Data.Orm.MySql
             return elements;
         }
 
+        /// <summary>The 3.10 four-argument signature, kept for a subclass compiled against it (review R-1, B-14): a read.</summary>
+        protected internal MySqlQueryComponents<T> GenerateWhereClause<T>(
+            Expression<Func<T, bool>> expression,
+            MySqlQueryComponents<T> commandElements,
+            MySqlParameterGenerator parameterGenerator,
+            MySqlExpressionTranslator translator) where T : class, new() =>
+            GenerateWhereClause(expression, commandElements, parameterGenerator, translator, WhereOperation.Read);
+
+        /// <summary>Translates <paramref name="expression"/> into the WHERE clause and parameters, for <paramref name="operation"/> (D-003 as amended by D-128).</summary>
         protected internal MySqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
             MySqlQueryComponents<T> commandElements = null,
