@@ -71,7 +71,7 @@ namespace Funcular.Data.Orm.Sqlite
         {
             Debug.WriteLine($"Executing expression: {expression}");
             var parameterGenerator = new SqliteParameterGenerator();
-            var translator = new SqliteExpressionTranslator(parameterGenerator, _dataProvider.StringComparison);
+            var translator = new SqliteExpressionTranslator(parameterGenerator); // the obsolete StringComparison has no effect (FD-06)
 
             var components = ParseExpression(expression, parameterGenerator, translator);
 

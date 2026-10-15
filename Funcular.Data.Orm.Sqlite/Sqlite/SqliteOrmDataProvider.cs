@@ -29,7 +29,9 @@ namespace Funcular.Data.Orm.Sqlite
         private readonly string _connectionString;
         private IDbTransaction _transaction;
         private int _activeTransactionalScopes;
+#pragma warning disable CS0618 // The obsolete option is kept so a 3.x caller still compiles; it has no effect (FD-06).
         private readonly SqliteStringComparison _stringComparison;
+#pragma warning restore CS0618
 
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
 
@@ -54,6 +56,10 @@ namespace Funcular.Data.Orm.Sqlite
 
         public string TransactionName { get; protected set; }
         public ISqlDialect Dialect { get; }
+
+#pragma warning disable CS0618 // The obsolete option is kept so a 3.x caller still compiles; it has no effect (FD-06).
+        /// <summary>The value given to the constructor. It has no effect: nothing reads it (3.11.0, FD-06).</summary>
+        [Obsolete("SqliteOrmDataProvider.StringComparison has no effect: the provider never reads it. SQLite compares = with BINARY unless the column is declared COLLATE NOCASE; LIKE folds ASCII case. To be removed in 4.0.")]
         public SqliteStringComparison StringComparison => _stringComparison;
 
         #endregion
@@ -69,7 +75,9 @@ namespace Funcular.Data.Orm.Sqlite
         /// <param name="connection">Optional pre-existing connection.</param>
         /// <param name="transaction">Optional pre-existing transaction.</param>
         /// <param name="dialect">Optional custom dialect implementation.</param>
-        /// <param name="stringComparison">String comparison mode (default: CaseInsensitive to match SQL Server behavior).</param>
+        /// <param name="stringComparison">Has no effect (obsolete, 3.11.0 FD-06): the value is stored and never read. String
+        /// comparisons follow SQLite's rules: <c>=</c> under the column's collation (<c>BINARY</c> unless declared
+        /// <c>COLLATE NOCASE</c>), <c>LIKE</c> folding ASCII case.</param>
         public SqliteOrmDataProvider(string connectionString, IDbConnection connection = null,
             IDbTransaction transaction = null, ISqlDialect dialect = null,
             SqliteStringComparison stringComparison = SqliteStringComparison.CaseInsensitive)
@@ -83,6 +91,7 @@ namespace Funcular.Data.Orm.Sqlite
             Dialect = dialect ?? new SqliteDialect();
             _stringComparison = stringComparison;
         }
+#pragma warning restore CS0618
 
         #endregion
 
@@ -879,7 +888,9 @@ namespace Funcular.Data.Orm.Sqlite
             DiscoverColumns<T>();
 
             var paramGen = parameterGenerator ?? new SqliteParameterGenerator();
+#pragma warning disable CS0618 // The obsolete option is passed through; the translator doesn't read it either (FD-06).
             var trans = translator ?? new SqliteExpressionTranslator(paramGen, _stringComparison);
+#pragma warning restore CS0618
 
             var tableName = GetTableName<T>();
             var remoteInfo = ResolveRemoteJoins<T>(tableName);

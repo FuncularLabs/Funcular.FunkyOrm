@@ -32,8 +32,8 @@
 > (§9.14). The 3.10.0 release commit `e618653` is CLEAN (§9.15); one of its CI runs failed a D3 test, answered in
 > rev 15 (`0070f6c`, §5.10), whose review (§9.16) found 1 medium and 2 low, answered in rev 16 (§5.11).
 
-> **Revision 16 (the review of rev 15, §9.16):** about 120,000 groups fit on 64 MB cold, not 230,000 (that figure came
-> from a search that warmed the parser as it went). The test's comment says which mutant it kills and which test
+> **Revision 16 (the review of rev 15, §9.16):** about 120,000 groups fit on 64 MB cold, in a Release build, not
+> 230,000 (that figure came from a search that warmed the parser as it went). The test's comment says which mutant it kills and which test
 > catches a thread with the default size. §4.2 and §4.3 gain the internal overload and its four mutations; §9.14 to
 > §9.16 are recorded; the guard's summary and SQL Server's `ValidateDeleteWhereClause<T>` name
 > `HasLiteralTautology(string)`.
@@ -964,8 +964,8 @@ case folding on SQLite. Recorded for after 3.10.0, outside this plan: `MySqlStri
 
 ### 9.16 Review of `e618653..0070f6c` (non-author; the diagnosis reproduced; the test cold, warm, Debug, Release, without tiering and without PGO, on .NET 8, 9 and 10; four mutants)
 
-Verdict: NOT CLEAN; one medium and two low findings, two nits. The code and the test are sound. Blame: HOUSE-RULE 2,
-PLAN-GAP 1.
+Verdict: NOT CLEAN; one medium and two low findings, two nits. The code and the test are sound. Blame (the author's
+classes, as in §9.8): HOUSE-RULE 2, PLAN-GAP 1.
 
 | # | Sev | Blame | Location | Disposition |
 |---|---|---|---|---|

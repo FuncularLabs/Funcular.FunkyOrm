@@ -16,13 +16,17 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
     public class SqliteExpressionTranslator
     {
         private readonly SqliteParameterGenerator _parameterGenerator;
+#pragma warning disable CS0618 // The obsolete option is accepted so a 3.x caller still compiles; nothing reads it (FD-06).
         private readonly SqliteStringComparison _stringComparison;
 
+        /// <param name="parameterGenerator">Names and creates the command parameters.</param>
+        /// <param name="stringComparison">Has no effect (obsolete, 3.11.0 FD-06): stored and never read; no <c>COLLATE</c> is emitted.</param>
         public SqliteExpressionTranslator(SqliteParameterGenerator parameterGenerator, SqliteStringComparison stringComparison = SqliteStringComparison.CaseInsensitive)
         {
             _parameterGenerator = parameterGenerator ?? throw new ArgumentNullException(nameof(parameterGenerator));
             _stringComparison = stringComparison;
         }
+#pragma warning restore CS0618
 
         private const string ItemMessage =
             "Collection Contains is translated only as <property> IN (<values>), with a property of the entity as its item and a collection that doesn't read the row: ";

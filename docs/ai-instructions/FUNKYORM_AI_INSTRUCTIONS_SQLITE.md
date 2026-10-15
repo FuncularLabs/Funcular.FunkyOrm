@@ -101,16 +101,12 @@ public class User
 
 ### String Comparison
 
-SQLite is case-insensitive by default for ASCII characters (via the `NOCASE` collation on `LIKE`). The SQLite provider defaults to case-insensitive string comparisons to match SQL Server behavior:
+FunkyORM emits no `COLLATE` of its own on SQLite; comparisons follow SQLite's rules:
 
-- `Contains`, `StartsWith`, `EndsWith` use `LIKE` (case-insensitive)
-- Equality comparisons (`==`, `!=`) are case-sensitive by default in SQLite
+- `Contains`, `StartsWith`, `EndsWith` use `LIKE`, which folds ASCII case whatever the column's collation (case-insensitive for ASCII; the value's `%`, `_` and `\` are escaped and matched literally, and the pattern ends with `ESCAPE '!'`).
+- `==`, `!=`, `<`, `>` follow the column's collation: SQLite's default `BINARY` is **case-sensitive**. For case-insensitive equality, declare the column `COLLATE NOCASE` in the table (`name TEXT COLLATE NOCASE`).
 
-If you need case-sensitive behavior, construct the provider with `SqliteStringComparison.CaseSensitive`:
-
-```csharp
-var provider = new SqliteOrmDataProvider(connectionString, SqliteStringComparison.CaseSensitive);
-```
+Do **not** suggest the `SqliteStringComparison` constructor parameter (or `SqliteOrmDataProvider.StringComparison`): it has no effect — the provider stores it and never reads it — and is `[Obsolete]` since 3.11.0.
 
 ### Date/Time Handling
 

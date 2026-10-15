@@ -113,6 +113,18 @@ guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amend
   with `StartsWith`/`EndsWith` no longer throws; a delete of it is refused as an all-rows delete.
 
 ### Changed
+- **`MySqlStringComparison` and `SqliteStringComparison` are `[Obsolete]`, with a message saying they have no effect.**
+  The 3.6.0 documents told MySQL users to pass `MySqlStringComparison.CaseSensitive` to the constructor (no effect:
+  no constructor accepts the enum and nothing reads it, so no `COLLATE utf8mb4_bin` was ever emitted); the SQLite provider accepts
+  `SqliteStringComparison` and stores it (also as `SqliteOrmDataProvider.StringComparison`, now obsolete too) but it is never read,
+  and no `COLLATE NOCASE` is emitted. Neither type is removed in 3.11.0 (a 3.x caller still compiles, with a
+  warning); the removal is planned for 4.0. What the code does: MySQL compares under the column's collation
+  (case-insensitive under the default `_ci` collations; use a `_bin`/`_cs` column collation for case-sensitive
+  comparisons); SQLite compares `=` under the column's collation (`BINARY`, case-sensitive, unless the column is
+  declared `COLLATE NOCASE`) and `LIKE` folds ASCII case whatever the collation. The README, the 3.6.0 Changelog entry
+  and the MySQL and SQLite AI instructions are corrected; a test pins that no document shows the switches as working.
+- **The package description names all four providers** (SQL Server, PostgreSQL, MySQL, SQLite) and says the `net48`
+  build carries the SQL Server provider only; it had left out MySQL since 3.6.0.
 - **The all-rows guard is `Funcular.Data.Orm.WherePredicateGuard`** (see Behaviour change above for the shapes and
   messages). `Delete`/`DeleteAsync` run it before the entity's columns are discovered, so a refused delete on a
   missing table reports the guard, not discovery, and on the translated clause after. `Delete` no longer checks that
@@ -632,7 +644,7 @@ Aggregates keep their 3.9 behavior in 3.10.0:
   - Full LINQ-to-SQL translation with MySQL syntax: backtick identifier quoting, `AUTO_INCREMENT` identity retrieved via `LAST_INSERT_ID()` (MySQL has no `RETURNING` clause), `LIMIT`/`OFFSET` paging, `CONCAT`-based string operations, and `EXTRACT()` date parts.
   - Complete `[RemoteKey]` / `[RemoteProperty]` / `[RemoteLink]` support with automatic `LEFT JOIN` generation, plus all four "view-replacing" attributes against native MySQL `JSON`: `[JsonPath]` (`JSON_UNQUOTE(JSON_EXTRACT(...))`, including WHERE predicates and the 3.5.1 method-call fix), `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` (`JSON_ARRAYAGG` / `JSON_OBJECT`).
   - Reserved-word quoting, MySQL error-code mapping (`MySqlException.Number`, e.g. 1146/1062/1452), Guid storage as `CHAR(36)` (`GuidFormat=Char36`), and the concurrency-safe connection model shared with the other providers.
-  - `MySqlStringComparison` enum — default `CaseInsensitive` (matching MySQL's default `_ci` collations and SQL Server); opt-in `CaseSensitive` applies `COLLATE utf8mb4_bin`.
+  - `MySqlStringComparison` enum — default `CaseInsensitive` (matching MySQL's default `_ci` collations and SQL Server); opt-in `CaseSensitive` applies `COLLATE utf8mb4_bin`. *(Correction, 3.11.0: this never worked — no constructor accepted the enum and nothing read it, so it has no effect; it is obsolete since 3.11.0.)*
   - **37 dialect + integration tests** (CRUD sync/async, LINQ translation, paging, aggregates, remote keys/properties, JsonPath SELECT/WHERE, computed attributes, Guid/non-identity PKs, reserved-word quoting) — green against MySQL 8.0 both locally and in CI.
   - GitHub Actions CI workflow using a MySQL 8.0 service container; `Database/MySql/` DDL + `docker-compose.yml` for local setup.
 

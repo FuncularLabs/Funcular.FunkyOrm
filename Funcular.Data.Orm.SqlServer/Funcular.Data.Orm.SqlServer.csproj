@@ -8,7 +8,7 @@
     <RootNamespace>Funcular.Data.Orm</RootNamespace>
     <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
     <Copyright>Funcular Labs, Inc.</Copyright>
-    <Description>FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Includes SQL Server, PostgreSQL, and SQLite providers. Supports .NET 8, .NET Standard 2.0, and .NET Framework 4.8.</Description>
+    <Description>FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Includes the SQL Server, PostgreSQL, MySQL and SQLite providers for .NET 8 and .NET Standard 2.0; the .NET Framework 4.8 (net48) build carries the SQL Server provider only.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>

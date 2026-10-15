@@ -53,7 +53,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 
 ### 1. Installation
 
-Install the FunkyORM package — SQL Server, PostgreSQL, and SQLite providers are all included:
+Install the FunkyORM package — the SQL Server, PostgreSQL, MySQL and SQLite providers are all included (on `net48`, SQL Server only):
 
 ```bash
 dotnet add package Funcular.Data.Orm
@@ -485,7 +485,7 @@ installs it into a throwaway console app that loads every provider at exactly th
 - **Identity**: MySQL has no `RETURNING` clause; the provider retrieves `AUTO_INCREMENT` ids via `MySqlCommand.LastInsertedId` after insert. Non-identity (Guid/string) keys are supplied by the caller.
 - **GUIDs**: Stored as `CHAR(36)`. Add `GuidFormat=Char36` to the connection string so `Guid` properties round-trip transparently (`BINARY(16)` is also supported via `GuidFormat=Binary16`).
 - **String building**: MySQL's `+` operator performs numeric addition, so string concatenation translates to `CONCAT()`.
-- **Case sensitivity**: Default `_ci` collations make string comparisons case-insensitive (matching SQL Server) — no case-folding workaround is emitted. Use the `MySqlStringComparison.CaseSensitive` constructor option to apply `COLLATE utf8mb4_bin`. Column names are always case-insensitive; **table-name** case sensitivity follows the server's `lower_case_table_names` (case-sensitive on Linux by default), so lowercase table names are recommended for cross-platform portability.
+- **Case sensitivity**: Default `_ci` collations make string comparisons case-insensitive (matching SQL Server) — no case-folding workaround is emitted, and FunkyORM emits no `COLLATE` of its own: for case-sensitive comparisons give the column a `_bin` or `_cs` collation. (The `MySqlStringComparison` enum has no effect — no constructor accepts it — and is obsolete since 3.11.0.) Column names are always case-insensitive; **table-name** case sensitivity follows the server's `lower_case_table_names` (case-sensitive on Linux by default), so lowercase table names are recommended for cross-platform portability.
 - **JSON**: Native `JSON` type. `[JsonPath]` uses `JSON_UNQUOTE(JSON_EXTRACT(col, '$.path'))` (with `CAST` for typed extraction), and `[JsonCollection]` uses `JSON_ARRAYAGG(JSON_OBJECT(...))`.
 - **Reserved word quoting**: Uses backtick quoting, applied to identifiers matching MySQL's reserved-word list.
 - **Schemas**: A `[Table(Schema = "x")]` maps to `` `x`.`table` `` (in MySQL, a "schema" is a database).
@@ -499,6 +499,7 @@ installs it into a throwaway console app that loads every provider at exactly th
 - **JSON support**: Requires SQLite 3.38+ (bundled with `Microsoft.Data.Sqlite`). Uses `json_extract()` for scalar extraction and `json_group_array(json_object(...))` for collection projection.
 - **Concurrency**: SQLite supports WAL mode for concurrent reads, but only one writer at a time. The provider handles this transparently, but high-write-concurrency scenarios may experience `SQLITE_BUSY` under heavy load.
 - **Reserved word quoting**: Like PostgreSQL, SQLite uses double-quote quoting, but only applies it to identifiers that match SQLite's reserved word list.
+- **Case sensitivity**: `==`, `!=`, `<` and `>` on text follow the column's collation — SQLite's default `BINARY` is case-sensitive; declare the column `COLLATE NOCASE` for case-insensitive equality — and `LIKE` (`Contains`, `StartsWith`, `EndsWith`) folds ASCII case whatever the collation. FunkyORM emits no `COLLATE` of its own. (The `SqliteStringComparison` constructor option has no effect — the provider never reads it — and is obsolete since 3.11.0.)
 
 ## Documentation
 
