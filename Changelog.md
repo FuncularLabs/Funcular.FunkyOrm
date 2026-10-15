@@ -39,6 +39,12 @@ translator with its own message, on every path. Any future update by predicate t
 guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128, D-004).
 
 ### Fixed
+- **The ORDER BY visitors no longer write to the console.** Every ordered query on every provider wrote
+  `Generated ORDER BY clause: …` to `Console.Out` (a `Console.WriteLine` left in each `*OrderByClauseVisitor`), on
+  each read of the clause. The library now writes nothing to the console; SQL goes only to the provider's `Log`
+  callback. (The LINQ providers' `Debug.WriteLine` calls remain: they are compiled out of Release builds and go to
+  the debugger, not the console.) Pinned by tests that capture `Console.Out` around the visitors and around ordered,
+  paged and predicate queries on SQLite.
 - **The package now declares the drivers of every provider it bundles, at pinned minimums.** `Funcular.Data.Orm`
   ships the PostgreSQL, MySQL and SQLite providers but declared only `Microsoft.Data.SqlClient`, and the providers'
   own driver references floated (`Npgsql 9.*` / `8.0.*`, `MySqlConnector 2.*`, `Microsoft.Data.Sqlite 8.0.*`), so

@@ -36,10 +36,8 @@ namespace Funcular.Data.Orm.Visitors
                 if (!_orderByClauses.Any())
                     return string.Empty;
 
-                var clause =
-                    $"ORDER BY {string.Join(", ", _orderByClauses.Select(c => $"{c.ColumnName} {(c.IsDescending ? "DESC" : "ASC")}"))}";
-                Console.WriteLine($"Generated ORDER BY clause: {clause}");
-                return clause;
+                // Nothing is written to the console here (3.11.0, FD-07): SQL goes only to the provider's Log callback.
+                return $"ORDER BY {string.Join(", ", _orderByClauses.Select(c => $"{c.ColumnName} {(c.IsDescending ? "DESC" : "ASC")}"))}";
             }
         }
 
