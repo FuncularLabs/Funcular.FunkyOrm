@@ -523,9 +523,10 @@ namespace Funcular.Data.Orm
             IsEvaluable(expression) ? Evaluate(expression) : Truth.Unknown;
 
         /// <summary>
-        /// A string <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> on a property of the entity (a direct one: on a
-        /// member of a member the translators reject the receiver, on every path; review R-2, A/N-3) whose search value
-        /// reads no parameter and is the empty string: <c>LIKE '%%'</c>, which matches every non-null row.
+        /// A string <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> whose receiver is a property of the entity read
+        /// directly (what the translators accept as the receiver; a member of a member, a <c>ToString()</c> or a field
+        /// is rejected by them on every path; review R-2 A/N-3, R-4 A/N-2) and whose search value reads no parameter
+        /// and is the empty string: <c>LIKE '%%'</c>, which matches every non-null row.
         /// </summary>
         private static bool IsUnboundedSearch(MethodCallExpression call, Type entityType)
         {
@@ -535,7 +536,8 @@ namespace Funcular.Data.Orm
             var name = call.Method.Name;
             if (name != "Contains" && name != "StartsWith" && name != "EndsWith")
                 return false;
-            if (MemberChain(call.Object, entityType)?.Count != 1)
+            if (!(StripConvert(call.Object) is MemberExpression receiver) || !(receiver.Member is PropertyInfo)
+                || !(receiver.Expression is ParameterExpression parameter) || parameter.Type != entityType)
                 return false;
             var argument = call.Arguments[0];
             return IsEvaluable(argument) && TryRead(argument, out var value) && value is string text && text.Length == 0;

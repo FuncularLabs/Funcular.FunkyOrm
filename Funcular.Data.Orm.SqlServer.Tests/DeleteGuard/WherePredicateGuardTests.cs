@@ -281,6 +281,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["flagEqTrue"] = P(x => x.Flag == true),
                 ["orCapturedTrueEqFalse"] = P(x => x.Id == 2 || capturedTrue == false),
                 ["orCapturedTrueNeFalse"] = P(x => x.Id == 2 || capturedTrue != false),
+                // Review R-4 (round-3 A/N-2): the receiver of an unbounded search is a property of the entity, read
+                // directly; a ToString() on it is the translator's to reject, on every path.
+                ["nameToStringContainsEmpty"] = P(x => x.Name.ToString().Contains("")),
                 ["nameContainsThisProperty"] = P(x => x.Name.Contains(FilterProperty)),
                 ["nameEqualsCapturedToString"] = P(x => x.Name == capturedS.ToString()),
                 ["nameContainsCaptured"] = P(x => x.Name.Contains(capturedS)),
@@ -462,6 +465,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("flagEqTrue", WherePredicateVerdict.Acceptable)]
         [DataRow("orCapturedTrueEqFalse", WherePredicateVerdict.Acceptable)]
         [DataRow("orCapturedTrueNeFalse", WherePredicateVerdict.AlwaysTrue)]
+        // Review R-4 (round-3 A/N-2): a ToString() receiver isn't a property of the entity; the translators reject it on every path.
+        [DataRow("nameToStringContainsEmpty", WherePredicateVerdict.Acceptable)]
         public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
             Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
@@ -551,6 +556,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("nameContainsEmptyEqFalse")]
         [DataRow("idSelfNeTrue")]
         [DataRow("flagEqTrue")]
+        [DataRow("nameToStringContainsEmpty")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>

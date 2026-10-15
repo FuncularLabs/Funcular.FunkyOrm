@@ -202,6 +202,9 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "childIdSelf": return x => x.Child.Id == x.Child.Id;
                 // Review R-2 (A/N-3): an empty search on a member of a member is the translator's to reject, on every path.
                 case "childNameContainsEmpty": return x => x.Child.Name.Contains("");
+                // Review R-4 (round-3 A/N-2): a ToString() on the column isn't a property of the entity; the translator
+                // rejects the receiver on every path, and the guard doesn't call it unbounded.
+                case "nameToStringContainsEmpty": return x => x.Name.ToString().Contains("");
                 // Review R-4 (round-3 A/N-1): a bool compared with a bool. The verdict composes the operands' truths, so an
                 // empty search or a self-comparison in a value position is refused as a delete (3.10.1 refused the first;
                 // at ee31854 the first two deleted every named row on SQLite, MySQL and PostgreSQL). A query runs them: the
@@ -582,9 +585,12 @@ namespace Funcular.Data.Orm.Tests.Parity
         /// Review R-2 (A/N-3): a string <c>Contains</c> on a member of a member is the translator's to reject (the receiver
         /// isn't a property of the entity), on every path alike, empty search value or not; the guard doesn't call it unbounded.
         /// </summary>
-        [TestMethod]
-        public void EveryPath_RejectsAnEmptySearchOnAMemberOfAMemberIdentically() =>
-            EveryPathRejectsIdentically(Predicate("childNameContainsEmpty"), "childNameContainsEmpty", typeof(NotSupportedException), ContainsReceiverMessage);
+        [DataTestMethod]
+        [DataRow("childNameContainsEmpty")]
+        // Review R-4 (round-3 A/N-2): a ToString() receiver, likewise.
+        [DataRow("nameToStringContainsEmpty")]
+        public void EveryPath_RejectsAnEmptySearchOnANonPropertyReceiverIdentically(string key) =>
+            EveryPathRejectsIdentically(Predicate(key), key, typeof(NotSupportedException), ContainsReceiverMessage);
 
         /// <summary>
         /// Review R-2 (A/N-2): a member of a member compared with itself. The guard's verdict runs before translation, so
