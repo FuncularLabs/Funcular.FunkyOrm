@@ -12,7 +12,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Funcular.Data.Orm.Tests.Aggregates
 {
     /// <summary>
-    /// Aggregate correctness (3.10.2, FD-04; docs/plans/QUERY_OPERATOR_CORRECTNESS_PLAN.md §10; the 3.10.0 Changelog's
+    /// Aggregate correctness (3.11.0, FD-04; docs/plans/QUERY_OPERATOR_CORRECTNESS_PLAN.md §10; the 3.10.0 Changelog's
     /// Known issues): <c>Average</c> gives LINQ to objects' value for every numeric type, computed as <c>SUM / COUNT</c>
     /// in C#; an empty set gives <c>Sum</c> 0, a nullable or reference <c>Min</c>/<c>Max</c>/<c>Average</c> null and a
     /// non-nullable one <see cref="InvalidOperationException"/>; <c>Min</c>/<c>Max</c> result types convert after the

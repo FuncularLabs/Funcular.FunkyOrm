@@ -89,7 +89,7 @@ namespace Funcular.Data.Orm.Tests.Caching
         protected virtual string DiscoveredId => "id";
 
         /// <summary>
-        /// The aggregate fragment for Average of a qualified integer column: since 3.10.2 (FD-04) Average is read as
+        /// The aggregate fragment for Average of a qualified integer column: since 3.11.0 (FD-04) Average is read as
         /// SUM and COUNT and divided in C#; SQL Server widens the integer sum (its override).
         /// </summary>
         protected virtual string AverageFragment(string qualifiedColumn) => $"SUM({qualifiedColumn}), COUNT({qualifiedColumn})";
@@ -363,7 +363,7 @@ namespace Funcular.Data.Orm.Tests.Caching
                 case "Select":
                     return (p => p.Query<LinqUnmappedA>().Select(x => new LinqUnmappedA { FirstName = x.FirstName }).ToList(),
                         "Unmapped properties cannot be selected directly.", $"{Table}.{DiscoveredFirstName} AS FirstName");
-                // 3.10.2 (FD-01): the WHERE visitor names the unmapped member; before it recursed into the parameter
+                // 3.11.0 (FD-01): the WHERE visitor names the unmapped member; before it recursed into the parameter
                 // and failed with "Expression type Parameter is not supported".
                 case "Count(predicate)":
                     return (p => p.Query<LinqUnmappedA>().Count(x => x.FirstName == "x"),

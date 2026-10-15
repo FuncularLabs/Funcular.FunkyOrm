@@ -2,12 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.10.2] - Unreleased
+## [3.11.0] - Unreleased
 
 WHERE translation fixes for every provider (SQL Server, PostgreSQL, MySQL, SQLite). **Upgrade recommended:** the
 shapes under Fixed selected, and deleted, other rows than C# selects, without an error. One translation path serves
 `Query`, `Query<T>().Where`, `Count`/`Any`/`All`, SELECT projections and `Delete`; the parity tests
-(`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE.
+(`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE, or
+throws the same exception on every path.
+
+**Behaviour change — one guard for every WHERE clause.** The checks that 3.10.0 ran only on `Delete(predicate)`
+(`DeletePredicateGuard`) now run on every WHERE predicate, before any command is sent: `Query(predicate)`,
+`Query<T>().Where(...)`, `Count`/`LongCount`/`Any`/`All` with a predicate, `Delete` and `DeleteAsync` all throw the
+same exception with the same message for the same predicate. So `Query` and `Count` now reject, with
+`InvalidOperationException`, shapes that returned rows in 3.10.x:
+- a predicate that reads no column of the entity: `x => true`, `x => 1 < 2`, `x => someFlag`,
+  `x => ids.Contains(request.Id)` ("The WHERE clause must reference at least one column of the entity.");
+- a comparison of a column with itself: `x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `(long)x.Id == (long)x.Id`,
+  `x.Code.ToString() == x.Code.ToString()` ("The WHERE clause cannot be a self-referencing column expression.");
+- a predicate that always holds: an `||` with `true`, a captured or static `true`, a comparison of captured values
+  that holds, or a `Contains` on a captured string or collection that holds — **including the optional-filter idiom
+  `x => filter == null || x.Name.Contains(filter)` when `filter` is null, and the admin idiom
+  `x => x.OwnerId == me || roles.Contains("admin")` for an admin** — and a negated `Contains` over an empty
+  collection in an `||` (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty) ("The WHERE clause is trivially
+  true; a non-trivial WHERE clause is required."). Decide in C# and compose the query:
+  `var q = provider.Query<Person>(); if (filter != null) q = q.Where(x => x.Name.Contains(filter));`;
+- and, with `NotSupportedException`, a comparison (`==`/`!=`) of two strings neither of which reads the row
+  (`x => x.Id == 2 || role == "admin"`): the database would compare them under its collation where C# compares them
+  ordinally; compute it before the query.
+The messages changed too (they no longer say "Delete operation"); code that matched the 3.10.0 text must match the new
+one. The other 3.10.0 delete-only rejections (D9) are gone, because the translation they guarded is fixed in this
+release (see Fixed): a search value that is a LIKE wildcard, null, empty or a property of an object you hold, and a
+string `Contains` on a value that doesn't read the row, now delete exactly the rows `Query` selects; a `StartsWith`,
+`EndsWith` or `ToString()` on a value that doesn't read the row is rejected by the translator with its own message,
+on every path. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003, D-004).
 
 ### Fixed
 - **Aggregates follow LINQ to objects** (the 3.10.0 Known issues, promised for this release):
@@ -29,7 +56,7 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
   PostgreSQL and MySQL a backslash escaped the character after it, so `x.Name.EndsWith("\\b")` matched every name
   ending in `b`. The value is now matched literally on all four providers, written in the predicate or captured, in a
   WHERE clause and in a projection: the pattern escapes `%`, `_`, `[` and `!` with `!` and ends with `ESCAPE '!'`.
-  (A delete with such a value is still rejected by the delete guard: see Known issues.)
+  A delete with such a value deletes the rows the query selects (3.10.0 rejected it).
 - **A property's `ToString()` was dropped.** `x.Code.ToString() == "07"` compared the integer column with the text,
   which matched `7` on SQL Server, MySQL and SQLite and failed on PostgreSQL (`42883`); in a projection
   (`Label = x.Code.ToString()`) it threw `InvalidCastException` on SQL Server, PostgreSQL and MySQL. On an integer
@@ -55,8 +82,7 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
 - **A property of a captured object used as a search value** — the enclosing object's (`this`), a nested one, a
   static one — was read as `null` or not at all: `x => x.Id == 2 || x.Name.Contains(Filter)` in an instance method
   sent `LIKE '%%'` and selected every row with a non-null name. Search values of `Contains`, `StartsWith` and
-  `EndsWith` are now read as C# reads them. (A delete with this shape is still rejected by the delete guard: see
-  Known issues.)
+  `EndsWith` are now read as C# reads them, in a delete too (3.10.0 rejected the shape there).
 - **`StartsWith`/`EndsWith` on something other than an entity property** (`request.Name.StartsWith("al")`,
   `x.Child.Name.StartsWith("a")`) were translated as the entity's `name` column, selecting the wrong rows. They now
   throw (see Changed).
@@ -69,10 +95,17 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
   answered as C# answers it, except that a null string or search value matches no row (C# would throw).
 - **A null search value** (`x.Name.Contains(filter)` with `filter == null`) sent `LIKE '%%'`, which matched every row
   with a non-null value. A null value for `Contains`, `StartsWith` or `EndsWith` now matches no row, negated or not
-  (inside `All`, see Known issues). The optional-filter idiom `filter == null || x.Name.Contains(filter)` still
-  returns every row, and the same idiom with `StartsWith`/`EndsWith` no longer throws.
+  (inside `All`, see Known issues). The optional-filter idiom `filter == null || x.Name.Contains(filter)` with a
+  null `filter` is rejected as always true (see Behaviour change): build the query conditionally instead.
 
 ### Changed
+- **Every WHERE predicate is checked by the shared guard** (`Funcular.Data.Orm.WherePredicateGuard`; see Behaviour
+  change above for the shapes and messages). The check runs before the entity's columns are discovered, on
+  `Query`/`QueryAsync`/`Delete`/`DeleteAsync` and on a LINQ `Where`, so a rejected predicate on a missing table
+  reports the guard, not discovery; `Count`/`Any`/`All` run it on their predicate too. `Delete` no longer checks that
+  the translated clause names a column of the table by text (a predicate on a remote property only is accepted,
+  as it is in a query). `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` and forward to the new
+  class, with its messages.
 - **`Min`/`Max` over a type the database can't order as .NET does throw `NotSupportedException` before any command is
   sent:** an enum (aggregate its number and convert: `Max(x => (int)x.Status)`, which translates); `TimeSpan` (time
   types differ by provider: SQL Server and PostgreSQL `time` hold values under 24 hours, MySQL `TIME` spans ±838
@@ -149,6 +182,10 @@ before:
   read to answer a `Contains` before the query (an item that doesn't come from the row) is wrapped like any value.
 
 ### New public API
+- `Funcular.Data.Orm.WherePredicateGuard` (`Classify`, `Validate`, `ValidateTranslation`, `HasLiteralTautology`, and
+  its message constants) with `WherePredicateVerdict`: the guard every provider runs on every WHERE predicate, which
+  a custom provider can call too. `DeletePredicateGuard` and `DeletePredicateVerdict` (3.10.0) are `[Obsolete]`
+  forwarders.
 - `Funcular.Data.Orm.Linq.RowIndependentEvaluator` (`IsRowIndependent`, `TryTranslateContains`, `TryReadValue`, and
   the SQL it sends: `TrueSql`, `FalseSql`, `UnknownSql`), which the four translators use and a custom provider can
   too. It evaluates by interpretation where the runtime has it (.NET Framework 4.7.1 and later, .NET Core) and
@@ -170,17 +207,8 @@ before:
   is one shorter in SQL than in C# (SQL Server under a non-`_SC` collation counts as C# does). A `CHAR(n)` column's
   padding is counted or not as the database decides. Trailing spaces are counted on every provider (SQL Server's
   `LEN` would drop them; FunkyORM sends `LEN(c + N'x') - 1`).
-- **The delete guard still rejects some shapes the translation now gets right.** `Delete` validates its predicate
-  before translating it (3.10.0's `DeletePredicateGuard`), and that check is unchanged in 3.10.2: a string
-  `Contains`/`StartsWith`/`EndsWith` whose search value is a property of an object you hold (`x.Name.Contains(Filter)`),
-  or is null or empty, or contains `%`, `_`, `[` or a backslash (`x.Name.Contains("_")`, now matched literally
-  everywhere else); a string `Contains` on a value that doesn't read the row (`x.Id == 2 || s.Contains("a")`); and
-  a comparison of two strings that don't read the row still throw `NotSupportedException` in a delete, though
-  `Query` with the same predicate now returns C#'s rows. The guard's messages still describe the earlier translation
-  ("which the translation reads as null", "which is sent unescaped"). A delete whose evaluated `Contains` makes the predicate always true
-  (`x.Id == 2 || ids.Contains(present.Id)`) is rejected with "Delete operation requires a non-trivial WHERE clause.",
-  and one that reads no column (`x => ids.Contains(request.Id)`) with the column-reference message. Whether the
-  guard should follow the translation is an open owner decision (docs/plans/DECISIONS-3.10.2.md, D-003).
+- **The guard proves only the plain shapes.** `x => x.Id == 2 || x.Id != 2` is accepted on every path, though it
+  holds for every row; a `Contains("")` on a column matches every non-null value, as in C#, and is accepted.
 - **`All` counts a row whose predicate SQL finds null (unknown) as satisfying it**, as before. That's C#'s answer
   when the null makes the predicate true (`All(x => x.NullableId != 5)`), but not when it makes it false:
   `All(x => x.NullableId > 0)` returns `true` when a `NullableId` is null, where C# returns `false`. `All` over a null
@@ -236,7 +264,7 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
   `OrmDataProvider`) prepare the key.
 
 ### Known issues
-- The aggregate fixes listed under 3.10.0's Known issues are now planned for 3.10.2.
+- The aggregate fixes listed under 3.10.0's Known issues are now planned for the next release (3.11.0).
 - `Update` of an entity whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server and PostgreSQL) still
   fails, as in 3.10.0: the UPDATE statement's own key parameter isn't converted yet.
 

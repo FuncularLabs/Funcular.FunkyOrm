@@ -5,7 +5,7 @@ namespace Funcular.Data.Orm.Linq
 {
     /// <summary>
     /// LINQ to objects' rules for <c>Sum</c>, <c>Average</c>, <c>Min</c> and <c>Max</c>, which the four providers' LINQ
-    /// query providers share (3.10.2, FD-04; docs/plans/QUERY_OPERATOR_CORRECTNESS_PLAN.md §10):
+    /// query providers share (3.11.0, FD-04; docs/plans/QUERY_OPERATOR_CORRECTNESS_PLAN.md §10):
     /// <list type="bullet">
     /// <item><see cref="EnsureMinMaxSupported"/>: the selector types the database can't order as .NET does are rejected
     /// before any command is sent (an enum, <see cref="TimeSpan"/>, a <see cref="Guid"/> unless the provider's

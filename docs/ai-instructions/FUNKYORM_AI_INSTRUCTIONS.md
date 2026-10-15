@@ -147,6 +147,7 @@ When generating code for the user:
 
 *   **Requirement**: ALL deletes (by ID or Predicate) **MUST** be performed within an active transaction.
 *   **Requirement**: Deletes by Predicate **MUST** have a non-trivial WHERE clause (no `x => true`).
+*   **v3.11.0**: the same guard runs on EVERY WHERE predicate (`Query`, `Where`, `Count`/`Any`/`All`, `Delete`): a predicate that reads no column, compares a column with itself, or always holds (`x => filter == null || x.Name.Contains(filter)` with a null `filter`; `x => x.OwnerId == me || roles.Contains("admin")` for an admin) throws `InvalidOperationException` before any command. Decide in C# and compose: `var q = provider.Query<T>(); if (filter != null) q = q.Where(x => x.Name.Contains(filter));`. A comparison of two strings that don't read the row (`role == "admin"`) throws `NotSupportedException`: compute it before the query.
 *   **Anti-Pattern**: Do NOT use raw ADO.NET connections to bypass these checks.
 
 **Delete by ID:**

@@ -50,7 +50,7 @@ namespace Funcular.Data.Orm.MySql.Visitors
             if (node.Method.Name == "ToString")
             {
                 // A property's own ToString(): an integer column as its invariant text, a string column as itself, any
-                // other type or any argument rejected (3.10.2, FD-03, D4); x.N.Value.ToString() throws
+                // other type or any argument rejected (3.11.0, FD-03, D4); x.N.Value.ToString() throws
                 // NullableExpressionException. A ToString of anything else is rejected, never evaluated: the caller
                 // computes the string before the query (FD-02, D16).
                 TranslateToString(node, commandTextBuilder, getColumnName);
@@ -77,7 +77,7 @@ namespace Funcular.Data.Orm.MySql.Visitors
                     return;
                 }
                 commandTextBuilder.Append(" LIKE ");
-                // LIKE metacharacters in the value are matched literally (3.10.2, FD-03): LikePattern escapes them
+                // LIKE metacharacters in the value are matched literally (3.11.0, FD-03): LikePattern escapes them
                 // with '!' and the pattern names it with ESCAPE '!', which also replaces MySQL's default backslash
                 // escape, so a backslash in the value is literal.
                 AppendParameter($"%{LikePattern.Escape(searchValue.ToString())}%", commandTextBuilder, parameters);
@@ -257,7 +257,7 @@ namespace Funcular.Data.Orm.MySql.Visitors
         }
 
         /// <summary>
-        /// Translates <c>ToString</c> on a property of the entity (3.10.2, FD-03; docs/plans/LIKE_ESCAPING_TOSTRING_PLAN.md
+        /// Translates <c>ToString</c> on a property of the entity (3.11.0, FD-03; docs/plans/LIKE_ESCAPING_TOSTRING_PLAN.md
         /// D4): an integer column (<c>sbyte</c> through <c>ulong</c>) is its text in the invariant form, a nullable one
         /// <c>''</c> for null as <c>int?.ToString()</c> gives, a string column is itself; any other column type, and any
         /// argument (a format or a format provider), throws <see cref="NotSupportedException"/>, because the database's
@@ -344,7 +344,7 @@ namespace Funcular.Data.Orm.MySql.Visitors
         }
 
         /// <summary>
-        /// Translates a member of a member of the row (3.10.2, FD-01): <c>x.D.Year</c>, <c>.Month</c> or <c>.Day</c> on a
+        /// Translates a member of a member of the row (3.11.0, FD-01): <c>x.D.Year</c>, <c>.Month</c> or <c>.Day</c> on a
         /// <see cref="DateTime"/> property (also through <c>.Value</c> on a nullable one) as the dialect's date part, and
         /// <c>x.Name.Length</c> on a <see cref="string"/> property as its character length (<c>CHAR_LENGTH</c>: MySQL's
         /// <c>LENGTH</c> counts bytes), both over the column <paramref name="getColumnName"/> gives (the visitor's

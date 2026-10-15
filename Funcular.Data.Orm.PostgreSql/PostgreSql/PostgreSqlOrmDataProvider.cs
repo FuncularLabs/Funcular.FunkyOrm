@@ -108,6 +108,7 @@ namespace Funcular.Data.Orm.PostgreSql
 
         public override async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression)
         {
+            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -175,13 +176,17 @@ namespace Funcular.Data.Orm.PostgreSql
             }
         }
 
+        /// <summary>
+        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate takes the
+        /// WHERE path every query takes (<see cref="WherePredicateGuard"/> before and after translation, D-003), so a
+        /// predicate that reads no column, compares a column with itself or always holds is rejected as it is by
+        /// <c>Query</c> and <c>Count</c>.
+        /// </summary>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
-            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-            ValidateWhereClause<T>(components.WhereClause);
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -301,6 +306,7 @@ namespace Funcular.Data.Orm.PostgreSql
         [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         public override ICollection<T> Query<T>(Expression<Func<T, bool>> expression)
         {
+            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -370,13 +376,17 @@ namespace Funcular.Data.Orm.PostgreSql
             return CreateQueryable<T>(selectCommand);
         }
 
+        /// <summary>
+        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate takes the
+        /// WHERE path every query takes (<see cref="WherePredicateGuard"/> before and after translation, D-003), so a
+        /// predicate that reads no column, compares a column with itself or always holds is rejected as it is by
+        /// <c>Query</c> and <c>Count</c>.
+        /// </summary>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
-            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-            ValidateWhereClause<T>(components.WhereClause);
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -904,6 +914,11 @@ namespace Funcular.Data.Orm.PostgreSql
             PostgreSqlParameterGenerator parameterGenerator = null,
             PostgreSqlExpressionTranslator translator = null) where T : class, new()
         {
+            // The shared guard (D-003) runs first, before T's columns are discovered: a predicate that reads no
+            // column, compares a column with itself, always holds, or compares two strings that don't read the row is
+            // rejected before any command, on this path as on every other.
+            WherePredicateGuard.Validate(expression);
+
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
@@ -920,6 +935,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 UnmappedPropertiesFor<T>(),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
+            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody);
 
             if (commandElements != null)
             {
@@ -956,24 +972,6 @@ namespace Funcular.Data.Orm.PostgreSql
                 commandElements.OriginalExpression = commandElements.OriginalExpression ?? expression;
             }
             return commandElements;
-        }
-
-        private void ValidateWhereClause<T>(string whereClause)
-        {
-            if (string.IsNullOrWhiteSpace(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(whereClause))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-            bool columnReferenced = tableColumns.Any(col => whereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
         }
 
         #endregion

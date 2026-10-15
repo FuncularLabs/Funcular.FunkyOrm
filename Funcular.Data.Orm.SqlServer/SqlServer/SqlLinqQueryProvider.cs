@@ -551,6 +551,8 @@ namespace Funcular.Data.Orm.SqlServer
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    // The shared guard (D-003): the same checks as GenerateWhereClause, before and after translation.
+                    WherePredicateGuard.Validate(predicateExpression);
                     var whereVisitor = new WhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -560,6 +562,7 @@ namespace Funcular.Data.Orm.SqlServer
                         table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
+                    WherePredicateGuard.ValidateTranslation(whereVisitor.WhereClauseBody);
 
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
@@ -683,7 +686,7 @@ namespace Funcular.Data.Orm.SqlServer
                 }
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
                 // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
-                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.11.0, FD-04).
                 if (methodName == "Min" || methodName == "Max")
                     Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodName, lambda.Body.Type, property.Name,
                         _dataProvider.QueryOptions.GuidOrdering, dateTimeOffsetOrdersByInstant: true);
@@ -693,7 +696,7 @@ namespace Funcular.Data.Orm.SqlServer
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
                 var qualifiedColumn = $"{table}.{columnExpression}";
                 // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
-                // so AVG's integer truncation is gone (3.10.2, FD-04). SUM(int) is int and SUM(real) is real on SQL
+                // so AVG's integer truncation is gone (3.11.0, FD-04). SUM(int) is int and SUM(real) is real on SQL
                 // Server, so those are widened to the types LINQ sums in.
                 if (methodName == "Average")
                 {
@@ -914,7 +917,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// <returns>The aggregate result cast to TResult.</returns>
         private TResult HandleAggregateQuery<TResult>(QueryComponents components, Expression expression)
         {
-            // Converts with LINQ to objects' rules (3.10.2, FD-04; AggregateSemantics): Average from SUM and COUNT in C#;
+            // Converts with LINQ to objects' rules (3.11.0, FD-04; AggregateSemantics): Average from SUM and COUNT in C#;
             // an empty set gives Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one
             // InvalidOperationException.
             var outerMethodName = components.OuterMethodCall?.Method.Name;

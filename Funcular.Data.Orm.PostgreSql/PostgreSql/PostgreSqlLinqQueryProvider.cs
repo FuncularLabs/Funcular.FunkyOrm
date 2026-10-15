@@ -444,6 +444,8 @@ namespace Funcular.Data.Orm.PostgreSql
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    // The shared guard (D-003): the same checks as GenerateWhereClause, before and after translation.
+                    WherePredicateGuard.Validate(predicateExpression);
                     var whereVisitor = new PostgreSqlWhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -451,6 +453,7 @@ namespace Funcular.Data.Orm.PostgreSql
                         parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
+                    WherePredicateGuard.ValidateTranslation(whereVisitor.WhereClauseBody);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
                     if (whereVisitor.Parameters != null)
@@ -522,7 +525,7 @@ namespace Funcular.Data.Orm.PostgreSql
 
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
                 // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
-                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.11.0, FD-04).
                 // PostgreSQL has no MIN/MAX over uuid (42883), so a Guid is rejected whatever QueryOptions.GuidOrdering says.
                 if (methodName == "Min" || methodName == "Max")
                     Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodName, lambda.Body.Type, property.Name,
@@ -533,7 +536,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
                 var qualifiedColumn = $"{table}.{columnExpression}";
                 // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
-                // so nothing is truncated or rounded by the database (3.10.2, FD-04). SUM(real) is real on PostgreSQL, so a
+                // so nothing is truncated or rounded by the database (3.11.0, FD-04). SUM(real) is real on PostgreSQL, so a
                 // float is widened to the double LINQ sums in; SUM(int) is already bigint and SUM(bigint) numeric.
                 if (methodName == "Average")
                 {
@@ -713,7 +716,7 @@ namespace Funcular.Data.Orm.PostgreSql
         }
 
         /// <summary>
-        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.10.2, FD-04;
+        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.11.0, FD-04;
         /// <see cref="Funcular.Data.Orm.Linq.AggregateSemantics"/>): Average from SUM and COUNT in C#; an empty set gives
         /// Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one InvalidOperationException.
         /// </summary>

@@ -1040,12 +1040,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             // Trivial: x => true
             var ex1 = Assert.ThrowsException<InvalidOperationException>(() =>
                 _provider.Delete<Person>(x => true));
-            StringAssert.Contains(ex1.Message, "Delete operation WHERE clause must reference at least one column");
+            StringAssert.Contains(ex1.Message, "The WHERE clause must reference at least one column");
 
             // Trivial: 1 < 2
             var ex2 = Assert.ThrowsException<InvalidOperationException>(() =>
                 _provider.Delete<Person>(x => 1 < 2));
-            StringAssert.Contains(ex2.Message, "Delete operation WHERE clause must reference at least one column");
+            StringAssert.Contains(ex2.Message, "The WHERE clause must reference at least one column");
 
             // Trivial: self-referencing column
             var ex3 = Assert.ThrowsException<InvalidOperationException>(() =>

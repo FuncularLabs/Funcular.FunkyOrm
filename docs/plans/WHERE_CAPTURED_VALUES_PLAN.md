@@ -9,9 +9,17 @@
 > - Started from the delete-guard review's finding I1-6 (`DELETE_GUARD_PLAN.md` §6, rev 9). The probe (§1) found a
 >   second defect and its siblings; the owner folded them in (D2, D3).
 
+> **Status (2026-10-14, 3.11.0):** rev 16. **Task 6 is done under D-003 (decided 19:02 CT):** the delete guard is
+> now `WherePredicateGuard`, run on every WHERE path before and after translation; `IsContainsOfNull` is gone (a
+> `Contains` of null is unknown, as the translation's `NULL LIKE NULL` is); D9 keeps only the string-comparison
+> rejection; the harness's delete-only rows (`Delete_RejectedByDeleteGuard`, `Delete_AlwaysTrueAfterEvaluation_IsRejected`,
+> `GuardRejectsDelete`) are gone — every row either agrees on every path or is rejected identically on every path
+> (`Rejected_BeforeAnyCommand`), the always-true and column-free rows now rejected by Query too. The release is
+> 3.11.0 (D-004), not 3.10.2; the Changelog's Behaviour change note lists the shapes.
+>
 > **Status (2026-10-14, 3.10.2):** rev 15. Landed on `release/3.10.2` as FD-02 (docs/plans/DECISIONS-3.10.2.md), with
-> Task 6 done against the 3.10.1 delete guard **without modifying the guard** (D-003 is open): the rows the guard
-> rejects before translation are pinned as expected differences (§6.1, Task 6 record). The branch
+> Task 6 done against the 3.10.1 delete guard **without modifying the guard** (D-003 was open at the time): the rows
+> the guard rejected before translation were pinned as expected differences (§6.1, Task 6 record). The branch
 > `fix/where-captured-values` itself is superseded by that landing.
 >
 > **Revision 15 — what changed (3.10.2, Task 6 under D-003):** `CapturedValueHarness` gains `Delete_RejectedByDeleteGuard`

@@ -22,6 +22,16 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
     /// message, log no DELETE, and leave every row, counted through the provider inside the transaction before the
     /// rollback.
     /// </para>
+    /// <para>
+    /// 3.11.0 (docs/plans/DECISIONS-3.10.2.md D-003): the guard is <c>WherePredicateGuard</c>, shared by every WHERE.
+    /// Each rejected row here is also run through <c>Query</c> and <c>Count</c>, which must throw the same exception
+    /// and message and send nothing (<see cref="AssertRejected"/>). The 3.10.0 delete-only D9 rejections (a LIKE
+    /// wildcard, a null or empty search value, a property of a captured object as the search value, a string
+    /// <c>Contains</c> on a value that doesn't read the row) are gone: the translation now escapes, sends
+    /// <c>LIKE NULL</c>, reads the property and answers the <c>Contains</c> in C#, so those rows delete what C#
+    /// selects (<see cref="NonTrivialPredicates_DeleteTheMatchingRows"/>). Two strings that don't read the row are
+    /// still rejected, on every path (<see cref="StringComparison_IsRejectedOnEveryPath"/>).
+    /// </para>
     /// </summary>
     public abstract class DeleteGuardHarness
     {
@@ -29,9 +39,10 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         public const string TrueUpTable = "zz_dg_TrueUp";
         public const string MissingTable = "zz_dg_missing";
 
-        public const string NoColumnMessage = "Delete operation WHERE clause must reference at least one column from the target table.";
-        public const string SelfReferenceMessage = "Delete operation WHERE clause cannot be a self-referencing column expression.";
-        public const string AlwaysTrueMessage = "Delete operation requires a non-trivial WHERE clause.";
+        public const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
+        public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
+        public const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+        public const string StringComparisonPrefix = "Comparing strings that don't read the row isn't supported in a WHERE clause";
         public const string NullPredicateMessage = "A WHERE clause (predicate) is required for deletes.";
         public const string TransactionMessage = "Delete operations must be performed within an active transaction.";
 
@@ -239,13 +250,16 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("rolesContainsOr", "sync")] [DataRow("rolesContainsOr", "async")]
         [DataRow("orToString", "sync")] [DataRow("orToString", "async")]
         [DataRow("orToStringFormat", "sync")] [DataRow("orToStringFormat", "async")]
-        [DataRow("orContainsNull", "sync")] [DataRow("orContainsNull", "async")]
         public async Task AlwaysTrue_IsRejected(string key, string path) =>
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key);
 
+        /// <summary>
+        /// The guard runs before the type's columns are discovered, on a delete and on <c>Query</c> alike (D-003), so
+        /// a rejected predicate on a missing table reports the guard, not discovery's "table doesn't exist".
+        /// </summary>
         [DataTestMethod]
-        [DataRow("idSelf", "sync")] [DataRow("idSelf", "async")]
-        [DataRow("orTrue", "sync")] [DataRow("orTrue", "async")]
+        [DataRow("idSelf", "sync")] [DataRow("idSelf", "async")] [DataRow("idSelf", "query")]
+        [DataRow("orTrue", "sync")] [DataRow("orTrue", "async")] [DataRow("orTrue", "query")]
         public async Task RejectedOnAMissingTable_ReportsTheGuardNotDiscovery(string key, string path)
         {
             RequireDatabase();
@@ -260,7 +274,9 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 transactional.BeginTransaction();
                 try
                 {
-                    var exception = await Throws(provider, Missing(key), path);
+                    var exception = path == "query"
+                        ? Assert.ThrowsException<InvalidOperationException>(() => provider.Query(Missing(key)))
+                        : await Throws(provider, Missing(key), path);
                     Assert.AreEqual(expected, exception.Message, $"{key} {path}: message");
                     AssertNoDeleteLogged(logged, key, path);
                     Assert.IsFalse(IsDiscovered(provider, typeof(DgMissing)), $"{key} {path}: the type was discovered");
@@ -297,7 +313,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         }
 
         /// <summary>
-        /// 3.10.2 (FD-01): a member of a newly constructed object (<c>new Holder().Flag</c>) is rejected by the
+        /// 3.11.0 (FD-01): a member of a newly constructed object (<c>new Holder().Flag</c>) is rejected by the
         /// translator before any SQL exists, with <see cref="NotSupportedException"/> naming the member. Before, the
         /// visitor dropped the member and sent <c>1=1</c> (whatever the flag), which this guard's literal check caught
         /// (AC4). Nothing is deleted either way.
@@ -400,9 +416,9 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         /// The guard's verdict accepts these, because it evaluates no operator other than casts, <c>!</c>, the logical
         /// operators and comparisons, and no method call other than string's <c>Contains</c> and a core type's
         /// <c>ToString()</c> (plan section 6). Nothing is deleted: <c>StartsWith</c>/<c>EndsWith</c> on a captured string
-        /// throw <c>NotSupportedException</c> from <see cref="DeletePredicateGuard.Validate"/> (D9), and every provider
-        /// fails to translate the rest. If a provider learns to run one, this row fails, and the guard must learn to
-        /// evaluate it first.
+        /// are rejected by the translators ("translated only on a property of the entity"), and every provider fails to
+        /// translate the rest. If a provider learns to run one, this row fails, and the guard must learn to evaluate it
+        /// first.
         /// </summary>
         [DataTestMethod]
         [DataRow("orArithmetic", "sync")] [DataRow("orArithmetic", "async")]
@@ -426,7 +442,7 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 try
                 {
                     var predicate = Row(key);
-                    Assert.AreEqual(DeletePredicateVerdict.Acceptable, DeletePredicateGuard.Classify(predicate), $"{key}: verdict");
+                    Assert.AreEqual(WherePredicateVerdict.Acceptable, WherePredicateGuard.Classify(predicate), $"{key}: verdict");
                     Exception thrown = null;
                     try
                     {
@@ -469,27 +485,29 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         [DataRow("bigAndId2", "sync", "1,3")] [DataRow("bigAndId2", "async", "1,3")]
         [DataRow("big2", "sync", "1")] [DataRow("big2", "async", "1")]
         [DataRow("firstNameContainsB", "sync", "1,3")] [DataRow("firstNameContainsB", "async", "1,3")]
+        // The former D9 rows (3.10.0), deleting what C# selects since D-003: "_" is matched literally (no row), a null
+        // value matches no row (C# would throw), "" matches every non-null name, a property of this object is read,
+        // a Contains that doesn't read the row is answered in C# (false here, and unknown for a null value).
+        [DataRow("firstNameContainsUnderscore", "sync", "1,2,3")] [DataRow("firstNameContainsUnderscore", "async", "1,2,3")]
+        [DataRow("firstNameContainsNull", "sync", "1,2,3")] [DataRow("firstNameContainsNull", "async", "1,2,3")]
+        [DataRow("firstNameContainsEmpty", "sync", "3")] [DataRow("firstNameContainsEmpty", "async", "3")]
+        [DataRow("firstNameContainsThisProperty", "sync", "2,3")] [DataRow("firstNameContainsThisProperty", "async", "2,3")]
+        [DataRow("orContainsFalse", "sync", "1,3")] [DataRow("orContainsFalse", "async", "1,3")]
+        [DataRow("orContainsNull", "sync", "1,3")] [DataRow("orContainsNull", "async", "1,3")]
         public async Task NonTrivialPredicates_DeleteTheMatchingRows(string key, string path, string survivors) =>
             await AssertDeletes(Row(key), path, survivors.Split(',').Select(int.Parse).ToArray(), key);
 
         /// <summary>
-        /// D9 (owner decision 2026-10-05): shapes the guard accepts but the providers would widen to (nearly) every row
-        /// throw <see cref="NotSupportedException"/> before the DELETE is sent, and every row remains.
+        /// D9's one surviving rejection (D-003): two strings that don't read the row would be compared under the
+        /// database's collation, so the shared guard throws <see cref="NotSupportedException"/> on every path before
+        /// any command is sent, and every row remains.
         /// </summary>
         [DataTestMethod]
-        [DataRow("firstNameContainsUnderscore", "sync", "Contains()'s search value contains a LIKE wildcard")]
-        [DataRow("firstNameContainsUnderscore", "async", "Contains()'s search value contains a LIKE wildcard")]
-        [DataRow("firstNameContainsNull", "sync", "Contains()'s search value is null or empty")]
-        [DataRow("firstNameContainsNull", "async", "Contains()'s search value is null or empty")]
-        [DataRow("firstNameContainsEmpty", "sync", "Contains()'s search value is null or empty")]
-        [DataRow("firstNameContainsEmpty", "async", "Contains()'s search value is null or empty")]
-        [DataRow("firstNameContainsThisProperty", "sync", "Contains()'s search value is a property of a captured object")]
-        [DataRow("firstNameContainsThisProperty", "async", "Contains()'s search value is a property of a captured object")]
-        [DataRow("orContainsFalse", "sync", "Contains() on a value that doesn't read the row isn't supported in a delete")]
-        [DataRow("orContainsFalse", "async", "Contains() on a value that doesn't read the row isn't supported in a delete")]
-        [DataRow("orCapturedUpperEqualsA", "sync", "Comparing strings that don't read the row isn't supported in a delete")]
-        [DataRow("orCapturedUpperEqualsA", "async", "Comparing strings that don't read the row isn't supported in a delete")]
-        public async Task UnsafeDeleteShapes_AreNotSupported(string key, string path, string expectedPrefix)
+        [DataRow("orCapturedUpperEqualsA", "sync")]
+        [DataRow("orCapturedUpperEqualsA", "async")]
+        [DataRow("orCapturedUpperEqualsA", "query")]
+        [DataRow("orCapturedUpperEqualsA", "count")]
+        public async Task StringComparison_IsRejectedOnEveryPath(string key, string path)
         {
             RequireDatabase();
             try
@@ -503,12 +521,23 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 {
                     var predicate = Row(key);
                     NotSupportedException exception;
-                    if (path == "async")
-                        exception = await Assert.ThrowsExceptionAsync<NotSupportedException>(() => provider.DeleteAsync(predicate));
-                    else
-                        exception = Assert.ThrowsException<NotSupportedException>(() => provider.Delete(predicate));
-                    StringAssert.StartsWith(exception.Message, expectedPrefix, $"{key} {path}");
-                    AssertNoDeleteLogged(logged, key, path);
+                    switch (path)
+                    {
+                        case "async":
+                            exception = await Assert.ThrowsExceptionAsync<NotSupportedException>(() => provider.DeleteAsync(predicate));
+                            break;
+                        case "query":
+                            exception = Assert.ThrowsException<NotSupportedException>(() => provider.Query(predicate));
+                            break;
+                        case "count":
+                            exception = Assert.ThrowsException<NotSupportedException>(() => provider.Query<DgRow>().Count(predicate));
+                            break;
+                        default:
+                            exception = Assert.ThrowsException<NotSupportedException>(() => provider.Delete(predicate));
+                            break;
+                    }
+                    StringAssert.StartsWith(exception.Message, StringComparisonPrefix, $"{key} {path}");
+                    AssertNothingLogged(logged, key, path);
                     Assert.AreEqual(3, provider.GetList<DgRow>().Count, $"{key} {path}: rows were deleted");
                 }
                 finally
@@ -526,6 +555,11 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
 
         #region Helpers
 
+        /// <summary>
+        /// The delete on <paramref name="path"/> throws <see cref="InvalidOperationException"/> with exactly
+        /// <paramref name="expectedMessage"/>, logs no DELETE and leaves every row; and (D-003) <c>Query</c> and
+        /// <c>Count</c> with the same predicate throw the same exception and message and send nothing.
+        /// </summary>
         private async Task AssertRejected(Expression<Func<DgRow, bool>> predicate, string path, string expectedMessage,
             string key)
         {
@@ -548,6 +582,13 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
                 {
                     transactional.RollbackTransaction();
                 }
+
+                logged.Clear();
+                var query = Assert.ThrowsException<InvalidOperationException>(() => provider.Query(predicate), $"{key} query");
+                Assert.AreEqual(expectedMessage, query.Message, $"{key} query: message");
+                var count = Assert.ThrowsException<InvalidOperationException>(() => provider.Query<DgRow>().Count(predicate), $"{key} count");
+                Assert.AreEqual(expectedMessage, count.Message, $"{key} count: message");
+                AssertNothingLogged(logged, key, "query/count");
             }
             finally
             {
@@ -619,6 +660,13 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
         {
             var deletes = logged.Where(s => s != null && s.TrimStart().StartsWith("DELETE", StringComparison.OrdinalIgnoreCase)).ToList();
             Assert.AreEqual(0, deletes.Count, $"{key} {path}: a DELETE was logged: {string.Join(" | ", deletes)}");
+        }
+
+        private static void AssertNothingLogged(List<string> logged, string key, string path)
+        {
+            var sent = logged.Where(s => s != null && System.Text.RegularExpressions.Regex.IsMatch(s, @"^\s*(SELECT|DELETE)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList();
+            Assert.AreEqual(0, sent.Count, $"{key} {path}: a command was sent: {string.Join(" | ", sent)}");
         }
 
         #endregion

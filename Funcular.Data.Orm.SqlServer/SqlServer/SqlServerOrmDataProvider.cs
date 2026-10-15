@@ -152,6 +152,7 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         public override async Task<ICollection<T>> QueryAsync<T>(Expression<Func<T, bool>> expression)
         {
+            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -263,10 +264,11 @@ namespace Funcular.Data.Orm.SqlServer
         /// predicate.
         /// </summary>
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
-        /// cref="InvalidOperationException"/> is thrown. <see cref="DeletePredicateGuard"/> checks the predicate before
-        /// it is translated, and its WHERE clause after: a predicate that reads no column, compares a column with itself,
-        /// or is always true through literals or captured values is rejected. The checks don't catch every predicate
-        /// that is true for every row.</remarks>
+        /// cref="InvalidOperationException"/> is thrown. The predicate takes the WHERE path every query takes
+        /// (<see cref="WherePredicateGuard"/> before it is translated, and on its WHERE clause after): a predicate that
+        /// reads no column, compares a column with itself, or is always true through literals or captured values is
+        /// rejected, as it is by <c>Query</c> and <c>Count</c>. The checks don't catch every predicate that is true for
+        /// every row.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
         /// delete operation. It must not be null, and must not plainly match every row: <c>x =&gt; true</c>,
@@ -276,8 +278,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
         /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
         /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
-        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
-        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates (see
+        /// <see cref="WherePredicateGuard.Validate"/> and the translator).</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -286,9 +288,7 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
-            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-            ValidateDeleteWhereClause<T>(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -663,6 +663,7 @@ namespace Funcular.Data.Orm.SqlServer
         [Obsolete("Use Query<T>().Where(predicate) instead. This method materializes results immediately.")]
         public override ICollection<T> Query<T>(Expression<Func<T, bool>> expression)
         {
+            WherePredicateGuard.Validate(expression); // D-003: before discovery, as on every path
             DiscoverColumns<T>();
             using (var connectionScope = new ConnectionScope(this))
             {
@@ -819,11 +820,12 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
         /// It must not plainly match every row: <c>x =&gt; true</c>, <c>x =&gt; x.Id == x.Id</c> and
-        /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="DeletePredicateGuard"/> to prevent accidental data
-        /// loss. The checks don't catch every predicate that is true for every row.</param>
+        /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="WherePredicateGuard"/>, on this path as on
+        /// <c>Query</c> and <c>Count</c>, to prevent accidental data loss. The checks don't catch every predicate that is
+        /// true for every row.</param>
         /// <returns>The number of rows deleted.</returns>
-        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
-        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates (see
+        /// <see cref="WherePredicateGuard.Validate"/> and the translator).</exception>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -832,9 +834,7 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
-            DeletePredicateGuard.Validate(predicate);
             var components = GenerateWhereClause(predicate);
-            ValidateDeleteWhereClause<T>(components.WhereClause);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -1440,6 +1440,11 @@ namespace Funcular.Data.Orm.SqlServer
             ParameterGenerator parameterGenerator = null,
             SqlExpressionTranslator translator = null) where T : class, new()
         {
+            // The shared guard (D-003) runs first, before T's columns are discovered: a predicate that reads no
+            // column, compares a column with itself, always holds, or compares two strings that don't read the row is
+            // rejected before any command, on this path as on every other.
+            WherePredicateGuard.Validate(expression);
+
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
@@ -1461,6 +1466,7 @@ namespace Funcular.Data.Orm.SqlServer
                 tableName,
                 remoteInfo.PropertyToColumnMap); // Pass the map
             visitor.Visit(expression);
+            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody);
             if (commandElements != null)
             {
                 commandElements.WhereClause = visitor.WhereClauseBody;
@@ -1510,41 +1516,6 @@ namespace Funcular.Data.Orm.SqlServer
             }
 
             return commandElements;
-        }
-
-        /// <summary>
-        /// Checks the translated WHERE clause of a delete by predicate, which <see cref="DeletePredicateGuard.Validate"/>
-        /// has accepted: it must be non-empty, must not hold by its literals
-        /// (<see cref="DeletePredicateGuard.HasLiteralTautology(string)"/>), must not be a whole-clause
-        /// self-comparison, and must name at least one column of <typeparamref name="T"/>.
-        /// </summary>
-        /// <typeparam name="T">The entity whose table the delete targets.</typeparam>
-        /// <param name="whereClause">The translated WHERE clause, without the <c>WHERE</c> keyword.</param>
-        /// <exception cref="InvalidOperationException">The clause fails one of the checks.</exception>
-        private void ValidateDeleteWhereClause<T>(string whereClause)
-        {
-            if (string.IsNullOrWhiteSpace(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-
-            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-
-            // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(whereClause.Trim()))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-
-            // Must reference at least one column from the target table
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-
-            bool columnReferenced = tableColumns.Any(col =>
-                whereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
         }
 
         #endregion

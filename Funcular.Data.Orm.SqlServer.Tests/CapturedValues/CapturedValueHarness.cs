@@ -21,13 +21,14 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
     /// the remaining rows are read through the provider.
     /// </para>
     /// <para>
-    /// 3.10.2 (plan Task 6, under docs/plans/DECISIONS-3.10.2.md D-003): the translation is one shared path for
-    /// SELECT, COUNT and DELETE, but <c>DeletePredicateGuard</c> still runs before a delete's translation and rejects
-    /// some shapes this fix translates correctly (D9: a string match on a value that doesn't read the row, a search
-    /// value that is a property of a captured object or null, and the literal-tautology check on an evaluated
-    /// <c>Contains</c>). Those rows are pinned as rejections in <see cref="Delete_RejectedByDeleteGuard"/> and
-    /// <see cref="Delete_AlwaysTrueAfterEvaluation_IsRejected"/>, and <see cref="GuardRejectsDelete"/> gives the
-    /// guard's message where it pre-empts the translator's on a delete path. The guard is not modified here.
+    /// 3.11.0 (plan Task 6, under docs/plans/DECISIONS-3.10.2.md D-003): the translation is one shared path for
+    /// SELECT, COUNT and DELETE, and so is the guard: <c>WherePredicateGuard</c> (the former delete-only
+    /// <c>DeletePredicateGuard</c>) runs before every WHERE is translated and on the SQL it produces, on every path. A
+    /// predicate that reads no column, compares a column with itself, always holds (also once a row-independent
+    /// <c>Contains</c> is answered: <c>x.Id == 2 || ids.Contains(present.Id)</c> with <c>present.Id</c> in
+    /// <c>ids</c>), or compares two strings that don't read the row is rejected identically by Query, QueryAsync, a
+    /// LINQ Where, Count, Delete and DeleteAsync (<see cref="Rejected_BeforeAnyCommand"/>); every other row agrees
+    /// with LINQ to objects on every path. There are no delete-only rejections.
     /// </para>
     /// </summary>
     public abstract class CapturedValueHarness
@@ -44,77 +45,13 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         protected const string ToStringMessage =
             "ToString() is translated only on a property of the entity; for a value that doesn't read the row, compute the string before the query: ";
         protected const string CouldNotEvaluateMessage = "Could not evaluate expression: ";
-        protected const string NoColumnMessage = "Delete operation WHERE clause must reference at least one column from the target table.";
-        protected const string AlwaysTrueMessage = "Delete operation requires a non-trivial WHERE clause.";
+        protected const string StartsWithReceiverMessage = "StartsWith() is translated only on a property of the entity: ";
+        protected const string EndsWithReceiverMessage = "EndsWith() is translated only on a property of the entity: ";
 
-        // DeletePredicateGuard.Validate (D9, 3.10.0) messages, which pre-empt the translator's on a delete.
-        protected const string GuardRowIndependentCall = "() on a value that doesn't read the row isn't supported in a delete";
-        protected const string GuardStringComparison = "Comparing strings that don't read the row isn't supported in a delete";
-        protected const string GuardCapturedPropertyValue = "()'s search value is a property of a captured object";
-        protected const string GuardNullOrEmptyValue = "()'s search value is null or empty";
-
-        /// <summary>A rejection the delete guard makes before the predicate is translated.</summary>
-        protected sealed class GuardRejection
-        {
-            public GuardRejection(Type exceptionType, string messagePrefix)
-            {
-                ExceptionType = exceptionType;
-                MessagePrefix = messagePrefix;
-            }
-
-            public Type ExceptionType { get; }
-            public string MessagePrefix { get; }
-        }
-
-        /// <summary>
-        /// The delete guard's rejection of <paramref name="key"/> on a delete path, when it differs from what the
-        /// translator throws; null when the guard lets the shape reach the translator. Every key here is listed in
-        /// docs/plans/DECISIONS-3.10.2.md as a D-003 expected difference.
-        /// </summary>
-        private static GuardRejection GuardRejectsDelete(string key)
-        {
-            switch (key)
-            {
-                // A StartsWith/EndsWith receiver that doesn't read the row.
-                case "startsWithCapturedReceiver":
-                case "startsWithLocalReceiver":
-                case "startsWithStaticReceiver":
-                    return new GuardRejection(typeof(NotSupportedException), "StartsWith" + GuardRowIndependentCall);
-                case "endsWithCapturedReceiver":
-                    return new GuardRejection(typeof(NotSupportedException), "EndsWith" + GuardRowIndependentCall);
-                // A captured ToString() compared with a literal: the guard sees two strings that don't read the row.
-                case "userTypeToString":
-                case "objectDeclaredToString":
-                case "providerToString":
-                case "orArithmeticToString":
-                case "orIndexToString":
-                case "orMethodToString":
-                case "orCoalesceToString":
-                case "orStructToString":
-                case "orNullableStructToString":
-                case "orSealedClassToString":
-                case "orPairToString":
-                case "orCapturedToString05":
-                case "orPropertyToString05":
-                case "orFormattedToString":
-                    return new GuardRejection(typeof(NotSupportedException), GuardStringComparison);
-                // A captured ToString() compared with a column or a null literal: the guard reaches the call.
-                case "objectHoldingStringToString":
-                case "providerStringToString":
-                case "interfaceHoldingStringToString":
-                case "nullStringToString":
-                case "codeEqualsThisCodeToString":
-                case "codeEqualsNestedToString":
-                case "orNullableToStringIsNull":
-                case "intColumnToStringEqCaptured":
-                    return new GuardRejection(typeof(NotSupportedException), "ToString" + GuardRowIndependentCall);
-                // n.ToString() == "" holds in C#, so the guard folds the predicate to always true.
-                case "orNullableToStringIsEmpty":
-                    return new GuardRejection(typeof(InvalidOperationException), AlwaysTrueMessage);
-                default:
-                    return null;
-            }
-        }
+        // WherePredicateGuard (D-003) messages, the same on every path.
+        protected const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
+        protected const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+        protected const string GuardStringComparison = "Comparing strings that don't read the row isn't supported in a WHERE clause";
 
         #endregion
 
@@ -462,14 +399,17 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         #region Query
 
+        /// <summary>
+        /// The rows that agree with LINQ to objects on the SELECT paths. The always-true and column-free rows of the
+        /// plan (<c>orPresent</c>, <c>orNotAbsent</c>, <c>orNullItem</c>, <c>orComparerSet</c>, <c>aloneAbsent</c>, the
+        /// optional-filter idiom with a null filter) are rejected on every path since D-003: see
+        /// <see cref="Rejected_BeforeAnyCommand"/>.
+        /// </summary>
         [DataTestMethod]
         // AC1
         [DataRow("orAbsent", "2")]
-        [DataRow("orPresent", "1,2,3")]
         [DataRow("andPresent", "2")]
         [DataRow("andAbsent", "")]
-        [DataRow("aloneAbsent", "")]
-        [DataRow("orNotAbsent", "1,2,3")]
         [DataRow("andNotPresent", "")]
         [DataRow("andNotAbsent", "2")]
         [DataRow("orLocal", "2")]
@@ -481,22 +421,18 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("orBothCaptured", "2")]
         // AC2
         [DataRow("orCodesCase", "2")]
-        [DataRow("orNullItem", "1,2,3")]
-        [DataRow("orComparerSet", "1,2,3")]
+        [DataRow("andNullItem", "2")]
         [DataRow("andComparerSet", "2")]
         [DataRow("orArrayAbsent", "2")]
         [DataRow("andArrayPresent", "2")]
         [DataRow("orCapturedReceiverCase", "2")]
         [DataRow("orLocalReceiverCase", "2")]
+        [DataRow("orCapturedContainsNull", "2", "D8")]
         // AC6
         [DataRow("containsThisFilter", "2")]
         [DataRow("containsNestedCaptured", "3")]
         [DataRow("startsWithThisFilter", "2")]
         // AC8
-        [DataRow("optionalFilterNull", "1,2,3")]
-        [DataRow("optionalThisFilterNull", "1,2,3")]
-        [DataRow("optionalStartsWithNull", "1,2,3")]
-        [DataRow("optionalReceiverNull", "1,2,3")]
         [DataRow("containsNullValue", "2", "D8")]
         [DataRow("startsWithNullValue", "2", "D8")]
         [DataRow("notContainsNullValue", "2", "D8")]
@@ -548,6 +484,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             }
         }
 
+        /// <summary>Every row of <see cref="Query_ReturnsWhatCSharpSelects"/> deletes the rows it selects (D-003: one path, no delete-only rejection).</summary>
         [DataTestMethod]
         [DataRow("orAbsent", "2")]
         [DataRow("andAbsent", "")]
@@ -566,17 +503,28 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("andComparerSet", "2")]
         [DataRow("orArrayAbsent", "2")]
         [DataRow("andArrayPresent", "2")]
+        [DataRow("orCapturedReceiverCase", "2")]
+        [DataRow("orLocalReceiverCase", "2")]
+        [DataRow("orCapturedContainsNull", "2", "D8")]
+        [DataRow("containsThisFilter", "2")]
+        [DataRow("containsNestedCaptured", "3")]
+        [DataRow("startsWithThisFilter", "2")]
+        [DataRow("containsNullValue", "2", "D8")]
+        [DataRow("startsWithNullValue", "2", "D8")]
+        [DataRow("notContainsNullValue", "2", "D8")]
         [DataRow("idsX", "1,2")]
         [DataRow("notIdsX", "3")]
         [DataRow("nullableX", "1")]
+        [DataRow("emptyX", "")]
         [DataRow("startsWithX", "1")]
         [DataRow("containsX", "3")]
         [DataRow("arrayX", "1,2")]
-        public void Delete_DeletesWhatCSharpSelects(string key, string expected)
+        public void Delete_DeletesWhatCSharpSelects(string key, string expected, string knownDivergence = null)
         {
             var predicate = Predicate(key);
             AssertBinding(key, predicate);
-            Assert.AreEqual(expected, Ids(Rows.Where(predicate.Compile())), key + ": the DataRow disagrees with LINQ to objects");
+            if (knownDivergence == null)
+                Assert.AreEqual(expected, Ids(Rows.Where(predicate.Compile())), key + ": the DataRow disagrees with LINQ to objects");
 
             WithTable((provider, log) =>
             {
@@ -585,160 +533,82 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             });
         }
 
-        private void AssertDeleteRejected(string key, Type exceptionType, string messagePrefix)
-        {
-            var predicate = Predicate(key);
-            WithTable((provider, log) =>
-            {
-                foreach (var async in new[] { false, true })
-                {
-                    var transactional = (ISqlOrmProvider)provider;
-                    transactional.BeginTransaction();
-                    try
-                    {
-                        log.Clear();
-                        Exception thrown = null;
-                        try
-                        {
-                            if (async)
-                                provider.DeleteAsync(predicate).GetAwaiter().GetResult();
-                            else
-                                provider.Delete(predicate);
-                        }
-                        catch (Exception ex)
-                        {
-                            thrown = ex;
-                        }
-                        var path = key + (async ? " async" : " sync");
-                        Assert.IsNotNull(thrown, path + ": the delete ran");
-                        Assert.AreEqual(exceptionType, thrown.GetType(), path + ": " + thrown.Message);
-                        StringAssert.StartsWith(thrown.Message, messagePrefix, path);
-                        AssertNothingSent(log, path);
-                        Assert.AreEqual(3, Remaining(provider).Count, path + ": rows were deleted");
-                    }
-                    finally
-                    {
-                        transactional.RollbackTransaction();
-                    }
-                }
-            });
-        }
-
-        /// <summary>
-        /// D-003 expected differences: Query returns C#'s rows for these (see <see cref="Query_ReturnsWhatCSharpSelects"/>),
-        /// but the delete guard (D9) rejects them before the translation runs, so Delete throws
-        /// <see cref="NotSupportedException"/> and deletes nothing. The guard's reasons describe the 3.10.1 translation
-        /// (a captured property "read as null"); the owner decides under D-003 whether the guard follows the translation.
-        /// </summary>
-        [DataTestMethod]
-        [DataRow("orCapturedReceiverCase", "Contains" + GuardRowIndependentCall)]
-        [DataRow("orLocalReceiverCase", "Contains" + GuardRowIndependentCall)]
-        [DataRow("containsThisFilter", "Contains" + GuardCapturedPropertyValue)]
-        [DataRow("startsWithThisFilter", "StartsWith" + GuardCapturedPropertyValue)]
-        [DataRow("containsNullValue", "Contains" + GuardNullOrEmptyValue)]
-        [DataRow("startsWithNullValue", "StartsWith" + GuardNullOrEmptyValue)]
-        public void Delete_RejectedByDeleteGuard(string key, string messagePrefix) =>
-            AssertDeleteRejected(key, typeof(NotSupportedException), messagePrefix);
-
-        /// <summary>
-        /// AC9 (Task 6): a delete whose evaluated <c>Contains</c> makes the predicate always true is rejected by the
-        /// guard's literal check (<c>OR NOT 1=0</c>), or by its fold (<c>s.Contains(null)</c> counts as true there,
-        /// though the translation sends <c>NULL LIKE NULL</c>, which matches no row), and deletes nothing. Query returns
-        /// every row for the first four; D-003 expected differences.
-        /// </summary>
-        [DataTestMethod]
-        [DataRow("orPresent")]
-        [DataRow("orNotAbsent")]
-        [DataRow("orNullItem")]
-        [DataRow("orComparerSet")]
-        [DataRow("orCapturedContainsNull")]
-        public void Delete_AlwaysTrueAfterEvaluation_IsRejected(string key) =>
-            AssertDeleteRejected(key, typeof(InvalidOperationException), AlwaysTrueMessage);
-
-        [DataTestMethod]
-        [DataRow("aloneAbsent")]
-        [DataRow("aloneNotAbsent")]
-        public void Delete_RowIndependentAlone_IsRejected(string key)
-        {
-            var predicate = Predicate(key);
-            WithTable((provider, log) =>
-            {
-                foreach (var async in new[] { false, true })
-                {
-                    var transactional = (ISqlOrmProvider)provider;
-                    transactional.BeginTransaction();
-                    try
-                    {
-                        var ex = Assert.ThrowsException<InvalidOperationException>(() =>
-                        {
-                            if (async)
-                                provider.DeleteAsync(predicate).GetAwaiter().GetResult();
-                            else
-                                provider.Delete(predicate);
-                        }, key + (async ? " async" : " sync"));
-                        Assert.AreEqual(NoColumnMessage, ex.Message);
-                        Assert.AreEqual(3, Remaining(provider).Count, key + ": rows were deleted");
-                    }
-                    finally
-                    {
-                        transactional.RollbackTransaction();
-                    }
-                }
-            });
-        }
-
         #endregion
 
         #region Rejections
 
+        /// <summary>
+        /// Every rejection is the same on Query, QueryAsync, a LINQ Where, Count, Delete and DeleteAsync: the same
+        /// exception type and message, before any command is sent, nothing deleted. The guard's rows (D-003) throw
+        /// <see cref="InvalidOperationException"/> for a predicate that reads no column or always holds (before
+        /// translation, or by the literal <c>NOT 1=0</c> an answered <c>Contains</c> leaves in the SQL), and
+        /// <see cref="NotSupportedException"/> for two strings that don't read the row (the database would compare
+        /// them under its collation); the translators' rows throw <see cref="NotSupportedException"/>.
+        /// </summary>
         [DataTestMethod]
         // AC4
-        [DataRow("nestedParamItem", "QD", ItemMessage, null)]
-        [DataRow("lengthItem", "QD", ItemMessage, null)]
-        [DataRow("convertItem", "QD", ItemMessage, null)]
-        [DataRow("emptyNestedParamItem", "QD", ItemMessage, null)]
-        [DataRow("nullCollection", "QD", NullCollectionMessage, null)]
+        [DataRow("nestedParamItem", ItemMessage, null)]
+        [DataRow("lengthItem", ItemMessage, null)]
+        [DataRow("convertItem", ItemMessage, null)]
+        [DataRow("emptyNestedParamItem", ItemMessage, null)]
+        [DataRow("nullCollection", NullCollectionMessage, null)]
         // AC5
-        [DataRow("startsWithCapturedReceiver", "QD", "StartsWith() is translated only on a property of the entity: ", null)]
-        [DataRow("endsWithCapturedReceiver", "QD", "EndsWith() is translated only on a property of the entity: ", null)]
-        [DataRow("startsWithLocalReceiver", "QD", "StartsWith() is translated only on a property of the entity: ", null)]
-        [DataRow("startsWithStaticReceiver", "QD", "StartsWith() is translated only on a property of the entity: ", null)]
-        [DataRow("startsWithNestedParamReceiver", "QD", "StartsWith() is translated only on a property of the entity: ", null)]
+        [DataRow("startsWithCapturedReceiver", StartsWithReceiverMessage, null)]
+        [DataRow("endsWithCapturedReceiver", EndsWithReceiverMessage, null)]
+        [DataRow("startsWithLocalReceiver", StartsWithReceiverMessage, null)]
+        [DataRow("startsWithStaticReceiver", StartsWithReceiverMessage, null)]
+        [DataRow("startsWithNestedParamReceiver", StartsWithReceiverMessage, null)]
         // AC7
-        [DataRow("codeEqualsLengthToString", "Q", ToStringMessage, null)]
-        [DataRow("childNameContains", "Q", ContainsReceiverMessage, null)]
-        // AC6, D16
-        [DataRow("userTypeToString", "QD", ToStringMessage, null)]
-        [DataRow("objectDeclaredToString", "QD", ToStringMessage, null)]
-        [DataRow("providerToString", "QD", ToStringMessage, null)]
-        [DataRow("staticConvertToString", "QD", ToStringMessage, null)]
-        [DataRow("orArithmeticToString", "QD", ToStringMessage, null)]
-        [DataRow("orIndexToString", "QD", ToStringMessage, null)]
-        [DataRow("orMethodToString", "QD", ToStringMessage, null)]
-        [DataRow("orCoalesceToString", "QD", ToStringMessage, null)]
-        [DataRow("orStructToString", "QD", ToStringMessage, null)]
-        [DataRow("orNullableStructToString", "QD", ToStringMessage, null)]
-        [DataRow("orSealedClassToString", "QD", ToStringMessage, null)]
-        [DataRow("orPairToString", "QD", ToStringMessage, null)]
-        [DataRow("objectHoldingStringToString", "QD", ToStringMessage, null)]
-        [DataRow("providerStringToString", "QD", ToStringMessage, null)]
-        [DataRow("interfaceHoldingStringToString", "QD", ToStringMessage, null)]
+        [DataRow("codeEqualsLengthToString", ToStringMessage, null)]
+        [DataRow("childNameContains", ContainsReceiverMessage, null)]
+        // AC6, D16: a captured ToString() compared with a literal is two strings that don't read the row (the guard);
+        // compared with a column or a null literal it reaches the translator.
+        [DataRow("userTypeToString", GuardStringComparison, null)]
+        [DataRow("objectDeclaredToString", GuardStringComparison, null)]
+        [DataRow("providerToString", GuardStringComparison, null)]
+        [DataRow("staticConvertToString", ToStringMessage, null)]
+        [DataRow("orArithmeticToString", GuardStringComparison, null)]
+        [DataRow("orIndexToString", GuardStringComparison, null)]
+        [DataRow("orMethodToString", GuardStringComparison, null)]
+        [DataRow("orCoalesceToString", GuardStringComparison, null)]
+        [DataRow("orStructToString", GuardStringComparison, null)]
+        [DataRow("orNullableStructToString", GuardStringComparison, null)]
+        [DataRow("orSealedClassToString", GuardStringComparison, null)]
+        [DataRow("orPairToString", GuardStringComparison, null)]
+        [DataRow("objectHoldingStringToString", ToStringMessage, null)]
+        [DataRow("providerStringToString", ToStringMessage, null)]
+        [DataRow("interfaceHoldingStringToString", ToStringMessage, null)]
         // AC8
-        [DataRow("throwingItem", "QD", CouldNotEvaluateMessage, "NullReferenceException")]
-        [DataRow("throwingCollection", "QD", CouldNotEvaluateMessage, "NullReferenceException")]
-        // D16: a ToString that doesn't read the row is rejected, never evaluated.
-        [DataRow("nullStringToString", "QD", ToStringMessage, null)]
-        [DataRow("codeEqualsThisCodeToString", "QD", ToStringMessage, null)]
-        [DataRow("codeEqualsNestedToString", "QD", ToStringMessage, null)]
-        [DataRow("orCapturedToString05", "QD", ToStringMessage, null)]
-        [DataRow("orPropertyToString05", "QD", ToStringMessage, null)]
-        [DataRow("orFormattedToString", "QD", ToStringMessage, null)]
-        [DataRow("orNullableToStringIsNull", "QD", ToStringMessage, null)]
-        [DataRow("orNullableToStringIsEmpty", "QD", ToStringMessage, null)]
-        [DataRow("intColumnToStringEqCaptured", "QD", ToStringMessage, null)]
-        public void Rejected_BeforeAnyCommand(string key, string paths, string messagePrefix, string innerType)
+        [DataRow("throwingItem", CouldNotEvaluateMessage, "NullReferenceException")]
+        [DataRow("throwingCollection", CouldNotEvaluateMessage, "NullReferenceException")]
+        // D16: a ToString that doesn't read the row is rejected, never evaluated by the translator.
+        [DataRow("nullStringToString", ToStringMessage, null)]
+        [DataRow("codeEqualsThisCodeToString", ToStringMessage, null)]
+        [DataRow("codeEqualsNestedToString", ToStringMessage, null)]
+        [DataRow("orCapturedToString05", GuardStringComparison, null)]
+        [DataRow("orPropertyToString05", GuardStringComparison, null)]
+        [DataRow("orFormattedToString", GuardStringComparison, null)]
+        [DataRow("orNullableToStringIsNull", ToStringMessage, null)]
+        [DataRow("intColumnToStringEqCaptured", ToStringMessage, null)]
+        // D-003: the guard's verdicts, on every path. n.ToString() == "" holds in C#, so the predicate always holds.
+        [DataRow("orNullableToStringIsEmpty", AlwaysTrueMessage, null)]
+        [DataRow("orPresent", AlwaysTrueMessage, null)]
+        [DataRow("orNotAbsent", AlwaysTrueMessage, null)]
+        [DataRow("orNullItem", AlwaysTrueMessage, null)]
+        [DataRow("orComparerSet", AlwaysTrueMessage, null)]
+        [DataRow("optionalFilterNull", AlwaysTrueMessage, null)]
+        [DataRow("optionalThisFilterNull", AlwaysTrueMessage, null)]
+        [DataRow("optionalStartsWithNull", AlwaysTrueMessage, null)]
+        [DataRow("aloneAbsent", NoColumnMessage, null)]
+        [DataRow("aloneNotAbsent", NoColumnMessage, null)]
+        [DataRow("optionalReceiverNull", NoColumnMessage, null)]
+        [DataRow("allRowIndependentNull", NoColumnMessage, null)]
+        public void Rejected_BeforeAnyCommand(string key, string messagePrefix, string innerType)
         {
             var predicate = Predicate(key);
+            var exceptionType = messagePrefix == AlwaysTrueMessage || messagePrefix == NoColumnMessage
+                ? typeof(InvalidOperationException)
+                : typeof(NotSupportedException);
             WithTable((provider, log) =>
             {
                 var calls = new List<KeyValuePair<string, Action>>
@@ -747,18 +617,14 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                     new KeyValuePair<string, Action>("queryAsync", () => provider.QueryAsync(predicate).GetAwaiter().GetResult()),
                     new KeyValuePair<string, Action>("linq", () => provider.Query<CvRow>().Where(predicate).ToList()),
                     new KeyValuePair<string, Action>("count", () => provider.Query<CvRow>().Count(predicate)),
+                    new KeyValuePair<string, Action>("delete", () => provider.Delete(predicate)),
+                    new KeyValuePair<string, Action>("deleteAsync", () => provider.DeleteAsync(predicate).GetAwaiter().GetResult()),
                 };
-                if (paths.Contains("D"))
-                {
-                    calls.Add(new KeyValuePair<string, Action>("delete", () => provider.Delete(predicate)));
-                    calls.Add(new KeyValuePair<string, Action>("deleteAsync", () => provider.DeleteAsync(predicate).GetAwaiter().GetResult()));
-                }
 
-                // On a delete path the guard (D9) may reject the shape before the translator sees it, with its own
-                // exception and message (D-003 expected difference); the row is rejected either way, nothing is sent.
-                var guard = GuardRejectsDelete(key);
+                string firstMessage = null;
                 foreach (var call in calls)
                 {
+                    var path = key + " " + call.Key;
                     var transactional = (ISqlOrmProvider)provider;
                     var isDelete = call.Key.StartsWith("delete", StringComparison.Ordinal);
                     if (isDelete)
@@ -766,23 +632,17 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
                     try
                     {
                         log.Clear();
-                        if (isDelete && guard != null)
-                        {
-                            Exception thrown = null;
-                            try { call.Value(); } catch (Exception caught) { thrown = caught; }
-                            Assert.IsNotNull(thrown, key + " " + call.Key + ": the delete ran");
-                            Assert.AreEqual(guard.ExceptionType, thrown.GetType(), key + " " + call.Key + ": " + thrown.Message);
-                            StringAssert.StartsWith(thrown.Message, guard.MessagePrefix, key + " " + call.Key);
-                        }
-                        else
-                        {
-                            var ex = Assert.ThrowsException<NotSupportedException>(call.Value, key + " " + call.Key);
-                            StringAssert.StartsWith(ex.Message, messagePrefix, key + " " + call.Key);
-                            if (innerType != null)
-                                Assert.AreEqual(innerType, ex.InnerException?.GetType().Name, key + " " + call.Key + ": inner exception");
-                        }
-                        AssertNothingSent(log, key + " " + call.Key);
-                        Assert.AreEqual(3, Remaining(provider).Count, key + " " + call.Key + ": rows were deleted");
+                        Exception thrown = null;
+                        try { call.Value(); } catch (Exception caught) { thrown = caught; }
+                        Assert.IsNotNull(thrown, path + ": no exception");
+                        Assert.AreEqual(exceptionType, thrown.GetType(), path + ": " + thrown.Message);
+                        StringAssert.StartsWith(thrown.Message, messagePrefix, path);
+                        if (innerType != null)
+                            Assert.AreEqual(innerType, thrown.InnerException?.GetType().Name, path + ": inner exception");
+                        firstMessage = firstMessage ?? thrown.Message;
+                        Assert.AreEqual(firstMessage, thrown.Message, path + ": the paths reject with different messages");
+                        AssertNothingSent(log, path);
+                        Assert.AreEqual(3, Remaining(provider).Count, path + ": rows were deleted");
                     }
                     finally
                     {
@@ -803,8 +663,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("andNotPresent", "AND NOT NOT 1=0)", 1)]
         [DataRow("andArrayPresent", "AND NOT 1=0)", 1)]
         [DataRow("orLocalReceiverCase", "OR 1=0)", 1)]
-        [DataRow("optionalFilterNull", "name LIKE NULL", 1)]
-        [DataRow("optionalReceiverNull", "OR NULL LIKE NULL)", 1)]
+        [DataRow("containsNullValue", "OR " + Table + ".name LIKE NULL)", 1)]
+        [DataRow("orCapturedContainsNull", "OR NULL LIKE NULL)", 1)]
         [DataRow("notContainsNullValue", "OR NOT " + Table + ".name LIKE NULL)", 1)]
         public void Sql_RowIndependentContains_IsALiteral(string key, string fragment, int parameters)
         {
@@ -838,6 +698,22 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
             {
                 var actual = provider.Query<CvRow>().Select(projection).ToList().OrderBy(r => r.Id).Select(r => r.Id + ":" + r.Label);
                 Assert.AreEqual(expected, string.Join(",", actual), key);
+            });
+        }
+
+        /// <summary>D-003: All and Any take the shared path too, so a predicate that reads no column is rejected there as everywhere.</summary>
+        [TestMethod]
+        public void AllAndAny_RowIndependentPredicate_IsRejectedLikeEveryPath()
+        {
+            var predicate = Predicate("allRowIndependentNull");
+            WithTable((provider, log) =>
+            {
+                log.Clear();
+                var ex = Assert.ThrowsException<InvalidOperationException>(() => provider.Query<CvRow>().All(predicate));
+                Assert.AreEqual(NoColumnMessage, ex.Message);
+                var any = Assert.ThrowsException<InvalidOperationException>(() => provider.Query<CvRow>().Any(predicate));
+                Assert.AreEqual(NoColumnMessage, any.Message);
+                AssertNothingSent(log, "allRowIndependentNull all/any");
             });
         }
 
@@ -880,6 +756,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         /// satisfying it. That is C#'s answer when the null makes p true in C# (<c>x.NullableId != 5</c>), and a known
         /// divergence when it makes p false (<c>x.NullableId &gt; 0</c>, the Changelog's Known issues) or C# throws (D8's
         /// null search value). No single negation is right for both; the fix belongs to the comparisons' null handling.
+        /// A predicate that reads no column (<c>allRowIndependentNull</c>) is rejected by the shared guard (D-003),
+        /// in <see cref="Rejected_BeforeAnyCommand"/>.
         /// </summary>
         [DataTestMethod]
         [DataRow("allIdPositive", true, null)]
@@ -890,7 +768,6 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("allContainsNull", true, "D8")]
         [DataRow("allNotContainsNull", true, "D8")]
         [DataRow("allOrContainsNull", true, "D8")]
-        [DataRow("allRowIndependentNull", true, "D8")]
         public void All_UnknownCountsAsSatisfied(string key, bool expected, string knownDivergence)
         {
             var predicate = Predicate(key);

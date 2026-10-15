@@ -8,15 +8,18 @@ using System.Threading;
 namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
 {
     /// <summary>
-    /// The DB-free rows of the delete-guard plan (docs/plans/DELETE_GUARD_PLAN.md, §4.1): <see cref="DeletePredicateGuard"/>'s
-    /// classification of predicates (D2), its argument contract (D1) and its SQL check (D3).
+    /// The DB-free rows of the delete-guard plan (docs/plans/DELETE_GUARD_PLAN.md, §4.1), on the shared guard of
+    /// docs/plans/DECISIONS-3.10.2.md D-003: <see cref="WherePredicateGuard"/>'s classification of predicates (D2), its
+    /// argument contract (D1), its SQL check (D3) and the string-comparison rejection that survives of D9; and the
+    /// obsolete <see cref="DeletePredicateGuard"/>, which forwards to it.
     /// </summary>
     [TestClass]
-    public class DeletePredicateGuardTests
+    public class WherePredicateGuardTests
     {
-        private const string NoColumnMessage = "Delete operation WHERE clause must reference at least one column from the target table.";
-        private const string SelfReferenceMessage = "Delete operation WHERE clause cannot be a self-referencing column expression.";
-        private const string AlwaysTrueMessage = "Delete operation requires a non-trivial WHERE clause.";
+        private const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
+        private const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
+        private const string AlwaysTrueMessage = "The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+        private const string EmptyMessage = "The WHERE clause translated to nothing; a non-trivial WHERE clause is required.";
 
         public class GuardRow
         {
@@ -279,88 +282,89 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private static Expression<Func<GuardRow, bool>> P(Expression<Func<GuardRow, bool>> predicate) => predicate;
 
         [DataTestMethod]
-        [DataRow("selfEq", DeletePredicateVerdict.SelfReference)]
-        [DataRow("selfGe", DeletePredicateVerdict.SelfReference)]
-        [DataRow("selfLe", DeletePredicateVerdict.SelfReference)]
-        [DataRow("selfNe", DeletePredicateVerdict.Acceptable)]
-        [DataRow("selfGt", DeletePredicateVerdict.Acceptable)]
-        [DataRow("selfLt", DeletePredicateVerdict.Acceptable)]
-        [DataRow("notSelfNe", DeletePredicateVerdict.SelfReference)]
-        [DataRow("notSelfGt", DeletePredicateVerdict.SelfReference)]
-        [DataRow("longSelf", DeletePredicateVerdict.SelfReference)]
-        [DataRow("nullableSelf", DeletePredicateVerdict.SelfReference)]
-        [DataRow("nameSelf", DeletePredicateVerdict.SelfReference)]
-        [DataRow("idToStringSelf", DeletePredicateVerdict.SelfReference)]
-        [DataRow("nameToStringSelf", DeletePredicateVerdict.SelfReference)]
-        [DataRow("idToStringSelfNe", DeletePredicateVerdict.Acceptable)]
-        [DataRow("idToStringOther", DeletePredicateVerdict.Acceptable)]
-        [DataRow("idToStringFormatSelf", DeletePredicateVerdict.Acceptable)]
-        [DataRow("idOther", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orTrue", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orCapturedTrue", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orStaticOn", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orNowGtMin", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orCapturedAEqA", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orCapturedNullIsNull", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orCapturedSEqS", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orCapturedFalse", DeletePredicateVerdict.Acceptable)]
-        [DataRow("nonShortOrTrue", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("andTrue", DeletePredicateVerdict.Acceptable)]
-        [DataRow("selfAndId2", DeletePredicateVerdict.Acceptable)]
-        [DataRow("selfOrId2", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("nonShortAndFalse", DeletePredicateVerdict.Acceptable)]
-        [DataRow("deMorganAnd", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("deMorganOr", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("deMorganCapturedFalse", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orIncludeAll", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orBoxedFlag", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orArithmetic", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orCapturedContains", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orCapturedContainsChar", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orContainsOrdinal", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orLiteralContains", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("rolesContainsOr", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orToString", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orIntToString", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orEnumToString", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orNullableToString", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orContainsFalse", DeletePredicateVerdict.Acceptable)]
-        [DataRow("nameContains", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orContainsName", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orStartsWith", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orObjectToString", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orStructToString", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orNullableStructToString", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orToStringFormat", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orDateFormat", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orContainsNull", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orContainsNullOrdinal", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("orNullContainsNull", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orContainsWildcard", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orToStringLeadingZero", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orToStringProvider", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orUserContains", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orPairToString", DeletePredicateVerdict.Acceptable)]
-        [DataRow("handConvert", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("condTrueSelf", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("condFalseSelf", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("condSharedTrue", DeletePredicateVerdict.AlwaysTrue)]
-        [DataRow("condUnknown", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orNewHolder", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orMethod", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orWrapperConversion", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orUserOperator", DeletePredicateVerdict.Acceptable)]
-        [DataRow("orThrows", DeletePredicateVerdict.Acceptable)]
-        [DataRow("foreignId2", DeletePredicateVerdict.Acceptable)]
-        [DataRow("foreignSelf", DeletePredicateVerdict.SelfReference)]
-        [DataRow("true", DeletePredicateVerdict.NoColumn)]
-        [DataRow("oneLtTwo", DeletePredicateVerdict.NoColumn)]
-        [DataRow("abcEqAbc", DeletePredicateVerdict.NoColumn)]
-        [DataRow("capturedTrue", DeletePredicateVerdict.NoColumn)]
-        [DataRow("false", DeletePredicateVerdict.NoColumn)]
-        public void Classify_ReturnsTheVerdict(string key, DeletePredicateVerdict expected)
+        [DataRow("selfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("selfGe", WherePredicateVerdict.SelfReference)]
+        [DataRow("selfLe", WherePredicateVerdict.SelfReference)]
+        [DataRow("selfNe", WherePredicateVerdict.Acceptable)]
+        [DataRow("selfGt", WherePredicateVerdict.Acceptable)]
+        [DataRow("selfLt", WherePredicateVerdict.Acceptable)]
+        [DataRow("notSelfNe", WherePredicateVerdict.SelfReference)]
+        [DataRow("notSelfGt", WherePredicateVerdict.SelfReference)]
+        [DataRow("longSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("nullableSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("nameSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("idToStringSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("nameToStringSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("idToStringSelfNe", WherePredicateVerdict.Acceptable)]
+        [DataRow("idToStringOther", WherePredicateVerdict.Acceptable)]
+        [DataRow("idToStringFormatSelf", WherePredicateVerdict.Acceptable)]
+        [DataRow("idOther", WherePredicateVerdict.Acceptable)]
+        [DataRow("orTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orStaticOn", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orNowGtMin", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedAEqA", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedNullIsNull", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedSEqS", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedFalse", WherePredicateVerdict.Acceptable)]
+        [DataRow("nonShortOrTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("andTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("selfAndId2", WherePredicateVerdict.Acceptable)]
+        [DataRow("selfOrId2", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("nonShortAndFalse", WherePredicateVerdict.Acceptable)]
+        [DataRow("deMorganAnd", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("deMorganOr", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("deMorganCapturedFalse", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orIncludeAll", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orBoxedFlag", WherePredicateVerdict.Acceptable)]
+        [DataRow("orArithmetic", WherePredicateVerdict.Acceptable)]
+        [DataRow("orCapturedContains", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orCapturedContainsChar", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orContainsOrdinal", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orLiteralContains", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("rolesContainsOr", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orToString", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orIntToString", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orEnumToString", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orNullableToString", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orContainsFalse", WherePredicateVerdict.Acceptable)]
+        [DataRow("nameContains", WherePredicateVerdict.Acceptable)]
+        [DataRow("orContainsName", WherePredicateVerdict.Acceptable)]
+        [DataRow("orStartsWith", WherePredicateVerdict.Acceptable)]
+        [DataRow("orObjectToString", WherePredicateVerdict.Acceptable)]
+        [DataRow("orStructToString", WherePredicateVerdict.Acceptable)]
+        [DataRow("orNullableStructToString", WherePredicateVerdict.Acceptable)]
+        [DataRow("orToStringFormat", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("orDateFormat", WherePredicateVerdict.AlwaysTrue)]
+        // D-003: s.Contains(null) throws in C#, so it's unknown here (the translation sends NULL LIKE NULL, which matches no row).
+        [DataRow("orContainsNull", WherePredicateVerdict.Acceptable)]
+        [DataRow("orContainsNullOrdinal", WherePredicateVerdict.Acceptable)]
+        [DataRow("orNullContainsNull", WherePredicateVerdict.Acceptable)]
+        [DataRow("orContainsWildcard", WherePredicateVerdict.Acceptable)]
+        [DataRow("orToStringLeadingZero", WherePredicateVerdict.Acceptable)]
+        [DataRow("orToStringProvider", WherePredicateVerdict.Acceptable)]
+        [DataRow("orUserContains", WherePredicateVerdict.Acceptable)]
+        [DataRow("orPairToString", WherePredicateVerdict.Acceptable)]
+        [DataRow("handConvert", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("condTrueSelf", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("condFalseSelf", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("condSharedTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("condUnknown", WherePredicateVerdict.Acceptable)]
+        [DataRow("orNewHolder", WherePredicateVerdict.Acceptable)]
+        [DataRow("orMethod", WherePredicateVerdict.Acceptable)]
+        [DataRow("orWrapperConversion", WherePredicateVerdict.Acceptable)]
+        [DataRow("orUserOperator", WherePredicateVerdict.Acceptable)]
+        [DataRow("orThrows", WherePredicateVerdict.Acceptable)]
+        [DataRow("foreignId2", WherePredicateVerdict.Acceptable)]
+        [DataRow("foreignSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("true", WherePredicateVerdict.NoColumn)]
+        [DataRow("oneLtTwo", WherePredicateVerdict.NoColumn)]
+        [DataRow("abcEqAbc", WherePredicateVerdict.NoColumn)]
+        [DataRow("capturedTrue", WherePredicateVerdict.NoColumn)]
+        [DataRow("false", WherePredicateVerdict.NoColumn)]
+        public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
-            Assert.AreEqual(expected, DeletePredicateGuard.Classify(Predicates()[key]), key);
+            Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
         }
 
         [TestMethod]
@@ -378,7 +382,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             foreach (var key in new[] { "orMethod", "orNewHolder", "orWrapperConversion", "orUserOperator", "orObjectToString",
                          "orStructToString", "orNullableStructToString", "orToStringProvider", "orUserContains",
                          "orPairToString" })
-                DeletePredicateGuard.Classify(predicates[key]);
+                WherePredicateGuard.Classify(predicates[key]);
 
             Assert.AreEqual(0, _methodCalls, "Method() was called");
             Assert.AreEqual(0, Holder.Constructed, "Holder's constructor was called");
@@ -400,47 +404,30 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             var predicate = Predicates()[key];
             if (expectedMessage.Length == 0)
             {
-                DeletePredicateGuard.Validate(predicate);
+                WherePredicateGuard.Validate(predicate);
                 return;
             }
-            var exception = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicate), key);
+            var exception = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.Validate(predicate), key);
             Assert.AreEqual(expectedMessage, exception.Message, key);
         }
 
-        private const string ValueCallMessage = "() on a value that doesn't read the row isn't supported in a delete";
-        private const string PropertyValueMessage = "()'s search value is a property of a captured object";
-        private const string EmptyValueMessage = "()'s search value is null or empty";
-        private const string WildcardValueMessage = "()'s search value contains a LIKE wildcard";
-        private const string StringComparisonMessage = "Comparing strings that don't read the row isn't supported in a delete";
+        private const string StringComparisonMessage = "Comparing strings that don't read the row isn't supported in a WHERE clause";
 
         /// <summary>
-        /// D9 (owner decision 2026-10-05): <see cref="DeletePredicateGuard.Validate"/> throws
-        /// <see cref="NotSupportedException"/> for a predicate the guard accepts but the providers would widen to
-        /// (nearly) every row: a <c>Contains</c>/<c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> on a value that
-        /// doesn't read the row, or a string match on a column whose search value is null, empty, a LIKE wildcard, or a
-        /// property of a captured object. A verdict's rejection comes first and keeps its message.
+        /// D9 (owner decision 2026-10-05), as kept by D-003: of the shapes the 3.10.0 delete guard rejected,
+        /// <see cref="WherePredicateGuard.Validate"/> still throws <see cref="NotSupportedException"/> for a comparison
+        /// of two strings neither of which reads the row (the database compares them under its collation). A verdict's
+        /// rejection comes first and keeps its message.
         /// </summary>
         [DataTestMethod]
-        [DataRow("nameContainsUnderscore", "Contains" + WildcardValueMessage)]
-        [DataRow("nameStartsWithPercent", "StartsWith" + WildcardValueMessage)]
-        [DataRow("nameEndsWithBracket", "EndsWith" + WildcardValueMessage)]
-        [DataRow("nameContainsBackslash", "Contains" + WildcardValueMessage)]
-        [DataRow("nameContainsCharUnderscore", "Contains" + WildcardValueMessage)]
-        [DataRow("nameContainsCapturedWildcard", "Contains" + WildcardValueMessage)]
-        [DataRow("nameContainsNull", "Contains" + EmptyValueMessage)]
-        [DataRow("nameContainsEmpty", "Contains" + EmptyValueMessage)]
-        [DataRow("nameContainsThisProperty", "Contains" + PropertyValueMessage)]
-        [DataRow("orContainsFalse", "Contains" + ValueCallMessage)]
-        [DataRow("orStartsWith", "StartsWith" + ValueCallMessage)]
-        [DataRow("nameEqualsCapturedToString", "ToString" + ValueCallMessage)]
         [DataRow("orCapturedStringEquals", StringComparisonMessage)]
         [DataRow("orCapturedStringNotEquals", StringComparisonMessage)]
-        public void Validate_RejectsWhatADeleteCantSendSafely(string key, string expectedPrefix)
+        public void Validate_RejectsAStringComparisonThatDoesntReadTheRow(string key, string expectedPrefix)
         {
             Exception thrown = null;
             try
             {
-                DeletePredicateGuard.Validate(Predicates()[key]);
+                WherePredicateGuard.Validate(Predicates()[key]);
             }
             catch (Exception ex)
             {
@@ -451,6 +438,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             StringAssert.StartsWith(thrown.Message, expectedPrefix, key);
         }
 
+        /// <summary>
+        /// The other D9 rejections are gone (D-003): the translation now escapes a wildcard, sends <c>LIKE NULL</c> for a
+        /// null value, reads a property of a captured object and answers a row-independent <c>Contains</c> in C#, and
+        /// the translators reject a <c>StartsWith</c>/<c>EndsWith</c>/<c>ToString()</c> on a value that doesn't read the
+        /// row themselves, on every path. The guard accepts them.
+        /// </summary>
         [DataTestMethod]
         [DataRow("nameContains")]
         [DataRow("nameContainsCaptured")]
@@ -459,23 +452,88 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idEq2")]
         [DataRow("capturedNullCheckOr")]
         [DataRow("capturedEqualsName")]
-        public void Validate_AcceptsTheSafeNeighbours(string key) => DeletePredicateGuard.Validate(Predicates()[key]);
+        [DataRow("nameContainsUnderscore")]
+        [DataRow("nameStartsWithPercent")]
+        [DataRow("nameEndsWithBracket")]
+        [DataRow("nameContainsBackslash")]
+        [DataRow("nameContainsCharUnderscore")]
+        [DataRow("nameContainsCapturedWildcard")]
+        [DataRow("nameContainsNull")]
+        [DataRow("nameContainsEmpty")]
+        [DataRow("nameContainsThisProperty")]
+        [DataRow("orContainsFalse")]
+        [DataRow("orStartsWith")]
+        [DataRow("nameEqualsCapturedToString")]
+        [DataRow("orContainsNull")]
+        [DataRow("orContainsNullOrdinal")]
+        [DataRow("orNullContainsNull")]
+        [DataRow("orContainsWildcard")]
+        public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
-        /// <summary>A verdict's rejection is thrown before D9's check, with its own message.</summary>
+        /// <summary>A verdict's rejection is thrown before the string-comparison check, with its own message.</summary>
         [DataTestMethod]
         [DataRow("rolesContainsOr", AlwaysTrueMessage)]
         [DataRow("orCapturedContains", AlwaysTrueMessage)]
-        [DataRow("orContainsNull", AlwaysTrueMessage)]
+        [DataRow("orCapturedSEqS", AlwaysTrueMessage)]
         public void Validate_VerdictComesBeforeTheUnsafeCallCheck(string key, string expectedMessage)
         {
-            var exception = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(Predicates()[key]), key);
+            var exception = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.Validate(Predicates()[key]), key);
             Assert.AreEqual(expectedMessage, exception.Message, key);
+        }
+
+        /// <summary>
+        /// The check on the translated SQL (D3), shared by every path since D-003: an empty clause, a literal tautology
+        /// (<c>1=1</c>, or a fold such as <c>t.id = @p OR NOT 1=0</c>) and a whole-clause self-comparison are rejected
+        /// with <see cref="InvalidOperationException"/>; anything else passes.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("", EmptyMessage)]
+        [DataRow("   ", EmptyMessage)]
+        [DataRow("1=1", AlwaysTrueMessage)]
+        [DataRow("(t.id = @p__linq__0 OR NOT 1=0)", AlwaysTrueMessage)]
+        [DataRow("t.id = t.id", SelfReferenceMessage)]
+        [DataRow("[person].[id] >= [person].[id]", SelfReferenceMessage)]
+        [DataRow("CAST(t.id AS TEXT) = CAST(t.id AS TEXT)", SelfReferenceMessage)]
+        [DataRow("t.id = @p__linq__0", "")]
+        [DataRow("(t.id = @p__linq__0 AND NOT 1=0)", "")]
+        [DataRow("t.id = t.other", "")]
+        [DataRow("t.a = t.a AND t.id = @p", "")]
+        public void ValidateTranslation_RejectsAnEmptyTautologicalOrSelfComparingClause(string whereClause, string expectedMessage)
+        {
+            if (expectedMessage.Length == 0)
+            {
+                WherePredicateGuard.ValidateTranslation(whereClause);
+                return;
+            }
+            var exception = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.ValidateTranslation(whereClause), whereClause);
+            Assert.AreEqual(expectedMessage, exception.Message, whereClause);
+        }
+
+        /// <summary>The 3.10.0 API forwards to the shared guard: same verdicts (by name), same exceptions, same SQL check.</summary>
+        [TestMethod]
+        public void DeletePredicateGuard_ForwardsToTheSharedGuard()
+        {
+#pragma warning disable CS0618 // The obsolete API is the subject.
+            var predicates = Predicates();
+            foreach (var key in new[] { "idEq2", "true", "selfEq", "orTrue" })
+                Assert.AreEqual(WherePredicateGuard.Classify(predicates[key]).ToString(),
+                    DeletePredicateGuard.Classify(predicates[key]).ToString(), key);
+            var selfReference = Assert.ThrowsException<InvalidOperationException>(() => DeletePredicateGuard.Validate(predicates["selfEq"]));
+            Assert.AreEqual(SelfReferenceMessage, selfReference.Message);
+            var comparison = Assert.ThrowsException<NotSupportedException>(() => DeletePredicateGuard.Validate(predicates["orCapturedStringEquals"]));
+            StringAssert.StartsWith(comparison.Message, StringComparisonMessage);
+            DeletePredicateGuard.Validate(predicates["idEq2"]);
+            Assert.IsTrue(DeletePredicateGuard.HasLiteralTautology("t.id = @p OR NOT 1=0"));
+            Assert.IsFalse(DeletePredicateGuard.HasLiteralTautology("t.id = @p"));
+            Assert.ThrowsException<ArgumentNullException>(() => DeletePredicateGuard.Classify(null));
+#pragma warning restore CS0618
         }
 
         [DataTestMethod]
         [DataRow("classifyNull")]
         [DataRow("validateNull")]
         [DataRow("hasLiteralTautologyNull")]
+        [DataRow("validateTranslationNull")]
         [DataRow("zeroParameters")]
         [DataRow("twoParameters")]
         [DataRow("intBody")]
@@ -484,25 +542,28 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             switch (kind)
             {
                 case "classifyNull":
-                    Assert.ThrowsException<ArgumentNullException>(() => DeletePredicateGuard.Classify(null));
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Classify(null));
                     break;
                 case "validateNull":
-                    Assert.ThrowsException<ArgumentNullException>(() => DeletePredicateGuard.Validate(null));
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Validate(null));
                     break;
                 case "hasLiteralTautologyNull":
-                    Assert.ThrowsException<ArgumentNullException>(() => DeletePredicateGuard.HasLiteralTautology(null));
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.HasLiteralTautology(null));
+                    break;
+                case "validateTranslationNull":
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.ValidateTranslation(null));
                     break;
                 case "zeroParameters":
                     Expression<Func<bool>> zero = () => true;
-                    Assert.ThrowsException<ArgumentException>(() => DeletePredicateGuard.Classify(zero));
+                    Assert.ThrowsException<ArgumentException>(() => WherePredicateGuard.Classify(zero));
                     break;
                 case "twoParameters":
                     Expression<Func<GuardRow, GuardRow, bool>> two = (a, b) => a.Id == b.Id;
-                    Assert.ThrowsException<ArgumentException>(() => DeletePredicateGuard.Classify(two));
+                    Assert.ThrowsException<ArgumentException>(() => WherePredicateGuard.Classify(two));
                     break;
                 case "intBody":
                     Expression<Func<GuardRow, int>> intBody = x => x.Id;
-                    Assert.ThrowsException<ArgumentException>(() => DeletePredicateGuard.Classify(intBody));
+                    Assert.ThrowsException<ArgumentException>(() => WherePredicateGuard.Classify(intBody));
                     break;
                 default:
                     Assert.Fail($"Unknown case {kind}.");
@@ -599,7 +660,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("CASE WHEN t.a - 1 >= 0 THEN 1 ELSE 0 END = @p", false)]
         public void HasLiteralTautology_ReturnsTheRuleOrTheFold(string whereClause, bool expected)
         {
-            Assert.AreEqual(expected, DeletePredicateGuard.HasLiteralTautology(whereClause), whereClause);
+            Assert.AreEqual(expected, WherePredicateGuard.HasLiteralTautology(whereClause), whereClause);
         }
 
         /// <summary>
@@ -642,8 +703,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 try
                 {
                     result = largeStackSize == null
-                        ? DeletePredicateGuard.HasLiteralTautology(clause)
-                        : DeletePredicateGuard.HasLiteralTautology(clause, largeStackSize.Value);
+                        ? WherePredicateGuard.HasLiteralTautology(clause)
+                        : WherePredicateGuard.HasLiteralTautology(clause, largeStackSize.Value);
                 }
                 catch (Exception ex)
                 {

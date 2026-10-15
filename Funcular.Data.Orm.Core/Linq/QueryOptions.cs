@@ -2,7 +2,7 @@ namespace Funcular.Data.Orm.Linq
 {
     /// <summary>
     /// How <c>Min</c>/<c>Max</c> over a <see cref="System.Guid"/> property are answered
-    /// (docs/plans/QUERY_OPERATOR_CORRECTNESS_PLAN.md §10; 3.10.2).
+    /// (docs/plans/QUERY_OPERATOR_CORRECTNESS_PLAN.md §10; 3.11.0).
     /// </summary>
     public enum GuidOrdering
     {

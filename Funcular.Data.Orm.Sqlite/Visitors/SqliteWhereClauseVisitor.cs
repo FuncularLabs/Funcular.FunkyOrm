@@ -158,7 +158,7 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
                     return;
                 }
 
-                // A member of the entity with no column: [NotMapped], or a field (3.10.2, FD-01; before, the visitor
+                // A member of the entity with no column: [NotMapped], or a field (3.11.0, FD-01; before, the visitor
                 // recursed into the parameter and failed with "Expression type Parameter is not supported").
                 throw new NotSupportedException(
                     $"Member '{node.Member.Name}' of the entity isn't mapped to a column, so it can't be used in a WHERE clause: {node}");
@@ -210,7 +210,7 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
             }
 
             // A member of a member (x.D.Year, x.D.Value.Year, x.Name.Length, x.Child.Id, …): the translator has the
-            // dialect's function for it, or rejects it by name (3.10.2, FD-01). Before, the visitor recursed into the
+            // dialect's function for it, or rejects it by name (3.11.0, FD-01). Before, the visitor recursed into the
             // receiver and silently dropped the outer member (x.Name.Length > 3 became name > 3), on every operation.
             if (node.Expression != null)
             {

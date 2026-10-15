@@ -109,7 +109,7 @@ namespace Funcular.Data.Orm
         public Action<string> Log { get; set; }
 
         /// <summary>
-        /// Provider-wide query options (3.10.2): how <c>Min</c>/<c>Max</c> over a <see cref="Guid"/> are answered. Set at
+        /// Provider-wide query options (3.11.0): how <c>Min</c>/<c>Max</c> over a <see cref="Guid"/> are answered. Set at
         /// startup: <c>new SqlServerOrmDataProvider(conn) { QueryOptions = { GuidOrdering = GuidOrdering.Database } }</c>.
         /// </summary>
         public Linq.QueryOptions QueryOptions { get; } = new Linq.QueryOptions();

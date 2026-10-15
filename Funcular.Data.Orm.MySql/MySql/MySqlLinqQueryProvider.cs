@@ -446,6 +446,8 @@ namespace Funcular.Data.Orm.MySql
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    // The shared guard (D-003): the same checks as GenerateWhereClause, before and after translation.
+                    WherePredicateGuard.Validate(predicateExpression);
                     var whereVisitor = new MySqlWhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -453,6 +455,7 @@ namespace Funcular.Data.Orm.MySql
                         parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
+                    WherePredicateGuard.ValidateTranslation(whereVisitor.WhereClauseBody);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
                     if (whereVisitor.Parameters != null)
@@ -524,7 +527,7 @@ namespace Funcular.Data.Orm.MySql
 
                 // Append remote joins only if the WHERE references a remote column; reject a reverse (fan-out)
                 // join for Sum/Average (fan-out-sensitive), allow it for Min/Max (fan-out-safe).
-                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.11.0, FD-04).
                 if (methodName == "Min" || methodName == "Max")
                     Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodName, lambda.Body.Type, property.Name,
                         _dataProvider.QueryOptions.GuidOrdering, dateTimeOffsetOrdersByInstant: false);
@@ -534,7 +537,7 @@ namespace Funcular.Data.Orm.MySql
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
                 var qualifiedColumn = $"{table}.{columnExpression}";
                 // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
-                // so AVG's scale-4 rounding is gone (3.10.2, FD-04). MySQL's SUM is exact DECIMAL for integers and DOUBLE
+                // so AVG's scale-4 rounding is gone (3.11.0, FD-04). MySQL's SUM is exact DECIMAL for integers and DOUBLE
                 // for FLOAT/DOUBLE, so no widening is needed.
                 if (methodName == "Average")
                     aggregateClause = $"SELECT SUM({qualifiedColumn}), COUNT({qualifiedColumn}) FROM {table}{joins}";
@@ -729,7 +732,7 @@ namespace Funcular.Data.Orm.MySql
         }
 
         /// <summary>
-        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.10.2, FD-04;
+        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.11.0, FD-04;
         /// <see cref="Funcular.Data.Orm.Linq.AggregateSemantics"/>): Average from SUM and COUNT in C#; an empty set gives
         /// Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one InvalidOperationException.
         /// </summary>

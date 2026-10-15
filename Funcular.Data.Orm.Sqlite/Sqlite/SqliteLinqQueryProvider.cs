@@ -465,6 +465,8 @@ namespace Funcular.Data.Orm.Sqlite
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
                     var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    // The shared guard (D-003): the same checks as GenerateWhereClause, before and after translation.
+                    WherePredicateGuard.Validate(predicateExpression);
                     var whereVisitor = new SqliteWhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -472,6 +474,7 @@ namespace Funcular.Data.Orm.Sqlite
                         parameterGenerator, translator, table,
                         remoteInfo.PropertyToColumnMap);
                     whereVisitor.Visit(predicateExpression);
+                    WherePredicateGuard.ValidateTranslation(whereVisitor.WhereClauseBody);
                     modifiedWhereClause = whereVisitor.WhereClauseBody;
 
                     if (whereVisitor.Parameters != null)
@@ -541,7 +544,7 @@ namespace Funcular.Data.Orm.Sqlite
                 }
                 else throw new NotSupportedException("Only simple member access is supported in aggregate expressions.");
 
-                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.10.2, FD-04).
+                // Min/Max over a type the database can't order as .NET does are rejected before any command (3.11.0, FD-04).
                 if (methodCall.Method.Name == "Min" || methodCall.Method.Name == "Max")
                     Funcular.Data.Orm.Linq.AggregateSemantics.EnsureMinMaxSupported(methodCall.Method.Name, lambda.Body.Type, property.Name,
                         _dataProvider.QueryOptions.GuidOrdering, dateTimeOffsetOrdersByInstant: false);
@@ -553,7 +556,7 @@ namespace Funcular.Data.Orm.Sqlite
                 // (e.g. `id`) is ambiguous against joined tables that share the name.
                 var qualifiedColumn = $"{table}.{columnExpression}";
                 // Average is read as SUM and COUNT and divided in C# with LINQ's arithmetic (AggregateSemantics.Average),
-                // so nothing is truncated or rounded by the database (3.10.2, FD-04: AVG and ROUND are gone).
+                // so nothing is truncated or rounded by the database (3.11.0, FD-04: AVG and ROUND are gone).
                 if (methodCall.Method.Name == "Average")
                     aggregateClause = $"SELECT SUM({qualifiedColumn}), COUNT({qualifiedColumn}) FROM {table}{joins}";
                 else
@@ -725,7 +728,7 @@ namespace Funcular.Data.Orm.Sqlite
         }
 
         /// <summary>
-        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.10.2, FD-04;
+        /// Executes an aggregate and converts its result with LINQ to objects' rules (3.11.0, FD-04;
         /// <see cref="Funcular.Data.Orm.Linq.AggregateSemantics"/>): Average from SUM and COUNT in C#; an empty set gives
         /// Sum 0, a nullable or reference Min/Max/Average null, a non-nullable one InvalidOperationException.
         /// </summary>
