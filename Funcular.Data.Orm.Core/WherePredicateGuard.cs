@@ -30,15 +30,32 @@ namespace Funcular.Data.Orm
     }
 
     /// <summary>
+    /// What a WHERE predicate is used for, which decides whether the all-rows guard applies (docs/plans/DECISIONS-3.10.2.md
+    /// D-003 as amended by D-128): one shared translation path, one flag.
+    /// </summary>
+    public enum WhereOperation
+    {
+        /// <summary>A read: <c>Query(predicate)</c>, <c>Where</c>, <c>Count</c>, <c>Any</c>, <c>All</c>. An all-rows predicate runs and selects every row.</summary>
+        Read = 0,
+
+        /// <summary>A mass mutation: <c>Delete(predicate)</c>, <c>DeleteAsync</c>, any update by predicate. An all-rows predicate is refused.</summary>
+        MassMutation = 1
+    }
+
+    /// <summary>
     /// The all-rows guard for mass mutations, and the shared evaluation of the parts of a WHERE predicate that don't
     /// read the row (docs/plans/DECISIONS-3.10.2.md D-001, D-003 as amended by D-128).
-    /// <para><b>Guard.</b> <c>Delete(predicate)</c> (and any update by predicate) calls <see cref="Validate"/> before
-    /// translating the predicate, before the entity's columns are discovered, so a rejected predicate never sends a
-    /// command, and <see cref="ValidateTranslation"/> on the WHERE clause the translation produces: a predicate that
-    /// reads no column, compares a column with itself, or always holds is refused. Queries (<c>Query(predicate)</c>,
-    /// <c>Where</c>, <c>Count</c>/<c>Any</c>/<c>All</c>) run such predicates normally and return every row, as LINQ
-    /// to objects would. The guard rejects the shapes it can prove always hold; it doesn't prove that every always-true
-    /// predicate is one: <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted.</para>
+    /// <para><b>Guard.</b> Every provider's shared WHERE translation calls <see cref="Validate(LambdaExpression, WhereOperation)"/>
+    /// before translating the predicate (before the entity's columns are discovered, so a refused predicate never
+    /// sends a command) and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE clause it produces,
+    /// passing the operation. For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
+    /// predicate) a predicate that reads no column, compares a column with itself, or always holds is refused; for a
+    /// <see cref="WhereOperation.Read"/> (<c>Query(predicate)</c>, <c>Where</c>, <c>Count</c>/<c>Any</c>/<c>All</c>)
+    /// both checks accept everything, and the predicate runs and returns every row, as LINQ to objects would. The
+    /// guard rejects the shapes it can prove always hold; it doesn't prove that every always-true predicate is one:
+    /// <c>x =&gt; x.Id == 2 || x.Id != 2</c>, for example, is accepted. What no path can translate (a member of a
+    /// member the dialect has no function for, a <c>ToString()</c> the evaluation can't answer, a nested receiver)
+    /// is rejected by the translators with <see cref="NotSupportedException"/> on every path, read or mutation.</para>
     /// <para><b>Evaluation.</b> Every provider's WHERE visitor calls <see cref="Fold"/> on each part of a predicate in a
     /// truth position (the body, an operand of <c>&amp;&amp;</c>, <c>||</c> or <c>!</c>) and sends a part that doesn't
     /// read the row as a literal (<c>NOT 1=0</c> or <c>1=0</c>), so a comparison of captured values, a captured
@@ -124,18 +141,35 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Throws <see cref="InvalidOperationException"/> with the message of the verdict when
-        /// <see cref="Classify"/> rejects <paramref name="predicate"/>; otherwise returns. A mass mutation (a delete,
-        /// an update by predicate) calls it before translating its predicate; a query doesn't.
+        /// The mass-mutation form of <see cref="Validate(LambdaExpression, WhereOperation)"/>: throws
+        /// <see cref="InvalidOperationException"/> with the message of the verdict when <see cref="Classify"/> rejects
+        /// <paramref name="predicate"/>; otherwise returns.
         /// </summary>
         /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
         /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is null.</exception>
         /// <exception cref="ArgumentException"><paramref name="predicate"/> doesn't have exactly one parameter, or its
         /// body isn't <c>bool</c>.</exception>
         /// <exception cref="InvalidOperationException">The predicate is rejected.</exception>
-        public static void Validate(LambdaExpression predicate)
+        public static void Validate(LambdaExpression predicate) => Validate(predicate, WhereOperation.MassMutation);
+
+        /// <summary>
+        /// Checks <paramref name="predicate"/> before it is translated, for <paramref name="operation"/>. For a
+        /// <see cref="WhereOperation.MassMutation"/>, throws <see cref="InvalidOperationException"/> with the message
+        /// of the verdict when <see cref="Classify"/> rejects the predicate; for a <see cref="WhereOperation.Read"/>,
+        /// accepts every well-formed predicate. The argument contract is checked for both.
+        /// </summary>
+        /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
+        /// <param name="operation">What the predicate is used for.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="predicate"/> doesn't have exactly one parameter, or its
+        /// body isn't <c>bool</c>.</exception>
+        /// <exception cref="InvalidOperationException">The operation is a mass mutation and the predicate is rejected.</exception>
+        public static void Validate(LambdaExpression predicate, WhereOperation operation)
         {
-            switch (Classify(predicate))
+            var verdict = Classify(predicate);
+            if (operation != WhereOperation.MassMutation)
+                return;
+            switch (verdict)
             {
                 case WherePredicateVerdict.NoColumn:
                     throw new InvalidOperationException(NoColumnMessage);
@@ -177,18 +211,31 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Checks the WHERE clause a delete's predicate translated to: it must not be empty, must not hold by its
-        /// literals (<see cref="HasLiteralTautology(string)"/>: a <c>1=1</c>, or <c>t.id = @p OR NOT 1=0</c>, which a
-        /// negated <c>Contains</c> over an empty collection or an evaluated part that holds produces), and must not be
-        /// one operand compared with itself (<c>CAST(t.id AS TEXT) = CAST(t.id AS TEXT)</c>).
+        /// The mass-mutation form of <see cref="ValidateTranslation(string, WhereOperation)"/>.
         /// </summary>
         /// <param name="whereClause">The translated WHERE clause of one predicate, without the <c>WHERE</c> keyword.</param>
         /// <exception cref="ArgumentNullException"><paramref name="whereClause"/> is null.</exception>
         /// <exception cref="InvalidOperationException">The clause fails one of the checks.</exception>
-        public static void ValidateTranslation(string whereClause)
+        public static void ValidateTranslation(string whereClause) => ValidateTranslation(whereClause, WhereOperation.MassMutation);
+
+        /// <summary>
+        /// Checks the WHERE clause a predicate translated to, for <paramref name="operation"/>. For a
+        /// <see cref="WhereOperation.MassMutation"/> the clause must not be empty, must not hold by its literals
+        /// (<see cref="HasLiteralTautology(string)"/>: a <c>1=1</c>, or <c>t.id = @p OR NOT 1=0</c>, which a negated
+        /// <c>Contains</c> over an empty collection or an evaluated part that holds produces), and must not be one
+        /// operand compared with itself (<c>CAST(t.id AS TEXT) = CAST(t.id AS TEXT)</c>); for a
+        /// <see cref="WhereOperation.Read"/> every clause is accepted.
+        /// </summary>
+        /// <param name="whereClause">The translated WHERE clause of one predicate, without the <c>WHERE</c> keyword.</param>
+        /// <param name="operation">What the predicate is used for.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="whereClause"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">The operation is a mass mutation and the clause fails one of the checks.</exception>
+        public static void ValidateTranslation(string whereClause, WhereOperation operation)
         {
             if (whereClause == null)
                 throw new ArgumentNullException(nameof(whereClause));
+            if (operation != WhereOperation.MassMutation)
+                return;
             if (string.IsNullOrWhiteSpace(whereClause))
                 throw new InvalidOperationException(EmptyTranslationMessage);
             if (HasLiteralTautology(whereClause))

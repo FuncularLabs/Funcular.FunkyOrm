@@ -286,9 +286,8 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
-            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery (D-003/D-128)
-            var components = GenerateWhereClause(predicate);
-            WherePredicateGuard.ValidateTranslation(components.WhereClause);
+            // The shared WHERE path, flagged as a mass mutation: the all-rows guard applies (D-003 as amended by D-128).
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -832,9 +831,8 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
-            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery (D-003/D-128)
-            var components = GenerateWhereClause(predicate);
-            WherePredicateGuard.ValidateTranslation(components.WhereClause);
+            // The shared WHERE path, flagged as a mass mutation: the all-rows guard applies (D-003 as amended by D-128).
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -1433,13 +1431,21 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="commandElements">Optional existing command components to augment.</param>
         /// <param name="parameterGenerator">Optional <see cref="ParameterGenerator"/> used for parameter naming; a new one is created if not supplied.</param>
         /// <param name="translator">Optional <see cref="SqlExpressionTranslator"/> to assist with translating method calls and members.</param>
+        /// <param name="operation">What the predicate is used for (D-003 as amended by D-128): for a
+        /// <see cref="WhereOperation.MassMutation"/> the all-rows guard refuses a predicate that reads no column, compares a
+        /// column with itself or always holds, before discovery and on the translated clause; for a
+        /// <see cref="WhereOperation.Read"/> (the default) it accepts everything. One translation path, one flag.</param>
         /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
         protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
             SqlQueryComponents<T> commandElements = null,
             ParameterGenerator parameterGenerator = null,
-            SqlExpressionTranslator translator = null) where T : class, new()
+            SqlExpressionTranslator translator = null,
+            WhereOperation operation = WhereOperation.Read) where T : class, new()
         {
+            // The all-rows guard runs first, before T's columns are discovered, so a refused mass mutation never sends a command.
+            WherePredicateGuard.Validate(expression, operation);
+
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
@@ -1461,6 +1467,7 @@ namespace Funcular.Data.Orm.SqlServer
                 tableName,
                 remoteInfo.PropertyToColumnMap); // Pass the map
             visitor.Visit(expression);
+            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
             if (commandElements != null)
             {
                 commandElements.WhereClause = visitor.WhereClauseBody;

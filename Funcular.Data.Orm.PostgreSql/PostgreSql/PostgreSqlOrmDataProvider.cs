@@ -185,9 +185,7 @@ namespace Funcular.Data.Orm.PostgreSql
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
-            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery
-            var components = GenerateWhereClause(predicate);
-            WherePredicateGuard.ValidateTranslation(components.WhereClause);
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -386,9 +384,7 @@ namespace Funcular.Data.Orm.PostgreSql
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
-            WherePredicateGuard.Validate(predicate); // the all-rows guard, before discovery
-            var components = GenerateWhereClause(predicate);
-            WherePredicateGuard.ValidateTranslation(components.WhereClause);
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -914,8 +910,13 @@ namespace Funcular.Data.Orm.PostgreSql
             Expression<Func<T, bool>> expression,
             PostgreSqlQueryComponents<T> commandElements = null,
             PostgreSqlParameterGenerator parameterGenerator = null,
-            PostgreSqlExpressionTranslator translator = null) where T : class, new()
+            PostgreSqlExpressionTranslator translator = null,
+            WhereOperation operation = WhereOperation.Read) where T : class, new()
         {
+            // The all-rows guard runs first, before T's columns are discovered, so a refused mass mutation never sends a
+            // command; for a read it accepts everything (D-003 as amended by D-128: one translation path, one flag).
+            WherePredicateGuard.Validate(expression, operation);
+
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
@@ -932,6 +933,7 @@ namespace Funcular.Data.Orm.PostgreSql
                 UnmappedPropertiesFor<T>(),
                 paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
             visitor.Visit(expression);
+            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
 
             if (commandElements != null)
             {

@@ -10,9 +10,12 @@ shapes under Fixed selected, and deleted, other rows than C# selects, without an
 (`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE, or
 throws the same exception on every path.
 
-**Behaviour change — shared evaluation; the all-rows guard refuses mass deletes only.** Translation and evaluation
-of a WHERE predicate are one path for `Query(predicate)`, `Query<T>().Where(...)`, `Count`/`LongCount`/`Any`/`All`
-and `Delete`/`DeleteAsync`, so a predicate selects exactly the rows it would delete. Two things change for callers:
+**Behaviour change — shared evaluation; only `Delete` (and any update by predicate) refuses an all-rows predicate.**
+Translation and evaluation of a WHERE predicate are one path for `Query(predicate)`, `Query<T>().Where(...)`,
+`Count`/`LongCount`/`Any`/`All` and `Delete`/`DeleteAsync`, with one flag (`WhereOperation.Read` or
+`WhereOperation.MassMutation`) that decides whether the all-rows guard applies, so a predicate selects exactly the
+rows it would delete. For the optional-filter idiom, the admin idiom and an empty `NOT IN`, queries return every row
+as they did in 3.10.1; nothing a query accepted in 3.10.1 is refused now. Two things change for callers:
 - **Parts of a predicate that don't read the row are evaluated in C# and sent as a literal** (`NOT 1=0` or `1=0`):
   a constant (`x => true` now selects every row; before 3.11.0 it was a SQL error), a captured or static `bool`, a
   comparison of captured values (`filter == null`), a captured string's `Contains`, a core type's `ToString()` with no
@@ -132,8 +135,9 @@ guard. The rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amend
 - **The package description names all four providers** (SQL Server, PostgreSQL, MySQL, SQLite) and says the `net48`
   build carries the SQL Server provider only; it had left out MySQL since 3.6.0.
 - **The all-rows guard is `Funcular.Data.Orm.WherePredicateGuard`** (see Behaviour change above for the shapes and
-  messages). `Delete`/`DeleteAsync` run it before the entity's columns are discovered, so a refused delete on a
-  missing table reports the guard, not discovery, and on the translated clause after. `Delete` no longer checks that
+  messages). The shared WHERE translation runs it for every operation with a `WhereOperation` flag; it refuses only a
+  `MassMutation` (`Delete`/`DeleteAsync`, any update by predicate), before the entity's columns are discovered, so a
+  refused delete on a missing table reports the guard, not discovery, and on the translated clause after. `Delete` no longer checks that
   the translated clause names a column of the table by text (a predicate on a remote property only is accepted, as it
   is in a query). The WHERE visitors of all four providers evaluate the parts of a predicate that don't read the row
   through the same class (`WherePredicateGuard.Fold`), so the guard's verdict and the SQL every path sends agree.
@@ -215,9 +219,10 @@ before:
 
 ### New public API
 - `Funcular.Data.Orm.WherePredicateGuard` (`Classify`, `Validate`, `ValidateTranslation`, `HasLiteralTautology`,
-  `Fold`, and its message constants) with `WherePredicateVerdict`: the all-rows guard every provider's `Delete` runs,
-  and the evaluation of row-independent parts every provider's WHERE visitor uses, which a custom provider can call
-  too. `DeletePredicateGuard` and `DeletePredicateVerdict` (3.10.0) are `[Obsolete]` forwarders.
+  `Fold`, and its message constants) with `WherePredicateVerdict` and `WhereOperation` (`Read`, `MassMutation`): the
+  all-rows guard every provider's shared WHERE translation runs with the operation flag (refusing only for a mass
+  mutation), and the evaluation of row-independent parts every provider's WHERE visitor uses, which a custom provider
+  can call too. `DeletePredicateGuard` and `DeletePredicateVerdict` (3.10.0) are `[Obsolete]` forwarders.
 - `Funcular.Data.Orm.Linq.RowIndependentEvaluator` (`IsRowIndependent`, `TryTranslateContains`, `TryReadValue`, and
   the SQL it sends: `TrueSql`, `FalseSql`, `UnknownSql`), which the four translators use and a custom provider can
   too. It evaluates by interpretation where the runtime has it (.NET Framework 4.7.1 and later, .NET Core) and

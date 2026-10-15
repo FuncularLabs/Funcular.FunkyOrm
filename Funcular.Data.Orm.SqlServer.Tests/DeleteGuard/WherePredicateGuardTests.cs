@@ -446,6 +446,51 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("orCapturedStringNotEquals")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
+        /// <summary>
+        /// D-128: the all-rows rejection is gated by one operation flag through the shared guard. For a
+        /// <see cref="WhereOperation.Read"/> (Query, Where, Count, Any, All) <see cref="WherePredicateGuard.Validate(LambdaExpression, WhereOperation)"/>
+        /// and <see cref="WherePredicateGuard.ValidateTranslation(string, WhereOperation)"/> accept every predicate and
+        /// clause; for a <see cref="WhereOperation.MassMutation"/> (Delete, an update by predicate) they reject the
+        /// all-rows shapes. The one-argument overloads are the mass-mutation form.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("true", NoColumnMessage)]
+        [DataRow("selfEq", SelfReferenceMessage)]
+        [DataRow("orTrue", AlwaysTrueMessage)]
+        [DataRow("rolesContainsOr", AlwaysTrueMessage)]
+        [DataRow("orCapturedSEqS", AlwaysTrueMessage)]
+        public void Validate_RejectsAnAllRowsPredicate_OnlyForAMassMutation(string key, string expectedMessage)
+        {
+            var predicate = Predicates()[key];
+            WherePredicateGuard.Validate(predicate, WhereOperation.Read);
+            var mutation = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation), key);
+            Assert.AreEqual(expectedMessage, mutation.Message, key);
+            var oneArgument = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.Validate(predicate), key + " (one argument)");
+            Assert.AreEqual(expectedMessage, oneArgument.Message, key + " (one argument)");
+        }
+
+        [DataTestMethod]
+        [DataRow("", EmptyMessage)]
+        [DataRow("1=1", AlwaysTrueMessage)]
+        [DataRow("(t.id = @p__linq__0 OR NOT 1=0)", AlwaysTrueMessage)]
+        [DataRow("t.id = t.id", SelfReferenceMessage)]
+        public void ValidateTranslation_RejectsAnAllRowsClause_OnlyForAMassMutation(string whereClause, string expectedMessage)
+        {
+            WherePredicateGuard.ValidateTranslation(whereClause, WhereOperation.Read);
+            var mutation = Assert.ThrowsException<InvalidOperationException>(() => WherePredicateGuard.ValidateTranslation(whereClause, WhereOperation.MassMutation), whereClause);
+            Assert.AreEqual(expectedMessage, mutation.Message, whereClause);
+        }
+
+        /// <summary>The argument contract holds for a read too: a null predicate is a programming error on every path.</summary>
+        [TestMethod]
+        public void Validate_ForARead_StillRejectsBadArguments()
+        {
+            Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Validate(null, WhereOperation.Read));
+            Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.ValidateTranslation(null, WhereOperation.Read));
+            Expression<Func<GuardRow, int>> intBody = x => x.Id;
+            Assert.ThrowsException<ArgumentException>(() => WherePredicateGuard.Validate(intBody, WhereOperation.Read));
+        }
+
         /// <summary>An evaluated part that makes the predicate always true is the verdict, with its message.</summary>
         [DataTestMethod]
         [DataRow("rolesContainsOr", AlwaysTrueMessage)]
