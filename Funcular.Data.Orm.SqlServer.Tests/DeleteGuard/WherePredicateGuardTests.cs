@@ -12,7 +12,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
     /// docs/plans/DECISIONS-3.10.2.md D-003 as amended by D-128: <see cref="WherePredicateGuard"/>'s classification of
     /// predicates (D2), its argument contract (D1), its SQL check (D3), its <c>Fold</c> (the C# truth of a part that
     /// doesn't read the row, which every path sends as a literal); and the obsolete <see cref="DeletePredicateGuard"/>,
-    /// which forwards to it. D9's rejections are gone: what they guarded is evaluated in C# on every path.
+    /// which forwards to it. Of D9's rejections (3.10.0) only the empty search value stays, as
+    /// <see cref="WherePredicateVerdict.UnboundedSearch"/>; what the rest guarded is evaluated in C# on every path.
     /// </summary>
     [TestClass]
     public class WherePredicateGuardTests
@@ -269,6 +270,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 // Review R-2 (A/N-4): C#'s lifted < is false for every row, null included, so it folds (and !(n < n) holds).
                 ["nSelfLt"] = P(x => x.N < x.N),
                 ["notNSelfLt"] = P(x => !(x.N < x.N)),
+                // Review R-4 (round-3 B/F-2): the other two nullable operators, so a rule that treats >= and <= (or < and >)
+                // differently can't pass.
+                ["nSelfLe"] = P(x => x.N <= x.N),
+                ["nSelfGt"] = P(x => x.N > x.N),
                 // Review R-2 (A/N-3): an empty search on a member of a member is the translator's to reject, on every path.
                 ["childNameContainsEmpty"] = P(x => x.Child.Name.Contains("")),
                 // Review R-4 (round-3 A/N-1): a bool compared with a bool composes its operands' truths, so an empty
@@ -451,6 +456,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idOrNullableGeSelf", WherePredicateVerdict.AlwaysTrue)]
         [DataRow("nSelfLt", WherePredicateVerdict.Acceptable)]
         [DataRow("notNSelfLt", WherePredicateVerdict.SelfReference)]
+        [DataRow("nSelfLe", WherePredicateVerdict.SelfReference)]
+        [DataRow("nSelfGt", WherePredicateVerdict.Acceptable)]
         // Review R-2 (A/N-1): a cast from a captured object is evaluated as a whole.
         [DataRow("orBoxedTrue", WherePredicateVerdict.AlwaysTrue)]
         [DataRow("orNotBoxedTrue", WherePredicateVerdict.Acceptable)]
@@ -557,6 +564,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("idSelfNeTrue")]
         [DataRow("flagEqTrue")]
         [DataRow("nameToStringContainsEmpty")]
+        [DataRow("nSelfGt")]
         public void Validate_AcceptsTheSafeNeighbours(string key) => WherePredicateGuard.Validate(Predicates()[key]);
 
         /// <summary>
@@ -583,6 +591,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("nameContainsEmptyEqTrue", UnboundedSearchMessage)]
         [DataRow("nameContainsEmptyNeFalse", UnboundedSearchMessage)]
         [DataRow("idSelfEqTrue", AlwaysTrueMessage)]
+        [DataRow("nSelfLe", SelfReferenceMessage)]
         public void Validate_RejectsAnAllRowsPredicate_OnlyForAMassMutation(string key, string expectedMessage)
         {
             var predicate = Predicates()[key];
@@ -666,6 +675,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         // Review R-2 (A/N-4): C#'s lifted < is false for every row, so it folds, and its negation holds for every row.
         [DataRow("nSelfLt", false)]
         [DataRow("notNSelfLt", true)]
+        // Review R-4 (round-3 B/F-2): <= stays unfolded like >=; > folds like <.
+        [DataRow("nSelfLe", null)]
+        [DataRow("nSelfGt", false)]
         // Review R-2 (A/N-1): a bool unboxed from a captured object is read.
         [DataRow("orBoxedTrue", true)]
         [DataRow("orNotBoxedTrue", null)]

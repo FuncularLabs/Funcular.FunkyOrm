@@ -22,10 +22,15 @@ namespace Funcular.Data.Orm
         /// <summary>The predicate references no column of the entity.</summary>
         NoColumn,
 
-        /// <summary>The predicate is a comparison of a member with itself that always holds.</summary>
+        /// <summary>
+        /// The predicate is a comparison of a column, or a member of one, with itself by <c>==</c>, <c>&gt;=</c> or
+        /// <c>&lt;=</c>, or the negation of one by <c>!=</c>, <c>&lt;</c> or <c>&gt;</c>, whatever the type: a mass
+        /// mutation of it would touch every row, or every row but the nulls or NaNs (a nullable's <c>&gt;=</c>, a
+        /// <c>double</c>'s <c>==</c>).
+        /// </summary>
         SelfReference,
 
-        /// <summary>The predicate always holds.</summary>
+        /// <summary>The predicate holds for every row, with a self-comparison counted as <see cref="SelfReference"/> counts it.</summary>
         AlwaysTrue,
 
         /// <summary>
@@ -226,10 +231,12 @@ namespace Funcular.Data.Orm
         /// comparisons, the conditional operator, <see cref="string"/>'s <c>Contains</c> and a core type's
         /// <c>ToString()</c> (as <see cref="Classify"/> evaluates them: no code outside the core library runs, except
         /// property getters); or a comparison of a property of the entity with itself where C# answers the same for
-        /// every row (<c>x.Id == x.Id</c> is true, <c>x.Id != x.Id</c> false, a nullable's <c>x.N &lt; x.N</c> false;
-        /// not a nullable's <c>x.N &gt;= x.N</c>, which is false for null and true otherwise, not a <c>float</c>/<c>double</c>
-        /// property, since NaN isn't equal to itself, and not a member of a member such as <c>x.Name.Length</c>, which
-        /// the translator accepts or rejects; those translate as written). An empty search value on a column is a
+        /// every row (<c>x.Id == x.Id</c> is true, <c>x.Id != x.Id</c> false, a nullable's <c>x.N &lt; x.N</c> or
+        /// <c>x.N &gt; x.N</c> false; not a nullable's <c>x.N &gt;= x.N</c> or <c>x.N &lt;= x.N</c>, which is false for null
+        /// and true otherwise, not a <c>float</c>/<c>double</c>-typed comparison, since NaN isn't equal to itself (a
+        /// cast or <c>ToString()</c> of such a property compares as its own type and does fold), and not a member of a
+        /// member such as <c>x.Name.Length</c>, which the translator accepts or rejects; those translate as written); or
+        /// a <c>bool</c> compared with a <c>bool</c> whose two sides are known. An empty search value on a column is a
         /// column read, not a truth (<c>LIKE '%%'</c> excludes a NULL column). Null when the part reads the row
         /// otherwise, calls anything else, or its evaluation throws (a <c>Contains</c> of null). The WHERE visitors
         /// send a known truth as a literal (<c>NOT 1=0</c> / <c>1=0</c>) on every path, so Query and Delete agree.

@@ -27,7 +27,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
     /// evaluated in C# and sent as a literal, so <c>x.Id == 2 || ids.Contains(present.Id)</c> selects every row and
     /// <c>filter == null || x.Name.Contains(filter)</c> with a null filter selects every row, as C# does. The all-rows
     /// guard (<c>WherePredicateGuard</c>, the former delete-only <c>DeletePredicateGuard</c>: no column, a
-    /// self-comparison, always true) applies to Delete only: <see cref="Delete_RejectedByTheGuard_WhileQueryRunsNormally"/>.
+    /// self-comparison, always true, an empty search value on a column that nothing else bounds) applies to Delete
+    /// only: <see cref="Delete_RejectedByTheGuard_WhileQueryRunsNormally"/>.
     /// What no path translates (a <c>ToString()</c> the guard can't evaluate, a nested receiver, a null collection) is
     /// rejected identically on every path (<see cref="Rejected_BeforeAnyCommand"/>).
     /// </para>

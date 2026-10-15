@@ -21,7 +21,8 @@ namespace Funcular.Data.Orm.Tests.Parity
     /// D-003 as amended by D-128 (Paul, 2026-10-14): translation and evaluation are one shared path, so every path
     /// selects (or deletes) the rows LINQ to objects selects, with the parts of a predicate that don't read the row
     /// evaluated in C# (<c>x =&gt; true</c> is <c>NOT 1=0</c>, <c>s == "ZETA"</c> is <c>1=0</c>); the all-rows guard
-    /// (<c>WherePredicateGuard</c>: no column, a self-comparison, always true) applies to Delete only. A key in
+    /// (<c>WherePredicateGuard</c>: no column, a self-comparison, always true, an empty search value on a column that
+    /// nothing else bounds) applies to Delete only. A key in
     /// <see cref="ExpectedDeleteRejection"/> asserts that Query, QueryAsync, Where and Count return C#'s rows while
     /// Delete and DeleteAsync throw that exception and send nothing. The file is compiled into SqlServer.Tests and
     /// linked into PostgreSql.Tests, MySql.Tests and Sqlite.Tests; one derived [TestClass] per provider supplies the
@@ -195,6 +196,9 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "idOrNameLengthSelf": return x => x.Id == 2 || x.Name.Length == x.Name.Length;
                 // Review R-2 (A/N-4): C#'s lifted < is false for every row, so its negation holds for every row, null included.
                 case "notNullableLtSelf": return x => !(x.NullableId < x.NullableId);
+                // Review R-4 (round-3 B/F-2): a nullable's <= is translated as written like >= (the null rows excluded by
+                // SQL as by C#), and the delete is refused.
+                case "nullableLeSelf": return x => x.NullableId <= x.NullableId;
                 // Review R-2 (A/N-1): a bool unboxed from a captured object is evaluated as a whole, on every path.
                 case "boxedTrueOrId": return x => (bool)boxedTrue || x.Id == 1;
                 // Review R-1 (A-3), R-2 (A/N-2): a member of a member compared with itself. The query's translator rejects
@@ -293,6 +297,7 @@ namespace Funcular.Data.Orm.Tests.Parity
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), NoColumnMessage);
                 case "idSelf":
                 case "nullableGeSelf":
+                case "nullableLeSelf":
                 case "notNullableLtSelf":
                     return new KeyValuePair<Type, string>(typeof(InvalidOperationException), SelfReferenceMessage);
                 // An empty search value: LIKE '%%' matches every non-null name (review R-1, A-1; R-4 for the value position).
@@ -387,6 +392,7 @@ namespace Funcular.Data.Orm.Tests.Parity
         [DataRow("idOrCapturedStringEquals")]
         [DataRow("nameContainsEmpty")]
         [DataRow("nullableGeSelf")]
+        [DataRow("nullableLeSelf")]
         [DataRow("idOrNullableGeSelf")]
         [DataRow("idOrNameLengthSelf")]
         [DataRow("notNullableLtSelf")]
