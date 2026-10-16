@@ -80,8 +80,8 @@ All subsequent CRUD, Query, and Remote Attribute examples work identically with 
 | String concat | `+` | `\|\|` | `\|\|` |
 | Boolean type | `BIT` | `BOOLEAN` | `INTEGER (0/1)` |
 | Date storage | `DATETIME2` | `TIMESTAMP` | `TEXT (ISO 8601)` |
-| Date parts | `YEAR()`, `MONTH()` | `EXTRACT(YEAR FROM ...)` |
-| Boolean type | `BIT` (0/1) | Native `BOOLEAN` |
+| Date parts (`p.D.Year`, also `p.D.Value.Year`) | `YEAR(t.c)`, `MONTH(t.c)`, `DAY(t.c)` | `EXTRACT(YEAR FROM t.c)` | `CAST(strftime('%Y', t.c) AS INTEGER)` |
+| String length (`p.Name.Length`) | `LEN(t.c + N'x') - 1` | `LENGTH(t.c)` | `LENGTH(t.c)` |
 
 ### PostgreSQL-Specific Caveats
 
@@ -147,6 +147,7 @@ When generating code for the user:
 
 *   **Requirement**: ALL deletes (by ID or Predicate) **MUST** be performed within an active transaction.
 *   **Requirement**: Deletes by Predicate **MUST** have a non-trivial WHERE clause (no `x => true`).
+*   **v3.11.0**: a delete refuses an all-rows predicate — one that reads no column, compares a column (or a member of one) with itself, always holds (`x => filter == null || x.Name.Contains(filter)` with a null `filter`; `x => x.OwnerId == me || roles.Contains("admin")` for an admin), or searches a column for an empty value that nothing else bounds (`x => x.Name.Contains(search)` with `search == ""`, an empty search box: `LIKE '%%'` matches every non-null row) — with `InvalidOperationException` before the DELETE is built ("The WHERE clause must reference at least one column of the entity." / "… cannot be a self-referencing column expression." / "… is trivially true; a non-trivial WHERE clause is required." / "The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required."). Decide the delete in C#, and test for empty as well as null: `if (!string.IsNullOrEmpty(filter)) provider.Delete<T>(x => x.Name.Contains(filter));` (`x => x.Id == id && x.Name.Contains(filter)` is accepted with an empty `filter`, because the other condition bounds it). A predicate no path translates (`x => x.Child.Id == 1`) throws the translator's `NotSupportedException` on a delete as on a query, even where the guard would also refuse it; on a type's first use its columns are discovered before the predicate is translated, so a delete on a missing table reports that error, as a query does. A query (`Query`, `Where`, `Count`/`Any`/`All`) runs the same predicate normally: the parts that don't read the row (`filter == null`, `roles.Contains("admin")`, `role == "admin"`, `x => true`) are evaluated in C# and sent as `NOT 1=0`/`1=0`, so it returns every row, as LINQ to objects would.
 *   **Anti-Pattern**: Do NOT use raw ADO.NET connections to bypass these checks.
 
 **Delete by ID:**
@@ -235,7 +236,7 @@ await Task.WhenAll(
         .ToList();
     ```
 
-*   **IN Clauses**: Use `list.Contains(item.Prop)`.
+*   **IN Clauses**: Use `list.Contains(item.Prop)`. The item must be a property of the entity; an item that doesn't come from the row (`ids.Contains(request.Id)`) is answered in C# before the query (`1=0` / `NOT 1=0`), and an item that reads the row any other way (`ids.Contains(p.Address.Id)`) throws `NotSupportedException`.
     ```csharp
     var ids = new[] { 1, 2, 3 };
     var results = provider.Query<Person>().Where(p => ids.Contains(p.Id)).ToList();
@@ -243,7 +244,9 @@ await Task.WhenAll(
 
 *   **Nullable Properties in Queries**: The ORM automatically unwraps nullables. Do NOT use `.Value` or `.HasValue` -- use the property directly. When using `list.Contains()` with a nullable entity property, cast the list to the nullable type (see Critical Rule #5 above).
 
-*   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on strings.
+*   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on a string property. The value is matched literally (`%`, `_` and `[` are escaped with `!`, and the pattern ends with `ESCAPE '!'`); a `null` value matches no row. Call them on a property of the entity; `StartsWith`/`EndsWith` on anything else throw, and a `Contains` on a value that doesn't come from the row is answered in C#.
+
+*   **Date parts and length**: `p.D.Year`/`.Month`/`.Day` on a `DateTime` property and `p.Name.Length` on a string property translate to the dialect's functions; any other member of a member (`.Hour`, `.Date`, a nested object's member) throws `NotSupportedException` — compute it before the query. `p.Code.ToString()` on an integer property compares the column's invariant text; on other types, or with an argument, it throws.
 
 *   **Complexity Warning**: Do not put complex in-memory logic (e.g., `x.Name.GetHashCode()`) inside `.Where()`.
 

@@ -263,21 +263,23 @@ namespace Funcular.Data.Orm.SqlServer
         /// predicate.
         /// </summary>
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
-        /// cref="InvalidOperationException"/> is thrown. <see cref="DeletePredicateGuard"/> checks the predicate before
-        /// it is translated, and its WHERE clause after: a predicate that reads no column, compares a column with itself,
-        /// or is always true through literals or captured values is rejected. The checks don't catch every predicate
-        /// that is true for every row.</remarks>
+        /// cref="InvalidOperationException"/> is thrown. The predicate is translated by the WHERE path every query
+        /// takes, and checked by the all-rows guard (<see cref="WherePredicateGuard"/>) before it is translated and on
+        /// its WHERE clause after: a predicate that reads no column, compares a column with itself, is always true
+        /// through literals or captured values, or searches a column for an empty value that nothing else bounds is
+        /// refused here, where a query would run it and return every row. The checks don't catch every predicate that
+        /// is true for every row.</remarks>
         /// <typeparam name="T">The type of the entity to delete. Must be a class with a parameterless constructor.</typeparam>
         /// <param name="predicate">An expression that defines the condition for the records to delete. This serves as the WHERE clause in the
         /// delete operation. It must not be null, and must not plainly match every row: <c>x =&gt; true</c>,
         /// <c>x =&gt; x.Id == x.Id</c> and <c>x =&gt; x.Id == id || true</c> are rejected to prevent accidental data loss.</param>
         /// <returns>The number of rows affected by the delete operation.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the
-        /// guard rejects the predicate or its WHERE clause; also, for a predicate the guard doesn't reject before
-        /// translating it, if <typeparamref name="T"/>'s table doesn't exist when its columns are first discovered (the
-        /// <see cref="SqlException"/> is then the <see cref="Exception.InnerException"/>).</exception>
-        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
-        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
+        /// guard rejects the predicate or its WHERE clause; also, whatever the predicate, if <typeparamref name="T"/>'s
+        /// table doesn't exist when its columns are first discovered (the <see cref="SqlException"/> is then the
+        /// <see cref="Exception.InnerException"/>): on a type's first use its columns are discovered before the
+        /// predicate is translated or refused, as for a query.</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates.</exception>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -286,9 +288,8 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
-            DeletePredicateGuard.Validate(predicate);
-            var components = GenerateWhereClause(predicate);
-            ValidateDeleteWhereClause<T>(components.WhereClause);
+            // The shared WHERE path, flagged as a mass mutation: the all-rows guard applies (D-003 as amended by D-128).
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -819,11 +820,16 @@ namespace Funcular.Data.Orm.SqlServer
         /// <typeparam name="T">Entity type.</typeparam>
         /// <param name="predicate">Expression specifying which entities to delete (WHERE clause).
         /// It must not plainly match every row: <c>x =&gt; true</c>, <c>x =&gt; x.Id == x.Id</c> and
-        /// <c>x =&gt; x.Id == id || true</c> are rejected by <see cref="DeletePredicateGuard"/> to prevent accidental data
-        /// loss. The checks don't catch every predicate that is true for every row.</param>
+        /// <c>x =&gt; x.Id == id || true</c> are refused by <see cref="WherePredicateGuard"/> (a query runs them and
+        /// returns every row) to prevent accidental data loss. The checks don't catch every predicate that is true for
+        /// every row.</param>
         /// <returns>The number of rows deleted.</returns>
-        /// <exception cref="NotSupportedException">The predicate holds a shape a delete can't send safely (see
-        /// <see cref="DeletePredicateGuard.Validate"/>).</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the method is called without an active transaction, if the predicate is null, or if the
+        /// guard rejects the predicate or its WHERE clause; also, whatever the predicate, if <typeparamref name="T"/>'s
+        /// table doesn't exist when its columns are first discovered (the <see cref="SqlException"/> is then the
+        /// <see cref="Exception.InnerException"/>): on a type's first use its columns are discovered before the
+        /// predicate is translated or refused, as for a query.</exception>
+        /// <exception cref="NotSupportedException">The predicate holds a shape no path translates.</exception>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null)
@@ -832,9 +838,8 @@ namespace Funcular.Data.Orm.SqlServer
             if (predicate == null)
                 throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
 
-            DeletePredicateGuard.Validate(predicate);
-            var components = GenerateWhereClause(predicate);
-            ValidateDeleteWhereClause<T>(components.WhereClause);
+            // The shared WHERE path, flagged as a mass mutation: the all-rows guard applies (D-003 as amended by D-128).
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation);
 
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
@@ -1433,34 +1438,89 @@ namespace Funcular.Data.Orm.SqlServer
         /// <param name="commandElements">Optional existing command components to augment.</param>
         /// <param name="parameterGenerator">Optional <see cref="ParameterGenerator"/> used for parameter naming; a new one is created if not supplied.</param>
         /// <param name="translator">Optional <see cref="SqlExpressionTranslator"/> to assist with translating method calls and members.</param>
+        /// <param name="operation">What the predicate is used for (D-003 as amended by D-128): for a
+        /// <see cref="WhereOperation.MassMutation"/> the all-rows guard refuses a predicate that reads no column, compares a
+        /// column with itself, always holds or searches a column for an empty value that nothing else bounds, before
+        /// the mutation is built and on the translated clause (a shape no path translates is the translator's
+        /// rejection first, D-005); for a <see cref="WhereOperation.Read"/> (the default) it accepts everything. One
+        /// translation path, one flag.</param>
+        /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
+        protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
+            Expression<Func<T, bool>> expression,
+            SqlQueryComponents<T> commandElements,
+            ParameterGenerator parameterGenerator,
+            SqlExpressionTranslator translator) where T : class, new() =>
+            GenerateWhereClause(expression, commandElements, parameterGenerator, translator, WhereOperation.Read);
+
+        /// <summary>
+        /// Translates <paramref name="expression"/> with a fresh visitor over the discovered columns of <typeparamref name="T"/>
+        /// and its remote joins (<paramref name="remoteInfo"/>). The one place a WHERE predicate is translated, for every
+        /// operation (D-001); a translator's rejection throws from here.
+        /// </summary>
+        private WhereClauseVisitor<T> TranslateWhere<T>(
+            Expression<Func<T, bool>> expression,
+            ParameterGenerator parameterGenerator,
+            SqlExpressionTranslator translator,
+            out ResolvedRemoteJoinInfo remoteInfo) where T : class, new()
+        {
+            var tableName = GetTableName<T>();
+            remoteInfo = ResolveRemoteJoins<T>(tableName);
+            var visitor = new WhereClauseVisitor<T>(
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
+                parameterGenerator,
+                translator,
+                tableName,
+                remoteInfo.PropertyToColumnMap);
+            visitor.Visit(expression);
+            return visitor;
+        }
+
+        /// <summary>
+        /// Translates a LINQ expression tree into SQL WHERE clause text and parameters using helper visitor and
+        /// translator classes, for <paramref name="operation"/>. The four-argument overload above keeps the 3.10 binary
+        /// signature for a subclass compiled against it (review R-1, B-14).
+        /// </summary>
+        /// <typeparam name="T">The entity type referred to by the expression.</typeparam>
+        /// <param name="expression">The expression to translate into SQL.</param>
+        /// <param name="commandElements">Optional existing command components to augment.</param>
+        /// <param name="parameterGenerator">Optional <see cref="ParameterGenerator"/> used for parameter naming; a new one is created if not supplied.</param>
+        /// <param name="translator">Optional <see cref="SqlExpressionTranslator"/> to assist with translating method calls and members.</param>
+        /// <param name="operation">What the predicate is used for (D-003 as amended by D-128).</param>
         /// <returns>A <see cref="SqlQueryComponents{T}"/> containing WHERE clause, parameters, and other metadata.</returns>
         protected internal SqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
             SqlQueryComponents<T> commandElements = null,
             ParameterGenerator parameterGenerator = null,
-            SqlExpressionTranslator translator = null) where T : class, new()
+            SqlExpressionTranslator translator = null,
+            WhereOperation operation = WhereOperation.Read) where T : class, new()
         {
+            // Use the provided ParameterGenerator and translator, or create new ones if not specified
+            var paramGen = parameterGenerator ?? new ParameterGenerator();
+            var trans = translator ?? new SqlExpressionTranslator(paramGen);
+
+            // The all-rows guard runs first, so a refused mass mutation never sends the mutation. A refusal is held
+            // (D-005: the translator has the first word): the type is discovered and the predicate translated exactly
+            // as for a read, so a discovery failure (a missing table) or a shape no path translates throws here as on
+            // every read path, and the guard's refusal stands only for a predicate that translates (D-156, option 1).
+            InvalidOperationException refusal = null;
+            try
+            {
+                WherePredicateGuard.Validate(expression, operation);
+            }
+            catch (InvalidOperationException ex)
+            {
+                refusal = ex;
+            }
+
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
             DiscoverColumns<T>();
 
-            // Use the provided ParameterGenerator and translator, or create new ones if not specified
-            var paramGen = parameterGenerator ?? new ParameterGenerator();
-            var trans = translator ?? new SqlExpressionTranslator(paramGen);
-
-            // Resolve remote joins to get the property map
-            var tableName = GetTableName<T>();
-            var remoteInfo = ResolveRemoteJoins<T>(tableName);
-
-            var visitor = new WhereClauseVisitor<T>(
-                ColumnNameCache,
-                UnmappedPropertiesFor<T>(),
-                paramGen,
-                trans,
-                tableName,
-                remoteInfo.PropertyToColumnMap); // Pass the map
-            visitor.Visit(expression);
+            var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
+            if (refusal != null) throw refusal;
+            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
             if (commandElements != null)
             {
                 commandElements.WhereClause = visitor.WhereClauseBody;
@@ -1510,41 +1570,6 @@ namespace Funcular.Data.Orm.SqlServer
             }
 
             return commandElements;
-        }
-
-        /// <summary>
-        /// Checks the translated WHERE clause of a delete by predicate, which <see cref="DeletePredicateGuard.Validate"/>
-        /// has accepted: it must be non-empty, must not hold by its literals
-        /// (<see cref="DeletePredicateGuard.HasLiteralTautology(string)"/>), must not be a whole-clause
-        /// self-comparison, and must name at least one column of <typeparamref name="T"/>.
-        /// </summary>
-        /// <typeparam name="T">The entity whose table the delete targets.</typeparam>
-        /// <param name="whereClause">The translated WHERE clause, without the <c>WHERE</c> keyword.</param>
-        /// <exception cref="InvalidOperationException">The clause fails one of the checks.</exception>
-        private void ValidateDeleteWhereClause<T>(string whereClause)
-        {
-            if (string.IsNullOrWhiteSpace(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-
-            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-
-            // Self-referencing column (e.g., x => x.Id == x.Id)
-            var regex = new System.Text.RegularExpressions.Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(whereClause.Trim()))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-
-            // Must reference at least one column from the target table
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-
-            bool columnReferenced = tableColumns.Any(col =>
-                whereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
         }
 
         #endregion

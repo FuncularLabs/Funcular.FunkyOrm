@@ -27,6 +27,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 
         protected override OrmDataProvider CreateP2() => new SqlServerOrmDataProvider(P2ConnectionString);
 
+        // SUM(int) is int on SQL Server and overflows where LINQ's long sum doesn't, so the sum is widened (FD-04).
+        protected override string AverageFragment(string qualifiedColumn) => $"SUM(CAST({qualifiedColumn} AS BIGINT)), COUNT({qualifiedColumn})";
+
         protected override OrmDataProvider CreateP1()
         {
             var builder = new SqlConnectionStringBuilder(P2ConnectionString) { ApplicationName = "zz_psc_p1" };
@@ -61,7 +64,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Caching
 
         protected override string DiscoveredFirstName => "FirstName";
         protected override string DiscoveredId => "Id";
-        protected override string AverageFragment(string qualifiedColumn) => $"ROUND(AVG({qualifiedColumn}), 10)";
 
         protected override void CreateLinqTable()
         {

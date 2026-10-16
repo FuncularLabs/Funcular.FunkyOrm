@@ -64,12 +64,35 @@ namespace Funcular.Data.Orm.Visitors
         {
             if (expression is LambdaExpression lambda)
             {
-                Visit(lambda.Body);
+                VisitPredicate(lambda.Body);
             }
             else
             {
                 VisitExpression(expression);
             }
+        }
+
+        // One memo per translation: the folds of the body and of each truth position inside it are one pass (review R-1, A-4).
+        private readonly Dictionary<Expression, bool?> _truths = new Dictionary<Expression, bool?>();
+
+        /// <summary>The truths folded so far, keyed by the expression node (for the tests that pin the memo; review R-2, B/N-4).</summary>
+        internal IReadOnlyDictionary<Expression, bool?> Truths => _truths;
+
+        /// <summary>
+        /// Visits a part of the predicate in a truth position (the body, an operand of <c>&amp;&amp;</c>, <c>||</c> or
+        /// <c>!</c>). A part whose truth is known without a row (<see cref="WherePredicateGuard.Fold"/>: a constant, a
+        /// comparison of captured values, a captured string's <c>Contains</c>, a core type's <c>ToString()</c>, a
+        /// self-comparison) is sent as a literal, so every path answers it as C# does (D-003 as amended by D-128).
+        /// </summary>
+        private void VisitPredicate(Expression node)
+        {
+            var truth = WherePredicateGuard.Fold(node, typeof(T), _truths);
+            if (truth == true)
+                _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.TrueSql);
+            else if (truth == false)
+                _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.FalseSql);
+            else
+                VisitExpression(node);
         }
 
         /// <summary>
@@ -113,7 +136,7 @@ namespace Funcular.Data.Orm.Visitors
             if (node.NodeType == ExpressionType.Not)
             {
                 _commandTextBuilder.Append("NOT ");
-                Visit(node.Operand);
+                VisitPredicate(node.Operand);
             }
             else if (node.NodeType == ExpressionType.Convert)
             {
@@ -144,6 +167,13 @@ namespace Funcular.Data.Orm.Visitors
                 Expression nonNullSide = node.Left is ConstantExpression ? node.Right : node.Left;
                 Visit(nonNullSide);
                 _commandTextBuilder.Append(isEquality ? " IS NULL" : " IS NOT NULL");
+            }
+            else if (needsParentheses)
+            {
+                // The operands of && and || are truth positions: a part that doesn't read the row is sent as a literal.
+                VisitPredicate(node.Left);
+                _commandTextBuilder.Append(GetOperator(node.NodeType));
+                VisitPredicate(node.Right);
             }
             else
             {
@@ -213,15 +243,11 @@ namespace Funcular.Data.Orm.Visitors
                     _commandTextBuilder.Append(columnName);
                     return;
                 }
-            }
 
-            // Nullable<T>.Value date handling (e.g., p.Birthdate.Value.Year)
-            if (node.Expression is MemberExpression memberExpression &&
-                memberExpression.Expression is ParameterExpression &&
-                memberExpression.Member.Name == "Value")
-            {
-                _translator.TranslateDateMember(node, _commandTextBuilder, _parameters, GetColumnName);
-                return;
+                // A member of the entity with no column: [NotMapped], or a field (3.11.0, FD-01; before, the visitor
+                // recursed into the parameter and failed with "Expression type Parameter is not supported").
+                throw new NotSupportedException(
+                    $"Member '{node.Member.Name}' of the entity isn't mapped to a column, so it can't be used in a WHERE clause: {node}");
             }
 
             // Captured value in closure: constantExpression.Value is the closure instance.
@@ -256,15 +282,6 @@ namespace Funcular.Data.Orm.Visitors
                 return;
             }
 
-            // Date member helpers (Year/Month/Day) for Nullable.Value chains
-            if ((node.Member.Name == "Year" || node.Member.Name == "Month" || node.Member.Name == "Day") &&
-                node.Expression is MemberExpression valueMember && valueMember.Member.Name == "Value" &&
-                valueMember.Expression is MemberExpression dateMember && dateMember.Expression is ParameterExpression)
-            {
-                _translator.TranslateDateMember(node, _commandTextBuilder, _parameters, GetColumnName);
-                return;
-            }
-
             // Handle nested member access on constants (e.g. closure.Inner.Field) or static members
             if (IsConstantMemberAccess(node))
             {
@@ -285,11 +302,25 @@ namespace Funcular.Data.Orm.Visitors
                 return;
             }
 
-            // otherwise recurse into inner expression
+            // A member of a member (x.D.Year, x.D.Value.Year, x.Name.Length, x.Child.Id, …): the translator has the
+            // dialect's function for it, or rejects it by name (3.11.0, FD-01). Before, the visitor recursed into the
+            // receiver and silently dropped the outer member (x.Name.Length > 3 became name > 3), on every operation.
             if (node.Expression != null)
             {
-                Visit(node.Expression);
+                _translator.TranslateMemberOfMember(node, _commandTextBuilder, ColumnFor);
+                return;
             }
+
+            throw new NotSupportedException($"Member {node.Member.Name} is not supported. Expression: {node}");
+        }
+
+        /// <summary>The column for a property of the row: its remote alias, or its name qualified with the table's.</summary>
+        private string ColumnFor(PropertyInfo prop)
+        {
+            if (_remotePropertyMap != null && _remotePropertyMap.TryGetValue(prop.Name, out string remoteColumn))
+                return remoteColumn;
+            var col = GetColumnName(prop);
+            return !string.IsNullOrEmpty(_tableName) ? $"{_tableName}.{col}" : col;
         }
 
         private bool IsConstantMemberAccess(MemberExpression node)
@@ -348,13 +379,7 @@ namespace Funcular.Data.Orm.Visitors
         /// </summary>
         private void VisitMethodCall(MethodCallExpression node)
         {
-            _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, prop =>
-            {
-                if (_remotePropertyMap != null && _remotePropertyMap.TryGetValue(prop.Name, out string remoteColumn))
-                    return remoteColumn;
-                var col = GetColumnName(prop);
-                return !string.IsNullOrEmpty(_tableName) ? $"{_tableName}.{col}" : col;
-            });
+            _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, ColumnFor);
         }
 
         /// <summary>

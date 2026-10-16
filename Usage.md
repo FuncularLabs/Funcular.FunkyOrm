@@ -131,6 +131,8 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
         .ToList();
     ```
 
+    The same goes for `ToString()`: `p.HospitalId.Value.ToString()` throws `NullableExpressionException`. On an integer property like this one, write `p.HospitalId.ToString()`, whose text is `""` when the value is null; on other types `ToString()` isn't translated (see [The `LIKE` Clause](#the-like-clause)).
+
     When using `List<int>.Contains()` with a nullable entity property, cast the list to match the nullable type rather than unwrapping the property:
 
     ```csharp
@@ -436,6 +438,17 @@ it with `COUNT_BIG(*)`.
 long total = provider.Query<Person>().LongCount(p => p.Gender == "Female");
 ```
 
+**`Sum`, `Average`, `Min` and `Max` give LINQ to objects' answers** (v3.11.0). `Average` is read as `SUM` and
+`COUNT` and divided in C# in the selector type's arithmetic, so `{1, 1, 2}` averages 1.333…, not 1, and a
+`decimal`, `float` or `double` property returns that type. Over no rows, `Sum` is 0 (a nullable selector too), a
+nullable or reference `Min`/`Max`/`Average` is `null`, and a non-nullable one throws `InvalidOperationException`.
+`Min`/`Max` over an enum (`Max(p => (int)p.Status)` works), a `TimeSpan` (store an integer), a `Guid` (opt in with
+`provider.QueryOptions.GuidOrdering = GuidOrdering.Database` to take the database's ordering; on PostgreSQL, which
+has no `MIN`/`MAX` over `uuid`, order and read the first row's value instead:
+`OrderByDescending(p => p.Uid).Take(1).Select(p => p.Uid).ToList()`)
+or, on MySQL and SQLite, a `DateTimeOffset` (store a UTC `DateTime`) throw `NotSupportedException` before any
+command is sent. String `Min`/`Max` follow the database's collation.
+
 **Filtering aggregates by computed & remote attributes:** aggregates honor the same view-replacing
 attributes as any other query. You can `Count`/`Any`/`All`/`Sum`/`Min`/`Max`/`Average` filtered by a
 `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, or `[RemoteProperty]`/`[RemoteKey]` — the generated
@@ -496,6 +509,25 @@ var coastalPeople = provider.Query<Address>()
     .ToList();
 ```
 
+The item you test must be a property of the entity (`p.Id`, `a.StateCode`). When it doesn't come from the row at
+all — `allowedRoles.Contains(currentUser.Role)`, `ids.Contains(request.Id)`, a local or a constant — FunkyORM
+answers it before sending the query, exactly as C# would (with the collection's own `Contains` and comparer), and
+the condition becomes `1=0` (false) or `NOT 1=0` (true):
+
+```csharp
+// Admins see every project; everyone else sees only their own.
+// SQL, roughly: WHERE (owner_id = @p0 OR NOT 1=0) for an admin, WHERE (owner_id = @p0 OR 1=0) otherwise.
+var projects = provider.Query<Project>()
+    .Where(p => p.OwnerId == currentUser.Id || adminRoles.Contains(currentUser.Role))
+    .ToList();
+```
+
+An item that reads the row any other way — `ids.Contains(p.Address.Id)`, `lengths.Contains(p.Name.Length)`, or
+`longIds.Contains(p.Id)` with a `List<long>` against an `int` property — throws `NotSupportedException` before any
+query is sent. The same translation serves `Delete`, but a delete refuses a predicate that such an answer makes
+always true (`p.OwnerId == id || adminRoles.Contains("admin")` for an admin), or that reads no column at all (see
+[Delete by predicate](#4-a-where-clause-predicate-is-required-for-deletes)); the query runs it and returns every row.
+
 #### Chained Queries with Ordering and Paging
 You can chain multiple `Where` clauses, apply ordering, and paginate results for efficient data retrieval.
 
@@ -515,19 +547,92 @@ var results = provider.Query<Person>()
 ```
 
 #### The `LIKE` Clause
-Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property.
+Want to search for partial text matches? Use `.Contains()`, `.StartsWith()`, or `.EndsWith()` on a string property. The value is matched literally: `%`, `_` and `[` in it are ordinary characters, not wildcards. The SQL escapes them with `!` and names it with `ESCAPE '!'`.
 
 ```csharp
-// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%'
+// Query: SELECT * FROM Person WHERE LastName LIKE '%Smith%' ESCAPE '!'
 var smiths = provider.Query<Person>()
     .Where(p => p.LastName.Contains("Smith"))
     .ToList();
 
-// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%'
+// Query: SELECT * FROM Person WHERE LastName LIKE 'Mc%' ESCAPE '!'
 var scots = provider.Query<Person>()
     .Where(p => p.LastName.StartsWith("Mc"))
     .ToList();
+
+// Query: SELECT * FROM Person WHERE LastName LIKE '%!_%' ESCAPE '!'
+// Only the last names that contain an underscore.
+var underscored = provider.Query<Person>()
+    .Where(p => p.LastName.Contains("_"))
+    .ToList();
 ```
+
+The search value can be a literal, a local, a property of an object you hold (including `this`) or a static
+member; FunkyORM reads it before the query. A `null` value matches no row, negated or not (except inside `All`: see
+the Changelog's Known issues), and a comparison that doesn't read the row (`filter == null`) is evaluated in C# and
+sent as a literal, so an optional filter works:
+
+```csharp
+// When filter is null, every row is returned (SQL: WHERE NOT 1=0); otherwise the rows whose LastName contains it.
+var people = provider.Query<Person>()
+    .Where(p => filter == null || p.LastName.Contains(filter))
+    .ToList();
+```
+
+Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
+from the row (`role.Contains("admin")`) is answered before the query, as C# would, except that a null `role` (or a
+null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
+property throw `NotSupportedException` — test the value in C# before the query instead.
+
+`Delete`, `Count`, `Any` and `All` translate these the same way (v3.11.0): a search value that is null, a wildcard
+character or a property of an object you hold, and a string `Contains` on a value that doesn't come from the row,
+delete exactly the rows the query selects. A delete alone refuses a predicate that reads no column, always holds —
+the optional filter above with a null `filter` included — or searches a column for an empty value that nothing else
+bounds (`p.LastName.Contains("")` is `LIKE '%%'`, every row with a name): decide the delete in C#,
+`if (!string.IsNullOrEmpty(filter)) provider.Delete<Person>(p => p.LastName.Contains(filter));`.
+
+`ToString()` on an integer property (`sbyte` through `ulong`, nullable or not) compares the column's text:
+`p => p.Id.ToString() == "42"`, and a null value's text is `""`, as in C#. The text is the invariant form (`-5`),
+while .NET formats a number in the current culture (`−5`, with U+2212, under fi-FI), so build the text you compare
+it with using `CultureInfo.InvariantCulture` before the query. The comparison is on the cast text, so it can't use
+an index on the column; where that matters, parse the text in C# and compare the integer. On a string property,
+`ToString()` is the property itself. On a property of any other type (a `char` included), or with an argument
+(`ToString("D2")`, `ToString(CultureInfo.InvariantCulture)`, on a string property too), it throws
+`NotSupportedException`: compare the property's value instead, computed before the query (for a `Guid` key,
+`var id = Guid.Parse(idText);` and then `p => p.Id == id`; on SQLite, see the Changelog's Known issues).
+
+In a predicate, `ToString()` on anything but a property of the entity is translated in one case only: compared with
+a constant or another captured value, where the whole comparison doesn't read the row, a core type's `ToString()`
+with no argument or a format string (`id.ToString("D2") == "05"`) is evaluated in C# and sent as a literal, like
+any other row-independent part. Compared with a column (`a.PostalCode == zip.ToString("D5")`), in a projection, or
+on a value the evaluation can't run (your own type's `ToString()`, an `IFormatProvider`, an arithmetic or method
+result), it throws `NotSupportedException`: compute the string before the query and compare with that.
+
+```csharp
+// Not a.PostalCode == zip.ToString("D5"): that throws.
+var postalCode = zip.ToString("D5");
+var addresses = provider.Query<Address>()
+    .Where(a => a.PostalCode == postalCode)
+    .ToList();
+```
+
+#### Date Parts and String Length
+`Year`, `Month` and `Day` of a `DateTime` property (nullable or not) and `Length` of a string property translate to
+the database's own functions, on every provider:
+
+```csharp
+// SQL Server: WHERE YEAR(person.birthdate) = @p0 AND (LEN(person.last_name + N'x') - 1) > @p1
+// PostgreSQL: WHERE EXTRACT(YEAR FROM person.birthdate) = @p0 AND LENGTH(person.last_name) > @p1
+var people = provider.Query<Person>()
+    .Where(p => p.Birthdate.Year == 1990 && p.LastName.Length > 3)
+    .ToList();
+```
+
+Any other member of a member — `p.Birthdate.Hour`, `p.Birthdate.Date`, `p.Birthdate.DayOfWeek`, a part of a
+`DateTimeOffset`, a member of a nested object — throws `NotSupportedException` naming the member before the SELECT or
+DELETE is built (on a type's first use its columns are discovered first), in `Where`, `Count` and `Delete` alike. Compute the value before the query, or compare the property itself
+(`p.Birthdate >= from && p.Birthdate < to` instead of `p.Birthdate.Date == day`). The database counts a string's
+length in its own units (characters, not UTF-16 code units), so an emoji counts once where C# counts twice.
 
 ### Advanced: Ternary Operators
 We support C# ternary operators in query **predicates** — they translate to SQL `CASE` statements:
@@ -1337,21 +1442,24 @@ We try to give you helpful error messages. Here are some you might see and what 
 ### 2. "The expression ... is not supported in a Where clause"
 You tried to do something too fancy in your LINQ query that we can't translate to SQL.
 *   **Example**: `Where(p => p.FirstName.GetHashCode() == 123)`
-*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`). If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+*   **The Fix**: Keep your predicates simple. Use standard operators (`==`, `!=`, `>`, etc.) and supported string methods (`StartsWith`, `Contains`, `EndsWith`) on entity properties. If you need complex C# logic, materialize the data first with `.ToList()` and *then* filter (but be careful with performance!).
+*   **"Could not evaluate expression: ..."**: a value FunkyORM reads before the query threw — usually a member of a null captured object (`ids.Contains(request.Id)` with `request == null`), or a lazy collection that throws while it is read. The original exception is the inner one. A null check on the object inside the predicate (`request == null || ids.Contains(request.Id)`) does prevent it: `request == null` is evaluated in C# first, and a disjunction with a true side is sent as `NOT 1=0` without the other side being read, so the query returns every row, as C# would (and a delete of it is refused, because it reads no column). Check the object before building the query when you want the rows filtered. (A null *value* is different: `filter == null || p.Name.Contains(filter)` works, because a null search value matches no row.)
 
 ### 3. "Delete operations must be performed within an active transaction"
 You tried to call `.Delete()` without starting a transaction.
 *   **The Fix**: Wrap it in `provider.BeginTransaction()` and `provider.CommitTransaction()`.
 
 ### 4. "A WHERE clause (predicate) is required for deletes"
-You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also stop a predicate that plainly matches every row, before the DELETE is sent, with one of these messages:
-*   **"Delete operation WHERE clause must reference at least one column from the target table."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`). The provider's own check can also give it once the WHERE clause is built, when that clause names no column of the table, for example a predicate on a remote property only.
-*   **"Delete operation WHERE clause cannot be a self-referencing column expression."**: it compares a column with itself (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`).
-*   **"Delete operation requires a non-trivial WHERE clause."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null), or with a `Contains` on a captured string that holds (`x => roles.Contains("admin") || x.OwnerId == me`); or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
-*   **`NotSupportedException`**, for a predicate the checks above accept, when it holds a shape the providers can send so that it matches other rows than C# selects, often every row: a string `Contains`, `StartsWith` or `EndsWith`, or a `ToString()`, on a value that doesn't read the row (`x => x.Id == 2 || s.Contains("z")`, `x => x.Name == n.ToString()`), or a comparison of two strings neither of which reads the row and neither of which is a `null` literal (`x => x.Id == 2 || role == "admin"`, which the database compares under its collation), so compute it before the query; or a string `Contains`, `StartsWith` or `EndsWith` on a column whose search value is null or empty, contains `%`, `_`, `[` or a backslash, or is a property of your own class (`x => x.Name.Contains(Filter)`), so check the value, or copy it to a local, first. Comparisons that read a column are never rejected for case or collation; the database's collation decides them, as before.
+You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also refuse a predicate that plainly matches every row (v3.11.0: `WherePredicateGuard`, the 3.10.0 delete guard renamed; a query runs the same predicate normally and returns every row), before the DELETE is sent, with one of these messages:
+*   **"The WHERE clause must reference at least one column of the entity."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`, `x => ids.Contains(request.Id)`).
+*   **"The WHERE clause cannot be a self-referencing column expression."**: it compares a column, or a member of one, with itself by `==`, `>=` or `<=`, or negates a `!=`, `<` or `>` of one, whatever the type (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`, `x => x.LastName.Length == x.LastName.Length`, `x => x.N >= x.N` on a nullable, which a query translates as written and which would delete every row but the nulls). `x => x.Id != x.Id` or `x => x.N < x.N` is false for every row, deletes nothing, and is accepted.
+*   **"The WHERE clause is trivially true; a non-trivial WHERE clause is required."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null — the optional-filter idiom), or with a `Contains` on a captured string or collection that holds (`x => roles.Contains("admin") || x.OwnerId == me` for an admin); or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
+*   **"The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required."**: `x => x.LastName.Contains(search)` with `search` `""` (an empty search box) sends `LIKE '%%'`, which matches every row with a non-null value; a query runs it, a delete is refused unless another condition bounds it (`x => x.Id == id && x.LastName.Contains(search)` is accepted).
 
-The first two messages usually come before any SQL runs, and so does the third. Some come only once the WHERE clause is built: the third for the negated-`Contains` shape and for a literal `1=1` in the SQL (such as `x => x.Id == id || new Settings().Flag`), and the first from the provider's own check. For those, on a type's first use its columns are discovered first, and if its table doesn't exist you get that error instead.
-*   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (filter != null) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss.
+The 3.10.0 messages began with "Delete operation"; match the new text. A delete by a remote property alone (`[RemoteProperty]`, a joined table's column) isn't supported: the DELETE statement has no JOIN, so the database reports an unknown column; 3.10.0 refused it with the "must reference at least one column" message. The 3.10.0 `NotSupportedException` rejections of a delete (a search value that is null, a wildcard or a property of your own class; a `Contains`, `StartsWith`, `EndsWith` or `ToString()` on a value that doesn't read the row; two strings that don't read the row) are gone: the translation now escapes the value, reads the property, and evaluates the `Contains`, the `ToString()` and the comparison in C#, as it does in a query (see the LIKE section above); a `StartsWith`/`EndsWith`/`ToString()` it can't evaluate throws on every path. The empty search value is the one 3.10.0 rejection that stays, as the fourth message above (`InvalidOperationException` now, and only when nothing else bounds the predicate). Comparisons that read a column are never rejected for case or collation; the database's collation decides them, as in 3.9 (and SQLite's `LIKE` folds ASCII case whatever the collation).
+
+A refused delete sends no DELETE. On a type's first use its columns are discovered first, as for a query, so a delete on a table that doesn't exist reports that error, refused predicate or not. The predicate is then translated, so a shape no path translates (`x => x.Child.Id == 1`; a `Contains`, `StartsWith` or `EndsWith` whose receiver reads the row other than as a plain property: `x.Child.Name`, `x.Name.ToString()`, a cast) throws the translator's `NotSupportedException` on a delete exactly as on a query, even where the guard would also refuse it. The second and third messages can also come once the WHERE clause is built, as a backstop: the third for the negated-`Contains` shape, for a `Contains` on a captured collection that holds (the SQL holds a literal `NOT 1=0`), and for a literal `1=1` in the SQL; the second when the whole clause is one operand compared with itself.
+*   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (!string.IsNullOrEmpty(filter)) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss; a query is not blocked, because selecting every row loses nothing.
     *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). They evaluate as C# does, and the database can disagree in ways they don't list. Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
     *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.
 
