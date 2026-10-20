@@ -2,6 +2,314 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.11.0] - 2026-10-19
+
+**Release notes.** WHERE predicates are evaluated through one shared code path for SELECT and DELETE, and for any
+update by predicate a later release adds (D-003): `Query(predicate)`, `Query<T>().Where(...)`, `Count`/`Any`/`All`,
+SELECT projections and `Delete`/`DeleteAsync` translate and evaluate a predicate identically, so a predicate selects
+exactly the rows it would delete. When a WHERE matches every row, only a mass mutation (`Delete`/`DeleteAsync` by
+predicate, and any update by predicate) is refused; a SELECT runs normally and returns every row (D-128). The shapes,
+the messages and the upgrade notes are under **Behaviour change** below; the decisions are recorded in
+docs/plans/DECISIONS-3.10.2.md.
+
+WHERE translation fixes for every provider (SQL Server, PostgreSQL, MySQL, SQLite). **Upgrade recommended:** the
+shapes under Fixed selected, and deleted, other rows than C# selects, without an error. One translation path serves
+`Query`, `Query<T>().Where`, `Count`/`Any`/`All`, SELECT projections and `Delete`; the parity tests
+(`WhereParityHarness`) assert that a predicate sends the same WHERE text and parameters under SELECT and DELETE, or
+throws the same exception on every path.
+
+**Behaviour change — shared evaluation; only `Delete` (and any update by predicate) refuses an all-rows predicate.**
+Translation and evaluation of a WHERE predicate are one path for `Query(predicate)`, `Query<T>().Where(...)`,
+`Count`/`LongCount`/`Any`/`All` and `Delete`/`DeleteAsync`, with one flag (`WhereOperation.Read` or
+`WhereOperation.MassMutation`) that decides whether the all-rows guard applies, so a predicate selects exactly the
+rows it would delete. For the optional-filter idiom, the admin idiom and an empty `NOT IN`, queries return every row
+as they did in 3.10.1; the all-rows guard refuses nothing a query accepted in 3.10.1 (what a query now throws for is
+untranslatable shapes, listed under Changed, which threw or returned wrong rows before). Two things change for callers:
+- **Parts of a predicate that don't read the row are evaluated in C# and sent as a literal** (`NOT 1=0` or `1=0`):
+  a constant (`x => true` now selects every row; before 3.11.0 it was sent as a parameter, a SQL error on SQL
+  Server), a captured or static `bool`, a comparison of captured values (`filter == null`), a captured string's
+  `Contains`, a core type's `ToString()` with no argument or a format string compared with another value that doesn't
+  read the row (`id.ToString() == "05"`; a user type's, an `IFormatProvider`'s or an arithmetic result's `ToString()`,
+  and any `ToString()` compared with a column, are still rejected, see Changed), a `bool` unboxed from a captured
+  `object`, a `bool` compared with a `bool` whose two sides are known (`(x.Id == x.Id) == true`), and a comparison of
+  a column with itself where C# answers the same for every row (`x.Id == x.Id` is true for every row, null included,
+  as in C#; a nullable's `x.N < x.N` or `x.N > x.N` is false for every row; a nullable's `x.N >= x.N` or `x.N <= x.N`,
+  a `float`/`double`-typed comparison such as `x.Amount == x.Amount`, and a member of a column compared with itself,
+  `x.Name.Length == x.Name.Length`, are translated as written, because C#'s lifted `>=`/`<=` is false for null and
+  true otherwise, `NaN` isn't equal to itself, and the member is the translator's to accept or reject). Two strings that don't read the row are
+  therefore compared as C# compares them (ordinal), never under the database's collation. The optional-filter idiom
+  `x => filter == null || x.Name.Contains(filter)` with a null `filter`, the admin idiom
+  `x => x.OwnerId == me || roles.Contains("admin")` for an admin, and `x => !emptyIds.Contains(x.Id)` select every
+  row, as C# does.
+- **`Delete(predicate)` and `DeleteAsync` refuse an all-rows predicate** — one that reads no column of the entity
+  ("The WHERE clause must reference at least one column of the entity."), compares a column, or a member of one, with
+  itself by `==`, `>=` or `<=`, or negates a `!=`, `<` or `>` of one, whatever the type (`x.Id == x.Id`, `x.N >= x.N`,
+  `x.Amount == x.Amount`, `x.Name.Length == x.Name.Length`, `!(x.N < x.N)`: "The WHERE clause cannot be a
+  self-referencing column expression."; a delete of a nullable's `>=` or a `double`'s `==` would touch every row but
+  the nulls or NaNs, so the guard counts it as every row although the query translates it as written; `x.Id != x.Id`
+  or `x.N < x.N` is false for every row, deletes nothing and is accepted), always holds, before translation or by a
+  literal `NOT 1=0` after it ("The WHERE clause is trivially true; a non-trivial WHERE clause is required.";
+  `x.Id == 2 || x.Name.Length == x.Name.Length` and `(x.Id == x.Id) == true` included), or is a
+  `Contains`/`StartsWith`/`EndsWith` on a column with an empty search value that nothing else bounds, alone, in an
+  `||`, or compared with a `bool` (`x.Name.Contains("") == true`; "The WHERE clause's Contains, StartsWith or EndsWith
+  has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required.") — with
+  `InvalidOperationException`, before the DELETE is built,
+  where a query runs the same predicate and returns every row (every non-null row, for the empty search value). A
+  shape no path translates (`x => x.Child.Id == x.Child.Id`, `x => x.Child.Name.Contains("")`) is the translator's
+  `NotSupportedException` on a delete as on a query, before the SELECT or DELETE is built, even where the guard would
+  also refuse it; and on a type's first use its columns are discovered before the predicate is translated, so a
+  delete on a missing table reports that error, as a query does, refused predicate or not.
+  3.10.0 refused the first three shapes with the same verdicts (except `(x.Id == x.Id) == true` and the like, a
+  comparison used as a value, which 3.10.x sent to the database (deleting every row on SQLite and MySQL) and 3.11.0
+  refuses) and refused every empty search value in a
+  delete, bounded or not, with `NotSupportedException`; the messages changed (they no longer say "Delete operation"),
+  so code that matched the 3.10.0 text must match the new one, the empty value is now `InvalidOperationException`,
+  and the bounded shape `x => x.Id == id && x.Name.Contains("")` is accepted. Decide the delete in C#:
+  `if (!string.IsNullOrEmpty(filter)) provider.Delete<Person>(x => x.Name.Contains(filter));`.
+The other 3.10.0 delete-only rejections (D9) are gone, because the translation they guarded is fixed in this release
+(see Fixed): a search value that is a LIKE wildcard, null or a property of an object you hold, a string `Contains` on
+a value that doesn't read the row, and two strings that don't read the row, now delete exactly the rows `Query`
+selects; a `StartsWith`, `EndsWith` or `ToString()` the shared evaluation can't answer is rejected by the translator
+with its own message, on every path. Any future update by predicate takes the same path and the same guard. The
+rationale is in docs/plans/DECISIONS-3.10.2.md (D-001, D-003 as amended by D-128, D-004).
+
+### Fixed
+- **The ORDER BY visitors no longer write to the console.** Every ordered query on every provider wrote
+  `Generated ORDER BY clause: …` to `Console.Out` (a `Console.WriteLine` left in each `*OrderByClauseVisitor`), on
+  each read of the clause. The library now writes nothing to the console; SQL goes only to the provider's `Log`
+  callback. (The LINQ providers' `Debug.WriteLine` calls remain: they are compiled out of Release builds and go to
+  the debugger, not the console.) Pinned by tests that capture `Console.Out` around the visitors and around ordered,
+  paged and predicate queries on SQLite.
+- **The package now declares the drivers of every provider it bundles, at pinned minimums.** `Funcular.Data.Orm`
+  ships the PostgreSQL, MySQL and SQLite providers but declared only `Microsoft.Data.SqlClient`, and the providers'
+  own driver references floated (`Npgsql 9.*` / `8.0.*`, `MySqlConnector 2.*`, `Microsoft.Data.Sqlite 8.0.*`), so
+  what a consumer needed was whatever had resolved when the package was built, and a consumer on an older driver got
+  `FileNotFoundException: Npgsql, Version=9.0.5.0` when it first used the PostgreSQL provider; one that referenced no
+  driver couldn't compile against `Microsoft.Data.Sqlite` at all. The nuspec now declares, for `net8.0` and
+  `netstandard2.0`, `Npgsql` 9.0.5 (`net8.0`) / 8.0.9 (`netstandard2.0`), `MySqlConnector` 2.6.2 and
+  `Microsoft.Data.Sqlite` 8.0.32, next to `Microsoft.Data.SqlClient` 6.0.0; `net48` declares `Microsoft.Data.SqlClient`
+  only, as it carries SQL Server only. Each minimum is the version the provider is compiled against (the README's
+  provider table lists them); none floats. `tools/consumer-smoke/` holds a script that packs the package into a local
+  feed and installs it into a throwaway console app that loads every provider at exactly those minimums.
+- **Aggregates follow LINQ to objects** (the 3.10.0 Known issues, promised for this release):
+  - `Average` is computed as `SUM / COUNT` in C#, in the arithmetic LINQ uses for the selector's type, from the two
+    values the provider reads. It no longer truncates whole numbers on SQL Server (`AVG` over an `int` column gave `1`
+    for `{1, 1, 2}`), rounds to four decimals on MySQL, or rounds to ten on SQLite (`ROUND(AVG(…), 10)` is gone). SQL
+    Server widens an integer sum to `BIGINT` and a `float` sum to `FLOAT`; PostgreSQL widens a `float` sum to `DOUBLE
+    PRECISION`. `Average` over a `decimal`, `float` or `double` column no longer throws, and returns `decimal`,
+    `float` or `double` as LINQ does.
+  - An empty set gives `Sum` 0 (a nullable selector included), a nullable or reference `Min`/`Max`/`Average` `null`
+    (also when every value is null), and a non-nullable one `InvalidOperationException`, as LINQ does; before, a
+    nullable `Min`/`Max`/`Average` over no rows threw.
+  - `Min`/`Max` results convert to the operator's result type after the round-trip (`DateTime`, `DateTime?`,
+    `decimal?`, `string`, `float`, `Guid`, `DateTimeOffset`); before, some threw `InvalidCastException` or
+    `NotSupportedException` ("Unsupported selector type").
+- **String `Contains`, `StartsWith` and `EndsWith` treated `%`, `_` and `[` in the value as wildcards.** The value
+  went into the `LIKE` pattern unescaped, so `x.Name.Contains("_")` matched every name of one character or more,
+  `x.Name.Contains("%")` every name, and on SQL Server `x.Name.Contains("[x]")` every name containing `x`; on
+  PostgreSQL and MySQL a backslash escaped the character after it, so `x.Name.EndsWith("\\b")` matched every name
+  ending in `b`. The value is now matched literally on all four providers, written in the predicate or captured, in a
+  WHERE clause and in a projection: the pattern escapes `%`, `_`, `[` and `!` with `!` and ends with `ESCAPE '!'`.
+  A delete with such a value deletes the rows the query selects (3.10.0 rejected it).
+- **A property's `ToString()` was dropped.** `x.Code.ToString() == "07"` compared the integer column with the text,
+  which matched `7` on SQL Server, MySQL and SQLite and failed on PostgreSQL (`42883`); in a projection
+  (`Label = x.Code.ToString()`) it threw `InvalidCastException` on SQL Server, PostgreSQL and MySQL. On an integer
+  property (`sbyte` through `ulong`, nullable or not) it's now the column's text (`CAST(c AS NVARCHAR(20))` on SQL
+  Server, `CAST(c AS TEXT)` on PostgreSQL and SQLite, `CAST(c AS CHAR)` on MySQL), `""` for null as in C#; on a
+  `string` property it's the column. The text is the invariant form (`-5`), which can differ from .NET's current
+  culture (`−5`, with U+2212, under fi-FI): build text you compare it with using `CultureInfo.InvariantCulture`. The
+  comparison is on the cast text, so it can't use an index on the column; where that matters, parse the text in C#
+  and compare the integer. Other `ToString()` calls on a property now throw (see Changed).
+- **A member of a member of the row was silently dropped from the WHERE clause.** `x.PostedAt.Year > 2020` was sent
+  as `posted_at > @p` (with `2020` as the value), `x.Name.Length > 3` as `name > @p`: `Delete(x => x.Name.Length > 3)`
+  removed every row. `Year`, `Month` and `Day` of a `DateTime` property (nullable or not; `x.D.Year` and `x.D.Value.Year`
+  alike) are now the dialect's date part, and `Length` of a `string` property its character length: `YEAR(c)` /
+  `LEN(c + N'x') - 1` on SQL Server, `EXTRACT(YEAR FROM c)` / `LENGTH(c)` on PostgreSQL, `EXTRACT(YEAR FROM c)` /
+  `CHAR_LENGTH(c)` on MySQL, `CAST(strftime('%Y', c) AS INTEGER)` / `LENGTH(c)` on SQLite. Every other member of a
+  member throws (see Changed). In `Where`, `Count`/`Any`/`All` and `Delete`, on all four providers.
+- **A collection `Contains` whose item doesn't come from the row** (`ids.Contains(request.Id)`, a nested or a
+  static member) was translated as the entity's column of the same name: `x => x.Id == 3 || ids.Contains(request.Id)`
+  with `ids = {1, 2}` selected, and deleted, three rows where C# selects one. A local or a constant item threw
+  (`InvalidOperationException`, `NullReferenceException`). Each is now answered before the query, as C# answers it
+  (with the collection's own `Contains` and comparer, and with C# 14's span-based `array.Contains`), and sent as
+  `1=0` (false) or `NOT 1=0` (true). In `Where`, `Count`/`Any`/`All`, `Delete` and SELECT projections.
+- **A property of a captured object used as a search value** — the enclosing object's (`this`), a nested one, a
+  static one — was read as `null` or not at all: `x => x.Id == 2 || x.Name.Contains(Filter)` in an instance method
+  sent `LIKE '%%'` and selected every row with a non-null name. Search values of `Contains`, `StartsWith` and
+  `EndsWith` are now read as C# reads them, in a delete too (3.10.0 rejected the shape there).
+- **`StartsWith`/`EndsWith` on something other than an entity property** (`request.Name.StartsWith("al")`,
+  `x.Child.Name.StartsWith("a")`) were translated as the entity's `name` column, selecting the wrong rows. They now
+  throw (see Changed).
+- **A captured `ToString()` was sent as its raw value, without its format:** `x.Id == 2 || id.ToString() == "05"`
+  compared the number 5 with `'05'` and, on SQL Server and MySQL, selected every row; `ToString("D2")` lost its
+  format. `x.Code == x.Name.Length.ToString()` dropped `.Length` (`code = name`). A core type's `ToString()` compared
+  with another value that doesn't read the row is now evaluated in C# (see Behaviour change); compared with a column,
+  or on a value the evaluation can't run, it throws (see Changed).
+- **A string `Contains` that doesn't read the row** (`s.Contains("ZETA")`) was compared by the server, whose
+  collation could find it true where C# finds it false (every row on SQL Server, MySQL and SQLite). It's now
+  answered as C# answers it, except that a null string or search value matches no row (C# would throw).
+- **A null search value** (`x.Name.Contains(filter)` with `filter == null`) sent `LIKE '%%'`, which matched every row
+  with a non-null value. A null value for `Contains`, `StartsWith` or `EndsWith` now matches no row, negated or not
+  (inside `All`, see Known issues). The optional-filter idiom `filter == null || x.Name.Contains(filter)` with a
+  null `filter` selects every row (`filter == null` is evaluated in C#, see Behaviour change), and the same idiom
+  with `StartsWith`/`EndsWith` no longer throws; a delete of it is refused as an all-rows delete.
+
+### Changed
+- **`MySqlStringComparison` and `SqliteStringComparison` are `[Obsolete]`, with a message saying they have no effect.**
+  The 3.6.0 documents told MySQL users to pass `MySqlStringComparison.CaseSensitive` to the constructor (no effect:
+  no constructor accepts the enum and nothing reads it, so no `COLLATE utf8mb4_bin` was ever emitted); the SQLite provider accepts
+  `SqliteStringComparison` and stores it (also as `SqliteOrmDataProvider.StringComparison`, now obsolete too) but it is never read,
+  and no `COLLATE NOCASE` is emitted. Neither type is removed in 3.11.0 (a 3.x caller still compiles, with a
+  warning); the removal is planned for 4.0. What the code does: MySQL compares under the column's collation
+  (case-insensitive under the default `_ci` collations; use a `_bin`/`_cs` column collation for case-sensitive
+  comparisons); SQLite compares `=` under the column's collation (`BINARY`, case-sensitive, unless the column is
+  declared `COLLATE NOCASE`) and `LIKE` folds ASCII case whatever the collation. The README, the 3.6.0 Changelog entry
+  and the MySQL and SQLite AI instructions are corrected; a test pins that no document shows the switches as working.
+- **The package description names all four providers** (SQL Server, PostgreSQL, MySQL, SQLite) and says the `net48`
+  build carries the SQL Server provider only; it had left out MySQL since 3.6.0.
+- **The all-rows guard is `Funcular.Data.Orm.WherePredicateGuard`** (see Behaviour change above for the shapes and
+  messages). The shared WHERE translation runs it for every operation with a `WhereOperation` flag; it refuses only a
+  `MassMutation` (`Delete`/`DeleteAsync`, any update by predicate), before the mutation is built, and on the translated
+  clause after. The translator has the first word (D-005): a refused predicate's type is discovered and the predicate
+  translated exactly as for a query, so a missing table reports discovery's error and a shape no path translates
+  throws the translator's exception (`NotSupportedException`; `NullableExpressionException` for `.Value` or
+  `.HasValue` on a nullable column) on a delete exactly as on a query, and the guard's
+  `InvalidOperationException` is reserved for predicates that translate. `Delete` no longer checks that
+  the translated clause names a column of the table by text (the check would also have refused a legitimate
+  predicate; a delete by a remote property alone isn't supported either way, since the DELETE has no JOIN, and now
+  fails with the database's unknown-column error instead of the old guard message: see Known issues). The WHERE visitors of all four providers evaluate the parts of a predicate that don't read the row
+  through the same class (`WherePredicateGuard.Fold`), so every path sends the same SQL; the guard's verdict uses the
+  same evaluation but counts every self-comparison as holding (see Behaviour change).
+  `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` and forward to the new class, with its messages;
+  the enum gains `UnboundedSearch`, so the verdict `Classify` reports is always the one whose message `Validate` throws.
+- **`Min`/`Max` over a type the database can't order as .NET does throw `NotSupportedException` before any command is
+  sent:** an enum (aggregate its number and convert: `Max(x => (int)x.Status)`, which translates); `TimeSpan` (time
+  types differ by provider: SQL Server and PostgreSQL `time` hold values under 24 hours, MySQL `TIME` spans ±838
+  hours, Npgsql maps `TimeSpan` to an unbounded `interval`; store durations as integers and aggregate those); a `Guid`
+  unless the provider's `QueryOptions.GuidOrdering` is `GuidOrdering.Database` (the database's ordering differs from
+  `Guid.CompareTo` on SQL Server, which compares byte groups 10–15 first, and depends on the storage format on MySQL
+  and SQLite); on PostgreSQL a `Guid` is rejected whatever the option says, because PostgreSQL has no `MIN`/`MAX` over
+  `uuid` (error 42883) — order by the property and read the first row's value instead
+  (`OrderByDescending(x => x.Uid).Take(1).Select(x => x.Uid).ToList()`), which does follow .NET's ordering there; a
+  `DateTimeOffset` on MySQL and SQLite, which have no offset-aware type (store a UTC `DateTime`); on SQL Server and
+  PostgreSQL a `DateTimeOffset` orders by instant, as .NET does. The `Guid` guard doesn't cover `OrderBy`/`ThenBy`,
+  whose ordering follows the database. String `Min`/`Max` follow the database's collation.
+- **`ToString()` on a property is translated only on an integer or `string` property, with no argument** (see
+  Fixed). On a property of any other type (`decimal`, `bool`, a date, `Guid`, an enum, `char`, …), and with any
+  argument (a format string or a format provider, `CultureInfo.InvariantCulture` included, on a `string` property
+  too), it now throws `NotSupportedException`: a cast to text wouldn't give .NET's text (`1.50` for a
+  `DECIMAL(10,2)` holding `1.5m`, `1` for `true`). Compare the property's value instead, computed before the query:
+  for a `Guid` key, `var id = Guid.Parse(idText);` and then `x => x.Id == id` (on SQLite see Known issues). Before,
+  the `ToString()` was dropped and the column's value compared with the text, and some of these shapes returned C#'s
+  rows; they now throw too. Among them (not a complete list): on all four providers, `ToString()` on a `char`
+  property and `ToString` with an argument on a `string` property; on SQL Server, MySQL and SQLite,
+  `x.Id.ToString() == idText` on a `Guid` key compared with its lower-case text, and
+  `x.Code.ToString(CultureInfo.InvariantCulture) == "7"`; on SQL Server and MySQL, `x.Amount.ToString() == "1.50"`
+  on a `decimal` at the column's scale; on SQL Server, `x.Flag.ToString() == "True"` on a `bool?`. On PostgreSQL a
+  column that isn't text failed with `42883`; in a projection such a column threw `InvalidCastException` on SQL
+  Server, PostgreSQL and MySQL, and on SQLite could give text unlike .NET's.
+- **`x.N.Value.ToString()` on a nullable property throws `NullableExpressionException`**, as `x.N.Value == 7` does;
+  SQL Server, MySQL and SQLite sent it as the column before. On an integer property the message says to write
+  `x.N.ToString()`; on any other type, or with an argument, it says that `ToString()` isn't translated there either.
+- **The SQL of a string `Contains`, `StartsWith` or `EndsWith` ends with `ESCAPE '!'`**, and its value has `%`, `_`,
+  `[` and `!` prefixed by `!`. Code that reads the SQL text, such as a `Log` callback, sees the new form.
+- **Any member of a member of the row other than those date parts and `Length`** now throws `NotSupportedException`
+  naming the member, before the SELECT or DELETE is built (on a type's first use its columns are discovered first),
+  by `Query`, `Count` and `Delete` alike: `x.D.Hour`, `x.D.Date`,
+  `x.D.DayOfWeek`, a `DateTimeOffset` or `DateOnly` part, `x.Tags.Count` on a list, a member of a nested object
+  (`x.Child.Id`), a member of a computed value (`(cond ? x.Name : "zz").Length`), a member of a newly constructed
+  object (`new Holder().Flag`, formerly sent as `1=1` whatever the flag). Before, the outer member was dropped and
+  the inner column compared instead, which returned the right rows only by coincidence (for example `x.D.Date == d`
+  when every stored time is midnight). Compute the value before the query, or compare the property itself.
+  `x.D.Value.Hour` keeps its earlier message ("Unsupported property Hour in nested expression."). A property of the
+  entity that has no column (`[NotMapped]`) is rejected with a message naming it, where before the visitor failed with
+  "Expression type Parameter is not supported".
+- **Date parts are now qualified with the table name** (`YEAR(person.birthdate)` instead of `YEAR(birthdate)`), as
+  every other column in a WHERE is, so a predicate on a date part no longer fails with an ambiguous column when the
+  entity has remote joins. The SQL text of an existing `x.D.Value.Year` predicate changes accordingly.
+
+Method calls in a predicate or a projection that can't be answered correctly now throw `NotSupportedException`
+(unless noted) before any query runs ([Usage.md](Usage.md#the-in-clause)). Most of them failed or returned wrong rows
+before:
+- **A collection `Contains` whose item reads the row other than as an entity property**: `ids.Contains(x.Child.Id)`
+  (3.10.1 silently used `x.Id`), `lengths.Contains(x.Name.Length)`, `longIds.Contains(x.Id)` with a `List<long>`.
+  With an empty collection these returned no row; they now throw whatever the collection holds. A null collection
+  and a captured non-collection type with its own `Contains` throw too (a null collection threw before as well:
+  `NullReferenceException` for a local, a differently worded `NotSupportedException` for a property of an object you
+  hold).
+- **`.Value` on a nullable entity property inside `Contains`** (`ids.Contains(x.NullableId.Value)`) threw
+  `NullableExpressionException` only when the collection had values; with an empty collection it returned no row.
+  It now throws `NullableExpressionException` whatever the collection holds.
+- **`StartsWith`/`EndsWith` whose receiver isn't an entity property** (a captured value, a local, a static member,
+  `x.Child.Name`).
+- **A `ToString()` of anything but an entity property, unless the shared evaluation can answer it**: compared with
+  a column (`x.Code == id.ToString("D2")`, `x.Id.ToString() == id.ToString()`), in a projection, or on a value the
+  evaluation doesn't run — a receiver declared as `object` or an interface, your own type, an `IFormatProvider`
+  argument, an arithmetic, indexer or method result, a generic type such as `KeyValuePair`; `Convert.ToString(...)`;
+  a `ToString()` that reads the row through another member (`x.Name.Length.ToString()`). A core type's `ToString()`
+  with no argument or a format string, compared with a constant or another captured value, is evaluated in C# instead
+  (see Behaviour change). Before, a captured value was sent unconverted, which returned the right rows only when the
+  value already was the text compared (an `object` or interface variable holding a string,
+  `s.ToString(CultureInfo.InvariantCulture)`) or when it was compared with a column's own `ToString()`
+  (`x.Id.ToString() == id.ToString()`; also with an enum, except on PostgreSQL, where that threw). Those throw now
+  too. Compute the string before the query: `var code = id.ToString("D2");`, then `x.Code == code`.
+- **A value that throws while the predicate is translated** (a member of a null captured object,
+  `ids.Contains(request.Id)` with `request == null`; a lazy collection that throws while it is read) throws
+  `NotSupportedException("Could not evaluate expression: …")` with the original exception inside. A null check on
+  the object in the same predicate (`request == null || ids.Contains(request.Id)`) does prevent it: `request == null`
+  is evaluated in C# first, and a disjunction with a true side is sent as `NOT 1=0` without the other side being
+  read, so the query returns every row, as C# would (a delete of it is refused: it reads no column); check the object
+  before building the query when you want the rows filtered. When the item
+  is an entity property (`ids.Contains(x.Id)`), a database error or a `NotSupportedException` thrown while the
+  collection is enumerated (a query used as the collection, say) passes through unchanged, as before. A collection
+  read to answer a `Contains` before the query (an item that doesn't come from the row) is wrapped like any value.
+
+### New public API
+- `Funcular.Data.Orm.WherePredicateGuard` (`Classify`, `Validate`, `ValidateTranslation`, `HasLiteralTautology`,
+  `Fold`, and its message constants) with `WherePredicateVerdict` and `WhereOperation` (`Read`, `MassMutation`): the
+  all-rows guard every provider's shared WHERE translation runs with the operation flag (refusing only for a mass
+  mutation), and the evaluation of row-independent parts every provider's WHERE visitor uses, which a custom provider
+  can call too. `DeletePredicateGuard` and `DeletePredicateVerdict` (3.10.0) are `[Obsolete]` forwarders; the enum
+  gains `UnboundedSearch`.
+- `Funcular.Data.Orm.Linq.RowIndependentEvaluator` (`IsRowIndependent`, `TryTranslateContains`, `TryReadValue`, and
+  the SQL it sends: `TrueSql`, `FalseSql`, `UnknownSql`), which the four translators use and a custom provider can
+  too. It evaluates by interpretation where the runtime has it (.NET Framework 4.7.1 and later, .NET Core) and
+  compiles otherwise.
+- `Funcular.Data.Orm.Linq.LikePattern` (`Escape`, `EscapeCharacter`, `EscapeClause`): the escaping every provider
+  applies to a string `Contains`, `StartsWith` or `EndsWith` value.
+- `OrmDataProvider.QueryOptions` (`Funcular.Data.Orm.Linq.QueryOptions`, with `GuidOrdering` of type
+  `Funcular.Data.Orm.Linq.GuidOrdering`: `Rejected` or `Database`), a provider-wide option set at startup:
+  `new SqlServerOrmDataProvider(conn) { QueryOptions = { GuidOrdering = GuidOrdering.Database } }`.
+- `Funcular.Data.Orm.Linq.AggregateSemantics` (`EnsureMinMaxSupported`, `Average`, `ConvertResult`): LINQ to objects'
+  aggregate rules, which the four LINQ query providers share and a custom provider can use.
+- Each provider's expression translator gains `TranslateMemberOfMember(MemberExpression, StringBuilder,
+  Func<PropertyInfo, string>)`, which the WHERE visitors call for every member of a member; `TranslateDateMember`
+  is unchanged and shares its date-part SQL.
+
+### Known issues
+- **`Length` counts what the database counts.** All four providers count characters (code points), where C#'s
+  `Length` counts UTF-16 code units, so a string holding a character outside the Basic Multilingual Plane (an emoji)
+  is one shorter in SQL than in C# (SQL Server under a non-`_SC` collation counts as C# does). A `CHAR(n)` column's
+  padding is counted or not as the database decides. Trailing spaces are counted on every provider (SQL Server's
+  `LEN` would drop them; FunkyORM sends `LEN(c + N'x') - 1`).
+- **The guard proves only the plain shapes.** `x => x.Id == 2 || x.Id != 2` is accepted as a delete, though it
+  holds for every row.
+- **A delete by a remote property alone isn't supported.** The DELETE statement has no JOIN, so a predicate that
+  reads only a `[RemoteProperty]`/`[RemoteKey]` column fails with the database's unknown-column error; 3.10.0 refused
+  it with the "must reference at least one column" message. Delete by a column of the entity's own table.
+- **`All` counts a row whose predicate SQL finds null (unknown) as satisfying it**, as before. That's C#'s answer
+  when the null makes the predicate true (`All(x => x.NullableId != 5)`), but not when it makes it false:
+  `All(x => x.NullableId > 0)` returns `true` when a `NullableId` is null, where C# returns `false`. `All` over a null
+  search value (`All(x => x.Name.Contains(filter))` with `filter == null`) returns `true`, where C# throws. Test the
+  null yourself: `All(x => x.NullableId != null && x.NullableId > 0)`.
+- **SQLite binds a `Guid` or `DateTime` in a WHERE clause in Microsoft.Data.Sqlite's format**, not the text FunkyORM
+  stores (a lower-case `Guid`; `yyyy-MM-dd HH:mm:ss.fff`). So `x => x.Id == id` finds no row FunkyORM wrote when `id`
+  has hex letters, and a date comparison can be off. `Get<T>(id)` finds the row. Before, `x.Id.ToString() == idText`
+  happened to match on SQLite; it now throws (see Changed). Pre-existing, not yet scheduled.
+- **SQLite has no `decimal` type**, so `Sum`, `Average`, `Min` and `Max` over a `decimal` property read the `REAL`
+  SQLite stores and can differ from LINQ to objects in the last digits.
+- The 3.10.1 Known issue (`Update` with an enum or unsigned key) still applies. The aggregate issues it listed are fixed above.
+
 ## [3.10.1] - 2026-10-12
 
 Security release for every provider. **Upgrade recommended** from any earlier version.
@@ -44,7 +352,7 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
   `OrmDataProvider`) prepare the key.
 
 ### Known issues
-- The aggregate fixes listed under 3.10.0's Known issues are now planned for 3.10.2.
+- The aggregate fixes listed under 3.10.0's Known issues are now planned for the next release (3.11.0).
 - `Update` of an entity whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server and PostgreSQL) still
   fails, as in 3.10.0: the UPDATE statement's own key parameter isn't converted yet.
 
@@ -398,7 +706,7 @@ Aggregates keep their 3.9 behavior in 3.10.0:
   - Full LINQ-to-SQL translation with MySQL syntax: backtick identifier quoting, `AUTO_INCREMENT` identity retrieved via `LAST_INSERT_ID()` (MySQL has no `RETURNING` clause), `LIMIT`/`OFFSET` paging, `CONCAT`-based string operations, and `EXTRACT()` date parts.
   - Complete `[RemoteKey]` / `[RemoteProperty]` / `[RemoteLink]` support with automatic `LEFT JOIN` generation, plus all four "view-replacing" attributes against native MySQL `JSON`: `[JsonPath]` (`JSON_UNQUOTE(JSON_EXTRACT(...))`, including WHERE predicates and the 3.5.1 method-call fix), `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]` (`JSON_ARRAYAGG` / `JSON_OBJECT`).
   - Reserved-word quoting, MySQL error-code mapping (`MySqlException.Number`, e.g. 1146/1062/1452), Guid storage as `CHAR(36)` (`GuidFormat=Char36`), and the concurrency-safe connection model shared with the other providers.
-  - `MySqlStringComparison` enum — default `CaseInsensitive` (matching MySQL's default `_ci` collations and SQL Server); opt-in `CaseSensitive` applies `COLLATE utf8mb4_bin`.
+  - `MySqlStringComparison` enum — default `CaseInsensitive` (matching MySQL's default `_ci` collations and SQL Server); opt-in `CaseSensitive` applies `COLLATE utf8mb4_bin`. *(Correction, 3.11.0: this never worked — no constructor accepted the enum and nothing read it, so it has no effect; it is obsolete since 3.11.0.)*
   - **37 dialect + integration tests** (CRUD sync/async, LINQ translation, paging, aggregates, remote keys/properties, JsonPath SELECT/WHERE, computed attributes, Guid/non-identity PKs, reserved-word quoting) — green against MySQL 8.0 both locally and in CI.
   - GitHub Actions CI workflow using a MySQL 8.0 service container; `Database/MySql/` DDL + `docker-compose.yml` for local setup.
 

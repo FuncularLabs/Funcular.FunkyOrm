@@ -106,13 +106,9 @@ public string FullName { get; set; }
 
 ### String Comparison
 
-MySQL's default collations (e.g., `utf8mb4_0900_ai_ci`) are **case-insensitive**, matching SQL Server's default behavior — so no case-folding workaround is emitted. `Contains`/`StartsWith`/`EndsWith` use `LIKE` with `CONCAT()` patterns.
+MySQL's default collations (e.g., `utf8mb4_0900_ai_ci`) are **case-insensitive**, matching SQL Server's default behavior — so no case-folding workaround is emitted. `Contains`/`StartsWith`/`EndsWith` use `LIKE` with `CONCAT()` patterns (the value's `%`, `_`, `[` and `!` are prefixed with `!` and matched literally, and a backslash is literal because the pattern ends with `ESCAPE '!'`, which replaces MySQL's default backslash escape).
 
-If you need case-sensitive comparisons, construct the provider with `MySqlStringComparison.CaseSensitive` (applies `COLLATE utf8mb4_bin`):
-
-```csharp
-var provider = new MySqlOrmDataProvider(connectionString, MySqlStringComparison.CaseSensitive);
-```
+FunkyORM emits no `COLLATE` of its own: a comparison follows the column's collation. If you need case-sensitive comparisons, declare the column with a `_bin` or `_cs` collation (`VARCHAR(100) COLLATE utf8mb4_bin`). Do **not** suggest a `MySqlStringComparison` constructor option: the enum has no effect (no constructor accepts it, nothing reads it) and is `[Obsolete]` since 3.11.0.
 
 ### Identifier Case Sensitivity
 
@@ -121,13 +117,14 @@ var provider = new MySqlOrmDataProvider(connectionString, MySqlStringComparison.
 
 ### Date/Time Handling
 
-`DateTime` maps to `DATETIME(6)`. Date-part extraction uses `EXTRACT()` (same as PostgreSQL):
+`DateTime` maps to `DATETIME(6)`. Date-part extraction uses `EXTRACT()` (same as PostgreSQL) on the table-qualified column (a nullable property through `.Value`, a non-nullable one directly; any other member of a member, such as `.Hour` or `.Date`, throws `NotSupportedException`):
 
 | C# Expression | MySQL SQL |
 |:---|:---|
-| `p.Birthdate.Value.Year` | `EXTRACT(YEAR FROM birthdate)` |
-| `p.Birthdate.Value.Month` | `EXTRACT(MONTH FROM birthdate)` |
-| `p.Birthdate.Value.Day` | `EXTRACT(DAY FROM birthdate)` |
+| `p.Birthdate.Value.Year`, `p.PostedAt.Year` | `EXTRACT(YEAR FROM person.birthdate)` |
+| `p.Birthdate.Value.Month` | `EXTRACT(MONTH FROM person.birthdate)` |
+| `p.Birthdate.Value.Day` | `EXTRACT(DAY FROM person.birthdate)` |
+| `p.LastName.Length` | `CHAR_LENGTH(person.last_name)` |
 
 ---
 

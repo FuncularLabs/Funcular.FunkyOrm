@@ -175,13 +175,18 @@ namespace Funcular.Data.Orm.PostgreSql
             }
         }
 
+        /// <summary>
+        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
+        /// translated by the WHERE path every query takes, and refused by the all-rows guard
+        /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
+        /// column, compares a column with itself, always holds or searches a column for an empty value that nothing else
+        /// bounds, where a query would run it and return every row.
+        /// </summary>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
-            DeletePredicateGuard.Validate(predicate);
-            var components = GenerateWhereClause(predicate);
-            ValidateWhereClause<T>(components.WhereClause);
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -370,13 +375,18 @@ namespace Funcular.Data.Orm.PostgreSql
             return CreateQueryable<T>(selectCommand);
         }
 
+        /// <summary>
+        /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
+        /// translated by the WHERE path every query takes, and refused by the all-rows guard
+        /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
+        /// column, compares a column with itself, always holds or searches a column for an empty value that nothing else
+        /// bounds, where a query would run it and return every row.
+        /// </summary>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
             if (Transaction == null) throw new InvalidOperationException("Delete operations must be performed within an active transaction.");
             if (predicate == null) throw new InvalidOperationException("A WHERE clause (predicate) is required for deletes.");
-            DeletePredicateGuard.Validate(predicate);
-            var components = GenerateWhereClause(predicate);
-            ValidateWhereClause<T>(components.WhereClause);
+            var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
             using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
@@ -898,28 +908,69 @@ namespace Funcular.Data.Orm.PostgreSql
             return elements;
         }
 
+        /// <summary>
+        /// Translates <paramref name="expression"/> with a fresh visitor over the discovered columns of <typeparamref name="T"/>
+        /// and its remote joins (<paramref name="remoteInfo"/>). The one place a WHERE predicate is translated, for every
+        /// operation (D-001); a translator's rejection throws from here.
+        /// </summary>
+        private PostgreSqlWhereClauseVisitor<T> TranslateWhere<T>(
+            Expression<Func<T, bool>> expression,
+            PostgreSqlParameterGenerator parameterGenerator,
+            PostgreSqlExpressionTranslator translator,
+            out ResolvedRemoteJoinInfo remoteInfo) where T : class, new()
+        {
+            var tableName = GetTableName<T>();
+            remoteInfo = ResolveRemoteJoins<T>(tableName);
+            var visitor = new PostgreSqlWhereClauseVisitor<T>(
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
+                parameterGenerator, translator, tableName, remoteInfo.PropertyToColumnMap);
+            visitor.Visit(expression);
+            return visitor;
+        }
+
+        /// <summary>The 3.10 four-argument signature, kept for a subclass compiled against it (review R-1, B-14): a read.</summary>
+        protected internal PostgreSqlQueryComponents<T> GenerateWhereClause<T>(
+            Expression<Func<T, bool>> expression,
+            PostgreSqlQueryComponents<T> commandElements,
+            PostgreSqlParameterGenerator parameterGenerator,
+            PostgreSqlExpressionTranslator translator) where T : class, new() =>
+            GenerateWhereClause(expression, commandElements, parameterGenerator, translator, WhereOperation.Read);
+
+        /// <summary>Translates <paramref name="expression"/> into the WHERE clause and parameters, for <paramref name="operation"/> (D-003 as amended by D-128).</summary>
         protected internal PostgreSqlQueryComponents<T> GenerateWhereClause<T>(
             Expression<Func<T, bool>> expression,
             PostgreSqlQueryComponents<T> commandElements = null,
             PostgreSqlParameterGenerator parameterGenerator = null,
-            PostgreSqlExpressionTranslator translator = null) where T : class, new()
+            PostgreSqlExpressionTranslator translator = null,
+            WhereOperation operation = WhereOperation.Read) where T : class, new()
         {
+            var paramGen = parameterGenerator ?? new PostgreSqlParameterGenerator();
+            var trans = translator ?? new PostgreSqlExpressionTranslator(paramGen);
+
+            // The all-rows guard runs first, so a refused mass mutation never sends the mutation; for a read it accepts
+            // everything (D-003 as amended by D-128: one translation path, one flag). A refusal is held (D-005: the
+            // translator has the first word): the type is discovered and the predicate translated exactly as for a
+            // read, so a discovery failure (a missing table) or a shape no path translates throws here as on every
+            // read path, and the guard's refusal stands only for a predicate that translates (D-156, option 1).
+            InvalidOperationException refusal = null;
+            try
+            {
+                WherePredicateGuard.Validate(expression, operation);
+            }
+            catch (InvalidOperationException ex)
+            {
+                refusal = ex;
+            }
+
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
             // column-cache key is absent.
             DiscoverColumns<T>();
 
-            var paramGen = parameterGenerator ?? new PostgreSqlParameterGenerator();
-            var trans = translator ?? new PostgreSqlExpressionTranslator(paramGen);
-
-            var tableName = GetTableName<T>();
-            var remoteInfo = ResolveRemoteJoins<T>(tableName);
-
-            var visitor = new PostgreSqlWhereClauseVisitor<T>(
-                ColumnNameCache,
-                UnmappedPropertiesFor<T>(),
-                paramGen, trans, tableName, remoteInfo.PropertyToColumnMap);
-            visitor.Visit(expression);
+            var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
+            if (refusal != null) throw refusal;
+            WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
 
             if (commandElements != null)
             {
@@ -956,24 +1007,6 @@ namespace Funcular.Data.Orm.PostgreSql
                 commandElements.OriginalExpression = commandElements.OriginalExpression ?? expression;
             }
             return commandElements;
-        }
-
-        private void ValidateWhereClause<T>(string whereClause)
-        {
-            if (string.IsNullOrWhiteSpace(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-empty, valid WHERE clause.");
-            if (DeletePredicateGuard.HasLiteralTautology(whereClause))
-                throw new InvalidOperationException("Delete operation requires a non-trivial WHERE clause.");
-            var regex = new System.Text.RegularExpressions.Regex(@"\b(\w+)\s*=\s*\1\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (regex.IsMatch(whereClause))
-                throw new InvalidOperationException("Delete operation WHERE clause cannot be a self-referencing column expression.");
-            var tableColumns = typeof(T).GetProperties()
-                .Where(p => p.GetCustomAttributes(typeof(NotMappedAttribute), true).Length == 0)
-                .Select(p => GetCachedColumnName(p))
-                .ToList();
-            bool columnReferenced = tableColumns.Any(col => whereClause.IndexOf(col, StringComparison.OrdinalIgnoreCase) >= 0);
-            if (!columnReferenced)
-                throw new InvalidOperationException("Delete operation WHERE clause must reference at least one column from the target table.");
         }
 
         #endregion

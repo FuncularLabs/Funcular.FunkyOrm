@@ -13,10 +13,10 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;sqlite;entity;lambda;query;embedded;lightweight</PackageTags>
     <Title>Funcular.FunkyORM.Sqlite</Title>
-    <Version>3.10.1</Version>
-    <AssemblyVersion>3.10.1.0</AssemblyVersion>
-    <FileVersion>3.10.1.0</FileVersion>
-    <InformationalVersion>3.10.1</InformationalVersion>
+    <Version>3.11.0</Version>
+    <AssemblyVersion>3.11.0.0</AssemblyVersion>
+    <FileVersion>3.11.0.0</FileVersion>
+    <InformationalVersion>3.11.0</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -33,8 +33,10 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <!-- Pinned minimum (FD-05): the version the provider compiles against and the Funcular.Data.Orm package declares.
+       Change both together, and the README's provider table (PackagingTests pins the three). -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.32" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

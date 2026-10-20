@@ -8,6 +8,23 @@
 >   branch does, with `development/3.10` merged in first.
 > - Started from a task the provider-scoped caches review filed (its §9.13 FVC-1 and §9.16).
 
+> **Status (2026-10-14, 3.11.0, docs/plans/DECISIONS-3.10.2.md D-003 as amended by D-128):** the guard is now
+> `Funcular.Data.Orm.WherePredicateGuard`: `Delete`/`DeleteAsync` (and any future update by predicate) run `Validate`
+> before the entity's columns are discovered and `ValidateTranslation` on the translated clause; a query runs the
+> same predicate normally and returns every row. Its `Fold` is public and is what the four WHERE visitors use to send
+> every part of a predicate that doesn't read the row as a literal (`NOT 1=0`/`1=0`), so the verdict and the SQL
+> agree by construction. `DeletePredicateGuard` and `DeletePredicateVerdict` are `[Obsolete]` forwarders. Messages
+> are operation-neutral ("The WHERE clause must reference at least one column of the entity." / "… cannot be a
+> self-referencing column expression." / "… is trivially true; a non-trivial WHERE clause is required."). D9 (§5.8)
+> is gone entirely: the wildcard, null/empty, captured-property and row-independent-call rejections because the
+> 3.11.0 translation fixes what they guarded (FD-02, FD-03), and the string-comparison rejection because the
+> comparison is evaluated in C# on every path. `IsContainsOfNull` is gone (a `Contains` of null is unknown, as the
+> translation's `NULL LIKE NULL` is). The providers' post-translation "names a column of the table" text check is
+> gone (it would reject a remote-property predicate). Tests: `WherePredicateGuardTests` (was
+> `DeletePredicateGuardTests`; `Fold` rows), `DeleteGuardHarness` (every refused row also run through `Query` and
+> `Count`, which select every row — except `archivedOrNotEmpty`: a bare `bool` member in a truth position is sent as
+> the column alone, which SQL Server rejects; pre-existing, backlog).
+>
 > **Status (2026-10-05):** rev 16. Task 4's fix-verification of rev 12 (§9.11) is CLEAN at `ca82741`. On
 > 2026-10-05 `development/3.10`, with the provider-scoped caches (`4652a3e`), was merged in (`c0dd5a1`), and D9, the
 > owner's decision of that day, was added (`6b4172d`, rev 13, §5.8). Its review (§9.12) found 2, answered in
@@ -15,8 +32,8 @@
 > (§9.14). The 3.10.0 release commit `e618653` is CLEAN (§9.15); one of its CI runs failed a D3 test, answered in
 > rev 15 (`0070f6c`, §5.10), whose review (§9.16) found 1 medium and 2 low, answered in rev 16 (§5.11).
 
-> **Revision 16 (the review of rev 15, §9.16):** about 120,000 groups fit on 64 MB cold, not 230,000 (that figure came
-> from a search that warmed the parser as it went). The test's comment says which mutant it kills and which test
+> **Revision 16 (the review of rev 15, §9.16):** about 120,000 groups fit on 64 MB cold, in a Release build, not
+> 230,000 (that figure came from a search that warmed the parser as it went). The test's comment says which mutant it kills and which test
 > catches a thread with the default size. §4.2 and §4.3 gain the internal overload and its four mutations; §9.14 to
 > §9.16 are recorded; the guard's summary and SQL Server's `ValidateDeleteWhereClause<T>` name
 > `HasLiteralTautology(string)`.
@@ -354,7 +371,9 @@ The C# compiler folds `1 < 2` and `1 == 1` to `true`, so those predicates reach 
 - **AC4 — Literal tautologies in the SQL are rejected.** A translated WHERE clause that contains a `1=1` outside
   quotes, or that folds to True (D3), is rejected with the AlwaysTrue message; one that folds to False or Unknown
   isn't. Integration, on all four providers, sync and async:
-  - rejected: `x.Id == 2 || new Holder().Flag` and `x.Id == 2 || new Holder().Flag == true` (the visitor's `1=1`);
+  - rejected: `x.Id == 2 || new Holder().Flag` and `x.Id == 2 || new Holder().Flag == true` (the visitor's `1=1`;
+    **3.10.2, FD-01:** the visitor no longer drops the member, so these two throw `NotSupportedException` before any
+    SQL exists — `MemberOfNewObject_IsRejectedBeforeTranslation` — and the `1=1` rule is pinned by the string rows);
     `x.Id == 2 || !emptyIds.Contains(x.Id)` (`OR NOT 1=0`); `!(emptyIds.Contains(x.Id) && x.Id == 2)`
     (`NOT (1=0 AND …)`); `x.FirstName != null || !emptyIds.Contains(x.Id)` (`IS NOT NULL OR NOT 1=0`);
     `ids.Contains(x.Id) || !emptyIds.Contains(x.Id)` (`IN (…) OR NOT 1=0`) (rev 4, T2-1);
@@ -945,8 +964,8 @@ case folding on SQLite. Recorded for after 3.10.0, outside this plan: `MySqlStri
 
 ### 9.16 Review of `e618653..0070f6c` (non-author; the diagnosis reproduced; the test cold, warm, Debug, Release, without tiering and without PGO, on .NET 8, 9 and 10; four mutants)
 
-Verdict: NOT CLEAN; one medium and two low findings, two nits. The code and the test are sound. Blame: HOUSE-RULE 2,
-PLAN-GAP 1.
+Verdict: NOT CLEAN; one medium and two low findings, two nits. The code and the test are sound. Blame (the author's
+classes, as in §9.8): HOUSE-RULE 2, PLAN-GAP 1.
 
 | # | Sev | Blame | Location | Disposition |
 |---|---|---|---|---|

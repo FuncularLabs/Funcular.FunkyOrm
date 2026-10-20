@@ -1,6 +1,7 @@
 > **Recent Changes** — see [Changelog.md](Changelog.md) for full details.
-> * **v3.10.1**: 🔒 **Security release — upgrade recommended.** `Get`, `GetAsync`, `Update` and `UpdateAsync` now send the primary key as a parameter; before, its value was written into the SQL, on every provider. A key that can't be converted to the primary key's type now throws `ArgumentException`. Aggregate fixes move to 3.10.2.
-> * **v3.10.0**: 🛠️ **Query-operator correctness — upgrade strongly recommended.** In 3.9.0 and earlier, `Single`/`SingleOrDefault` with a predicate could return an unrelated row, `Last()` returned the first row, and operators FunkyORM doesn't translate (`Reverse`, `TakeWhile`, …) were silently ignored. 3.10 fixes these, adds `LongCount`, and throws `NotSupportedException` for anything it can't translate — review the Changelog's **Changed** list before upgrading. Some aggregate results (`Average`, `Min`/`Max` result types, empty nullable sets) are still wrong in 3.10.0, with fixes planned for 3.10.2: see **Known issues**. The supported operators are listed in [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310).
+> * **v3.11.0**: 🛠️ **WHERE translation fixes — upgrade recommended.** Captured values, `x.D.Year`/`x.Name.Length`, LIKE wildcards and a property's `ToString()` were translated wrong (selecting, and deleting, other rows than C# selects); aggregates now give LINQ to objects' answers; the package declares every bundled driver at a pinned minimum. **Behaviour change:** the parts of a predicate that don't read the row are evaluated in C# and sent as a literal on every path (`x => true` selects every row; `filter == null || x.Name.Contains(filter)` with a null `filter` selects every row), and `Delete` alone refuses an all-rows predicate, with new messages. See the Changelog's **Behaviour change** note.
+> * **v3.10.1**: 🔒 **Security release — upgrade recommended.** `Get`, `GetAsync`, `Update` and `UpdateAsync` now send the primary key as a parameter; before, its value was written into the SQL, on every provider. A key that can't be converted to the primary key's type now throws `ArgumentException`. Aggregate fixes move to 3.11.0.
+> * **v3.10.0**: 🛠️ **Query-operator correctness — upgrade strongly recommended.** In 3.9.0 and earlier, `Single`/`SingleOrDefault` with a predicate could return an unrelated row, `Last()` returned the first row, and operators FunkyORM doesn't translate (`Reverse`, `TakeWhile`, …) were silently ignored. 3.10 fixes these, adds `LongCount`, and throws `NotSupportedException` for anything it can't translate — review the Changelog's **Changed** list before upgrading. Some aggregate results (`Average`, `Min`/`Max` result types, empty nullable sets) are still wrong in 3.10.0, fixed in 3.11.0: see **Known issues**. The supported operators are listed in [Advanced.md §5](Advanced.md#5-supported-linq-operators-v310).
 > * **v3.9.0**: 🎯 **Top-level scalar projection** — `Select(x => x.Member)` returns `List<memberType>` via a narrow `SELECT`; composes with filter / order-by (incl. a remote column) / paging.
 > * **v3.8.5-beta1**: 🎯 Explicit remote target authoritative on the final FK hop; documented the narrow-projection idiom.
 > * **v3.8.4-beta1**: 🐛 Fix: a `[RemoteProperty]` value column declared on a base class no longer throws `Invalid object name`.
@@ -39,7 +40,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 *   **Performance**: Outperforms EF Core in single-row writes and matches it in reads. (See our [Usage Guide](Usage.md) for benchmarks).
 *   **Zero Configuration**: No `DbContext`, no mapping files. Just POCOs and a connection string.
 *   **Safe**: All queries are parameterized to prevent SQL injection.
-*   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., rejecting `x => true`, `x => x.Id == x.Id` and `x => x.Id == id || true`), though they don't catch every predicate that is true for every row.
+*   **Mass Delete Prevention**: Includes safeguards against accidental "delete all" operations (e.g., rejecting `x => true`, `x => x.Id == x.Id` and `x => x.Id == id || true`), though they don't catch every predicate that is true for every row. A query runs the same predicate normally and returns every row; since 3.11.0 both evaluate the parts of a predicate that don't read the row in C#, so a predicate selects exactly the rows it would delete.
 *   **Convention over Configuration**: Sensible defaults for primary key naming conventions (like `id`, `tablename_id`, or `TableNameId`) mean less boilerplate and more productivity.
 *   **Remote Keys & Properties**: Flatten your object graph by mapping properties directly to columns in related tables (e.g., `Person.EmployerCountryName`) without writing joins. The ORM handles the graph traversal for you.
 *   **JSON & Computed Column Attributes**: Four attribute types that eliminate SQL views entirely in code — `[JsonPath]`, `[SqlExpression]`, `[SubqueryAggregate]`, and `[JsonCollection]`. Works on SQL Server, PostgreSQL, and SQLite.
@@ -52,7 +53,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 
 ### 1. Installation
 
-Install the FunkyORM package — SQL Server, PostgreSQL, and SQLite providers are all included:
+Install the FunkyORM package — the SQL Server, PostgreSQL, MySQL and SQLite providers are all included (on `net48`, SQL Server only):
 
 ```bash
 dotnet add package Funcular.Data.Orm
@@ -460,9 +461,19 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 | **Boolean Type** | `BIT` (0/1) | Native `BOOLEAN` | `TINYINT(1)` (0/1) | `INTEGER` (0/1) |
 | **Target Frameworks** | `net8.0`, `netstandard2.0`, `net48` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` | `net8.0`, `netstandard2.0` |
 | **ADO.NET Driver** | `Microsoft.Data.SqlClient` | `Npgsql` | `MySqlConnector` (MIT) | `Microsoft.Data.Sqlite` |
+| **Driver package (minimum)** | `Microsoft.Data.SqlClient` 6.0.0 | `Npgsql` 9.0.5 on `net8.0`, 8.0.9 on `netstandard2.0` | `MySqlConnector` 2.6.2 | `Microsoft.Data.Sqlite` 8.0.32 |
 | **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col #>> '{path}'` | `JSON_EXTRACT(col, '$.path')` | `json_extract(col, '$.path')` |
 | **Stored Procedure Execution** | ✅ Full (result set, scalar, non-query, output params) | ⚠️ Scalar / non-query via `CALL` (use a `FUNCTION RETURNS TABLE` for result sets) | ✅ Full (result set, scalar, non-query, output params) | ❌ N/A (SQLite has no stored procedures) |
 | **JSON Collection** | `FOR JSON PATH` | `json_agg(row_to_json(…))` | `JSON_ARRAYAGG(JSON_OBJECT(…))` | `json_group_array(json_object(…))` |
+
+The `Funcular.Data.Orm` package declares each driver as a dependency at the minimum in the table (since 3.11.0), so
+`dotnet add package Funcular.Data.Orm` installs them; a newer driver already in your project is kept. On `net48` the
+package carries the SQL Server provider only, and declares only `Microsoft.Data.SqlClient`. The minimum is the version
+the provider is compiled against: a driver older than it fails to load (`FileNotFoundException: Npgsql, Version=…`).
+`tools/consumer-smoke/Run-ConsumerSmoke.ps1` (or `run-consumer-smoke.sh`) packs the package into a local feed and
+installs it into a throwaway console app that loads every provider at exactly those minimums on `net8.0`, and the SQL
+Server provider on `net48`; the `netstandard2.0` build (`Npgsql` 8.0.9) is covered by the declared pin, not by the
+smoke check.
 
 ### PostgreSQL-Specific Notes
 
@@ -476,7 +487,7 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 - **Identity**: MySQL has no `RETURNING` clause; the provider retrieves `AUTO_INCREMENT` ids via `MySqlCommand.LastInsertedId` after insert. Non-identity (Guid/string) keys are supplied by the caller.
 - **GUIDs**: Stored as `CHAR(36)`. Add `GuidFormat=Char36` to the connection string so `Guid` properties round-trip transparently (`BINARY(16)` is also supported via `GuidFormat=Binary16`).
 - **String building**: MySQL's `+` operator performs numeric addition, so string concatenation translates to `CONCAT()`.
-- **Case sensitivity**: Default `_ci` collations make string comparisons case-insensitive (matching SQL Server) — no case-folding workaround is emitted. Use the `MySqlStringComparison.CaseSensitive` constructor option to apply `COLLATE utf8mb4_bin`. Column names are always case-insensitive; **table-name** case sensitivity follows the server's `lower_case_table_names` (case-sensitive on Linux by default), so lowercase table names are recommended for cross-platform portability.
+- **Case sensitivity**: Default `_ci` collations make string comparisons case-insensitive (matching SQL Server) — no case-folding workaround is emitted, and FunkyORM emits no `COLLATE` of its own: for case-sensitive comparisons give the column a `_bin` or `_cs` collation. (The `MySqlStringComparison` enum has no effect — no constructor accepts it — and is obsolete since 3.11.0.) Column names are always case-insensitive; **table-name** case sensitivity follows the server's `lower_case_table_names` (case-sensitive on Linux by default), so lowercase table names are recommended for cross-platform portability.
 - **JSON**: Native `JSON` type. `[JsonPath]` uses `JSON_UNQUOTE(JSON_EXTRACT(col, '$.path'))` (with `CAST` for typed extraction), and `[JsonCollection]` uses `JSON_ARRAYAGG(JSON_OBJECT(...))`.
 - **Reserved word quoting**: Uses backtick quoting, applied to identifiers matching MySQL's reserved-word list.
 - **Schemas**: A `[Table(Schema = "x")]` maps to `` `x`.`table` `` (in MySQL, a "schema" is a database).
@@ -490,6 +501,7 @@ FunkyORM generates database-specific SQL through its `ISqlDialect` abstraction. 
 - **JSON support**: Requires SQLite 3.38+ (bundled with `Microsoft.Data.Sqlite`). Uses `json_extract()` for scalar extraction and `json_group_array(json_object(...))` for collection projection.
 - **Concurrency**: SQLite supports WAL mode for concurrent reads, but only one writer at a time. The provider handles this transparently, but high-write-concurrency scenarios may experience `SQLITE_BUSY` under heavy load.
 - **Reserved word quoting**: Like PostgreSQL, SQLite uses double-quote quoting, but only applies it to identifiers that match SQLite's reserved word list.
+- **Case sensitivity**: `==`, `!=`, `<` and `>` on text follow the column's collation — SQLite's default `BINARY` is case-sensitive; declare the column `COLLATE NOCASE` for case-insensitive equality — and `LIKE` (`Contains`, `StartsWith`, `EndsWith`) folds ASCII case whatever the collation. FunkyORM emits no `COLLATE` of its own. (The `SqliteStringComparison` constructor option has no effect — the provider never reads it — and is obsolete since 3.11.0.)
 
 ## Documentation
 

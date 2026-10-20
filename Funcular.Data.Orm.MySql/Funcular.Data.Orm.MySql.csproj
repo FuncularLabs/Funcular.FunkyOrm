@@ -12,10 +12,10 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>csharp;sql;orm;mysql;mariadb;entity;lambda;query</PackageTags>
     <Title>Funcular.FunkyORM.MySql</Title>
-    <Version>3.10.1</Version>
-    <AssemblyVersion>3.10.1.0</AssemblyVersion>
-    <FileVersion>3.10.1.0</FileVersion>
-    <InformationalVersion>3.10.1</InformationalVersion>
+    <Version>3.11.0</Version>
+    <AssemblyVersion>3.11.0.0</AssemblyVersion>
+    <FileVersion>3.11.0.0</FileVersion>
+    <InformationalVersion>3.11.0</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -32,8 +32,10 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <!-- Pinned minimum (FD-05): the version the provider compiles against and the Funcular.Data.Orm package declares.
+       Change both together, and the README's provider table (PackagingTests pins the three). -->
   <ItemGroup>
-    <PackageReference Include="MySqlConnector" Version="2.*" />
+    <PackageReference Include="MySqlConnector" Version="2.6.2" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

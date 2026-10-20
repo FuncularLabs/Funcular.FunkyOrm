@@ -109,6 +109,12 @@ namespace Funcular.Data.Orm
         public Action<string> Log { get; set; }
 
         /// <summary>
+        /// Provider-wide query options (3.11.0): how <c>Min</c>/<c>Max</c> over a <see cref="Guid"/> are answered. Set at
+        /// startup: <c>new SqlServerOrmDataProvider(conn) { QueryOptions = { GuidOrdering = GuidOrdering.Database } }</c>.
+        /// </summary>
+        public Linq.QueryOptions QueryOptions { get; } = new Linq.QueryOptions();
+
+        /// <summary>
         /// Per-provider session-context / audit configuration. Disabled by default (no accessor). Typically
         /// set by the application's ORM factory. See docs/guides/AUDIT_CONTEXT_RUNBOOK.md.
         /// </summary>

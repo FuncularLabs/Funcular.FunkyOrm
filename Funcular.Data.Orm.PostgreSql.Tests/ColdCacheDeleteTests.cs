@@ -171,7 +171,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         [TestInitialize]
         public void Init()
         {
-            // No underscore: the method-call row uses it inside LIKE patterns.
+            // The method-call row uses the marker inside LIKE patterns, which match it literally (3.11.0).
             _marker = "cold" + Guid.NewGuid().ToString("N").Substring(0, 12);
             _seededPersonIds.Clear();
         }

@@ -8,7 +8,7 @@
     <RootNamespace>Funcular.Data.Orm</RootNamespace>
     <NoWarn>MSB3277;MSB3247;MSB3268;NU1701</NoWarn>
     <Copyright>Funcular Labs, Inc.</Copyright>
-    <Description>FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Includes SQL Server, PostgreSQL, and SQLite providers. Supports .NET 8, .NET Standard 2.0, and .NET Framework 4.8.</Description>
+    <Description>FunkyORM, a lightweight micro-ORM designed for simplicity and speed. Enables intuitive lambda-style queries and leverages conventions alongside annotations for seamless mappings. Features minimal setup, a gentle learning curve, and blazing-fast runtime performance. Includes the SQL Server, PostgreSQL, MySQL and SQLite providers for .NET 8 and .NET Standard 2.0; the .NET Framework 4.8 (net48) build carries the SQL Server provider only.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/FuncularLabs/Funcular.FunkyOrm</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -17,10 +17,10 @@
     <PackageTags>csharp;sql;orm;object-relational;database;entity;lambda;query</PackageTags>
     <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <Title>Funcular.FunkyORM</Title>
-    <Version>3.10.1</Version>
-    <AssemblyVersion>3.10.1.0</AssemblyVersion>
-    <FileVersion>3.10.1.0</FileVersion>
-    <InformationalVersion>3.10.1</InformationalVersion>
+    <Version>3.11.0</Version>
+    <AssemblyVersion>3.11.0.0</AssemblyVersion>
+    <FileVersion>3.11.0.0</FileVersion>
+    <InformationalVersion>3.11.0</InformationalVersion>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -114,8 +114,22 @@
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
   </ItemGroup>
 
+  <!-- The package bundles the PostgreSQL, MySQL and SQLite providers (the ProjectReferences above, PrivateAssets=all,
+       which keeps their own dependencies out of the nuspec), so it must declare their drivers itself (FD-05,
+       docs/plans/DECISIONS-3.10.2.md D-130): each at the minimum the provider project compiles against, never
+       floating, for net8.0 and netstandard2.0; net48 carries SQL Server only. PackagingTests pins the agreement. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Npgsql" Version="9.0.5" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="Npgsql" Version="8.0.9" />
     <PackageReference Include="System.Data.Common" Version="4.3.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net48'">
+    <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.32" />
   </ItemGroup>
 
 </Project>
