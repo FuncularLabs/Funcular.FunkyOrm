@@ -2,7 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.11.0] - Unreleased
+## [3.11.0] - 2026-10-19
+
+**Release notes.** WHERE predicates are evaluated through one shared code path for SELECT and DELETE, and for any
+update by predicate a later release adds (D-003): `Query(predicate)`, `Query<T>().Where(...)`, `Count`/`Any`/`All`,
+SELECT projections and `Delete`/`DeleteAsync` translate and evaluate a predicate identically, so a predicate selects
+exactly the rows it would delete. When a WHERE matches every row, only a mass mutation (`Delete`/`DeleteAsync` by
+predicate, and any update by predicate) is refused; a SELECT runs normally and returns every row (D-128). The shapes,
+the messages and the upgrade notes are under **Behaviour change** below; the decisions are recorded in
+docs/plans/DECISIONS-3.10.2.md.
 
 WHERE translation fixes for every provider (SQL Server, PostgreSQL, MySQL, SQLite). **Upgrade recommended:** the
 shapes under Fixed selected, and deleted, other rows than C# selects, without an error. One translation path serves
