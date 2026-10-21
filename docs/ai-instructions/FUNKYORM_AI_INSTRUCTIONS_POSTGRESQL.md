@@ -150,8 +150,8 @@ The `ISqlDialect.BuildJsonCollectionSubquery()` method handles this difference t
 ```csharp
 // Same C# code produces different SQL per provider
 [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-    columns: new[] { "Title", "Status", "DueDate" },
-    orderBy: "DueDate")]
+    Columns = new[] { "Title", "Status", "DueDate" },
+    OrderBy = "DueDate")]
 public string MilestonesJson { get; set; }
 ```
 

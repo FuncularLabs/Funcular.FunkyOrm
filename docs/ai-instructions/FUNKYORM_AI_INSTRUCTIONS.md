@@ -716,8 +716,8 @@ Replaces `OUTER APPLY` / correlated subqueries with an attribute-driven approach
     sourceType: typeof(ChildEntity),
     foreignKey: nameof(ChildEntity.ParentId),
     function: AggregateFunction.ConditionalCount,
-    conditionColumn: nameof(ChildEntity.Status),
-    conditionValue: "overdue")]
+    ConditionColumn = nameof(ChildEntity.Status),
+    ConditionValue = "overdue")]
 ```
 
 #### Parameters
@@ -727,8 +727,11 @@ Replaces `OUTER APPLY` / correlated subqueries with an attribute-driven approach
 | `sourceType` | Yes | The child entity type to aggregate over | `typeof(ProjectMilestoneEntity)` |
 | `foreignKey` | Yes | Property name on the child that references the parent PK | `nameof(ProjectMilestoneEntity.ProjectId)` |
 | `function` | Yes | Aggregate function to apply | `AggregateFunction.Count`, `.Sum`, `.Avg`, `.ConditionalCount` |
-| `conditionColumn` | No | Column to filter on (for conditional aggregates) | `nameof(ProjectMilestoneEntity.Status)` |
-| `conditionValue` | No | Value to match in the condition | `"overdue"`, `"completed"` |
+| `AggregateColumn` (property) | For `Sum`, `Avg` | Column to aggregate | `AggregateColumn = nameof(OrderLineEntity.Amount)` |
+| `ConditionColumn` (property) | For `ConditionalCount` | Column to filter on | `ConditionColumn = nameof(ProjectMilestoneEntity.Status)` |
+| `ConditionValue` (property) | For `ConditionalCount` | Value to match in the condition | `ConditionValue = "overdue"` |
+
+`sourceType`, `foreignKey` and `function` are constructor parameters; the other three are properties, set with `Name = value` (a `conditionColumn:` argument doesn't compile: CS1739).
 
 #### `AggregateFunction` Enum
 
@@ -769,24 +772,24 @@ public class ProjectScorecard : ProjectEntity
     /// <summary>Completed milestone count (conditional).</summary>
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status),
-        conditionValue: "completed")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status),
+        ConditionValue = "completed")]
     public int MilestonesCompleted { get; set; }
     // ? 2
 
     /// <summary>Overdue milestone count (conditional).</summary>
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status),
-        conditionValue: "overdue")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status),
+        ConditionValue = "overdue")]
     public int MilestonesOverdue { get; set; }
     // ? 1
 
     /// <summary>Risk-flagged note count (different child table).</summary>
     [SubqueryAggregate(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectNoteEntity.Category),
-        conditionValue: "risk")]
+        ConditionColumn = nameof(ProjectNoteEntity.Category),
+        ConditionValue = "risk")]
     public int RiskNoteCount { get; set; }
 }
 ```
@@ -820,8 +823,8 @@ Projects child records into a JSON array in a single column, replacing `FOR JSON
 [JsonCollection(
     sourceType: typeof(ChildEntity),
     foreignKey: nameof(ChildEntity.ParentId),
-    columns: new[] { "Column1", "Column2" },
-    orderBy: "Column1")]
+    Columns = new[] { "Column1", "Column2" },
+    OrderBy = "Column1")]
 ```
 
 #### Parameters
@@ -830,9 +833,10 @@ Projects child records into a JSON array in a single column, replacing `FOR JSON
 |:---|:---|:---|:---|
 | `sourceType` | Yes | Child entity type to project | `typeof(ProjectMilestoneEntity)` |
 | `foreignKey` | Yes | FK property linking child to parent | `nameof(ProjectMilestoneEntity.ProjectId)` |
-| `columns` | Yes | Property names to include in the JSON objects | `new[] { "Title", "Status", "DueDate" }` |
-| `orderBy` | No | Property name to order results by | `"DueDate"` |
-| `joins` | No | Additional entity types to JOIN within the subquery | `new[] { typeof(PersonEntity) }` |
+| `Columns` (property) | Yes | Property names of the child entity to include in the JSON objects | `Columns = new[] { "Title", "Status", "DueDate" }` |
+| `OrderBy` (property) | No | Property name to order results by | `OrderBy = "DueDate"` |
+
+`sourceType` and `foreignKey` are constructor parameters; `Columns` and `OrderBy` are properties, set with `Name = value`. The subquery reads the child table only: there is no `joins` option, so a column from another table (an author's name) isn't available inside a `[JsonCollection]`.
 
 #### Examples
 
@@ -842,15 +846,14 @@ public class ProjectScorecard : ProjectEntity
 {
     /// <summary>Milestones projected as a JSON array.</summary>
     [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-        columns: new[] { "Title", "Status", "DueDate", "CompletedDate" },
-        orderBy: "DueDate")]
+        Columns = new[] { "Title", "Status", "DueDate", "CompletedDate" },
+        OrderBy = "DueDate")]
     public string MilestonesJson { get; set; }
 
-    /// <summary>Notes projected as a JSON array with joined author name.</summary>
+    /// <summary>Notes projected as a JSON array (the child table's own columns).</summary>
     [JsonCollection(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
-        columns: new[] { "Content", "Category", "AuthorName", "DateUtcCreated" },
-        joins: new[] { typeof(PersonEntity) },
-        orderBy: "DateUtcCreated")]
+        Columns = new[] { "Content", "Category", "DateUtcCreated" },
+        OrderBy = "DateUtcCreated")]
     public string NotesJson { get; set; }
 }
 ```
@@ -937,30 +940,29 @@ public class ProjectScorecard : ProjectEntity
 
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status), conditionValue: "completed")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status), ConditionValue = "completed")]
     public int MilestonesCompleted { get; set; }
 
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status), conditionValue: "overdue")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status), ConditionValue = "overdue")]
     public int MilestonesOverdue { get; set; }
 
     [SubqueryAggregate(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectNoteEntity.Category), conditionValue: "risk")]
+        ConditionColumn = nameof(ProjectNoteEntity.Category), ConditionValue = "risk")]
     public int RiskNoteCount { get; set; }
 
     // ── Phase 4: JSON collection (✅) ──
 
     [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-        columns: new[] { "Title", "Status", "DueDate", "CompletedDate" },
-        orderBy: "DueDate")]
+        Columns = new[] { "Title", "Status", "DueDate", "CompletedDate" },
+        OrderBy = "DueDate")]
     public string MilestonesJson { get; set; }
 
     [JsonCollection(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
-        columns: new[] { "Content", "Category", "AuthorName", "DateUtcCreated" },
-        joins: new[] { typeof(PersonEntity) },
-        orderBy: "DateUtcCreated")]
+        Columns = new[] { "Content", "Category", "DateUtcCreated" },
+        OrderBy = "DateUtcCreated")]
     public string NotesJson { get; set; }
 }
 ```

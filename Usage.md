@@ -1343,7 +1343,7 @@ COALESCE([project].[computed_score], [project].[score]) AS [EffectiveScore]
 
 ### `[SubqueryAggregate]` — Correlated Scalar Subqueries
 
-Replaces `OUTER APPLY` with attribute-driven correlated subqueries. Generates a scalar subquery in the SELECT list.
+Replaces `OUTER APPLY` with attribute-driven correlated subqueries. Generates a scalar subquery in the SELECT list. The constructor takes the child type, its foreign key and the function; `AggregateColumn` (for `Sum`/`Avg`), `ConditionColumn` and `ConditionValue` (for `ConditionalCount`) are properties: `ConditionColumn = …`.
 
 ```csharp
 [Table("project")]
@@ -1357,15 +1357,15 @@ public class ProjectScorecard : ProjectEntity
     /// <summary>Completed milestone count (conditional).</summary>
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status),
-        conditionValue: "completed")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status),
+        ConditionValue = "completed")]
     public int MilestonesCompleted { get; set; }
 
     /// <summary>Overdue milestone count.</summary>
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status),
-        conditionValue: "overdue")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status),
+        ConditionValue = "overdue")]
     public int MilestonesOverdue { get; set; }
 }
 ```
@@ -1384,7 +1384,7 @@ FROM project
 
 ### `[JsonCollection]` — JSON Array Projection
 
-Projects child records into a JSON array column, replacing `FOR JSON PATH` (MSSQL) or `json_agg` (PostgreSQL) subqueries.
+Projects child records into a JSON array column, replacing `FOR JSON PATH` (MSSQL) or `json_agg` (PostgreSQL) subqueries. `Columns` and `OrderBy` are properties of the attribute (`Columns = …`, `OrderBy = …`), and the columns are the child table's own: the subquery joins nothing else.
 
 ```csharp
 [Table("project")]
@@ -1392,15 +1392,14 @@ public class ProjectScorecard : ProjectEntity
 {
     /// <summary>Milestones projected as a JSON array.</summary>
     [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-        columns: new[] { "Title", "Status", "DueDate", "CompletedDate" },
-        orderBy: "DueDate")]
+        Columns = new[] { "Title", "Status", "DueDate", "CompletedDate" },
+        OrderBy = "DueDate")]
     public string MilestonesJson { get; set; }
 
-    /// <summary>Notes with joined author name as a JSON array.</summary>
+    /// <summary>Notes as a JSON array (the child table's own columns).</summary>
     [JsonCollection(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
-        columns: new[] { "Content", "Category", "AuthorName", "DateUtcCreated" },
-        joins: new[] { typeof(PersonEntity) },
-        orderBy: "DateUtcCreated")]
+        Columns = new[] { "Content", "Category", "DateUtcCreated" },
+        OrderBy = "DateUtcCreated")]
     public string NotesJson { get; set; }
 }
 ```
