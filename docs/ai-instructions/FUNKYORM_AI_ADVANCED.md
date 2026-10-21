@@ -220,6 +220,7 @@ LINQ-to-objects.
 | A second `OrderBy`/`OrderByDescending` (even across `Where`/`Select`/`Distinct`) | One chain, primary key first: `query.OrderBy(later).ThenBy(earlier)` (LINQ makes the later ordering primary), keeping each earlier key's direction (`ThenByDescending` for a descending one). |
 | A predicate over a base-type or interface view (`IQueryable<Base> b = q; b.Where(x => …)`) | Apply it to the concrete `IQueryable<T>`, or use a generic helper constrained to a **base class** (`where TEntity : Base`). An interface-constrained helper fails in the WHERE translator. |
 | `Last()` after `Distinct()` + custom projection, with no `OrderBy` | Add `OrderBy` on a projected key before the `Select`. |
+| A sort helper that tests the object: `q is IOrderedQueryable<T> o ? o.ThenBy(k) : q.OrderBy(k)` (every query object is an `IOrderedQueryable<T>`, as on EF Core, so it takes `ThenBy` on an unordered query and System.Linq throws `ArgumentException`) | Test the expression: `q.Expression.Type == typeof(IOrderedQueryable<T>) ? ((IOrderedQueryable<T>)q).ThenBy(k) : q.OrderBy(k)` (GitHub #16; the same on EF Core). |
 
 ### ❌ Unlisted operators (throw, naming the operator)
 `Reverse`, `TakeWhile`, `SkipWhile`, `TakeLast`, `SkipLast`, `ElementAt*`, `Concat`, `Union`, `Intersect`,
