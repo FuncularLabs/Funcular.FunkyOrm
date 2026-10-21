@@ -10,6 +10,7 @@ Color? noColor = null;
 string a = "a";
 var ids = new int?[] { 1, 2 };
 var idsWithNull = new int?[] { 1, null };
+var onlyNull = new int?[] { null };
 var intIds = new[] { 1, 2 };
 
 var cases = new (string Name, Expression<Func<Row, bool>> Pred)[]
@@ -89,6 +90,22 @@ var cases = new (string Name, Expression<Func<Row, bool>> Pred)[]
     ("Id != none (non-null col)",     x => x.Id != none),
     ("Id == none (non-null col)",     x => x.Id == none),
     ("Name.Length == Name.Length",    x => x.Name!.Length == x.Name.Length),
+    ("Name.StartsWith(noName)",       x => x.Name!.StartsWith(noName!)),
+    ("!Name.StartsWith(noName)",      x => !x.Name!.StartsWith(noName!)),
+    ("!Name.EndsWith(noName)",        x => !x.Name!.EndsWith(noName!)),
+    ("Id == 2 && idsWithNull.Contains(N)", x => x.Id == 2 && idsWithNull.Contains(x.N)),
+    ("onlyNull.Contains(N)",          x => onlyNull.Contains(x.N)),
+    ("!onlyNull.Contains(N)",         x => !onlyNull.Contains(x.N)),
+    ("Req != noName",                 x => x.Req != noName),
+    ("Flag == false (bool?)",         x => x.Flag == false),
+    ("Flag != false (bool?)",         x => x.Flag != false),
+    ("N >= N",                        x => x.N >= x.N),
+    ("!(N >= N)",                     x => !(x.N >= x.N)),
+    ("(Id > 3 ? N : M) != 5",         x => (x.Id > 3 ? x.N : x.M) != 5),
+    ("Parent.Label != a",             x => x.Parent!.Label != a),
+    ("Parent.Code != 5 (int)",        x => x.Parent!.Code != 5),
+    ("Parent.Code == 0 (int)",        x => x.Parent!.Code == 0),
+    ("!Parent.B (bool)",              x => !x.Parent!.B),
 };
 
 foreach (var (label, factory) in new (string, Func<Ctx>)[] { ("SqlServer", () => new Ctx(true)), ("Sqlite", () => new Ctx(false)) })
@@ -128,6 +145,15 @@ public class Row
     public bool B { get; set; }
     public DateTime? D { get; set; }
     public Color? E { get; set; }
+    public int? ParentId { get; set; }
+    public Parent? Parent { get; set; }
+}
+public class Parent
+{
+    public int Id { get; set; }
+    public string? Label { get; set; }
+    public int Code { get; set; }
+    public bool B { get; set; }
 }
 public enum Color { Red, Green }
 
