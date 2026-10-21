@@ -105,7 +105,7 @@
 >   Also changed: the §4.2/§4.4 rows, the Task 12 status, and five §8 entries.
 
 > **Revision 30 (Task 12, owner decision 2026-10-01: parameterize ORDER BY values before the beta) — what changed:**
->   AC12-10, Task 12, §4.2/§4.4 rows. 3.11.0 confirmed by the owner for `UpdateWhere` and `[ReadModel]` (separate plan).
+>   AC12-10, Task 12, §4.2/§4.4 rows. 3.11.0 confirmed by the owner for `UpdateWhere` and `[ReadModel]` (separate plan). *(2026-10-20: `[ReadModel]` withdrawn by the owner, an agent proposal and not part of the framework's design; neither item shipped in 3.11.0.)*
 
 > **Revision 29 (verification v7 of `de9bf1e..6d64733`, 2026-10-01) — what changed:** every Changelog sentence
 >   was confirmed by execution. One plan ledger line was corrected (§9.32), and a pre-existing `.HasValue` defect was
