@@ -47,11 +47,13 @@ parentheses.
 - **A `bool` compared with a predicate** compares the predicate's two-valued value, as EF does:
   `x.Name.Contains(a) == false` is `!x.Name.Contains(a)`; `(x.N == 5) == (x.M == 5)` is
   `CASE WHEN n = @p THEN @t ELSE @f END = CASE WHEN m = @p THEN @t ELSE @f END`, and `x.Flag == (x.N > 5)` is
-  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent `a = b = c` without parentheses: a
-  syntax error on SQL Server and PostgreSQL; SQLite and MySQL read it left to right, `(a = b) = c`, which isn't C#'s
-  comparison and can select other rows, whether or not an operand is null, unless each side's operator binds tighter
-  than `=` (on SQLite `<` and `>` do; over NOT NULL columns `(x.Id == 1) == (x.Code == 5)` selected no row of a
-  SQLite test table where C# selects three), and a null operand made it wrong there too. A `bool`
+  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent `a = b = c` without parentheses,
+  which each database reads by its own precedence: SQL Server rejected it, and so did PostgreSQL for most such shapes
+  (a `LIKE` or an `IN` binds tighter than `=` there); SQLite and MySQL read it left to right, `(a = b) = c`, which
+  splits a predicate on the right of the `==` (on SQLite unless its operator is `<`, `<=`, `>` or `>=`, which bind
+  tighter), so over NOT NULL columns `x.Flag == (x.Code == 5)` and `(x.Id < 3) == (x.Code == 5)` selected no row of a
+  SQLite test table where C# selects four or five; a predicate on the left compared with a column or a value read as
+  C#'s, wrong only where an operand was null. A `bool`
   column, `!` of one, and a conditional are values, not predicates: `!x.Active == true` and
   `(x.Id > 2 ? x.Active : false) == true` are compared as they were, which SQL Server requires.
 - **`!` of a column in a comparison** is compared as C# lifts it: `!x.Flag != true` also selects the NULL flags,
@@ -101,7 +103,7 @@ parentheses.
 
   The guard still proves only the plain always-true shapes (see Known issues), so a delete that is always true only
   once NULLs count is accepted and now deletes every row.
-- **SQL text that changes where the rows don't:**
+- **SQL text that changes, where the rows don't or as stated:**
   - a conditional's test, or a branch of a `bool` conditional in a truth position (the predicate itself, or an
     operand of `&&`, `||` or `!` there), that doesn't read the row is sent as `NOT 1=0` / `1=0`, not as parameters.
     That includes a part a cast hid: a conditional that a cast back to `bool` kept in a value position
@@ -123,7 +125,9 @@ parentheses.
     and a `bool` column compared with one compares its `CASE` (`x.Flag == (x.N > 5)` is
     `flag = CASE WHEN n > @p THEN @t ELSE @f END`, was `flag = n > @p`);
   - an integer's `ToString()` over a value that can be NULL is `COALESCE(…, '')`, as EF sends, so a missing
-    parent's `[RemoteProperty] int` compares as `''` (3.11.0: a bare `CAST`, NULL).
+    parent's `[RemoteProperty] int`, or an `[SqlExpression]` integer whose SQL is NULL, compares as `''` (3.11.0: a
+    bare `CAST`, NULL; an `int?` column already sent the `COALESCE`). **The rows change:** `ToString() == ""` now
+    selects those rows, where 3.11.0 selected none, and a delete over a computed integer deletes them.
 
 ### Changed
 - **Shapes that failed now run.** On PostgreSQL a comparison with a variable holding null (`x.N == none`) failed

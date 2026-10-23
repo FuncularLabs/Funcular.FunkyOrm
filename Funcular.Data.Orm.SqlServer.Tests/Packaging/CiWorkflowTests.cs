@@ -125,7 +125,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
         /// Task 8 (T8B-1): each test job's gate step runs as written, as GitHub's pwsh shell runs it (the step's text in a
         /// file, under <c>$ErrorActionPreference = 'stop'</c>, dot-sourced from the repository root), on a TRX in which every
         /// test passed. A step PowerShell can't parse, such as one with an extra parenthesis, fails its job on every run
-        /// whatever the tests do, and <c>publish</c>, which needs every test job, never runs.
+        /// whatever the tests do, and <c>publish</c>, which needs every test job, never runs; so does a step without
+        /// <c>shell: pwsh</c>, which an ubuntu runner hands to bash (T8C-4).
         /// </summary>
         [DataTestMethod]
         [DataRow("test-net8")]
@@ -139,6 +140,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             Assert.IsTrue(name >= 0, jobName + " has no gate step");
             var run = lines.FindIndex(name, l => l.Trim() == "run: |");
             Assert.IsTrue(run > name, jobName + "'s gate step has no run block");
+            // Task 8 (T8C-4): the step runs under pwsh only because it says so; on an ubuntu runner bash would run it.
+            Assert.IsTrue(lines.Skip(name + 1).Take(run - name - 1).Any(l => l.Trim() == "shell: pwsh"),
+                jobName + "'s gate step doesn't declare shell: pwsh");
             var indent = lines[run].Length - lines[run].TrimStart().Length;
             var block = lines.Skip(run + 1).TakeWhile(l => l.Trim().Length == 0 || l.Length - l.TrimStart().Length > indent).ToList();
             var margin = block.Where(l => l.Trim().Length > 0).Min(l => l.Length - l.TrimStart().Length);

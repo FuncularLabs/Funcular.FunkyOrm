@@ -2620,7 +2620,8 @@ code is the frozen rev 23 tree's (line endings aside); each commit builds and pa
 (`046232c` 552 and 1,479, `f9b2b25` 566 and 1,479, net48 53 at both); its own fuzzer ran 58,665 predicates through
 SQLite's real provider on 3.11.0 and 3.12.0 (every path, deletes rolled back) and the other three visitors offline:
 no wrong rows, no over-deletion, no new exception, every new refusal always true in C#, every new acceptance
-`!onlyNull.Contains(…)` with C#'s rows; a fresh pack holds 11 DLLs, all 3.12.0. **Lens B** (the release): the package
+`!onlyNull.Contains(…)` with C#'s rows; a fresh pack holds 12 DLLs (2 for net48, 5 for net8.0, 5 for netstandard2.0),
+all 3.12.0 (lens C's count; lens A said 11). **Lens B** (the release): the package
 right (versions, dependencies, nothing private), but one CI line and two user-document statements false.
 
 | # | Sev | Blame | Finding | Disposition |
@@ -2630,11 +2631,27 @@ right (versions, dependencies, nothing private), but one CI line and two user-do
 | T8B-3 | Major | TEST-GAP | "Every comparison whose operands can't be null is unchanged" and "wrong rows elsewhere when an operand was null" were false for a `bool` compared with a predicate: 3.11.0 sent `a = b = c` without parentheses, which SQLite and MySQL read as `(a = b) = c`, other rows than C#'s with no NULL anywhere (lens B: `(x.Id == 1) == (x.Code == 5)` over NOT NULL columns, 3.11.0 `[]`, C# and 3.12.0 `[1,2,6]`) | The Changelog's opening sentence and the `bool` bullet, and Usage.md's "What to expect" bullet, now say it changed whether or not an operand is null, and why (§3's precedence caveat restored) |
 | T8B-4 | Nit | OTHER | ci.yml's comments: the PostgreSQL allowlist "re-derived on this job's first run" (it has never run), the moved jobs' commands "unchanged" (they gained `--results-directory`) | Reworded |
 | T8B-5 | Nit | OTHER | The Changelog's Fixed entry named only the `[SubqueryAggregate]` examples; R2 corrected the `[JsonCollection]` ones too | The entry names both |
-| T8A-1 | Minor | TEST-GAP | `Fold_OfALongChainOfCapturedOperands_StaysLinear`'s bound (four times the row chain plus 15 ms) failed once by 0.8 ms under load: the linear fold takes six to eight times the row chain's time, so a slow CI runner could block `publish` | The bound is ten times plus 50 ms; Z34 (the quadratic walk it guards) still fails it (`mutations-t8-z34.md`: 2 failed, this test and `Fold_AsksASmallOperandFirst_UpToItsBound`) |
+| T8A-1 | Minor | TEST-GAP | `Fold_OfALongChainOfCapturedOperands_StaysLinear`'s bound (four times the row chain plus 15 ms) failed once by 0.8 ms under load: the linear fold takes six to eight times the row chain's time, so a slow CI runner could block `publish` | The bound is ten times plus 50 ms. Z34 (the quadratic walk it guards) still fails it in Debug, the mutation runner's build (`mutations-t8-z34.md`: 2 failed, this test and `Fold_AsksASmallOperandFirst_UpToItsBound`); in Release, which `test-net8` runs, the 50 ms swamps Z34's slowdown and the test passes under Z34, which `Fold_AsksASmallOperandFirst_UpToItsBound` still kills there (lens C, T8C-3): the timing test is a coarse guard, the deterministic one the proof |
 | T8A-2 | Nit | OTHER | `FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md`, which the package ships, held five cp1252 dashes (`0x97`), invalid UTF-8 (since before 3.11.0) | Each repaired as the em dash it was; the file decodes as UTF-8 |
 
 The fix layer is one commit on `f9b2b25`; a fresh non-author pass over it, and over the whole range for the release's
 classes, gives the push its verdict.
+
+**Lens C** (a fresh non-author pass over the fix layer `f9b2b25..cd07f8a` and the release at `cd07f8a`, 15:35): NOT
+CLEAN, 2 Major, 2 Minor, 1 Nit. T8B-1, T8B-2, T8B-4, T8B-5 and T8A-2 resolved (T8B-1 red with the `)` put back, on
+exactly the two jobs; each gate step replayed as GitHub runs it, green on the author's TRX files and red on one
+unlisted inconclusive); every commit builds and passes its DB-free and SQLite tests; the package's 12 DLLs all
+3.12.0, its 12 documents valid UTF-8.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8C-1 | Major | TEST-GAP | T8B-3's new text said `(a = b) = c` selects other rows "unless each side's operator binds tighter than `=`": only the right-hand operand matters; a predicate on the left compared with a column or a value read as C#'s (`(x.Code == 5) == x.Flag`, `x.Name.Contains(a) == false`), and `LIKE` binds tighter than `=` on PostgreSQL (**fix-introduced**) | The bullet restated from lens C's SQLite measurements: SQL Server rejected `a = b = c`, PostgreSQL for most shapes (`LIKE`, `IN` bind tighter); SQLite and MySQL split a predicate on the right (on SQLite unless `<`, `<=`, `>`, `>=`), `x.Flag == (x.Code == 5)` and `(x.Id < 3) == (x.Code == 5)` selecting no row where C# selects four or five; a predicate on the left wrong only with a null operand. Usage.md's sentence says "splitting the predicate on the right" |
+| T8C-2 | Major | TEST-GAP | The Changelog filed R4-10 (a computed or remote integer's `ToString()` as `COALESCE(…, '')`) under "SQL text that changes where the rows don't", but `ToString() == ""` now selects, and deletes, the rows whose value is NULL (3.11.0: none); missed by lenses A and B | The sub-list is "SQL text that changes, where the rows don't or as stated", and the bullet states the row change (`int?` columns already sent the `COALESCE`) |
+| T8C-3 | Minor | TEST-GAP | T8A-1's "the mutant it guards still fails it" holds in Debug only: in Release the 50 ms swamps Z34's slowdown | The record says so: Z34 fails the timing test in Debug and is killed in Release by `Fold_AsksASmallOperandFirst_UpToItsBound`; the timing test is a coarse guard |
+| T8C-4 | Minor | TEST-GAP | `EveryTestJob_GateStepRunsAsWritten` ran each step under pwsh whatever its `shell:`, so a step without `shell: pwsh`, which an ubuntu runner hands to bash, would stay green | The test asserts each gate step declares `shell: pwsh`: red with it removed from `test-postgresql` (`red-t8c4.txt`), green restored |
+| T8C-5 | Nit | OTHER | The record said 11 DLLs; the package holds 12 | Corrected |
+
+The second fix layer is one commit on `cd07f8a`; a fresh non-author pass over it gives the push its verdict.
 
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
@@ -2642,6 +2659,6 @@ TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

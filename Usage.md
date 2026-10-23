@@ -394,8 +394,9 @@ What to expect:
 - **`==` against a value that isn't null doesn't change**, and neither does a comparison of columns that can't be
   null, except with null (`p.Id == none` is `1=0`) and a `bool` compared with a predicate. A `!=`, a `!` and a
   comparison with null change where a column can be null. A `bool` compared with a predicate,
-  `(p.HospitalId == 5) == (p.Id == 1)`, changes whether or not a column can be null: 3.11.0 sent it as `a = b = c`, an
-  error on SQL Server and PostgreSQL, which SQLite and MySQL read as `(a = b) = c`, not C#'s comparison.
+  `(p.HospitalId == 5) == (p.Id == 1)`, is sent differently whether or not a column can be null: 3.11.0 sent this one
+  as `a = b = c`, an error on SQL Server and PostgreSQL, which SQLite and MySQL read as `(a = b) = c`, splitting the
+  predicate on the right.
 - **Every string column counts as able to be null**, because FunkyORM doesn't read the schema's `NOT NULL`. So
   `p.LastName != "x"` gains `OR person.last_name IS NULL` even on a required column: the same rows, more SQL.
 - **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital.
