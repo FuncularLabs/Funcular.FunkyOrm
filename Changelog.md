@@ -15,7 +15,8 @@ rows and deletes remove more rows wherever these shapes appear, which is why thi
 ### Behaviour change
 
 The rows each shape selects, and deletes, are C#'s (EF Core's). `==` against a non-null value is unchanged, as is every
-comparison whose operands can't be null.
+comparison whose operands can't be null, but a `bool` compared with a predicate (below), which 3.11.0 sent without
+parentheses.
 - **`!=` also selects the rows where the column is NULL:** `x.N != 5` sends `(n != @p OR n IS NULL)`. So does a
   `bool?` (`x.Flag != true`), an enum (`x.E != Color.Red`), a date part or `Length` of a column that can be null, a
   conditional with a branch that can be null, and a `[RemoteProperty]`, `[RemoteKey]`, `[JsonPath]`,
@@ -46,8 +47,11 @@ comparison whose operands can't be null.
 - **A `bool` compared with a predicate** compares the predicate's two-valued value, as EF does:
   `x.Name.Contains(a) == false` is `!x.Name.Contains(a)`; `(x.N == 5) == (x.M == 5)` is
   `CASE WHEN n = @p THEN @t ELSE @f END = CASE WHEN m = @p THEN @t ELSE @f END`, and `x.Flag == (x.N > 5)` is
-  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent `a = b = c`, a syntax error on
-  SQL Server and PostgreSQL and wrong rows elsewhere when an operand was null. A `bool`
+  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent `a = b = c` without parentheses: a
+  syntax error on SQL Server and PostgreSQL; SQLite and MySQL read it left to right, `(a = b) = c`, which isn't C#'s
+  comparison and can select other rows, whether or not an operand is null, unless each side's operator binds tighter
+  than `=` (on SQLite `<` and `>` do; over NOT NULL columns `(x.Id == 1) == (x.Code == 5)` selected no row of a
+  SQLite test table where C# selects three), and a null operand made it wrong there too. A `bool`
   column, `!` of one, and a conditional are values, not predicates: `!x.Active == true` and
   `(x.Id > 2 ? x.Active : false) == true` are compared as they were, which SQL Server requires.
 - **`!` of a column in a comparison** is compared as C# lifts it: `!x.Flag != true` also selects the NULL flags,
@@ -152,8 +156,10 @@ comparison whose operands can't be null.
 - **`All` counted a row whose predicate SQL was unknown as satisfying it** (3.11.0's Known issue): see Behaviour
   change.
 - **The `[SubqueryAggregate]` conditional-count examples** in Usage.md and the AI instructions named constructor
-  parameters that don't exist, and didn't compile. They use the `ConditionColumn`/`ConditionValue` properties, and a
-  test now checks every attribute example in the documents against the attributes' constructors and properties.
+  parameters that don't exist, and didn't compile. They use the `ConditionColumn`/`ConditionValue` properties. So
+  did the `[JsonCollection]` examples: `Columns` and `OrderBy` are properties, and the `joins:` option they showed
+  doesn't exist. A test now checks every attribute example in the documents against the attributes' constructors
+  and properties.
 - **A sort helper that tests `query is IOrderedQueryable<T>` throws** on a composed query (GitHub #16). EF Core
   behaves the same way, so the behaviour is kept; Advanced.md §5 explains why and gives the check that works
   (`query.Expression.Type == typeof(IOrderedQueryable<T>)`).

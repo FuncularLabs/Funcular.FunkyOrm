@@ -392,14 +392,17 @@ the other providers send the same shapes.
 
 What to expect:
 - **`==` against a value that isn't null doesn't change**, and neither does a comparison of columns that can't be
-  null, except with null (`p.Id == none` is `1=0`). A `!=`, a `!`, a comparison with null, and a `bool` compared with
-  a predicate change, where a column can be null.
+  null, except with null (`p.Id == none` is `1=0`) and a `bool` compared with a predicate. A `!=`, a `!` and a
+  comparison with null change where a column can be null. A `bool` compared with a predicate,
+  `(p.HospitalId == 5) == (p.Id == 1)`, changes whether or not a column can be null: 3.11.0 sent it as `a = b = c`, an
+  error on SQL Server and PostgreSQL, which SQLite and MySQL read as `(a = b) = c`, not C#'s comparison.
 - **Every string column counts as able to be null**, because FunkyORM doesn't read the schema's `NOT NULL`. So
   `p.LastName != "x"` gains `OR person.last_name IS NULL` even on a required column: the same rows, more SQL.
 - **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital.
 - **Deletes follow the same rows.** `Delete(p => p.HospitalId != 5)` also deletes the people with no hospital, as C#
-  would select them. A delete that this makes always true is refused, like any other all-rows delete: for example
-  `Delete(p => !p.MiddleInitial.Contains(filter))` with `filter == null`.
+  would select them. The guard refuses only the plain all-rows shapes: `Delete(p => !p.MiddleInitial.Contains(filter))`
+  with `filter == null` is refused, but `Delete(p => p.HospitalId == 5 || p.HospitalId != 5)`, true for every row once
+  NULLs count, is accepted and deletes everyone (see the Changelog's Known issues).
 - Before 3.12.0 these shapes dropped the NULL rows, and on PostgreSQL a comparison with a variable holding null
   failed with error 42883. The Changelog's 3.12.0 entry lists every shape that changes.
 

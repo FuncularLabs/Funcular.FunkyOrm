@@ -121,6 +121,57 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             StringAssert.Contains(job, "./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx", jobName + " doesn't run the TRX gate");
         }
 
+        /// <summary>
+        /// Task 8 (T8B-1): each test job's gate step runs as written, as GitHub's pwsh shell runs it (the step's text in a
+        /// file, under <c>$ErrorActionPreference = 'stop'</c>, dot-sourced from the repository root), on a TRX in which every
+        /// test passed. A step PowerShell can't parse, such as one with an extra parenthesis, fails its job on every run
+        /// whatever the tests do, and <c>publish</c>, which needs every test job, never runs.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("test-net8")]
+        [DataRow("test-sqlite")]
+        [DataRow("test-postgresql")]
+        [DataRow("test-mysql")]
+        public void EveryTestJob_GateStepRunsAsWritten(string jobName)
+        {
+            var lines = Jobs(CiText)[jobName].Split('\n').ToList();
+            var name = lines.FindIndex(l => l.Trim() == "- name: Every test ran (the TRX gate)");
+            Assert.IsTrue(name >= 0, jobName + " has no gate step");
+            var run = lines.FindIndex(name, l => l.Trim() == "run: |");
+            Assert.IsTrue(run > name, jobName + "'s gate step has no run block");
+            var indent = lines[run].Length - lines[run].TrimStart().Length;
+            var block = lines.Skip(run + 1).TakeWhile(l => l.Trim().Length == 0 || l.Length - l.TrimStart().Length > indent).ToList();
+            var margin = block.Where(l => l.Trim().Length > 0).Min(l => l.Length - l.TrimStart().Length);
+            var step = string.Join("\n", block.Select(l => l.Length >= margin ? l.Substring(margin) : l.TrimStart()));
+            var directory = Path.Combine(Path.GetTempPath(), "funky_gate_step_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(directory, ".github", "scripts"));
+                Directory.CreateDirectory(Path.Combine(directory, "TestResults"));
+                File.Copy(GateScript, Path.Combine(directory, ".github", "scripts", "Assert-TestsRan.ps1"));
+                File.WriteAllText(Path.Combine(directory, "TestResults", "test-results.trx"), Trx(new[] { "Ns.A", "M", "Passed" }));
+                File.WriteAllText(Path.Combine(directory, "step.ps1"), "$ErrorActionPreference = 'stop'\n" + step +
+                    "\nif ((Test-Path -LiteralPath variable:\\LASTEXITCODE)) { exit $LASTEXITCODE }\n");
+                var info = new System.Diagnostics.ProcessStartInfo("pwsh", "-NoProfile -NonInteractive -Command \". './step.ps1'\"")
+                {
+                    WorkingDirectory = directory,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                };
+                using (var process = System.Diagnostics.Process.Start(info))
+                {
+                    var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    Assert.AreEqual(0, process.ExitCode, jobName + "'s gate step fails on a run where every test passed:\n" + step + "\n" + output);
+                }
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
         /// <summary>No test job can pass while its tests fail or don't run: no continue-on-error, no `|| true`, no job-level if.</summary>
         [TestMethod]
         public void TestJobs_NeverHideAFailure()

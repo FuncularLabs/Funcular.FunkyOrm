@@ -2612,12 +2612,36 @@ MySQL command. The Minor and the Nit are fixed without another round, as the exi
 | R23-1 | Minor | TEST-GAP | The long-chain Known issue exempted SQL Server and SQLite, which holds only on a large enough stack: on a 512 KB thread every visitor stops at about 760–780 operands (3.11.0: about 900–910), 593 nested to the right (3.11.0: 952), before both databases' own limits; SQLite's right-deep limit is 831 ("Recursion limit"), not 1,000; "Windows' default 1.5 MB" is the .NET apphost's (`w3wp.exe` declares 512 KB) (**fix-introduced**: rev 23's text) | The author's own measurement (`depth22\phase512.py`, `depth23-512.tsv`, `depth23-768.tsv`) reproduces the 512 KB numbers exactly (SQL Server's visitor 761 against 898, right-deep 593 against 952; SQLite's 777 against 909) and finds rev 23 past every SQL Server and SQLite limit from 768 KB (1,179 left-deep, 902 right-deep); the Known issue now states the 1.5 MB case for PostgreSQL and MySQL, SQL Server's and SQLite's limits there, and the smaller-stack case for every provider. The limit itself stays (the owner's ruling) |
 | R23-2 | Nit | OTHER | §6.4's D111 is D102's twin (the same two failures), D108 is labelled X22-4 though X22-4 dropped the fallback and threw, and the loop's getter and setter arms had no mutant (round 23's X23-2 and X23-3, killed) | §6.4: D111 noted as D102's twin, D108 relabelled, X23-2 and X23-3 recorded as round 23's, killed by the two R22-1 tests in its run |
 
+### Task 8 (two fresh non-author lenses over `25956e0..f9b2b25`, 2026-10-23 15:03): lens A CLEAN, lens B NOT CLEAN (3 Major)
+
+Judged by the owner's exit rule, with the release's own blocking classes (a package or CI defect, a private detail in a
+public file, a commit that fails its own tests). **Lens A** (the code, commit by commit): CLEAN, 0 Major. `f9b2b25`'s
+code is the frozen rev 23 tree's (line endings aside); each commit builds and passes its DB-free and SQLite tests
+(`046232c` 552 and 1,479, `f9b2b25` 566 and 1,479, net48 53 at both); its own fuzzer ran 58,665 predicates through
+SQLite's real provider on 3.11.0 and 3.12.0 (every path, deletes rolled back) and the other three visitors offline:
+no wrong rows, no over-deletion, no new exception, every new refusal always true in C#, every new acceptance
+`!onlyNull.Contains(…)` with C#'s rows; a fresh pack holds 11 DLLs, all 3.12.0. **Lens B** (the release): the package
+right (versions, dependencies, nothing private), but one CI line and two user-document statements false.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8B-1 | Major | TEST-GAP | The TRX-gate steps of `test-net8` and `test-postgresql` ended their allow list with one `)` too many: PowerShell can't parse them, so both jobs fail on every run and `publish`, which needs them, never runs; `CiWorkflowTests` read the step's text only, and the author's gate runs called the script directly | The extra `)` removed; `CiWorkflowTests.EveryTestJob_GateStepRunsAsWritten` runs each job's gate step as GitHub's pwsh shell does (its text in a file, `$ErrorActionPreference = 'stop'`, dot-sourced from a copy of the repository root) on a TRX where every test passed: red on exactly `test-net8` and `test-postgresql` (`ParserError … Unexpected token ')'`, `red-t8-gate.txt`), green after |
+| T8B-2 | Major | TEST-GAP | Usage.md ("A delete that this makes always true is refused") and the AI instructions ("refused if that makes it always true") promised what the Changelog's Known issue denies: `p.HospitalId == 5 \|\| p.HospitalId != 5` is accepted and deletes every row | Both say the guard refuses only the plain all-rows shapes, keep the refused `!Contains(null)` example, and name the accepted one, pointing to the Known issue |
+| T8B-3 | Major | TEST-GAP | "Every comparison whose operands can't be null is unchanged" and "wrong rows elsewhere when an operand was null" were false for a `bool` compared with a predicate: 3.11.0 sent `a = b = c` without parentheses, which SQLite and MySQL read as `(a = b) = c`, other rows than C#'s with no NULL anywhere (lens B: `(x.Id == 1) == (x.Code == 5)` over NOT NULL columns, 3.11.0 `[]`, C# and 3.12.0 `[1,2,6]`) | The Changelog's opening sentence and the `bool` bullet, and Usage.md's "What to expect" bullet, now say it changed whether or not an operand is null, and why (§3's precedence caveat restored) |
+| T8B-4 | Nit | OTHER | ci.yml's comments: the PostgreSQL allowlist "re-derived on this job's first run" (it has never run), the moved jobs' commands "unchanged" (they gained `--results-directory`) | Reworded |
+| T8B-5 | Nit | OTHER | The Changelog's Fixed entry named only the `[SubqueryAggregate]` examples; R2 corrected the `[JsonCollection]` ones too | The entry names both |
+| T8A-1 | Minor | TEST-GAP | `Fold_OfALongChainOfCapturedOperands_StaysLinear`'s bound (four times the row chain plus 15 ms) failed once by 0.8 ms under load: the linear fold takes six to eight times the row chain's time, so a slow CI runner could block `publish` | The bound is ten times plus 50 ms; Z34 (the quadratic walk it guards) still fails it (`mutations-t8-z34.md`: 2 failed, this test and `Fold_AsksASmallOperandFirst_UpToItsBound`) |
+| T8A-2 | Nit | OTHER | `FUNKYORM_AI_INSTRUCTIONS_POSTGRESQL.md`, which the package ships, held five cp1252 dashes (`0x97`), invalid UTF-8 (since before 3.11.0) | Each repaired as the em dash it was; the file decodes as UTF-8 |
+
+The fix layer is one commit on `f9b2b25`; a fresh non-author pass over it, and over the whole range for the release's
+classes, gives the push its verdict.
+
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
 TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1, OTHER 1. Round 7: TEST-GAP 3,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

@@ -54,7 +54,7 @@ jobs:
         ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx -Allow @(
           'Funcular.Data.Orm.SqlServer.Tests.CapturedValues.SqlServerCapturedValueTests.Projection_BoolValue_GetsCSharpsValue',
           'Funcular.Data.Orm.SqlServer.Tests.Caching.ProviderScopedCacheSqlServerTests.SqlServerThenPostgreSql_SameEntity_BothQueriesRun',
-          'Funcular.Data.Orm.SqlServer.Tests.RemoteFeaturesTests.RemoteProperty_IsPopulated_OnQuery'))
+          'Funcular.Data.Orm.SqlServer.Tests.RemoteFeaturesTests.RemoteProperty_IsPopulated_OnQuery')
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -89,7 +89,8 @@ jobs:
         name: sqlite-test-results
         path: '**/test-results.trx'
 
-  # Moved from build-and-test-postgresql.yml (3.12.0); the service, scripts and command are unchanged.
+  # Moved from build-and-test-postgresql.yml (3.12.0); the service and scripts are unchanged, and the command gains the TRX's
+  # --results-directory for the gate.
   test-postgresql:
     runs-on: ubuntu-latest
     services:
@@ -132,14 +133,14 @@ jobs:
         Funcular.Data.Orm.PostgreSql.Tests/Funcular.Data.Orm.PostgreSql.Tests.csproj
         --no-build --configuration Release --verbosity normal
         --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
-    # Allowed: the seed has no populated remote chain for these three (re-derived on this job's first run, 3.12.0).
+    # Allowed: the seed has no populated remote chain for these three (from the PostgreSQL workflow's runs before 3.12.0).
     - name: Every test ran (the TRX gate)
       shell: pwsh
       run: |
         ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx -Allow @(
           'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.RemoteProperty_IsPopulated_OnQuery',
           'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.RemoteKey_IsPopulated_OnQuery',
-          'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.CanFilterBy_RemoteProperty'))
+          'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.CanFilterBy_RemoteProperty')
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -147,7 +148,8 @@ jobs:
         name: postgresql-test-results
         path: '**/test-results.trx'
 
-  # Moved from build-and-test-mysql.yml (3.12.0); the service, scripts, command and filter are unchanged.
+  # Moved from build-and-test-mysql.yml (3.12.0); the service, scripts and filter are unchanged, and the command gains the
+  # TRX's --results-directory for the gate.
   test-mysql:
     runs-on: ubuntu-latest
     services:
