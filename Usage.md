@@ -391,12 +391,12 @@ the other providers send the same shapes.
 <!-- funky:null-semantics:end -->
 
 What to expect:
-- **`==` against a value that isn't null doesn't change**, and neither does a comparison of columns that can't be
-  null, except with null (`p.Id == none` is `1=0`) and a `bool` compared with a predicate. A `!=`, a `!` and a
-  comparison with null change where a column can be null. A `bool` compared with a predicate,
-  `(p.HospitalId == 5) == (p.Id == 1)`, is sent differently whether or not a column can be null: 3.11.0 sent this one
-  as `a = b = c`, an error on SQL Server and PostgreSQL, which SQLite and MySQL read as `(a = b) = c`, splitting the
-  predicate on the right.
+- **A column compared by `==` with a value that isn't null doesn't change** (`p.HospitalId == 5`). The shapes that
+  change are listed in the Changelog's 3.12.0 entry: among them a `!=`, a `!` and a comparison with null where a
+  column can be null, a conditional whose test is one of these, a remote or computed integer's `ToString()`, and a
+  `bool` compared with a predicate, `(p.HospitalId == 5) == (p.Id == 1)`, whether or not a column can be null:
+  3.11.0 sent this one as `a = b = c`, an error on SQL Server and PostgreSQL, which SQLite and MySQL read as
+  `(a = b) = c`, splitting the predicate on the right.
 - **Every string column counts as able to be null**, because FunkyORM doesn't read the schema's `NOT NULL`. So
   `p.LastName != "x"` gains `OR person.last_name IS NULL` even on a required column: the same rows, more SQL.
 - **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital.

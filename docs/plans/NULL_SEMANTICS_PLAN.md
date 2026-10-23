@@ -2653,12 +2653,26 @@ unlisted inconclusive); every commit builds and passes its DB-free and SQLite te
 
 The second fix layer is one commit on `cd07f8a`; a fresh non-author pass over it gives the push its verdict.
 
+**Lens D** (a fresh non-author pass over `cd07f8a..e68b2e4` and the release at `e68b2e4`, 16:05): NOT CLEAN, 1 Major,
+1 Minor, 1 Nit. The release verified clean (the build, DB-free 693 and SQLite 1,479, every gate step replayed green and
+red on a planted inconclusive, the package 3.12.0 throughout, the commits, nothing private); T8C-3..T8C-5 resolved,
+T8C-1 and T8C-2 partial.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8D-1 | Major | TEST-GAP | "`==` against a non-null value is unchanged" (the Changelog's Behaviour change opener, Usage.md's "What to expect", the shipped AI instructions) is false for a conditional whose test changes, `(x.N != 5 ? 1 : 0) == 1` (SQLite: 3.11.0 [2,5,6,7], 3.12.0 and C# [2,3,4,5,6,7]), and a computed or remote integer's `ToString() == ""`, both documented elsewhere in the same Changelog; there since `f9b2b25` | All three say "a column compared by `==` with a value that isn't null (`x.N == 5`) is unchanged" and point to the Changelog's list (Usage.md names the families, these two among them). The author's sweep of the section for other blanket claims found one more: "queries return more rows" (the release notes, README's 3.12.0 line), false for a complement shape (`!x.Flag == null`, was `NOT flag IS NULL`); both now say C#'s rows, most often more |
+| T8D-2 | Minor | TEST-GAP | The restated `a = b = c` rule was imprecise: 3.11.0 kept parentheses around `&&`/`\|\|`, SQLite reads a `!` on the right as a prefix, MySQL's grammar takes a whole `LIKE`/`IN` predicate on the right, and PostgreSQL ran a null test on the right with other rows (**fix-introduced**: T8C-1's text) | Shortened to what is certain: 3.11.0 kept parentheses only around `&&` and `\|\|`; SQL Server rejected the comparison, PostgreSQL two comparisons in a row; on SQLite and MySQL some shapes selected other rows with no NULL (the two measured examples), others where an operand was null. `e68b2e4`'s commit message keeps the longer rule (a record) |
+| T8D-3 | Nit | OTHER | The timing test's comment still called it a timing proof | It is a smoke check; the comment names `Fold_AsksASmallOperandFirst_UpToItsBound` as Z34's pin |
+
+The third fix layer is one commit on `e68b2e4`. Each lens so far found statements in the user documents that the one
+before it missed, so the next pass reads every sentence of the 3.12.0 user text, not only the fix layer.
+
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
 TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1, OTHER 1. Round 7: TEST-GAP 3,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

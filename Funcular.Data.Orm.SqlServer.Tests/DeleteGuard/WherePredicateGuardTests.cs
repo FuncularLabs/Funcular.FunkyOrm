@@ -1385,9 +1385,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         /// <summary>
         /// 3.12.0 R10-4: the fold's order (a small captured operand first) is decided per level without walking the rest of
         /// the chain, so a long chain whose right operands are captured costs about what one whose operands read the row
-        /// does. A timing proof, best of five, with a wide margin: the walk made it about twenty times slower, and the
-        /// linear fold takes six to eight times the row chain's time, so the bound (ten times, plus 50 ms) holds on a slow
-        /// or loaded runner (Task 8, T8A-1: four times plus 15 ms failed once by 0.8 ms under load).
+        /// does. A timing smoke check, best of five, with a wide margin: the linear fold takes six to eight times the row
+        /// chain's time, so the bound (ten times, plus 50 ms) holds on a slow or loaded runner (Task 8, T8A-1: four times
+        /// plus 15 ms failed once by 0.8 ms under load). The quadratic walk (the plan's Z34) is pinned by
+        /// <see cref="Fold_AsksASmallOperandFirst_UpToItsBound"/>: in a Release build the 50 ms can hide it here (T8D-3).
         /// </summary>
         [TestMethod]
         public void Fold_OfALongChainOfCapturedOperands_StaysLinear()

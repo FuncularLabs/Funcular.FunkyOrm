@@ -8,15 +8,15 @@ All notable changes to this project will be documented in this file.
 does by default (`UseRelationalNulls(false)`), on every provider and every path: `Query(predicate)`, `QueryAsync`,
 `Query<T>().Where(...)`, `Count`/`LongCount`/`Any`/`All`, and `Delete`/`DeleteAsync`. In SQL a comparison with NULL
 is unknown and an unknown row isn't selected, so 3.11.0 dropped the NULL rows from `x.N != 5`, found no row for
-`x.N == none` with `none` null, and answered `All` as if a NULL satisfied it. **Upgrade note:** queries return more
-rows and deletes remove more rows wherever these shapes appear, which is why this is a minor release. Usage.md's
+`x.N == none` with `none` null, and answered `All` as if a NULL satisfied it. **Upgrade note:** wherever these shapes
+appear, queries return C#'s rows, most often more than before (the NULL rows), and deletes remove them, which is
+why this is a minor release. Usage.md's
 "Null comparisons" section shows the SQL. The design and its tests are in docs/plans/NULL_SEMANTICS_PLAN.md.
 
 ### Behaviour change
 
-The rows each shape selects, and deletes, are C#'s (EF Core's). `==` against a non-null value is unchanged, as is every
-comparison whose operands can't be null, but a `bool` compared with a predicate (below), which 3.11.0 sent without
-parentheses.
+The rows each shape selects, and deletes, are C#'s (EF Core's). A column compared by `==` with a value that isn't null
+(`x.N == 5`) is unchanged; the shapes below change.
 - **`!=` also selects the rows where the column is NULL:** `x.N != 5` sends `(n != @p OR n IS NULL)`. So does a
   `bool?` (`x.Flag != true`), an enum (`x.E != Color.Red`), a date part or `Length` of a column that can be null, a
   conditional with a branch that can be null, and a `[RemoteProperty]`, `[RemoteKey]`, `[JsonPath]`,
@@ -47,13 +47,12 @@ parentheses.
 - **A `bool` compared with a predicate** compares the predicate's two-valued value, as EF does:
   `x.Name.Contains(a) == false` is `!x.Name.Contains(a)`; `(x.N == 5) == (x.M == 5)` is
   `CASE WHEN n = @p THEN @t ELSE @f END = CASE WHEN m = @p THEN @t ELSE @f END`, and `x.Flag == (x.N > 5)` is
-  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent `a = b = c` without parentheses,
-  which each database reads by its own precedence: SQL Server rejected it, and so did PostgreSQL for most such shapes
-  (a `LIKE` or an `IN` binds tighter than `=` there); SQLite and MySQL read it left to right, `(a = b) = c`, which
-  splits a predicate on the right of the `==` (on SQLite unless its operator is `<`, `<=`, `>` or `>=`, which bind
-  tighter), so over NOT NULL columns `x.Flag == (x.Code == 5)` and `(x.Id < 3) == (x.Code == 5)` selected no row of a
-  SQLite test table where C# selects four or five; a predicate on the left compared with a column or a value read as
-  C#'s, wrong only where an operand was null. A `bool`
+  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent such a comparison without
+  parentheses (`a = b = c`; it kept them only around `&&` and `||`), which each database parses by its own precedence:
+  SQL Server rejected it, PostgreSQL rejected two comparisons in a row, and on SQLite and MySQL some shapes selected
+  other rows than C#'s with no NULL anywhere (over NOT NULL columns, `x.Flag == (x.Code == 5)` and
+  `(x.Id < 3) == (x.Code == 5)` selected no row of a SQLite test table where C# selects four or five), and others
+  where an operand was null. A `bool`
   column, `!` of one, and a conditional are values, not predicates: `!x.Active == true` and
   `(x.Id > 2 ? x.Active : false) == true` are compared as they were, which SQL Server requires.
 - **`!` of a column in a comparison** is compared as C# lifts it: `!x.Flag != true` also selects the NULL flags,
