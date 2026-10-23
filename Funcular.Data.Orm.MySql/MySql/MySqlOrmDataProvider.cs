@@ -714,6 +714,10 @@ namespace Funcular.Data.Orm.MySql
 
                 string subquery = Dialect.BuildScalarSubquery(childTable, childFkCol, parentPk,
                     attr.Function, aggCol, condCol, attr.ConditionValue);
+                // A Sum declared non-nullable is the 0 it reads back over no child rows, as EF Core sends a Sum
+                // (NullSemantics.CanBeNull; 3.12.0, Task 8 T8E2-4); declared nullable, it keeps the SQL NULL.
+                if (attr.Function == AggregateFunction.Sum && !Funcular.Data.Orm.Linq.NullSemantics.CanBeNull(prop))
+                    subquery = "COALESCE(" + subquery + ", 0)";
 
                 info.PropertyToColumnMap[prop.Name] = subquery;
                 extraColumns.Append($", {subquery} AS `{prop.Name}`");

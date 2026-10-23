@@ -76,9 +76,20 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
             /// <summary>A non-nullable CLR type over a value that can be NULL (n is NULL on rows 3 and 4).</summary>
             [SqlExpression("{N} + 1")] public int NPlusOneInt { get; set; }
 
-            /// <summary>A non-nullable CLR type over a SUM that is NULL for a row with no children.</summary>
+            /// <summary>
+            /// A non-nullable Sum: EF's <c>COALESCE(SUM(…), 0)</c>, so a row with no children sums to the 0 it reads back
+            /// (Task 8, T8E2-4; before, the SQL NULL).
+            /// </summary>
             [SubqueryAggregate(typeof(NsChild), nameof(NsChild.RowId), AggregateFunction.Sum, AggregateColumn = nameof(NsChild.Amount))]
             public decimal ChildSumD { get; set; }
+
+            /// <summary>T8E2-4: an integer Sum (SQLite binds a decimal as text), non-nullable: 0 for a row with no children.</summary>
+            [SubqueryAggregate(typeof(NsChild), nameof(NsChild.RowId), AggregateFunction.Sum, AggregateColumn = nameof(NsChild.Id))]
+            public int ChildIdSum { get; set; }
+
+            /// <summary>T8E2-4: the same Sum declared nullable keeps the SQL NULL, which it reads back as null.</summary>
+            [SubqueryAggregate(typeof(NsChild), nameof(NsChild.RowId), AggregateFunction.Sum, AggregateColumn = nameof(NsChild.Id))]
+            public int? ChildIdSumN { get; set; }
 
             [SubqueryAggregate(typeof(NsChild), nameof(NsChild.RowId), AggregateFunction.Count)]
             public int ChildCount { get; set; }
@@ -1523,6 +1534,11 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         [DataRow("nPlusOneIntNe6")]
         [DataRow("childSumDNe99")]
         [DataRow("childCountNe1")]
+        // T8E2-4: a non-nullable Sum compared with 0 (the rows with no children sum to 0, as C# reads them and EF sends),
+        // and the nullable one, whose NULL compares as C#'s null does
+        [DataRow("childIdSumNe0")]
+        [DataRow("childIdSumEq0")]
+        [DataRow("childIdSumNNe0")]
         [DataRow("docKEqNone")]
         [DataRow("computedCondWitnessNeTrue")]
         // R11-1: a round trip through a nullable type keeps the operand's kind (a property can be NULL whatever its CLR type)
@@ -1574,7 +1590,10 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                 case "nPlusOneIntNe6": predicate = x => x.NPlusOneInt != 6; oracle = r => r.N == null || r.N.Value + 1 != 6; break;
                 // 99 is no row's sum: SQLite binds a decimal as text, which a SUM (no column affinity) compares as text, so an
                 // equal sum would be selected there before and after (outside this plan; plan §3).
-                case "childSumDNe99": predicate = x => x.ChildSumD != 99m; oracle = r => ChildSum(r) == null || ChildSum(r) != 99m; break;
+                case "childSumDNe99": predicate = x => x.ChildSumD != 99m; oracle = r => ChildSum(r) != 99m; break;
+                case "childIdSumNe0": predicate = x => x.ChildIdSum != 0; oracle = r => ChildIdSum(r) != 0; break;
+                case "childIdSumEq0": predicate = x => x.ChildIdSum == 0; oracle = r => ChildIdSum(r) == 0; break;
+                case "childIdSumNNe0": predicate = x => x.ChildIdSumN != 0; oracle = r => ChildIdSumN(r) != 0; break;
                 case "childCountNe1": predicate = x => x.ChildCount != 1; oracle = r => Children.Count(c => c.RowId == r.Id) != 1; break;
                 // A JSON null reads as the text 'null' on MySQL (a Known issue): JsonKeyMatchesOnThisProvider has its answer.
                 case "docKEqNone": predicate = x => x.DocK == noName; oracle = r => JsonK(r) == null; break;
@@ -1585,7 +1604,7 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                     break;
                 case "nPlusOneIntRoundTripNe6": predicate = x => (int)(int?)x.NPlusOneInt != 6; oracle = r => r.N == null || r.N.Value + 1 != 6; break;
                 case "nPlusOneIntObjectNe6": predicate = x => (int)(object)x.NPlusOneInt != 6; oracle = r => r.N == null || r.N.Value + 1 != 6; break;
-                case "childSumDRoundTripNe99": predicate = x => (decimal)(decimal?)x.ChildSumD != 99m; oracle = r => ChildSum(r) == null || ChildSum(r) != 99m; break;
+                case "childSumDRoundTripNe99": predicate = x => (decimal)(decimal?)x.ChildSumD != 99m; oracle = r => ChildSum(r) != 99m; break;
                 case "flagEqCondWitnessFolds":
                     predicate = x => x.Flag == (x.Id > 2 ? (x.Id >= none ? x.ActiveX : true) : x.Active);
                     oracle = r => r.Id > 2 ? r.Flag == true : r.Flag == r.Active;
@@ -1663,8 +1682,14 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
             return match.Success ? match.Groups[1].Value : null;
         }
 
-        private static decimal? ChildSum(SeedRow r) =>
-            Children.Any(c => c.RowId == r.Id) ? Children.Where(c => c.RowId == r.Id).Sum(c => c.Amount) : (decimal?)null;
+        // A non-nullable Sum over no rows is 0, as LINQ's Sum is and EF sends it (T8E2-4).
+        private static decimal ChildSum(SeedRow r) => Children.Where(c => c.RowId == r.Id).Sum(c => c.Amount);
+
+        private static int ChildIdSum(SeedRow r) => Children.Where(c => c.RowId == r.Id).Sum(c => c.Id);
+
+        // The nullable one is the SQL NULL over no rows, which it reads back as null.
+        private static int? ChildIdSumN(SeedRow r) =>
+            Children.Any(c => c.RowId == r.Id) ? Children.Where(c => c.RowId == r.Id).Sum(c => c.Id) : (int?)null;
 
         /// <summary>A provider's own answer for a JSON-null row where it differs from EF's (MySQL reads a JSON null as the text 'null'); null otherwise.</summary>
         protected virtual bool? JsonKeyMatchesOnThisProvider(string key, SeedRow row) => null;

@@ -122,6 +122,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NullSemantics
             [SqlExpression("{Active}")] public bool Computed { get; set; }
             [SubqueryAggregate(typeof(ChildRow), nameof(ChildRow.RowId), AggregateFunction.Sum, AggregateColumn = nameof(ChildRow.Amount))]
             public decimal ChildSum { get; set; }
+            /// <summary>Task 8 (T8E2-4): a Sum declared nullable keeps the SQL NULL; an Avg over no rows is NULL.</summary>
+            [SubqueryAggregate(typeof(ChildRow), nameof(ChildRow.RowId), AggregateFunction.Sum, AggregateColumn = nameof(ChildRow.Amount))]
+            public decimal? ChildSumN { get; set; }
+            [SubqueryAggregate(typeof(ChildRow), nameof(ChildRow.RowId), AggregateFunction.Avg, AggregateColumn = nameof(ChildRow.Amount))]
+            public decimal ChildAvg { get; set; }
             [SubqueryAggregate(typeof(ChildRow), nameof(ChildRow.RowId), AggregateFunction.Count)] public int ChildCount { get; set; }
             [SubqueryAggregate(typeof(ChildRow), nameof(ChildRow.RowId), AggregateFunction.ConditionalCount, ConditionColumn = nameof(ChildRow.Amount), ConditionValue = "1")]
             public int ChildConditionalCount { get; set; }
@@ -164,7 +169,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NullSemantics
             nameof(Row.NX), nameof(Row.CycleA), nameof(Row.CycleB), nameof(Row.NTwoCoalesces), nameof(Row.NTwoCases),
             nameof(Row.Case2), nameof(Row.Case2Bracket), nameof(Row.Case2Quoted), nameof(Row.Case2Backtick), nameof(Row.Case2Comment),
             nameof(Row.Case2LineComment), nameof(Row.DerivedCase), nameof(Row.NTwice), nameof(RowBase.BaseRef),
-            nameof(Row.ChildCount), nameof(Row.ChildConditionalCount), nameof(Row.Computed)
+            nameof(Row.ChildCount), nameof(Row.ChildConditionalCount), nameof(Row.Computed), nameof(Row.ChildSumN), nameof(Row.ChildAvg)
         };
 
         private readonly int? v = 5;
@@ -1625,7 +1630,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NullSemantics
             AssertKind(Classify(x => x.ParentCode), NullOperandKind.CanBeNull, "ParentCode");
             AssertKind(Classify(x => x.ParentKey), NullOperandKind.CanBeNull, "ParentKey");
             AssertKind(Classify(x => x.NPlusOne), NullOperandKind.CanBeNull, "NPlusOne");
-            AssertKind(Classify(x => x.ChildSum), NullOperandKind.CanBeNull, "ChildSum");
+            // T8E2-4: a non-nullable Sum is COALESCE(SUM(…), 0), the 0 it reads back; a nullable one and an Avg can be NULL.
+            AssertKind(Classify(x => x.ChildSum), NullOperandKind.CannotBeNull, null);
+            AssertKind(Classify(x => x.ChildSumN), NullOperandKind.CanBeNull, "ChildSumN");
+            AssertKind(Classify(x => x.ChildAvg), NullOperandKind.CanBeNull, "ChildAvg");
             AssertKind(Classify(x => x.ChildCount), NullOperandKind.CannotBeNull, null);
             AssertKind(Classify(x => x.D.Value.Year), NullOperandKind.CanBeNull, "D");
             AssertKind(Classify(x => x.Posted.Month), NullOperandKind.CannotBeNull, null);
@@ -1704,7 +1712,9 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NullSemantics
             Assert.IsTrue(canBeNull(nameof(Row.ParentKey)), "[RemoteKey] int: a LEFT JOIN");
             Assert.IsTrue(canBeNull(nameof(Row.DocK)), "[JsonPath]");
             Assert.IsTrue(canBeNull(nameof(Row.NPlusOne)), "[SqlExpression] int");
-            Assert.IsTrue(canBeNull(nameof(Row.ChildSum)), "[SubqueryAggregate(Sum)] decimal: NULL over no rows");
+            Assert.IsFalse(canBeNull(nameof(Row.ChildSum)), "[SubqueryAggregate(Sum)] decimal: COALESCE(SUM(…), 0), as EF sends (T8E2-4)");
+            Assert.IsTrue(canBeNull(nameof(Row.ChildSumN)), "[SubqueryAggregate(Sum)] decimal?: NULL over no rows");
+            Assert.IsTrue(canBeNull(nameof(Row.ChildAvg)), "[SubqueryAggregate(Avg)] decimal: NULL over no rows");
             Assert.IsFalse(canBeNull(nameof(Row.ChildCount)), "[SubqueryAggregate(Count)]");
             Assert.IsFalse(canBeNull(nameof(Row.ChildConditionalCount)), "[SubqueryAggregate(ConditionalCount)]");
         }

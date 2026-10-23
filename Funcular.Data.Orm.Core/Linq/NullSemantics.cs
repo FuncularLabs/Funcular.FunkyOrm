@@ -119,9 +119,11 @@ namespace Funcular.Data.Orm.Linq
         /// <summary>
         /// Whether the SQL value of <paramref name="property"/>'s column can be NULL: a <see cref="Nullable{T}"/> or
         /// reference type; and, whatever its CLR type, a <c>[RemoteProperty]</c> or <c>[RemoteKey]</c> (a LEFT JOIN), a
-        /// <c>[JsonPath]</c>, a <c>[SqlExpression]</c>, a <c>[JsonCollection]</c>, or a <c>[SubqueryAggregate]</c> other
-        /// than <c>Count</c>/<c>ConditionalCount</c> (a <c>Sum</c> over no rows). The translators use it for
-        /// <c>IN</c> and negated <c>LIKE</c>.
+        /// <c>[JsonPath]</c>, a <c>[SqlExpression]</c>, a <c>[JsonCollection]</c>, or a <c>[SubqueryAggregate]</c> <c>Avg</c>
+        /// (over no rows). A <c>[SubqueryAggregate]</c> <c>Count</c>/<c>ConditionalCount</c> can't be NULL, nor can a
+        /// <c>Sum</c> whose CLR type can't hold null: the providers send it as <c>COALESCE(SUM(…), 0)</c>, as EF Core sends a
+        /// <c>Sum</c>, the 0 the property reads back over no rows (Task 8, T8E2-4); a <c>Sum</c> declared nullable keeps the
+        /// SQL NULL. The translators use it for <c>IN</c> and negated <c>LIKE</c>.
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="property"/> is null.</exception>
         public static bool CanBeNull(PropertyInfo property)
@@ -191,7 +193,9 @@ namespace Funcular.Data.Orm.Linq
                 return true;
             var aggregate = (SubqueryAggregateAttribute?)Attribute.GetCustomAttribute(property, typeof(SubqueryAggregateAttribute));
             if (aggregate != null)
-                return aggregate.Function != AggregateFunction.Count && aggregate.Function != AggregateFunction.ConditionalCount;
+                return aggregate.Function == AggregateFunction.Sum
+                    ? CanHoldNull(property.PropertyType)
+                    : aggregate.Function != AggregateFunction.Count && aggregate.Function != AggregateFunction.ConditionalCount;
             return CanHoldNull(property.PropertyType);
         }
 

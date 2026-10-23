@@ -246,11 +246,12 @@ throws a clear message. Apply it to the concrete `IQueryable<T>`, or write the h
 constrained to a base class (`where TEntity : BaseClass`). (A helper constrained to an *interface* fails in the
 WHERE translator; that's a known limitation.)
 
-**Sort helpers: test the expression, not the object.** Every FunkyORM query object is an `IOrderedQueryable<T>`, as
-EF Core's are, so a helper written as `q is IOrderedQueryable<T> o ? o.ThenBy(k) : q.OrderBy(k)` takes the `ThenBy`
-branch on an unordered query and System.Linq throws `ArgumentException` ("Expression of type
+**Sort helpers: test the expression, not the object.** Every FunkyORM query object, the root included, is an
+`IOrderedQueryable<T>`, as EF Core's composed queries are, so a helper written as
+`q is IOrderedQueryable<T> o ? o.ThenBy(k) : q.OrderBy(k)` takes the `ThenBy` branch on an unordered query; after a
+`Where` (any operator that composes the query) System.Linq then throws `ArgumentException` ("Expression of type
 'System.Linq.IQueryable`1[…]' cannot be used for parameter of type 'System.Linq.IOrderedQueryable`1[…]'"), on EF Core
-too. Test whether the query's expression is ordered instead:
+too. (On FunkyORM's root the `ThenBy` runs and sorts by `k`; EF Core's `DbSet` isn't an `IOrderedQueryable<T>`.) Test whether the query's expression is ordered instead:
 `q.Expression.Type == typeof(IOrderedQueryable<T>) ? ((IOrderedQueryable<T>)q).ThenBy(k) : q.OrderBy(k)`, which picks
 `OrderBy` on the root and after `Where`, and `ThenBy` after an `OrderBy`, with either library (GitHub #16).
 

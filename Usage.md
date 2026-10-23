@@ -391,12 +391,15 @@ the other providers send the same shapes.
 <!-- funky:null-semantics:end -->
 
 What to expect:
-- **A column compared by `==` with a value that isn't null doesn't change** (`p.HospitalId == 5`). The shapes that
-  change are listed in the Changelog's 3.12.0 entry: among them a `!=`, a `!` and a comparison with null where a
+- **A column compared by `==` with a constant or a variable that isn't null doesn't change** (`p.HospitalId == 5`,
+  `p.HospitalId == hospitalId`). The shapes that change are listed in the Changelog's 3.12.0 entry: among them a `!=`, a `!` and a comparison with null where a
   column can be null, a conditional whose test is one of these, a remote or computed integer's `ToString()`, and a
   `bool` compared with a predicate, `(p.HospitalId == 5) == (p.Id == 1)`, whether or not a column can be null:
   3.11.0 sent this one as `a = b = c`, an error on SQL Server and PostgreSQL, which SQLite and MySQL read as
-  `(a = b) = c`, splitting the predicate on the right.
+  `(a = b) = c`, splitting the predicate on the right. It sent a `bool` column compared with a comparison of
+  captured values the same way (`x.Active == (status == "active")` as `active = @p0 = @p1`: an error on SQL Server
+  and PostgreSQL, no row on SQLite); 3.12.0 sends the comparison's value as one parameter, and the rows change with
+  no NULL anywhere.
 - **Every string column counts as able to be null**, because FunkyORM doesn't read the schema's `NOT NULL`. So
   `p.LastName != "x"` gains `OR person.last_name IS NULL` even on a required column: the same rows, more SQL.
 - **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital.
@@ -404,8 +407,10 @@ What to expect:
   would select them. The guard refuses only the plain all-rows shapes: `Delete(p => !p.MiddleInitial.Contains(filter))`
   with `filter == null` is refused, but `Delete(p => p.HospitalId == 5 || p.HospitalId != 5)`, true for every row once
   NULLs count, is accepted and deletes everyone (see the Changelog's Known issues).
-- Before 3.12.0 these shapes dropped the NULL rows, and on PostgreSQL a comparison with a variable holding null
-  failed with error 42883. The Changelog's 3.12.0 entry lists every shape that changes.
+- Before 3.12.0 most of these shapes dropped the NULL rows, and some selected other rows too:
+  `!p.MiddleInitial.Contains(filter)` with `filter == null` selected no one, `p.Id != none` no one, and
+  `(p.HospitalId == 5) == (p.Id == 1)` only the rows the split read let through. On PostgreSQL a comparison with a
+  variable holding null failed with error 42883. The Changelog's 3.12.0 entry lists the shapes that change.
 
 ### Ordering (`OrderBy`)
 ```csharp
