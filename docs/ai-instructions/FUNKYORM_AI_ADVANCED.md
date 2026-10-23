@@ -198,7 +198,7 @@ LINQ-to-objects.
 <!-- funky:supported-operators:begin -->
 | Operator | SQL | Constraints |
 |---|---|---|
-| `Where` | `WHERE` | Predicate over the queried entity `T`. |
+| `Where` | `WHERE` | Predicate over the queried entity `T`. Null comparisons answer as C# (EF Core) does: `!=` and `!` also select NULL rows (v3.12.0). |
 | `Select` | narrow `SELECT` | `new T { … }` (same entity) or `x => x.Member` only (§1). |
 | `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE`; values other than booleans, enums, `NULL` and `sbyte`/`byte`/`short`/`ushort`/`int`/`uint`/`long`/`ulong`/`float`/`double`/`decimal` as parameters (`== null`, literal, captured or computed without the row, → `IS [NOT] NULL`; PostgreSQL decides a would-be parameter's null test before sending; an inline value stays `5 IS NULL`). NULL placement follows the database (PostgreSQL: NULLs last ascending). |
 | `ThenBy`, `ThenByDescending` | more `ORDER BY` keys | A repeated key is dropped. |

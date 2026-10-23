@@ -244,6 +244,17 @@ await Task.WhenAll(
 
 *   **Nullable Properties in Queries**: The ORM automatically unwraps nullables. Do NOT use `.Value` or `.HasValue` -- use the property directly. When using `list.Contains()` with a nullable entity property, cast the list to the nullable type (see Critical Rule #5 above).
 
+*   **Null comparisons (v3.12.0)**: a `Where` selects the rows C# selects, as EF Core does by default. `!=`, `!`, a negated `Contains`/`StartsWith`/`EndsWith` and a negated `IN` also select the rows where the column is NULL; a comparison with a variable holding null is `IS NULL`/`IS NOT NULL`; `==` against a non-null value is unchanged. Write the C# you mean; don't add `|| p.X == null` to get the NULL rows. Every string column counts as able to be null. `All` answers as C# does, and a `Delete` deletes the same rows a query selects (refused if that makes it always true). SQL Server shown (`hospitalId` holds 5, `none` null, `ids` is `new int?[] { 1, 2 }`):
+    <!-- funky:null-semantics:begin -->
+    | C# | SQL | Selects |
+    |---|---|---|
+    | `p => p.HospitalId != hospitalId` | `(person.hospital_id != @p0 OR person.hospital_id IS NULL)` | also no hospital |
+    | `p => p.HospitalId == none` | `person.hospital_id IS NULL` | no hospital |
+    | `p => !(p.HospitalId > 5)` | `(NOT person.hospital_id > @p0 OR person.hospital_id IS NULL)` | also no hospital |
+    | `p => !ids.Contains(p.HospitalId)` | `(NOT person.hospital_id IN (@p0,@p1) OR person.hospital_id IS NULL)` | also no hospital |
+    | `p => !p.MiddleInitial.Contains("x")` | `(NOT person.middle_initial LIKE @p0 ESCAPE '!' OR person.middle_initial IS NULL)` | also no middle initial |
+    <!-- funky:null-semantics:end -->
+
 *   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on a string property. The value is matched literally (`%`, `_` and `[` are escaped with `!`, and the pattern ends with `ESCAPE '!'`); a `null` value matches no row. Call them on a property of the entity; `StartsWith`/`EndsWith` on anything else throw, and a `Contains` on a value that doesn't come from the row is answered in C#.
 
 *   **Date parts and length**: `p.D.Year`/`.Month`/`.Day` on a `DateTime` property and `p.Name.Length` on a string property translate to the dialect's functions; any other member of a member (`.Hour`, `.Date`, a nested object's member) throws `NotSupportedException` — compute it before the query. `p.Code.ToString()` on an integer property compares the column's invariant text; on other types, or with an argument, it throws.

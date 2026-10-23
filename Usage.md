@@ -367,6 +367,42 @@ var potentialRisks = provider.Query<Person>()
     .ToList();
 ```
 
+### Null comparisons (v3.12.0)
+
+A `Where` selects the rows C# would select, as EF Core does by default, when a value or a column is null. In SQL a
+comparison with NULL is unknown, and an unknown row isn't selected, so FunkyORM adds what C# means. In this table,
+`hospitalId` holds 5, `none` and `filter` hold null, and `ids` is `new int?[] { 1, 2 }`. The SQL is SQL Server's;
+the other providers send the same shapes.
+
+<!-- funky:null-semantics:begin -->
+| C# | SQL | Selects |
+|---|---|---|
+| `p => p.HospitalId == 5` | `person.hospital_id = @p0` | as written |
+| `p => p.HospitalId != hospitalId` | `(person.hospital_id != @p0 OR person.hospital_id IS NULL)` | also the people with no hospital |
+| `p => p.HospitalId == none` | `person.hospital_id IS NULL` | the people with no hospital |
+| `p => p.Id == none` | `1=0` | no one: `Id` is never null |
+| `p => !(p.HospitalId == 5)` | `(person.hospital_id != @p0 OR person.hospital_id IS NULL)` | also the people with no hospital |
+| `p => !(p.HospitalId > 5)` | `(NOT person.hospital_id > @p0 OR person.hospital_id IS NULL)` | also the people with no hospital |
+| `p => p.HospitalId == p.ReferringHospitalId` | `(person.hospital_id = person.referring_hospital_id OR (person.hospital_id IS NULL AND person.referring_hospital_id IS NULL))` | also the people with neither |
+| `p => !ids.Contains(p.HospitalId)` | `(NOT person.hospital_id IN (@p0,@p1) OR person.hospital_id IS NULL)` | also the people with no hospital |
+| `p => !p.MiddleInitial.Contains("x")` | `(NOT person.middle_initial LIKE @p0 ESCAPE '!' OR person.middle_initial IS NULL)` | also the people with no middle initial |
+| `p => p.MiddleInitial.Contains("x") == false` | `(NOT person.middle_initial LIKE @p0 ESCAPE '!' OR person.middle_initial IS NULL)` | the same |
+| `p => !p.MiddleInitial.Contains(filter)` | `NOT 1=0` | everyone: a null search value matches no row, so its negation matches every row |
+<!-- funky:null-semantics:end -->
+
+What to expect:
+- **`==` against a value that isn't null doesn't change**, and neither does a comparison of columns that can't be
+  null, except with null (`p.Id == none` is `1=0`). A `!=`, a `!`, a comparison with null, and a `bool` compared with
+  a predicate change, where a column can be null.
+- **Every string column counts as able to be null**, because FunkyORM doesn't read the schema's `NOT NULL`. So
+  `p.LastName != "x"` gains `OR person.last_name IS NULL` even on a required column: the same rows, more SQL.
+- **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital.
+- **Deletes follow the same rows.** `Delete(p => p.HospitalId != 5)` also deletes the people with no hospital, as C#
+  would select them. A delete that this makes always true is refused, like any other all-rows delete: for example
+  `Delete(p => !p.MiddleInitial.Contains(filter))` with `filter == null`.
+- Before 3.12.0 these shapes dropped the NULL rows, and on PostgreSQL a comparison with a variable holding null
+  failed with error 42883. The Changelog's 3.12.0 entry lists every shape that changes.
+
 ### Ordering (`OrderBy`)
 ```csharp
 var sorted = provider.Query<Person>()
@@ -1451,13 +1487,13 @@ You tried to call `.Delete()` without starting a transaction.
 ### 4. "A WHERE clause (predicate) is required for deletes"
 You passed `null` as the predicate. `Delete(predicate)` and `DeleteAsync(predicate)` also refuse a predicate that plainly matches every row (v3.11.0: `WherePredicateGuard`, the 3.10.0 delete guard renamed; a query runs the same predicate normally and returns every row), before the DELETE is sent, with one of these messages:
 *   **"The WHERE clause must reference at least one column of the entity."**: the predicate reads no column (`x => true`, `x => 1 == 1`, `x => someFlag`, `x => ids.Contains(request.Id)`).
-*   **"The WHERE clause cannot be a self-referencing column expression."**: it compares a column, or a member of one, with itself by `==`, `>=` or `<=`, or negates a `!=`, `<` or `>` of one, whatever the type (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`, `x => x.LastName.Length == x.LastName.Length`, `x => x.N >= x.N` on a nullable, which a query translates as written and which would delete every row but the nulls). `x => x.Id != x.Id` or `x => x.N < x.N` is false for every row, deletes nothing, and is accepted.
+*   **"The WHERE clause cannot be a self-referencing column expression."**: it compares a column, or a member of one, or since 3.12.0 any operand that reads the row (a conditional, a call, a template), with itself by `==`, `>=` or `<=`, or negates a `!=`, `<` or `>` of one, whatever the type; a copy through an `[SqlExpression]` alias (a template that is one `{Token}`), a template of the same text, or a part the provider sends as the same SQL, letter case aside outside quoted text (a template that is the dialect's own text for a column's part, such as `[SqlExpression("LENGTH({Name})")]` against `x.Name.Length` on SQLite or PostgreSQL, or two `[JsonPath]` properties on one path), counts as the same operand; a captured value in it is compared as written, never translated a second time, so the same variable is the same value (`x => x.Id == x.Id`, `x => !(x.Id != x.Id)`, `x => x.Code.ToString() == x.Code.ToString()`, `x => x.LastName.Length == x.LastName.Length`, `x => x.N >= x.N` on a nullable, which a query translates as written and which would delete every row but the nulls). `x => x.Id != x.Id` or `x => x.N < x.N` is false for every row, deletes nothing, and is accepted.
 *   **"The WHERE clause is trivially true; a non-trivial WHERE clause is required."**: it's always true some other way: an `||` with `true`, with a captured or static `true`, with a comparison of constants and captured values that holds (`x => filter == null || x.LastName == filter` with `filter` null — the optional-filter idiom), or with a `Contains` on a captured string or collection that holds (`x => roles.Contains("admin") || x.OwnerId == me` for an admin); or an `||` with a negated `Contains` over an empty list (`x => x.Id == id || !ids.Contains(x.Id)` with `ids` empty).
 *   **"The WHERE clause's Contains, StartsWith or EndsWith has an empty search value, which matches every non-null row; a non-trivial WHERE clause is required."**: `x => x.LastName.Contains(search)` with `search` `""` (an empty search box) sends `LIKE '%%'`, which matches every row with a non-null value; a query runs it, a delete is refused unless another condition bounds it (`x => x.Id == id && x.LastName.Contains(search)` is accepted).
 
 The 3.10.0 messages began with "Delete operation"; match the new text. A delete by a remote property alone (`[RemoteProperty]`, a joined table's column) isn't supported: the DELETE statement has no JOIN, so the database reports an unknown column; 3.10.0 refused it with the "must reference at least one column" message. The 3.10.0 `NotSupportedException` rejections of a delete (a search value that is null, a wildcard or a property of your own class; a `Contains`, `StartsWith`, `EndsWith` or `ToString()` on a value that doesn't read the row; two strings that don't read the row) are gone: the translation now escapes the value, reads the property, and evaluates the `Contains`, the `ToString()` and the comparison in C#, as it does in a query (see the LIKE section above); a `StartsWith`/`EndsWith`/`ToString()` it can't evaluate throws on every path. The empty search value is the one 3.10.0 rejection that stays, as the fourth message above (`InvalidOperationException` now, and only when nothing else bounds the predicate). Comparisons that read a column are never rejected for case or collation; the database's collation decides them, as in 3.9 (and SQLite's `LIKE` folds ASCII case whatever the collation).
 
-A refused delete sends no DELETE. On a type's first use its columns are discovered first, as for a query, so a delete on a table that doesn't exist reports that error, refused predicate or not. The predicate is then translated, so a shape no path translates (`x => x.Child.Id == 1`; a `Contains`, `StartsWith` or `EndsWith` whose receiver reads the row other than as a plain property: `x.Child.Name`, `x.Name.ToString()`, a cast) throws the translator's `NotSupportedException` on a delete exactly as on a query, even where the guard would also refuse it. The second and third messages can also come once the WHERE clause is built, as a backstop: the third for the negated-`Contains` shape, for a `Contains` on a captured collection that holds (the SQL holds a literal `NOT 1=0`), and for a literal `1=1` in the SQL; the second when the whole clause is one operand compared with itself.
+A refused delete sends no DELETE. On a type's first use its columns are discovered first, as for a query, so a delete on a table that doesn't exist reports that error, refused predicate or not. The predicate is then translated, so a shape no path translates (`x => x.Child.Id == 1`; a `Contains`, `StartsWith` or `EndsWith` whose receiver reads the row other than as a plain property: `x.Child.Name`, `x.Name.ToString()`, a cast) throws the translator's `NotSupportedException` on a delete exactly as on a query, even where the guard would also refuse it. The second and third messages can also come once the WHERE clause is built, as a backstop: the third for the negated-`Contains` shape, for a `Contains` on a captured collection that holds (the SQL holds a literal `NOT 1=0`), and for a literal `1=1` in the SQL; the second when the whole clause is one operand compared with itself, also in EF's form, which tests the operand's columns for NULL beside the comparison (`(n = n OR (n IS NULL AND n IS NULL))`).
 *   **The Fix**: Decide in C# whether to delete, and pass only the column condition: `if (!string.IsNullOrEmpty(filter)) provider.Delete<Person>(x => x.LastName == filter);`. We explicitly block "delete all" operations to prevent catastrophic data loss; a query is not blocked, because selecting every row loses nothing.
     *   **Warning**: These checks catch the plain shapes above, not every predicate that is true for every row (`x => x.Id == 2 || x.Id != 2` is accepted). They evaluate as C# does, and the database can disagree in ways they don't list. Always review your delete logic carefully. If you truly need to truncate a table, use the underlying connection to execute a raw SQL command.
     *   **Note**: Do not look for an `ExecuteNonQuery` method on the provider. We removed it. Using raw SQL execution methods on the provider is considered heresy here. If you must go metal, grab the `Connection` property and do it yourself.

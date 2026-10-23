@@ -44,7 +44,23 @@ jobs:
         sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
         sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
     - name: Run tests with filter
-      run: dotnet test Funcular.Data.Orm.SqlServer.Tests/Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework"
+      run: dotnet test Funcular.Data.Orm.SqlServer.Tests/Funcular.Data.Orm.SqlServer.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework" --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+    # An inconclusive (a missing database, missing data) is NotExecuted in the TRX and dotnet test still exits 0. The
+    # allowed ones: a bool in a SELECT is a syntax error on SQL Server (by design); no PostgreSQL on this runner; the
+    # seed has no populated remote chain for RemoteFeaturesTests.
+    - name: Every test ran (the TRX gate)
+      shell: pwsh
+      run: |
+        ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx -Allow @(
+          'Funcular.Data.Orm.SqlServer.Tests.CapturedValues.SqlServerCapturedValueTests.Projection_BoolValue_GetsCSharpsValue',
+          'Funcular.Data.Orm.SqlServer.Tests.Caching.ProviderScopedCacheSqlServerTests.SqlServerThenPostgreSql_SameEntity_BothQueriesRun',
+          'Funcular.Data.Orm.SqlServer.Tests.RemoteFeaturesTests.RemoteProperty_IsPopulated_OnQuery'))
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sqlserver-test-results
+        path: '**/test-results.trx'
 
   # The SQLite suite needs no service. It runs on Windows, where it is run locally before every release.
   test-sqlite:
@@ -61,7 +77,11 @@ jobs:
     - name: Build
       run: dotnet build Funcular.Data.Orm.Sqlite.Tests/Funcular.Data.Orm.Sqlite.Tests.csproj --configuration Release --no-restore
     - name: Run SQLite tests
-      run: dotnet test Funcular.Data.Orm.Sqlite.Tests/Funcular.Data.Orm.Sqlite.Tests.csproj --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+      run: dotnet test Funcular.Data.Orm.Sqlite.Tests/Funcular.Data.Orm.Sqlite.Tests.csproj --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+    - name: Every test ran (the TRX gate)
+      shell: pwsh
+      run: |
+        ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx -Allow @()
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -111,7 +131,15 @@ jobs:
         dotnet test
         Funcular.Data.Orm.PostgreSql.Tests/Funcular.Data.Orm.PostgreSql.Tests.csproj
         --no-build --configuration Release --verbosity normal
-        --logger "trx;LogFileName=test-results.trx"
+        --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+    # Allowed: the seed has no populated remote chain for these three (re-derived on this job's first run, 3.12.0).
+    - name: Every test ran (the TRX gate)
+      shell: pwsh
+      run: |
+        ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx -Allow @(
+          'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.RemoteProperty_IsPopulated_OnQuery',
+          'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.RemoteKey_IsPopulated_OnQuery',
+          'Funcular.Data.Orm.PostgreSql.Tests.PostgreSqlRemoteFeaturesTests.CanFilterBy_RemoteProperty'))
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -158,7 +186,11 @@ jobs:
         Funcular.Data.Orm.MySql.Tests/Funcular.Data.Orm.MySql.Tests.csproj
         --no-build --configuration Release --verbosity normal
         --filter "FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework"
-        --logger "trx;LogFileName=test-results.trx"
+        --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+    - name: Every test ran (the TRX gate)
+      shell: pwsh
+      run: |
+        ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx -Allow @()
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4

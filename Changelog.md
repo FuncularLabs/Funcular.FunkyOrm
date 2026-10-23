@@ -2,6 +2,226 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.12.0] - 2026-10-23
+
+**Release notes.** A WHERE predicate now selects the rows C# selects when a value or a column is null, as EF Core
+does by default (`UseRelationalNulls(false)`), on every provider and every path: `Query(predicate)`, `QueryAsync`,
+`Query<T>().Where(...)`, `Count`/`LongCount`/`Any`/`All`, and `Delete`/`DeleteAsync`. In SQL a comparison with NULL
+is unknown and an unknown row isn't selected, so 3.11.0 dropped the NULL rows from `x.N != 5`, found no row for
+`x.N == none` with `none` null, and answered `All` as if a NULL satisfied it. **Upgrade note:** queries return more
+rows and deletes remove more rows wherever these shapes appear, which is why this is a minor release. Usage.md's
+"Null comparisons" section shows the SQL. The design and its tests are in docs/plans/NULL_SEMANTICS_PLAN.md.
+
+### Behaviour change
+
+The rows each shape selects, and deletes, are C#'s (EF Core's). `==` against a non-null value is unchanged, as is every
+comparison whose operands can't be null.
+- **`!=` also selects the rows where the column is NULL:** `x.N != 5` sends `(n != @p OR n IS NULL)`. So does a
+  `bool?` (`x.Flag != true`), an enum (`x.E != Color.Red`), a date part or `Length` of a column that can be null, a
+  conditional with a branch that can be null, and a `[RemoteProperty]`, `[RemoteKey]`, `[JsonPath]`,
+  `[SqlExpression]` or `[SubqueryAggregate]` (other than `Count`/`ConditionalCount`) whatever its CLR type, since a
+  LEFT JOIN, a JSON key or a `SUM` over no rows can be NULL. **Every string column counts as able to be null**
+  (FunkyORM doesn't read `NOT NULL`), so `x.Req != "a"` gains `OR req IS NULL`: the same rows, more SQL. A
+  conditional takes EF's form, sent again for its `IS NULL`: `(x.Id > 2 ? x.N : x.M) != 5` is
+  `(CASE … END != @p OR CASE … END IS NULL)`. A conditional whose test holds another, as nesting such comparisons
+  does, or whose branch holds one inside an expression, is compared in its branches instead, as C# evaluates it:
+  `(t ? a : b) != 5` is `CASE WHEN t THEN CASE WHEN (a != @p OR a IS NULL) THEN @t ELSE @f END ELSE … END = @t`.
+  So the test is sent once and nesting doesn't multiply the SQL. Each branch repeats the other operand, so EF's form
+  is kept, which repeats the nested conditional instead, where that would nest more than one `CASE` beyond 3.11.0's
+  (against a conditional about as deep as the nested one, or deeper). The count is SQL Server's: a `COALESCE`, `IIF`
+  or `NULLIF` is a level, and so is each one in an `[SqlExpression]`'s template (see Known issues).
+- **A comparison with a value that is null is `IS NULL` / `IS NOT NULL`**, whether the null is a literal or a
+  variable (`x.N == none`). Against a column that can't be null it is `1=0` / `NOT 1=0`: `x.Id == none` selects
+  nothing, and `x.Id != none` every row.
+- **Two columns:** `x.N == x.M` also matches two NULLs; `x.N != x.M` takes EF's form; `x.N != x.Id` also selects the
+  NULL `N`s.
+- **`!` reaches the comparisons** (De Morgan): `!(x.N == 5)` is `x.N != 5` above; `!(x.N > 5)` also selects the NULL
+  rows; `!(x.N >= none)` selects every row. A negation with nothing to compensate keeps 3.11.0's text
+  (`!(x.Id == 5)` is still `NOT id = @p`).
+- **A negated `Contains`, `StartsWith` or `EndsWith` on a column** also selects its NULL rows:
+  `(NOT name LIKE … OR name IS NULL)`. **A negated null search value selects every row** (`NOT 1=0`): a null search
+  value matches no row (D8), so its negation matches every row. This amends D8.
+- **`IN` with a null item:** `idsWithNull.Contains(x.N)` is `(n IN (…) OR n IS NULL)`; `!ids.Contains(x.N)` is
+  `(NOT n IN (…) OR n IS NULL)`; with a null item, `(n IS NOT NULL AND NOT n IN (…))`. 3.11.0 dropped the null item.
+- **A `bool` compared with a predicate** compares the predicate's two-valued value, as EF does:
+  `x.Name.Contains(a) == false` is `!x.Name.Contains(a)`; `(x.N == 5) == (x.M == 5)` is
+  `CASE WHEN n = @p THEN @t ELSE @f END = CASE WHEN m = @p THEN @t ELSE @f END`, and `x.Flag == (x.N > 5)` is
+  `flag = CASE WHEN n > @p THEN @t ELSE @f END`, each operand sent once. 3.11.0 sent `a = b = c`, a syntax error on
+  SQL Server and PostgreSQL and wrong rows elsewhere when an operand was null. A `bool`
+  column, `!` of one, and a conditional are values, not predicates: `!x.Active == true` and
+  `(x.Id > 2 ? x.Active : false) == true` are compared as they were, which SQL Server requires.
+- **`!` of a column in a comparison** is compared as C# lifts it: `!x.Flag != true` also selects the NULL flags,
+  `!x.Flag == null` is `flag IS NULL` (3.11.0 sent `NOT flag IS NULL`, the complement, so a delete removed exactly the
+  other rows), `x.Flag == !x.Flag2` takes EF's form with non-null guards beside it (the same rows), and beside a
+  predicate, `(x.N == 5) == !x.Active` is `active = CASE WHEN n = @p THEN @f ELSE @t END`, no NOT on the column. A
+  `bool` that doesn't read the row (`!include`, a
+  comparison or conditional of captured values) is one value, read before the query.
+- **A cast between `bool` and `bool?` doesn't hide a shape.** `!` over a lifted predicate, `!(bool?)(x.N > 3)`, is the
+  predicate `!(x.N > 3)`; a cast back to `bool` over a lift is the form lifted (`(bool)!(bool?)(x.N > 3)` is
+  `!(x.N > 3)`); a cast back to `bool` over a `bool?` conditional whose branches can't be null is the `bool`
+  conditional, so `(bool)(x.N != 5 ? (bool?)x.Active : (bool?)false)` counts a NULL `N` as `!= 5`, as C# does; over
+  any other `bool?` conditional, `(bool)(x.N != 5 ? (bool?)x.Active : nt)` with `nt` a `bool?`, the conditional's
+  test is compensated and its branches stay values; and a cast through `object`, `(bool?)(object)!(x.N > 3)`, is the
+  cast without it. 3.11.0 read each as one value, so its test and its predicates went uncompensated.
+- **A cast keeps a value's nullability**, as EF's does: `(int)x.N != 5` and `(int)(int?)x.ParentCode != 5` also select
+  the NULL rows, as `x.N != 5` and `x.ParentCode != 5` do.
+- **A conditional's predicate branch** is its two-valued truth, `CASE WHEN p THEN 1 ELSE 0 END`, as EF sends it:
+  `(x.Id > 2 ? (bool?)(x.N == 5) : x.Flag) != true` counts a NULL `N` as `false`, as C# does.
+- **A conditional's test** is rewritten wherever the conditional is: `(x.N != 5 ? 1 : 0) == 1` also counts the NULL
+  rows as `!= 5`.
+- **`All(p)` answers as C# does:** it is true when no row satisfies `!p`. `All(x => x.N > 0)` is `false` when an
+  `N` is null (3.11.0's Known issue), and `All` over a null search value is `false`.
+- **Delete verdicts that change.** A delete selects the rows the query selects, so these deletes change:
+
+  | Shape | 3.11.0 | 3.12.0 |
+  |---|---|---|
+  | `!x.Name.Contains(null)` (and `StartsWith`, `EndsWith`), alone or in `x.Id == 2 \|\| …`, `!(x.N == 5 && …)`, `!(x.Id == 2 && …)` | accepted, deleted some rows or none | refused: always true |
+  | `x.Name.Contains(none) == false`, `!= true`, `!(… == true)` | accepted (SQL Server: an error) | refused: always true |
+  | `!(x.N >= none)` and the other negated comparisons with a null value, alone or in an `\|\|` | accepted, deleted nothing (PostgreSQL: 42883) | refused: always true |
+  | `x.Id != none`, `!(x.Id == none)`, `x.Id != null`, `!(x.Id == null)` (a column that can't be null), alone or in an `\|\|` such as `x.Id == 2 \|\| x.Id != none` | accepted (the literal forms deleted every row) | refused: always true |
+  | A predicate that a null value's comparison makes always true, also in a conditional's test: `x.N > none ? x.Code == 5 : true`, and under a cast back to `bool` | accepted, every row (SQLite, MySQL; SQL Server: an error) | refused: always true |
+  | `x.Name.Contains(a) != nullBool` (a `bool?` holding null) | accepted, nothing (SQL Server, PostgreSQL: an error) | refused: always true |
+  | A cast through `object` around a part that is always true by its own columns and literals, or compares a column with itself: `x.Id == 2 \|\| (bool)(object)(x.Code == x.Code)`, `fls != (bool)(object)(x.Name.Length <= x.Name.Length)` with `fls` false | accepted (the cast hid the part from the guard; SQL Server: an error for the second) | refused: always true, or self-referencing, as the same shape without the cast was in 3.11.0 (a captured value under the cast isn't read: see Known issues) |
+  | An empty search value under a cast through `object`, written as `""` or `string.Empty`: `(bool)(object)x.Name.Contains("")`, `x.Id == 2 \|\| (bool)(object)x.Name.StartsWith(string.Empty)` | accepted: the rows with a name (and, for the second, the other operand's) | refused: an empty search value |
+  | A part under a cast through `object` that a captured value makes a self-comparison or a constant, which the WHERE clause then shows: `(bool)(object)(on ? x.Id == x.Id : x.Id == 2)`, `(bool)(object)(on ? true : x.Id == 2)`, `(bool?)(object)(x.Id == 2 \|\| on) == true`, with `on` true | accepted, every row | refused: always true (the check of the translated clause) |
+  | A `bool` compared with the same operand: `(x.N == 5) == (x.N == 5)`, `!x.Active == !x.Active`, a conditional with itself, or a copy that differs by casts, a string's `ToString()` or a widened constant, `(x.Id > 2) == ((int?)x.Id > (int?)2)`; inside an `\|\|` too | accepted: nothing for an equality predicate, every row for a relational one on SQLite (MySQL: nothing) and for the others (SQL Server, PostgreSQL: an error); refused where a copy's text matched its original's | refused: self-referencing, or always true |
+  | A predicate that compares a column with its own `[SqlExpression]` alias, compared with a `bool` value: `(x.Active == x.ActiveX) != false`, `ActiveX` being `{Active}` | accepted, every row (SQL Server, PostgreSQL: an error) | refused: always true |
+  | A column, or its `Length`, date part or `ToString()`, compared with its own `[SqlExpression]` alias's where a `!`, or a comparison with a `bool` value, makes it always true: `!(x.N != x.NX)`, `!!(x.N == x.NX)`, `!(x.Name.Length != x.NameX.Length)`, `x.Active != !x.ActiveX`; `(x.N == x.NX) == true`, `(x.Name != x.NameX) != true`; `NX` being `{N}` | accepted: the rows that aren't NULL, or every row | refused: self-referencing; compared with a `bool` value, always true |
+  | A computed property whose template is the dialect's own SQL for a column's part, compared with that part under a `!`: `!(x.NameLen != x.Name.Length)`, `NameLen` being `LENGTH({Name})` | accepted: the rows with a name (`NOT LENGTH(name) != LENGTH(name)`) | refused: self-referencing |
+  | An always-true comparison of a column's part with itself beside a NULL test of that column: `x.N.ToString() == x.NX.ToString() \|\| x.N == null` | accepted, every row (3.11.0's text is the same) | refused: always true |
+  | Any operand that reads the row compared with a copy of itself, literal or through an `[SqlExpression]` alias (a template that is one `{Token}`), a template of the same text, or a part the provider sends as the same SQL, letter case aside outside quoted text (a template that is the dialect's own text for a column's part, `LENGTH({Name})` against `x.Name.Length`; two templates that differ only in SQL's own words' letter case; two `[JsonPath]` properties on one path; two properties on one column): a conditional or a call, by `==`, `>=` or `<=`, under a `!` of `!=`, `<` or `>`, through a cast through `object`, or inside an `\|\|`: `(x.Id > 2 ? x.N : x.M) == (x.Id > 2 ? x.NX : x.M)`, a nested conditional whose branch is `x.NameLen` against its copy over `x.Name.Length`, `x.Active == x.ActiveX \|\| x.Flag == null` | accepted where its text didn't show the copy (its constants as two parameters, or an alias): the rows whose operand isn't NULL (`A = A`), or every row (`… OR flag IS NULL`); refused where it did | refused: self-referencing, or always true inside another operator, as a column compared with itself has been since 3.10 (`>=` and `<=` too) |
+  | `!onlyNull.Contains(x.N)`, `x.Id == 2 \|\| !onlyNull.Contains(x.N)`, `!(x.Id == 2 && onlyNull.Contains(x.N))` | refused | accepted (`n IS NOT NULL`, …) |
+  | `!(x.Flag == !x.Flag)` | refused (its text, `NOT flag = NOT flag`, read as a self-comparison) | accepted: the rows with a flag (EF's) |
+  | `Count`/`All` over a reverse join whose only remote comparison is with a null value (`x.ReverseKey > none`) | refused (fan-out) | runs: `1=0` needs no join |
+  | `x.Req != noName`, `x.N == 5 \|\| x.N != 5`: always true once NULLs count | accepted, deleted nothing / the non-null rows | **accepted, every row** |
+
+  The guard still proves only the plain always-true shapes (see Known issues), so a delete that is always true only
+  once NULLs count is accepted and now deletes every row.
+- **SQL text that changes where the rows don't:**
+  - a conditional's test, or a branch of a `bool` conditional in a truth position (the predicate itself, or an
+    operand of `&&`, `||` or `!` there), that doesn't read the row is sent as `NOT 1=0` / `1=0`, not as parameters.
+    That includes a part a cast hid: a conditional that a cast back to `bool` kept in a value position
+    (`(bool)(bool?)(x.Id > 3 ? x.Active : true)` sends `ELSE NOT 1=0`, was `ELSE @p`), and a part under a cast through
+    `object` (`(bool)(object)(x.Code == x.Code) && x.Id == 2` sends `NOT 1=0`, was `code = code`). Two strings there
+    now compare as C# does (ordinal), not under the column's collation. So does a branch's comparison that reads no
+    row where a conditional is compared in its branches: with `t` holding a conditional, `(t ? "A" : x.Name) != "a"`
+    sends `@p` (true) for `"A" != "a"`, where 3.11.0 and the flat form compare the two under the collation;
+  - a `bool` operand of a comparison that doesn't read the row, or whose truth is known, is one parameter holding its
+    value (`x.Flag == !include`; 3.11.0 sent `NOT NOT 1=0` there, which SQL Server rejects), and a conditional's
+    predicate branch is a `CASE`;
+  - a null on a column that can't be null is `1=0` / `NOT 1=0`: `x.Id == null` (was `id IS NULL`), `x.Id == none` (was
+    `id = @p`), and their `!=`;
+  - a `>`, `>=`, `<` or `<=` with a null value is `1=0` (was `n > @p` or `n > NULL`);
+  - a captured value in a conditional's value branch is read before the query: a null one is the literal `NULL`, not a
+    parameter, which lets PostgreSQL type it;
+  - `All`'s WHERE is the translation of `!p`, not `NOT (p)`;
+  - a `bool` compared with a predicate loses its `= @p1` where the rows already agreed (SQLite, PostgreSQL, MySQL),
+    and a `bool` column compared with one compares its `CASE` (`x.Flag == (x.N > 5)` is
+    `flag = CASE WHEN n > @p THEN @t ELSE @f END`, was `flag = n > @p`);
+  - an integer's `ToString()` over a value that can be NULL is `COALESCE(…, '')`, as EF sends, so a missing
+    parent's `[RemoteProperty] int` compares as `''` (3.11.0: a bare `CAST`, NULL).
+
+### Changed
+- **Shapes that failed now run.** On PostgreSQL a comparison with a variable holding null (`x.N == none`) failed
+  with 42883 (`operator does not exist: integer = text`), a `bool` compared with a predicate with 42601, and a null
+  captured value in a `CASE` branch with 42804. On SQL Server a `bool` compared with a predicate, a captured `bool`
+  as a conditional's test, a predicate as a conditional's branch, `!` of a captured `bool` in a comparison, and a
+  predicate under a cast through `object` compared with a value were syntax errors.
+- **The delete guard reads a comparison's operands as the provider sends them.** Two operands whose parts the
+  provider translates to the same SQL, letter case aside outside quoted text (a string literal, a JSON path or a quoted
+  name keeps its case: text in single quotes, `''` escaped, in double quotes, in brackets or in backticks; PostgreSQL's
+  `$$…$$` isn't read as quoted, nor a backslash escape inside PostgreSQL's `E'…'` or MySQL's strings), count as one
+  operand compared with itself: a
+  template that is the dialect's own text for a
+  column's part, two templates that differ only in SQL's own words' letter case, two `[JsonPath]`
+  properties on one path (see the delete verdicts above). The four providers pass their SQL through the new
+  `WherePredicateGuard.Validate(predicate, operation, operandSql)` in place of `Validate(predicate, operation)`, once
+  the predicate has translated, so the verdict is given once; `WherePredicateGuard.OperandText` writes an operand's
+  parameters as their values and its quoted text so that its letter case counts. A delete reads a captured value no more
+  often than 3.11.0's did, except around a cast through `object` (`(bool)(object)…`): the guard folds the part under
+  such a cast without reading under it, but what that tells it can lead it to read a value beside the cast that 3.11.0's
+  guard didn't reach, and the rewrite reads under the cast as a query does. A custom provider that calls only `Validate(predicate, operation)` and `ValidateTranslation` keeps the
+  check of the whole clause's text, which a conditional compared in its branches can hide. A captured value is compared
+  as written, never translated a second time.
+- **CI runs all four provider suites** on pushes to `main`, `master`, `development/**` and `release/**`, and NuGet
+  publishing waits for every one. Before, nothing ran the SQLite suite, the PostgreSQL workflow never ran on `master`,
+  and publishing waited for SQL Server alone. Each test job fails when a test didn't run (an inconclusive) unless the
+  job allows it by name (`.github/scripts/Assert-TestsRan.ps1`).
+
+### Fixed
+- **`All` counted a row whose predicate SQL was unknown as satisfying it** (3.11.0's Known issue): see Behaviour
+  change.
+- **The `[SubqueryAggregate]` conditional-count examples** in Usage.md and the AI instructions named constructor
+  parameters that don't exist, and didn't compile. They use the `ConditionColumn`/`ConditionValue` properties, and a
+  test now checks every attribute example in the documents against the attributes' constructors and properties.
+- **A sort helper that tests `query is IOrderedQueryable<T>` throws** on a composed query (GitHub #16). EF Core
+  behaves the same way, so the behaviour is kept; Advanced.md §5 explains why and gives the check that works
+  (`query.Expression.Type == typeof(IOrderedQueryable<T>)`).
+- The never-built `[ReadModel]` proposal is withdrawn from the plans; there is no read-only entity attribute.
+
+### Known issues
+- **A conditional compared in its branches can nest one `CASE` more than 3.11.0:** each branch's comparison is a
+  two-valued `CASE`, which adds a level where the predicate's deepest part is a branch or the other operand rather
+  than a test (a branch that is a conditional at least as deep as the test, or another conditional one level shallower
+  than the nested one). A remote or computed integer's `ToString()` can add one more, wherever it sits: it is now a
+  `COALESCE`, where 3.11.0 sent a bare `CAST`. SQL Server nests at most 10 `CASE`s, counting a `COALESCE`, `IIF` or
+  `NULLIF` as one, and `Any()` and `All()` send their query inside one (`CASE WHEN EXISTS …`), so such a predicate
+  nesting 10 levels, or 9 under `Any()` or `All()`, fails there with Msg 125 where 3.11.0 ran it.
+- **A nested conditional takes EF's form where comparing it in its branches would nest more than one `CASE` past
+  3.11.0's**, as against another conditional about as deep or deeper (an `[SqlExpression]`'s levels counted), which
+  would sit below every branch's `CASE`. EF's form repeats the nested conditional for its `IS NULL`, as EF's SQL does, though EF binds each value
+  once and FunkyORM binds each copy. So a chain of such comparisons multiplies the SQL and its parameters, about
+  threefold per level: from about 6 levels it passes SQL Server's 2,100 parameters, and from about 8 SQLite's 32,766,
+  in predicates of 1,000 to 2,000 characters whose rows 3.11.0 got right. A chain of comparisons in conditionals' tests
+  against flat conditionals, columns or predicates, on either side, is compared in the branches and grows linearly.
+- **A predicate of a million characters nesting dozens of compared conditionals can pass SQLite's 32,766-parameter
+  limit** where 3.11.0 ran it with wrong rows, since the branches' comparisons bind values again; its SQL runs to
+  millions of characters.
+- **The guard proves only the plain always-true shapes.** `x.Id == 2 || x.Id != 2`, and since 3.12.0
+  `x.N == 5 || x.N != 5` and `x.Req != noName`, are accepted as deletes, though they hold for every row (the last two
+  now delete every row). It asks the provider's SQL only for parts of at most 64 expression nodes, so a twin larger
+  than that is the same operand only where its shape is. It reads quoted text with its letter case (a JSON path is
+  case-sensitive on every provider), so two templates that differ only in letter case inside quotes count as two values
+  where the database matches them as one: a string literal on a case-insensitive collation (SQL Server's and MySQL's
+  defaults), a quoted name on SQLite and MySQL whatever the collation, and on SQL Server under a case-insensitive one.
+  Compared inside a nested conditional, such a delete is accepted and deletes every row (3.11.0 refused the
+  parameter-free form, and ran one whose conditionals hold constants with its own rows). The check of the translated clause, on the other hand, reads quoted text without letter case,
+  as 3.11.0's did, so a JSON path compared with the same path in another letter case, alone or under a `!`
+  (`!(x.K != x.KUpper)`), is refused as self-referencing though the two hold different values (3.11.0 refused the first
+  and accepted the second). Under a cast through `object` around a part that reads the row, the guard's verdict reads
+  no captured value, as 3.11.0's read none there. A part that is always true, compares a column with itself or
+  searches for an empty value only once a captured value under the cast is read is refused where the translated
+  clause shows it (the value sent as a literal: `(bool)(object)(x.Id == 2 || on)`, with `on` true, is always true),
+  and accepted otherwise, as 3.11.0 accepted it: `(bool)(object)(on ? (bool?)(x.Active == x.ActiveX) : nullBool)`,
+  with `on` true and `ActiveX` being `{Active}`, deletes every row on SQLite, and `(bool)(object)x.Name.Contains(empty)`,
+  with `empty` a captured `""`, the rows with a name (there only a search value written in place is seen: `""`,
+  `string.Empty`, or a `const` that holds `""`; not one held in a variable, a field or a property).
+- **A long chain of `||` or `&&` overflows the stack sooner than in 3.11.0.** Translating it takes more stack per
+  operand. On the 1.5 MB stack a .NET 8 app's threads get on Windows (a Release build), the longest chain a query or a
+  delete can take on PostgreSQL and MySQL is about 2,430 operands written `x.Id == 1 || x.Id == 2 || …`, where 3.11.0's
+  was about 2,870, and about 1,810 nested to the right, `a || (b || (c || …))`, where 3.11.0's was about 2,910 (the
+  null-semantics rewrite recurses at each such operand); there SQL Server refuses such a chain first ("nested too
+  deeply": about 1,000 operands, or 340 nested to the right), and SQLite too (about 1,000, or 830 nested to the
+  right), in both versions alike. A thread with less stack stops sooner in both versions, and below about 768 KB on
+  every provider: on a 512 KB stack (what IIS's worker process, `w3wp.exe`, declares) at about 760 operands, where
+  3.11.0 took about 900, and about 590 nested to the right, where it took about 950. Past the limit the process ends
+  with a stack overflow, which can't be caught, as in 3.11.0 past its own. For a long list of values use `Contains`
+  on a collection, `ids.Contains(x.Id)`, which sends one `IN` list.
+- **A non-nullable property over a SQL NULL reads back as its default.** A missing parent's `[RemoteProperty] int`,
+  an absent JSON key, or a `Sum` over no rows reads back as `0`, while WHERE compares the SQL NULL, as EF Core does.
+  Declare the property nullable to see the null.
+- **MySQL reads a JSON null as the text `'null'`**, so `x.DocK == null` doesn't select a row whose key holds a JSON
+  null there.
+- **PostgreSQL sorts NULLs last ascending**, the other providers first.
+- **SQLite binds a `decimal` as text**, as it does a `Guid` or `DateTime` (3.11.0's Known issue), so a comparison of
+  a `decimal` value with an expression that has no column affinity (`[SubqueryAggregate]`, `[SqlExpression]`)
+  compares as text: `x.ChildSum != 10m` selects a row whose sum is 10. Pre-existing.
+- **A lazy collection in a conditional that the SQL repeats** (EF's form for a conditional that can be null:
+  `(lazy.Contains(x.N) ? x.N : none) != 5` sends the conditional twice, and `!= x.N` three times) is enumerated once
+  (a query held in an `IQueryable<T>` runs once), and its values are bound per copy. A lazy class with its own
+  `Contains` method is enumerated once per copy; call `ToList()` first.
+- The 3.11.0 Known issues not listed as fixed above still apply.
+
 ## [3.11.0] - 2026-10-19
 
 **Release notes.** WHERE predicates are evaluated through one shared code path for SELECT and DELETE, and for any

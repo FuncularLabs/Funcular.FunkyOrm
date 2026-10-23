@@ -12,6 +12,8 @@ var ids = new int?[] { 1, 2 };
 var idsWithNull = new int?[] { 1, null };
 var onlyNull = new int?[] { null };
 var intIds = new[] { 1, 2 };
+bool? nullBool = null;
+var t = true;
 
 var cases = new (string Name, Expression<Func<Row, bool>> Pred)[]
 {
@@ -106,6 +108,30 @@ var cases = new (string Name, Expression<Func<Row, bool>> Pred)[]
     ("Parent.Code != 5 (int)",        x => x.Parent!.Code != 5),
     ("Parent.Code == 0 (int)",        x => x.Parent!.Code == 0),
     ("!Parent.B (bool)",              x => !x.Parent!.B),
+    // Task 0 round 4 (3.12.0 plan rev 5)
+    ("Parent.Code.ToString() != \"5\"", x => x.Parent!.Code.ToString() != "5"),
+    ("Parent.Code.ToString() == \"\"",  x => x.Parent!.Code.ToString() == ""),
+    ("!(Id == 2 && Name.Contains(a))", x => !(x.Id == 2 && x.Name!.Contains(a))),
+    ("!(Id == 2 || ids.Contains(N))",  x => !(x.Id == 2 || ids.Contains(x.N))),
+    ("!(Id == 2 && Name.Contains(noName))", x => !(x.Id == 2 && x.Name!.Contains(noName!))),
+    ("(N != 5 ? Id : 0) > 0",          x => (x.N != 5 ? x.Id : 0) > 0),
+    ("(N != 5 ? 5 : 0) == v",          x => (x.N != 5 ? 5 : 0) == v),
+    ("(Id > 2 ? (N != 5 ? 1 : 0) : 0) == 1", x => (x.Id > 2 ? (x.N != 5 ? 1 : 0) : 0) == 1),
+    ("Name.Contains(a) != nullBool",   x => x.Name!.Contains(a) != nullBool),
+    ("Name.Contains(a) == nullBool",   x => x.Name!.Contains(a) == nullBool),
+    ("(N == 5) == (N == 5)",           x => (x.N == 5) == (x.N == 5)),
+    ("Flag == (N > 5)",                x => x.Flag == (x.N > 5)),
+    // Round 6: `!` of a column, a side that reads no row, a conditional's predicate branch.
+    ("(N == v) == !B",                 x => (x.N == v) == !x.B),
+    ("!B == (M > 3)",                  x => !x.B == (x.M > 3)),
+    ("(N == v) == !t (captured)",      x => (x.N == v) == !t),
+    ("Flag != (bool?)!t",              x => x.Flag != (bool?)!t),
+    ("!Flag != true",                  x => !x.Flag != true),
+    ("!Flag == null",                  x => !x.Flag == null),
+    ("Flag == !Flag2",                 x => x.Flag == !x.Flag2),
+    ("!(Id > 2 ? B : false) == true",  x => !(x.Id > 2 ? x.B : false) == true),
+    ("(Id > 2 ? (bool?)(N == 5) : Flag) != true", x => (x.Id > 2 ? (bool?)(x.N == 5) : x.Flag) != true),
+    ("(Id > 2 ? N == 5 : false) == B", x => (x.Id > 2 ? x.N == 5 : false) == x.B),
 };
 
 foreach (var (label, factory) in new (string, Func<Ctx>)[] { ("SqlServer", () => new Ctx(true)), ("Sqlite", () => new Ctx(false)) })
@@ -142,6 +168,7 @@ public class Row
     public string? Name { get; set; }
     public string Req { get; set; } = "";
     public bool? Flag { get; set; }
+    public bool? Flag2 { get; set; }
     public bool B { get; set; }
     public DateTime? D { get; set; }
     public Color? E { get; set; }

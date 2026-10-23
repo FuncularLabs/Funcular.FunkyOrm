@@ -37,6 +37,36 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             return directory.FullName;
         }
 
+        /// <summary>
+        /// R5 (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md §8): every version carrier names the Changelog's latest release:
+        /// the five library csprojs (Version, AssemblyVersion, FileVersion, InformationalVersion) and tools/consumer-smoke's
+        /// three defaults, so a release can't pack one number and smoke-test another.
+        /// </summary>
+        [TestMethod]
+        public void VersionCarriers_MatchTheChangelog()
+        {
+            var root = RepositoryRoot();
+            var latest = Regex.Match(File.ReadAllText(Path.Combine(root, "Changelog.md")), @"^## \[(\d+\.\d+\.\d+)\]", RegexOptions.Multiline);
+            Assert.IsTrue(latest.Success, "Changelog.md has no release heading");
+            var version = latest.Groups[1].Value;
+            foreach (var project in ProviderProjects)
+            {
+                var document = XDocument.Load(Path.Combine(root, project));
+                string Value(string name) => document.Descendants(name).Select(e => e.Value.Trim()).SingleOrDefault();
+                Assert.AreEqual(version, Value("Version"), project + " <Version>");
+                Assert.AreEqual(version + ".0", Value("AssemblyVersion"), project + " <AssemblyVersion>");
+                Assert.AreEqual(version + ".0", Value("FileVersion"), project + " <FileVersion>");
+                Assert.AreEqual(version, Value("InformationalVersion"), project + " <InformationalVersion>");
+            }
+            var smoke = Path.Combine(root, "tools", "consumer-smoke");
+            StringAssert.Contains(File.ReadAllText(Path.Combine(smoke, "ConsumerSmoke", "ConsumerSmoke.csproj")),
+                "<FunkyVersion Condition=\"'$(FunkyVersion)' == ''\">" + version + "</FunkyVersion>", "ConsumerSmoke.csproj's default");
+            StringAssert.Contains(File.ReadAllText(Path.Combine(smoke, "Run-ConsumerSmoke.ps1")), "[string]$Version = \"" + version + "\"",
+                "Run-ConsumerSmoke.ps1's default");
+            StringAssert.Contains(File.ReadAllText(Path.Combine(smoke, "run-consumer-smoke.sh")), "version=\"" + version + "\"",
+                "run-consumer-smoke.sh's default");
+        }
+
         private static IEnumerable<XElement> PackageReferences(string project) =>
             XDocument.Load(Path.Combine(RepositoryRoot(), project)).Descendants("PackageReference");
 

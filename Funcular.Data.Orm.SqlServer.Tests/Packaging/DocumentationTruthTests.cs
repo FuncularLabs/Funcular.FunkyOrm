@@ -279,6 +279,81 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
                 : "no constructor of " + attributeType.Name + " takes " + positional + " positional argument(s)";
         }
 
+        #region Null comparisons (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md AC-N12)
+
+        [System.ComponentModel.DataAnnotations.Schema.Table("person")]
+        public class DocPerson
+        {
+            [System.ComponentModel.DataAnnotations.Key, System.ComponentModel.DataAnnotations.Schema.Column("id")] public int Id { get; set; }
+            [System.ComponentModel.DataAnnotations.Schema.Column("hospital_id")] public int? HospitalId { get; set; }
+            [System.ComponentModel.DataAnnotations.Schema.Column("referring_hospital_id")] public int? ReferringHospitalId { get; set; }
+            [System.ComponentModel.DataAnnotations.Schema.Column("middle_initial")] public string MiddleInitial { get; set; }
+        }
+
+        /// <summary>The predicates the null-comparison tables show, by their text there (the documents' captured values).</summary>
+        private static Dictionary<string, Expression<Func<DocPerson, bool>>> NullComparisonExamples()
+        {
+            int? hospitalId = 5;
+            int? none = null;
+            string filter = null;
+            var ids = new int?[] { 1, 2 };
+            return new Dictionary<string, Expression<Func<DocPerson, bool>>>
+            {
+                ["p => p.HospitalId == 5"] = p => p.HospitalId == 5,
+                ["p => p.HospitalId != hospitalId"] = p => p.HospitalId != hospitalId,
+                ["p => p.HospitalId == none"] = p => p.HospitalId == none,
+                ["p => p.Id == none"] = p => p.Id == none,
+                ["p => !(p.HospitalId == 5)"] = p => !(p.HospitalId == 5),
+                ["p => !(p.HospitalId > 5)"] = p => !(p.HospitalId > 5),
+                ["p => p.HospitalId == p.ReferringHospitalId"] = p => p.HospitalId == p.ReferringHospitalId,
+                ["p => !ids.Contains(p.HospitalId)"] = p => !ids.Contains(p.HospitalId),
+                ["p => !p.MiddleInitial.Contains(\"x\")"] = p => !p.MiddleInitial.Contains("x"),
+                ["p => p.MiddleInitial.Contains(\"x\") == false"] = p => p.MiddleInitial.Contains("x") == false,
+                ["p => !p.MiddleInitial.Contains(filter)"] = p => !p.MiddleInitial.Contains(filter),
+            };
+        }
+
+        /// <summary>The WHERE text SQL Server's visitor sends for <paramref name="predicate"/>, with <c>@p__linq__N</c> written <c>@pN</c>.</summary>
+        private static string SqlServerWhere(Expression<Func<DocPerson, bool>> predicate)
+        {
+            var generator = new Funcular.Data.Orm.Visitors.ParameterGenerator();
+            var visitor = new Funcular.Data.Orm.Visitors.WhereClauseVisitor<DocPerson>(
+                new System.Collections.Concurrent.ConcurrentDictionary<string, string>(), new List<PropertyInfo>(), generator,
+                new Funcular.Data.Orm.Visitors.SqlExpressionTranslator(generator), "person");
+            visitor.Visit(predicate);
+            return Regex.Replace(visitor.WhereClauseBody.Trim(), @"@p__linq__(\d+)", "@p$1");
+        }
+
+        /// <summary>
+        /// The null-comparison table (between <c>funky:null-semantics</c> markers) shows what the code sends: each row's
+        /// C# is translated by SQL Server's visitor and must give the row's SQL, every example appears in Usage.md, and a
+        /// row whose C# isn't one of the examples fails, so the table can't drift from the code.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("Usage.md")]
+        [DataRow("docs/ai-instructions/FUNKYORM_AI_INSTRUCTIONS.md")]
+        public void NullComparisons_DocumentedAsCSharp(string relativePath)
+        {
+            var text = File.ReadAllText(Path.Combine(Root, relativePath)).Replace("\r\n", "\n");
+            var block = Regex.Match(text, @"<!-- funky:null-semantics:begin -->\n(.*?)<!-- funky:null-semantics:end -->", RegexOptions.Singleline);
+            Assert.IsTrue(block.Success, relativePath + " has no null-comparison table");
+            var examples = NullComparisonExamples();
+            var shown = new HashSet<string>();
+            foreach (Match row in Regex.Matches(block.Groups[1].Value, @"^[ \t]*\| `([^`]+)` \| `([^`]+)` \|", RegexOptions.Multiline))
+            {
+                var csharp = row.Groups[1].Value;
+                Assert.IsTrue(examples.ContainsKey(csharp), relativePath + ": the table shows a predicate the test doesn't translate: " + csharp);
+                Assert.AreEqual(row.Groups[2].Value, SqlServerWhere(examples[csharp]), relativePath + ": " + csharp);
+                shown.Add(csharp);
+            }
+            if (relativePath == "Usage.md")
+                CollectionAssert.AreEquivalent(examples.Keys.ToList(), shown.ToList(), "Usage.md's table doesn't show every example");
+            else
+                Assert.IsTrue(shown.Count >= 4, relativePath + "'s table shows too few rows: " + shown.Count);
+        }
+
+        #endregion
+
         /// <summary>The package's own README says which providers it includes.</summary>
         [TestMethod]
         public void Readme_InstallationSentence_NamesAllFourProviders()

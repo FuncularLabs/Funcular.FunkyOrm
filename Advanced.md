@@ -207,7 +207,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 <!-- funky:supported-operators:begin -->
 | Operator | Translated as | Notes |
 |---|---|---|
-| `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. |
+| `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. It selects the rows C# selects when a value or a column is null, as EF Core does (v3.12.0; Usage.md, "Null comparisons"). |
 | `Select` | a narrow `SELECT` | A column subset of the same entity (`new T { … }`) or a single member (`x => x.Member`); see §1. |
 | `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its values sent as parameters (such as strings, chars, `Guid`s, dates and times; booleans, enums and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline); a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL` (on PostgreSQL, a value that would be sent as a parameter is instead compared with `null` before the query is sent; an inline value such as `5` is still sent as `5 IS NULL`). |
 | `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |

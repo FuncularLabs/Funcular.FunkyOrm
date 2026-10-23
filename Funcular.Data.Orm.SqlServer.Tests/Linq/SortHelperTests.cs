@@ -124,6 +124,28 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
                     .Select(r => r.Id).ToList());
         }
 
+        /// <summary>
+        /// After <c>Skip</c> the documented check takes <c>OrderBy</c> (the expression is no longer ordered), on both libraries.
+        /// EF Core builds that query, with a subquery; FunkyORM rejects any operator after <c>Skip</c>/<c>Take</c> by design,
+        /// with its <see cref="NotSupportedException"/>, before a command is sent.
+        /// </summary>
+        [TestMethod]
+        public void HelperAfterSkip_TakesOrderBy_WhichFunkyOrmRejectsByDesign()
+        {
+            using (var ef = new EfContext())
+            {
+                var efQuery = SortByExpressionType(ef.Rows.OrderBy(r => r.Id).Skip(1), r => r.Name);
+                Assert.AreEqual("OrderBy", Outermost(efQuery), "EF Core after Skip");
+                StringAssert.Contains(efQuery.ToQueryString(), "ORDER BY", "EF Core builds it");
+            }
+            var sql = new System.Collections.Generic.List<string>();
+            _provider.Log = sql.Add;
+            var funky = SortByExpressionType(_provider.Query<Row>().OrderBy(r => r.Id).Skip(1), r => r.Name);
+            Assert.AreEqual("OrderBy", Outermost(funky), "after Skip");
+            Assert.ThrowsException<NotSupportedException>(() => funky.ToList(), "an operator after Skip is rejected by design");
+            Assert.IsFalse(sql.Any(s => s != null && s.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)), "a command was sent");
+        }
+
         private static string Outermost(IQueryable query) => ((MethodCallExpression)query.Expression).Method.Name;
     }
 }

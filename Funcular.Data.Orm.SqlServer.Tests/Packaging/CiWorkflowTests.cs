@@ -102,6 +102,143 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             StringAssert.Contains(jobs["publish"], "if: github.ref == 'refs/heads/master'", "publish isn't limited to master");
         }
 
+        private static readonly string[] TestJobs = { "test-net8", "test-sqlite", "test-postgresql", "test-mysql" };
+
+        /// <summary>
+        /// Each test job writes a TRX and runs the gate on it (§8 R3): an inconclusive is NotExecuted in the TRX while
+        /// <c>dotnet test</c> exits 0, so a suite whose database was missing would read as green.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("test-net8")]
+        [DataRow("test-sqlite")]
+        [DataRow("test-postgresql")]
+        [DataRow("test-mysql")]
+        public void EveryTestJob_RunsTheTrxGate(string jobName)
+        {
+            var job = Jobs(CiText)[jobName];
+            StringAssert.Contains(job, "--logger \"trx;LogFileName=test-results.trx\"", jobName + " writes no TRX");
+            StringAssert.Contains(job, "--results-directory TestResults", jobName + " writes its TRX elsewhere than the gate reads it");
+            StringAssert.Contains(job, "./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx", jobName + " doesn't run the TRX gate");
+        }
+
+        /// <summary>No test job can pass while its tests fail or don't run: no continue-on-error, no `|| true`, no job-level if.</summary>
+        [TestMethod]
+        public void TestJobs_NeverHideAFailure()
+        {
+            var jobs = Jobs(CiText);
+            foreach (var name in TestJobs)
+            {
+                var job = jobs[name];
+                Assert.IsFalse(job.Contains("continue-on-error"), name + " has continue-on-error");
+                Assert.IsFalse(job.Contains("|| true"), name + " swallows a failure with || true");
+                Assert.IsFalse(Regex.IsMatch(job, @"^    if:", RegexOptions.Multiline), name + " has a job-level if: it could be skipped");
+            }
+        }
+
+        /// <summary>The one filter a test job may have excludes the performance and Entity Framework comparison suites.</summary>
+        [TestMethod]
+        public void TestJobs_FilterOnlyThePerformanceAndEntityFrameworkSuites()
+        {
+            var jobs = Jobs(CiText);
+            foreach (var name in TestJobs)
+            {
+                foreach (Match filter in Regex.Matches(jobs[name], @"--filter\s+""([^""]*)"""))
+                    Assert.AreEqual("FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework", filter.Groups[1].Value,
+                        name + " filters out other tests");
+            }
+        }
+
+        #region The TRX gate (.github/scripts/Assert-TestsRan.ps1)
+
+        private static string GateScript => Path.Combine(PackagingTests.RepositoryRoot(), ".github", "scripts", "Assert-TestsRan.ps1");
+
+        /// <summary>A TRX with one result per (class, method, outcome), in MSTest's shape: results joined to definitions by testId.</summary>
+        private static string Trx(params string[][] results)
+        {
+            var definitions = new System.Text.StringBuilder();
+            var entries = new System.Text.StringBuilder();
+            foreach (var result in results)
+            {
+                var id = Guid.NewGuid().ToString();
+                entries.Append($"<UnitTestResult testId=\"{id}\" testName=\"{result[1]} (\"x\")\" outcome=\"{result[2]}\" />");
+                definitions.Append($"<UnitTest id=\"{id}\" name=\"{result[1]} (\"x\")\"><TestMethod className=\"{result[0]}\" name=\"{result[1]}\" /></UnitTest>");
+            }
+            return "<?xml version=\"1.0\" encoding=\"utf-8\"?><TestRun xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\">" +
+                   "<Results>" + entries.ToString().Replace("(\"x\")", "(&quot;x&quot;)") + "</Results>" +
+                   "<TestDefinitions>" + definitions.ToString().Replace("(\"x\")", "(&quot;x&quot;)") + "</TestDefinitions></TestRun>";
+        }
+
+        /// <summary>Runs the gate on <paramref name="trx"/> (null: no file) with <paramref name="allow"/>; returns its exit code and output.</summary>
+        private static KeyValuePair<int, string> RunGate(string trx, string allow)
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "funky_trx_gate_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var path = Path.Combine(directory, "test-results.trx");
+                if (trx != null)
+                    File.WriteAllText(path, trx);
+                var info = new System.Diagnostics.ProcessStartInfo("pwsh",
+                    $"-NoProfile -NonInteractive -File \"{GateScript}\" -Trx \"{path}\"" + (allow == null ? "" : $" -Allow \"{allow}\""))
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                };
+                using (var process = System.Diagnostics.Process.Start(info))
+                {
+                    var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    return new KeyValuePair<int, string>(process.ExitCode, output);
+                }
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void TrxGate_PassesARunWhereEveryTestRan()
+        {
+            var result = RunGate(Trx(new[] { "Ns.A", "M", "Passed" }, new[] { "Ns.A", "N", "Failed" }), null);
+            Assert.AreEqual(0, result.Key, result.Value);
+        }
+
+        [TestMethod]
+        public void TrxGate_PassesAnAllowedInconclusive()
+        {
+            var result = RunGate(Trx(new[] { "Ns.A", "M", "Passed" }, new[] { "Ns.A", "Skip", "NotExecuted" }), "Ns.Other.X,Ns.A.Skip");
+            Assert.AreEqual(0, result.Key, result.Value);
+        }
+
+        [TestMethod]
+        public void TrxGate_FailsAnInconclusiveNotAllowed()
+        {
+            var result = RunGate(Trx(new[] { "Ns.A", "M", "Passed" }, new[] { "Ns.A", "Skip", "NotExecuted" }), "Ns.A.M");
+            Assert.AreEqual(1, result.Key, result.Value);
+            StringAssert.Contains(result.Value, "Ns.A.Skip");
+        }
+
+        /// <summary>R3-9 / R4-7: the entry names the runtime class, so one method name declared in two classes is two entries.</summary>
+        [TestMethod]
+        public void TrxGate_KeysOnTheClass_NotTheMethodAlone()
+        {
+            var result = RunGate(Trx(new[] { "Ns.A", "Shared", "NotExecuted" }, new[] { "Ns.B", "Shared", "NotExecuted" }), "Ns.A.Shared");
+            Assert.AreEqual(1, result.Key, result.Value);
+            StringAssert.Contains(result.Value, "Ns.B.Shared");
+            Assert.IsFalse(result.Value.Contains("Ns.A.Shared ("), "the allowed class was reported: " + result.Value);
+        }
+
+        [TestMethod]
+        public void TrxGate_FailsARunWithNoResults_OrNoFile()
+        {
+            Assert.AreEqual(1, RunGate(Trx(), null).Key, "no results");
+            Assert.AreEqual(1, RunGate(null, null).Key, "no file");
+        }
+
+        #endregion
+
         /// <summary>One run per suite: no other workflow runs a test project (the separate PostgreSQL and MySQL workflows moved into ci.yml).</summary>
         [TestMethod]
         public void NoOtherWorkflow_RunsATestSuite()
