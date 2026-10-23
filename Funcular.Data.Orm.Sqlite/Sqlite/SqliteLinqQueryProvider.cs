@@ -464,7 +464,11 @@ namespace Funcular.Data.Orm.Sqlite
                 if (hasPredicate)
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
-                    var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    // All(p) holds when no row satisfies !p, so the visitor translates !p under C#'s null semantics
+                    // (docs/plans/NULL_SEMANTICS_PLAN.md §5.3, AC-N9), not NOT (…) around p's text.
+                    var predicateExpression = isAll
+                        ? Expression.Lambda<Func<T, bool>>(Expression.Not(lambda.Body), lambda.Parameters)
+                        : (Expression<Func<T, bool>>)lambda;
                     var whereVisitor = new SqliteWhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -520,7 +524,7 @@ namespace Funcular.Data.Orm.Sqlite
                     aggregateClause = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}{joins}";
                     string combinedWhere = "";
                     if (!string.IsNullOrEmpty(whereClause)) { combinedWhere += whereClause; if (hasPredicate) combinedWhere += " AND "; }
-                    if (hasPredicate) combinedWhere += $"NOT ({modifiedWhereClause})";
+                    if (hasPredicate) combinedWhere += modifiedWhereClause;
                     if (!string.IsNullOrEmpty(combinedWhere)) aggregateClause += $"\r\nWHERE {combinedWhere}";
                     aggregateClause += ") THEN 0 ELSE 1 END";
                 }

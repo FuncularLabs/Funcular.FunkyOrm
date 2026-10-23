@@ -62,6 +62,9 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         protected abstract Translation TranslateMethodCall(MethodCallExpression node, Func<PropertyInfo, string> getColumnName);
 
+        /// <summary>The provider's <c>TranslateMethodCall</c> with <c>negated: true</c> (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md §5.2).</summary>
+        protected abstract Translation TranslateNegatedMethodCall(MethodCallExpression node, Func<PropertyInfo, string> getColumnName);
+
         protected abstract Translation TranslateDateMember(MemberExpression node, Func<PropertyInfo, string> getColumnName);
 
         /// <summary>The provider's <c>TranslateMemberOfMember</c> (FD-01): a date part or a string length on a property of the row, else a rejection.</summary>
@@ -180,6 +183,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
 
         protected Translation Translate(MethodCallExpression node) => TranslateMethodCall(node, Column);
 
+        protected Translation TranslateNegated(MethodCallExpression node) => TranslateNegatedMethodCall(node, Column);
+
         protected void AssertRejected<TException>(MethodCallExpression node, string messagePrefix) where TException : Exception
         {
             var ex = Assert.ThrowsException<TException>(() => TranslateMethodCall(node, Column));
@@ -204,6 +209,9 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         private readonly List<long> longs = new List<long> { 1, 2 };
         private readonly List<int> lengths = new List<int> { 4 };
         private readonly List<int?> oneAndNull = new List<int?> { 1, null };
+        private readonly List<int?> nullableIds = new List<int?> { 1, 2 };
+        private readonly List<int?> onlyNull = new List<int?> { null };
+        private readonly List<int?> noNullableIds = new List<int?>();
         private readonly Request absent = new Request { Id = 5, Code = "a", Name = "zeta", NullableId = 5, Ids = new List<int> { 1, 2 } };
         private readonly Request present = new Request { Id = 1 };
         private readonly Request bee = new Request { Code = "b" };
@@ -267,13 +275,108 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         }
 
         [TestMethod]
-        public void CollectionContains_NullValuesSkipped()
+        public void CollectionContains_NullItems_AlsoSelectTheNulls()
         {
-            // N1 (§8): the IN list drops a null, as today.
+            // 3.12.0, AC-N6: a null item is C#'s null, so the NULL rows are selected too, parenthesized (3.11.0 dropped it).
             var result = Translate(CallOnRow(x => oneAndNull.Contains(x.NullableId)));
-            Assert.AreEqual($"c.NullableId IN ({result.Name(0)})", result.Sql);
+            Assert.AreEqual($"(c.NullableId IN ({result.Name(0)}) OR c.NullableId IS NULL)", result.Sql);
             Assert.AreEqual(1, result.Parameters.Count);
         }
+
+        [TestMethod]
+        public void CollectionContains_OnlyNull_IsNull()
+        {
+            var result = Translate(CallOnRow(x => onlyNull.Contains(x.NullableId)));
+            Assert.AreEqual("c.NullableId IS NULL", result.Sql);
+            Assert.AreEqual(0, result.Parameters.Count);
+        }
+
+        #region Negated (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md §5.2: AC-N6, AC-N7, AC-N8)
+
+        [TestMethod]
+        public void Negated_CollectionContains_AlsoSelectsTheNulls()
+        {
+            var result = TranslateNegated(CallOnRow(x => nullableIds.Contains(x.NullableId)));
+            Assert.AreEqual($"(NOT c.NullableId IN ({result.Name(0)},{result.Name(1)}) OR c.NullableId IS NULL)", result.Sql);
+        }
+
+        [TestMethod]
+        public void Negated_CollectionContains_WithANullItem_ExcludesTheNulls()
+        {
+            var result = TranslateNegated(CallOnRow(x => oneAndNull.Contains(x.NullableId)));
+            Assert.AreEqual($"(c.NullableId IS NOT NULL AND NOT c.NullableId IN ({result.Name(0)}))", result.Sql);
+            Assert.AreEqual(1, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Negated_CollectionContains_OnlyNull_IsNotNull()
+        {
+            var result = TranslateNegated(CallOnRow(x => onlyNull.Contains(x.NullableId)));
+            Assert.AreEqual("c.NullableId IS NOT NULL", result.Sql);
+            Assert.AreEqual(0, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Negated_CollectionContains_Empty_EveryRow()
+        {
+            Assert.AreEqual("NOT 1=0", TranslateNegated(CallOnRow(x => noNullableIds.Contains(x.NullableId))).Sql);
+            Assert.AreEqual("NOT 1=0", TranslateNegated(CallOnRow(x => emptyIds.Contains(x.Id))).Sql);
+        }
+
+        [TestMethod]
+        public void Negated_CollectionContains_ColumnThatCantBeNull_Is3110sSql()
+        {
+            var result = TranslateNegated(CallOnRow(x => ids.Contains(x.Id)));
+            Assert.AreEqual($"NOT c.Id IN ({result.Name(0)},{result.Name(1)})", result.Sql);
+        }
+
+        [TestMethod]
+        public void Negated_RowIndependentContains_IsNotAndTheLiteral()
+        {
+            Assert.AreEqual("NOT 1=0", TranslateNegated(CallOnRow(x => ids.Contains(five))).Sql);
+            Assert.AreEqual("NOT NOT 1=0", TranslateNegated(CallOnRow(x => s.Contains("et"))).Sql);
+        }
+
+        [TestMethod]
+        public void Negated_StringContains_AlsoSelectsTheNulls()
+        {
+            var result = TranslateNegated(CallOnRow(x => x.Name.Contains(s)));
+            Assert.AreEqual($"(NOT c.Name LIKE {result.Name(0)}{Escape} OR c.Name IS NULL)", result.Sql);
+            Assert.AreEqual("%zeta%", result.Value(0));
+        }
+
+        [TestMethod]
+        public void Negated_StartsWithAndEndsWith_AlsoSelectTheNulls()
+        {
+            var starts = TranslateNegated(CallOnRow(x => x.Name.StartsWith(s)));
+            Assert.AreEqual($"(NOT c.Name LIKE {StartsWithPattern(starts.Name(0))}{Escape} OR c.Name IS NULL)", starts.Sql);
+            var ends = TranslateNegated(CallOnRow(x => x.Name.EndsWith(s)));
+            Assert.AreEqual($"(NOT c.Name LIKE {EndsWithPattern(ends.Name(0))}{Escape} OR c.Name IS NULL)", ends.Sql);
+        }
+
+        [TestMethod]
+        public void Negated_NullSearchValue_EveryRow()
+        {
+            foreach (var call in new[]
+                     {
+                         CallOnRow(x => x.Name.Contains(nullString)), CallOnRow(x => x.Name.StartsWith(nullString)),
+                         CallOnRow(x => x.Name.EndsWith(nullString))
+                     })
+            {
+                var result = TranslateNegated(call);
+                Assert.AreEqual("NOT 1=0", result.Sql, call.Method.Name);
+                Assert.AreEqual(0, result.Parameters.Count, call.Method.Name);
+            }
+        }
+
+        [TestMethod]
+        public void Negated_UnsupportedCall_IsRejectedAsPositive()
+        {
+            var ex = Assert.ThrowsException<NotSupportedException>(() => TranslateNegated(CallOnRow(x => x.Name.Equals(s))));
+            StringAssert.StartsWith(ex.Message, "Method call Equals is not supported");
+        }
+
+        #endregion
 
         [TestMethod]
         public void CollectionContains_ConstantCollection_In()

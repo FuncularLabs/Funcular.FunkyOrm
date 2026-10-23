@@ -97,10 +97,11 @@ namespace Funcular.Data.Orm.Tests.Parity
         protected abstract string CastToTextSql(string column);
 
         /// <summary>
-        /// True when the dialect itself rejects the SELECT this key translates to (SQL Server: a <c>LIKE</c> compared
-        /// with a value, <c>… LIKE @p ESCAPE '!' = @p1</c>, isn't an expression there; pre-existing, like the bare
-        /// <c>bool</c> member of D-133(b)). The read paths must then reach the database and fail there, not be refused
-        /// by the guard or the translator; the delete paths are asserted as for any key.
+        /// True when the dialect itself rejects the SELECT this key translates to (like the bare <c>bool</c> member of
+        /// D-133(b) on SQL Server). The read paths must then reach the database and fail there, not be refused by the
+        /// guard or the translator; the delete paths are asserted as for any key. No key needs it since 3.12.0: a
+        /// <c>LIKE</c> compared with a <c>bool</c> was one on SQL Server (<c>… LIKE @p ESCAPE '!' = @p1</c>), and is now
+        /// rewritten as the predicate itself or its negation (docs/plans/NULL_SEMANTICS_PLAN.md AC-N14).
         /// </summary>
         protected virtual bool ReadRejectedByTheDialect(string key) => false;
 
@@ -216,8 +217,8 @@ namespace Funcular.Data.Orm.Tests.Parity
                 // Review R-4 (round-3 A/N-1): a bool compared with a bool. The verdict composes the operands' truths, so an
                 // empty search or a self-comparison in a value position is refused as a delete (3.10.1 refused the first;
                 // at ee31854 the first two deleted every named row on SQLite, MySQL and PostgreSQL). A query runs them: the
-                // whole self-comparison folds to NOT 1=0; the empty search translates as written, which SQL Server's
-                // dialect rejects in a value position (ReadRejectedByTheDialect) and the other three answer as C# does.
+                // whole self-comparison folds to NOT 1=0; the empty search is the predicate itself (3.12.0, AC-N14), so
+                // every provider answers as C# does (before, SQL Server's dialect rejected it in a value position).
                 case "nameContainsEmptyEqTrue": return x => x.Name.Contains("") == true;
                 case "nameContainsEmptyNeFalse": return x => x.Name.Contains("") != false;
                 case "idSelfEqTrue": return x => (x.Id == x.Id) == true;
@@ -228,7 +229,8 @@ namespace Funcular.Data.Orm.Tests.Parity
                 case "nullRequestOrContains": return x => nullRequest == null || ids.Contains(nullRequest.Id);
                 // Review R-6 (round-5 B/6): a translator rejection that is NOT a NotSupportedException. `.Value` on a
                 // nullable column is each translator's NullableExpressionException, an InvalidOperationException like the
-                // guard's own refusal; the guard's held verdict (self-reference) must not replace it on Delete.
+                // guard's own refusal; the guard's verdict (self-reference), given once the predicate has translated, must not
+                // replace it on Delete.
                 case "nullableValueSelf": return x => x.NullableId.Value == x.NullableId.Value;
                 // Shapes that already agreed; they must keep agreeing.
                 case "idEquals": return x => x.Id == 2;
@@ -295,7 +297,7 @@ namespace Funcular.Data.Orm.Tests.Parity
                 // The evaluated Contains is true, so the WHERE is `… OR NOT 1=0`: the literal check after translation.
                 case "idOrCapturedItemPresent":
                 case "notEmptyContains":
-                // Always true before translation: `true`, or `nullFilter == null` with a null filter.
+                // Always true by the verdict: `true`, or `nullFilter == null` with a null filter.
                 case "idOrTrue":
                 case "optionalFilterNull":
                 // Review R-2: a bool unboxed from a captured object (A/N-1), and a self-comparison in a disjunction (A/N-2).

@@ -8,6 +8,7 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Funcular.Data.Orm.Attributes;
 
 namespace Funcular.Data.Orm
 {
@@ -23,10 +24,13 @@ namespace Funcular.Data.Orm
         NoColumn,
 
         /// <summary>
-        /// The predicate is a comparison of a column, or a member of one, with itself by <c>==</c>, <c>&gt;=</c> or
-        /// <c>&lt;=</c>, or the negation of one by <c>!=</c>, <c>&lt;</c> or <c>&gt;</c>, whatever the type: a mass
-        /// mutation of it would touch every row, or every row but the nulls or NaNs (a nullable's <c>&gt;=</c>, a
-        /// <c>double</c>'s <c>==</c>).
+        /// The predicate is a comparison of an operand that reads the row with the same operand by <c>==</c>, <c>&gt;=</c>
+        /// or <c>&lt;=</c>, or the negation of one by <c>!=</c>, <c>&lt;</c> or <c>&gt;</c>, whatever its type: a column, a
+        /// member of one, or any other operand (a conditional, a call), and a copy that differs only by built-in casts, a
+        /// string's <c>ToString()</c>, an <c>[SqlExpression]</c> alias or a template of the same text; with a provider's SQL
+        /// for the operands (<see cref="WherePredicateGuard.Validate(System.Linq.Expressions.LambdaExpression, WhereOperation, System.Func{System.Linq.Expressions.Expression, string})"/>),
+        /// also an operand that sends the same SQL. A mass mutation of it would touch every row, or every row but the
+        /// nulls or NaNs (a nullable's <c>&gt;=</c>, a <c>double</c>'s <c>==</c>).
         /// </summary>
         SelfReference,
 
@@ -56,13 +60,17 @@ namespace Funcular.Data.Orm
     /// <summary>
     /// The all-rows guard for mass mutations, and the shared evaluation of the parts of a WHERE predicate that don't
     /// read the row (docs/plans/DECISIONS-3.10.2.md D-001, D-003 as amended by D-128).
-    /// <para><b>Guard.</b> Every provider's shared WHERE translation calls <see cref="Validate(LambdaExpression, WhereOperation)"/>
-    /// before translating the predicate and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE
-    /// clause it produces, passing the operation. A refused predicate never sends the mutation; its type is
+    /// <para><b>Guard.</b> Every provider's shared WHERE translation checks the argument contract (a read's
+    /// <see cref="Validate(LambdaExpression, WhereOperation)"/>), translates the predicate, and then calls
+    /// <see cref="Validate(LambdaExpression, WhereOperation, Func{Expression, string})"/> with its SQL for a part of an
+    /// operand and <see cref="ValidateTranslation(string, WhereOperation)"/> on the WHERE clause it produces, passing the
+    /// operation, so the verdict is given once (a custom provider may call <see cref="Validate(LambdaExpression, WhereOperation)"/>
+    /// for it instead). A refused predicate never sends the mutation; its type is
     /// discovered and it is translated exactly as for a read, so a missing table or a shape no path translates throws
     /// discovery's or the translator's exception on every path alike, and the refusal here is reserved for
     /// predicates that translate (D-005; D-156, option 1). For a <see cref="WhereOperation.MassMutation"/> (<c>Delete(predicate)</c>, any update by
-    /// predicate) a predicate that reads no column, compares a column (or a member of one) with itself, always holds,
+    /// predicate) a predicate that reads no column, compares an operand that reads the row with itself or a copy of it
+    /// (<see cref="WherePredicateVerdict.SelfReference"/>), always holds,
     /// or searches a column for an empty value that nothing else bounds (<see cref="WherePredicateVerdict.UnboundedSearch"/>)
     /// is refused; for a <see cref="WhereOperation.Read"/> (<c>Query(predicate)</c>, <c>Where</c>) both checks accept
     /// everything, and the predicate runs and returns every row, as LINQ to objects would; the LINQ
@@ -85,7 +93,7 @@ namespace Funcular.Data.Orm
         /// <summary>The message of <see cref="WherePredicateVerdict.NoColumn"/>.</summary>
         public const string NoColumnMessage = "The WHERE clause must reference at least one column of the entity.";
 
-        /// <summary>The message of <see cref="WherePredicateVerdict.SelfReference"/>, before and after translation.</summary>
+        /// <summary>The message of <see cref="WherePredicateVerdict.SelfReference"/>, and of a translated clause that compares an operand with itself.</summary>
         public const string SelfReferenceMessage = "The WHERE clause cannot be a self-referencing column expression.";
 
         /// <summary>The message of <see cref="WherePredicateVerdict.AlwaysTrue"/>, and of a translated clause that holds by its literals.</summary>
@@ -100,6 +108,8 @@ namespace Funcular.Data.Orm
 
         private static readonly Assembly CoreLibrary = typeof(object).Assembly;
 
+        private static readonly FieldInfo StringEmpty = typeof(string).GetField(nameof(string.Empty))!;
+
         // A 1=1 that isn't part of a longer token: not glued to a word character, @, $, . or :.
         private static readonly Regex OneEqualsOne =
             new Regex(@"(?<![\w@$.:])1\s*=\s*1(?![\w@$.:])", RegexOptions.CultureInvariant);
@@ -110,15 +120,27 @@ namespace Funcular.Data.Orm
         private static readonly Regex WholeClauseSelfComparison =
             new Regex(@"^(.+?)\s*(=|>=|<=)\s*\1$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+        // The parts of EF's null-safe self-equality (IsNullSafeSelfEquality), each matched on a known stretch of the clause.
+        private static readonly Regex TrailingIsNull = new Regex(@"\s+IS\s+NULL\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        private static readonly Regex IsNullAnd = new Regex(@"\s+IS\s+NULL\s+AND\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        private static readonly Regex TrailingOr = new Regex(@"\s+OR\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        private static readonly Regex LastOr = new Regex(@"\s+OR\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.RightToLeft);
+
         /// <summary>
-        /// Classifies <paramref name="predicate"/> before it is translated.
+        /// Classifies <paramref name="predicate"/>, without translating it.
         /// <list type="bullet">
         /// <item><see cref="WherePredicateVerdict.NoColumn"/>: the body reads no member of the entity parameter
         /// (<c>x =&gt; true</c>, <c>x =&gt; 1 &lt; 2</c>, a captured <c>bool</c>, <c>x =&gt; ids.Contains(request.Id)</c>).</item>
-        /// <item><see cref="WherePredicateVerdict.SelfReference"/>: the body is a comparison of a property of the entity,
-        /// or of a member of one (<c>x.Name.Length</c>, <c>x.Created.Year</c>, <c>x.Child.Id</c>), with itself by
-        /// <c>==</c>, <c>&gt;=</c> or <c>&lt;=</c> (also through a cast or a no-argument <c>ToString()</c>), or the
-        /// negation of one by <c>!=</c>, <c>&gt;</c> or <c>&lt;</c>: 3.10's rule, whatever the type. A nullable's
+        /// <item><see cref="WherePredicateVerdict.SelfReference"/>: the body is a comparison of an operand that reads the
+        /// entity with the same operand by <c>==</c>, <c>&gt;=</c> or <c>&lt;=</c>, or the negation of one by <c>!=</c>,
+        /// <c>&gt;</c> or <c>&lt;</c>: a property, a member of one (<c>x.Name.Length</c>, <c>x.Created.Year</c>,
+        /// <c>x.Child.Id</c>), or any other operand (a conditional, a call, <c>(x.N == 5) == (x.N == 5)</c>), also where
+        /// the copy differs by built-in casts, a string's <c>ToString()</c>, an <c>[SqlExpression]</c> alias (a template
+        /// that is one <c>{Token}</c> in every variant, seen as the property it names) or a template of the same text in
+        /// every variant: 3.10's rule for a column, for any operand, type and operator. A nullable's
         /// <c>n &gt;= n</c> and a <c>double</c>'s <c>d == d</c> are refused too, although C# answers false for a null
         /// or a NaN: a mass mutation of them would touch every other row, and the verdict is about that, not about
         /// what the SQL sends (<see cref="Fold"/> folds only where C# answers the same for every row).</item>
@@ -198,7 +220,7 @@ namespace Funcular.Data.Orm
         public static void Validate(LambdaExpression predicate) => Validate(predicate, WhereOperation.MassMutation);
 
         /// <summary>
-        /// Checks <paramref name="predicate"/> before it is translated, for <paramref name="operation"/>. For a
+        /// Checks <paramref name="predicate"/>, without translating it, for <paramref name="operation"/>. For a
         /// <see cref="WhereOperation.MassMutation"/>, throws <see cref="InvalidOperationException"/> with the message
         /// of the verdict when <see cref="Classify"/> rejects the predicate; for a <see cref="WhereOperation.Read"/>,
         /// accepts every well-formed predicate. The argument contract is checked for both.
@@ -224,6 +246,297 @@ namespace Funcular.Data.Orm
                     throw new InvalidOperationException(AlwaysTrueMessage);
                 case WherePredicateVerdict.UnboundedSearch:
                     throw new InvalidOperationException(UnboundedSearchMessage);
+            }
+        }
+
+        /// <summary>
+        /// <see cref="Validate(LambdaExpression, WhereOperation)"/> with the provider's SQL for a part of an operand (3.12.0,
+        /// docs/plans/NULL_SEMANTICS_PLAN.md R18-1). For a <see cref="WhereOperation.MassMutation"/>, a comparison
+        /// (<c>==</c>, <c>!=</c>, <c>&lt;</c>, <c>&lt;=</c>, <c>&gt;</c>, <c>&gt;=</c>) whose two operands are the same, part
+        /// by part, counts as an operand compared with itself, wherever it stands. Two parts are the same as
+        /// <see cref="Classify"/> compares them (the same shape, through casts, an alias, a template of the same text), or,
+        /// where two parts of at most 64 nodes that read the row differ in shape, when <paramref name="operandSql"/> gives
+        /// both the same text, letter case aside outside quoted text (<see cref="OperandText"/> keeps a string literal's, a
+        /// JSON path's and a quoted name's): a template that is the dialect's own SQL for a column's part
+        /// (<c>LENGTH({Name})</c> against <c>x.Name.Length</c>), two templates that differ only in SQL's own words' letter
+        /// case, two <c>[JsonPath]</c> properties on one path.
+        /// The null-semantics rewrite may distribute such a comparison into a nested conditional's branches, where the
+        /// translated clause no longer shows it; 3.11.0's text check saw the parameter-free ones. A part that reads a captured
+        /// value, calls a method or constructor on no row, or holds a lambda or an array is never asked for, so the
+        /// provider's SQL for a part evaluates nothing the caller wrote (AC-N13); it is compared as written, so the same
+        /// captured member is the same value. A part's SQL is asked once per node, and a member of the row's once per
+        /// member (an alias's target, which the verdict builds as a new node each time, among them); a part written twice
+        /// is two nodes, each asked. The providers' shared WHERE translation calls this in place of
+        /// <see cref="Validate(LambdaExpression, WhereOperation)"/>, once the predicate has translated (D-005: the
+        /// translator has the first word), with a fresh visitor for each part, so the verdict is given once (R19-1). For a
+        /// <see cref="WhereOperation.Read"/> nothing is asked.
+        /// </summary>
+        /// <param name="predicate">A lambda with one parameter, the entity, and a <c>bool</c> body.</param>
+        /// <param name="operation">What the predicate is used for.</param>
+        /// <param name="operandSql">The SQL of one part, its parameters written as their values (<see cref="OperandText"/>),
+        /// or null where it has none; a throw counts as null.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="predicate"/> or <paramref name="operandSql"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="predicate"/> doesn't have exactly one parameter, or its
+        /// body isn't <c>bool</c>.</exception>
+        /// <exception cref="InvalidOperationException">The operation is a mass mutation and the predicate is rejected.</exception>
+        public static void Validate(LambdaExpression predicate, WhereOperation operation, Func<Expression, string?> operandSql)
+        {
+            CheckContract(predicate);
+            if (operandSql == null)
+                throw new ArgumentNullException(nameof(operandSql));
+            if (operation != WhereOperation.MassMutation)
+                return;
+            var body = new SameSqlUnifier(predicate.Parameters[0], operandSql).Visit(predicate.Body)!;
+            Validate(body == predicate.Body ? predicate : Expression.Lambda(body, predicate.Parameters), operation);
+        }
+
+        /// <summary>
+        /// <paramref name="sql"/>, an operand's SQL, with each of its parameters written as its value: the value's type and
+        /// the hexadecimal of its invariant text (a date in round-trip form, a <c>double</c> or <c>float</c> in round-trip
+        /// form), so two operands that send the same constants under different parameter names are the same text, and a
+        /// letter-case-blind comparison still tells <c>'a'</c> from <c>'A'</c>. Quoted text (<c>'…'</c> with <c>''</c> for a
+        /// quote, <c>"…"</c>, <c>[…]</c>, <c>`…`</c>: a string literal, a JSON path, a quoted name) is written as the
+        /// hexadecimal of its characters too, so such a comparison keeps its letter case while SQL's own words and bare names
+        /// lose theirs (R19-3). The longest name is replaced first, so <c>@p__linq__10</c> isn't read as
+        /// <c>@p__linq__1</c> and a digit. A null or <see cref="DBNull"/> value is <c>{null}</c>.
+        /// </summary>
+        /// <param name="sql">The operand's SQL.</param>
+        /// <param name="parameters">The parameters it sends, by name.</param>
+        /// <returns>The text.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="sql"/> or <paramref name="parameters"/> is null.</exception>
+        public static string OperandText(string sql, IEnumerable<KeyValuePair<string, object?>> parameters)
+        {
+            if (sql == null)
+                throw new ArgumentNullException(nameof(sql));
+            if (parameters == null)
+                throw new ArgumentNullException(nameof(parameters));
+            var byLength = new List<KeyValuePair<string, object?>>(parameters);
+            byLength.Sort((a, b) => (b.Key?.Length ?? 0).CompareTo(a.Key?.Length ?? 0));
+            var text = QuotedTextAsHex(sql);
+            foreach (var parameter in byLength)
+            {
+                if (!string.IsNullOrEmpty(parameter.Key))
+                    text = text.Replace(parameter.Key, ValueToken(parameter.Value));
+            }
+            return text;
+        }
+
+        // sql with each quoted run, its delimiters included, written as the hexadecimal of its characters between « and ».
+        private static string QuotedTextAsHex(string sql)
+        {
+            var quoted = QuotedPositions(sql);
+            var text = new StringBuilder(sql.Length);
+            for (var i = 0; i < sql.Length; i++)
+            {
+                if (!quoted[i])
+                {
+                    text.Append(sql[i]);
+                    continue;
+                }
+                text.Append('\u00ab');
+                for (; i < sql.Length && quoted[i]; i++)
+                    text.Append(((int)sql[i]).ToString("x4", CultureInfo.InvariantCulture));
+                text.Append('\u00bb');
+                i--;
+            }
+            return text.ToString();
+        }
+
+        private static string ValueToken(object? value)
+        {
+            if (value == null || value is DBNull)
+                return "{null}";
+            var text = value is DateTime date ? date.ToString("o", CultureInfo.InvariantCulture)
+                : value is DateTimeOffset offset ? offset.ToString("o", CultureInfo.InvariantCulture)
+                : value is double d ? d.ToString("R", CultureInfo.InvariantCulture)
+                : value is float f ? f.ToString("R", CultureInfo.InvariantCulture)
+                : value is IFormattable formattable ? formattable.ToString(null, CultureInfo.InvariantCulture)
+                : value.ToString() ?? string.Empty;
+            var token = new StringBuilder("{").Append(value.GetType().FullName).Append(':');
+            foreach (var c in text)
+                token.Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+            return token.Append('}').ToString();
+        }
+
+        /// <summary>
+        /// Rewrites each comparison whose two operands hold the same value into a comparison of its left operand with itself,
+        /// so the verdict's own rule (<see cref="IsSelfComparison"/>) counts it as a copy. The same value is
+        /// <see cref="SameValue(Expression, Expression, Func{Expression, Expression, bool})"/>'s: the same shape, where any
+        /// two parts that differ in shape are the same where the provider gives both the same SQL. So a conditional is
+        /// compared part by part, and a part's SQL is asked only where the shapes part (<c>x.NameLen</c> against
+        /// <c>x.Name.Length</c>): a whole operand's SQL may differ where a visitor folds a literal copy inside it
+        /// (<c>x.N == x.N</c> is <c>NOT 1=0</c>) and not its twin (<c>x.N == x.NTwin</c>). Each node's SQL is asked once
+        /// (a member of the row's once per member), and only for parts of at most <see cref="SmallPart"/> nodes, so a deep chain whose every level compares a
+        /// conditional with a column costs a bounded amount per level.
+        /// </summary>
+        private sealed class SameSqlUnifier : ExpressionVisitor
+        {
+            private readonly ParameterExpression _row;
+            private readonly Func<Expression, string?> _operandSql;
+            private readonly Dictionary<Expression, string?> _sql = new Dictionary<Expression, string?>();
+            private readonly Dictionary<Tuple<Module, int>, string?> _memberSql = new Dictionary<Tuple<Module, int>, string?>();
+
+            public SameSqlUnifier(ParameterExpression row, Func<Expression, string?> operandSql)
+            {
+                _row = row;
+                _operandSql = operandSql;
+            }
+
+            protected override Expression VisitBinary(BinaryExpression node)
+            {
+                var visited = base.VisitBinary(node);
+                return visited is BinaryExpression binary && IsComparison(node.NodeType) && node.Left.Type == node.Right.Type
+                       && SameValue(node.Left, node.Right, SameSql)
+                    ? binary.Update(binary.Left, binary.Conversion, binary.Left)
+                    : visited;
+            }
+
+            // Two small parts that read the row and nothing else but constants, which the provider gives the same SQL, letter
+            // case aside.
+            private bool SameSql(Expression left, Expression right)
+            {
+                if (IsLargerThanAPart(right) || IsLargerThanAPart(left) || !ReadsOnlyTheRow(right) || !ReadsOnlyTheRow(left))
+                    return false;
+                var sql = SqlOf(left);
+                if (sql == null)
+                    return false;
+                var other = SqlOf(right);
+                return other != null && string.Equals(sql, other, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static bool IsComparison(ExpressionType nodeType) =>
+                nodeType == ExpressionType.Equal || nodeType == ExpressionType.NotEqual || nodeType == ExpressionType.LessThan
+                || nodeType == ExpressionType.LessThanOrEqual || nodeType == ExpressionType.GreaterThan || nodeType == ExpressionType.GreaterThanOrEqual;
+
+            private string? SqlOf(Expression operand)
+            {
+                // A member of the row is keyed by its member, as SameMember compares members (MemberKey): the verdict sees an
+                // alias as a new node for the property it names each time it reaches it (R19-2), found on the row's type, where a
+                // base class's property is the compiler's one too (R20-2) and an override is the declaration it overrides (R21-4).
+                var member = operand is MemberExpression read && read.Expression == _row ? MemberKey(read.Member) : null;
+                if (member != null ? _memberSql.TryGetValue(member, out var known) : _sql.TryGetValue(operand, out known))
+                    return known;
+                string? sql;
+                try
+                {
+                    sql = _operandSql(operand);
+                }
+                catch (Exception)
+                {
+                    // An operand the provider can't send alone is no copy; the predicate itself has translated (D-005).
+                    sql = null;
+                }
+                if (member != null)
+                    _memberSql[member] = sql;
+                else
+                    _sql[operand] = sql;
+                return sql;
+            }
+
+            private static bool IsLargerThanAPart(Expression part)
+            {
+                var counter = new NodeCounter(SmallPart);
+                counter.Visit(part);
+                return counter.Exceeded;
+            }
+
+            private bool ReadsOnlyTheRow(Expression operand)
+            {
+                var check = new RowOnlyCheck(_row);
+                check.Visit(operand);
+                return check.ReadsTheRow && !check.ReadsAnythingElse;
+            }
+        }
+
+        /// <summary>
+        /// Whether a tree reads the row, and whether it reads or runs anything else: a static member, a constant that isn't
+        /// a plain value (a closure, so any captured value; a delegate; a collection), another parameter, a lambda (with
+        /// parameters or none), a method call that reads no row (which a visitor would evaluate), a constructor (so an
+        /// initializer, which holds one) or an array.
+        /// </summary>
+        private sealed class RowOnlyCheck : ExpressionVisitor
+        {
+            private readonly ParameterExpression _row;
+
+            public RowOnlyCheck(ParameterExpression row) => _row = row;
+
+            public bool ReadsTheRow { get; private set; }
+
+            public bool ReadsAnythingElse { get; private set; }
+
+            public override Expression? Visit(Expression? node) => ReadsAnythingElse ? node : base.Visit(node);
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                if (node == _row)
+                    ReadsTheRow = true;
+                else
+                    ReadsAnythingElse = true;
+                return node;
+            }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                if (node.Expression == null)
+                {
+                    ReadsAnythingElse = true;
+                    return node;
+                }
+                return base.VisitMember(node);
+            }
+
+            protected override Expression VisitConstant(ConstantExpression node)
+            {
+                if (node.Value != null && !IsPlainValue(node.Value.GetType()))
+                    ReadsAnythingElse = true;
+                return node;
+            }
+
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                var finder = new ParameterFinder(_row);
+                finder.Visit(node);
+                if (!finder.Found)
+                {
+                    ReadsAnythingElse = true;
+                    return node;
+                }
+                return base.VisitMethodCall(node);
+            }
+
+            protected override Expression VisitNew(NewExpression node) => Else(node);
+
+            protected override Expression VisitNewArray(NewArrayExpression node) => Else(node);
+
+            protected override Expression VisitLambda<TDelegate>(Expression<TDelegate> node) => Else(node);
+
+            private Expression Else(Expression node)
+            {
+                ReadsAnythingElse = true;
+                return node;
+            }
+
+            private static bool IsPlainValue(Type type) =>
+                type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) || type == typeof(DateTime)
+                || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(Guid);
+        }
+
+        /// <summary>Whether a tree uses one parameter.</summary>
+        private sealed class ParameterFinder : ExpressionVisitor
+        {
+            private readonly ParameterExpression _parameter;
+
+            public ParameterFinder(ParameterExpression parameter) => _parameter = parameter;
+
+            public bool Found { get; private set; }
+
+            public override Expression? Visit(Expression? node) => Found ? node : base.Visit(node);
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                if (node == _parameter)
+                    Found = true;
+                return node;
             }
         }
 
@@ -288,7 +601,8 @@ namespace Funcular.Data.Orm
         /// <see cref="WhereOperation.MassMutation"/> the clause must not be empty, must not hold by its literals
         /// (<see cref="HasLiteralTautology(string)"/>: a <c>1=1</c>, or <c>t.id = @p OR NOT 1=0</c>, which a negated
         /// <c>Contains</c> over an empty collection or an evaluated part that holds produces), and must not be one
-        /// operand compared with itself (<c>CAST(t.id AS TEXT) = CAST(t.id AS TEXT)</c>); for a
+        /// operand compared with itself (<c>CAST(t.id AS TEXT) = CAST(t.id AS TEXT)</c>, or EF's form of that where the
+        /// operand can be null, <c>(t.n = t.n OR (t.n IS NULL AND t.n IS NULL))</c>); for a
         /// <see cref="WhereOperation.Read"/> every clause is accepted.
         /// </summary>
         /// <param name="whereClause">The translated WHERE clause of one predicate, without the <c>WHERE</c> keyword.</param>
@@ -305,9 +619,145 @@ namespace Funcular.Data.Orm
                 throw new InvalidOperationException(EmptyTranslationMessage);
             if (HasLiteralTautology(whereClause))
                 throw new InvalidOperationException(AlwaysTrueMessage);
-            if (WholeClauseSelfComparison.IsMatch(whereClause.Trim()))
+            var trimmed = whereClause.Trim();
+            if (WholeClauseSelfComparison.IsMatch(trimmed) || IsNullSafeSelfEquality(trimmed))
                 throw new InvalidOperationException(SelfReferenceMessage);
         }
+
+        /// <summary>
+        /// Whether <paramref name="clause"/> is EF's null-safe form of one operand compared with itself (3.12.0), where 3.11.0
+        /// sent <c>A = A</c> (R14-3): <c>(A = A OR (W IS NULL AND V IS NULL))</c>, or with one witness <c>(A = A OR W IS
+        /// NULL)</c>, each witness A itself or a column A reads (<c>LEN(t.name)</c>'s <c>t.name</c>, R15-2; a computed
+        /// <c>LEN(t.name)</c> against <c>t.name</c>'s length, R16-1). Another column's IS NULL is 3.11.0's own text for
+        /// <c>A == A || C == null</c>, accepted as 3.11.0 accepted it (R15-4). Parsed, not matched (R17-1): the outer
+        /// parentheses enclose the whole clause, the NULL test is the trailing group or one bare witness, <c>A = A</c> splits
+        /// at its middle, and every split of two witnesses short enough to be tokens of A is tried, so an A whose own SQL
+        /// holds <c>IS NULL AND</c> is found, in time linear in the clause. Quoted text and identifiers are text.
+        /// </summary>
+        private static bool IsNullSafeSelfEquality(string clause)
+        {
+            var n = clause.Length;
+            if (n < 2 || clause[0] != '(' || clause[n - 1] != ')')
+                return false;
+            var quoted = QuotedPositions(clause);
+            if (MatchingOpen(clause, quoted, n - 1) != 0)
+                return false;
+            var last = n - 2;
+            while (last > 0 && char.IsWhiteSpace(clause[last]))
+                last--;
+            int orAt;
+            string? pairs = null, single = null;
+            if (clause[last] == ')' && !quoted[last])
+            {
+                var open = MatchingOpen(clause, quoted, last);
+                if (open <= 1)
+                    return false;
+                var or = TrailingOr.Match(clause.Substring(1, open - 1));
+                if (!or.Success)
+                    return false;
+                orAt = 1 + or.Index;
+                var inner = clause.Substring(open + 1, last - open - 1);
+                var isNull = TrailingIsNull.Match(inner);
+                if (!isNull.Success)
+                    return false;
+                pairs = inner.Substring(0, isNull.Index);
+            }
+            else
+            {
+                var body = clause.Substring(1, last);
+                var isNull = TrailingIsNull.Match(body);
+                if (!isNull.Success)
+                    return false;
+                var or = LastOr.Match(body, isNull.Index);
+                if (!or.Success)
+                    return false;
+                orAt = 1 + or.Index;
+                single = body.Substring(or.Index + or.Length, isNull.Index - or.Index - or.Length).Trim();
+                if (single.Length == 0 || single.IndexOf('(') >= 0 || single.IndexOf(')') >= 0)
+                    return false;
+            }
+            var operand = SelfEqualityOperand(clause, quoted, 1, orAt);
+            if (operand == null)
+                return false;
+            if (single != null)
+                return single.Length <= operand.Length && HoldsToken(operand, single);
+            foreach (Match and in IsNullAnd.Matches(pairs!))
+            {
+                var vStart = and.Index + and.Length;
+                if (and.Index > operand.Length + 16 || pairs!.Length - vStart > operand.Length + 16)
+                    continue;
+                var w = pairs.Substring(0, and.Index).Trim();
+                var v = pairs!.Substring(vStart).Trim();
+                if (w.Length > 0 && v.Length > 0 && w.Length <= operand.Length && v.Length <= operand.Length
+                    && HoldsToken(operand, w) && HoldsToken(operand, v))
+                    return true;
+            }
+            return false;
+        }
+
+        // A in `A = A` between start and end: the equal sign near the middle with the same text on each side (case aside).
+        private static string? SelfEqualityOperand(string clause, bool[] quoted, int start, int end)
+        {
+            // end is where the OR's whitespace starts, so only the leading whitespace (`( A = A …`) is trimmed here.
+            while (start < end && char.IsWhiteSpace(clause[start]))
+                start++;
+            var middle = (start + end) / 2;
+            for (var p = Math.Max(start + 1, middle - 3); p <= Math.Min(end - 2, middle + 3); p++)
+            {
+                if (clause[p] != '=' || quoted[p] || "<>!=".IndexOf(clause[p - 1]) >= 0 || clause[p + 1] == '=')
+                    continue;
+                var left = clause.Substring(start, p - start).Trim();
+                var right = clause.Substring(p + 1, end - p - 1).Trim();
+                if (left.Length > 0 && string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+                    return left;
+            }
+            return null;
+        }
+
+        // The positions inside a quoted string ('…', with '' for a quote) or a quoted identifier ("…", […], `…`).
+        private static bool[] QuotedPositions(string text)
+        {
+            var quoted = new bool[text.Length];
+            var close = '\0';
+            for (var i = 0; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (close != '\0')
+                {
+                    quoted[i] = true;
+                    if (c != close)
+                        continue;
+                    if (close == '\'' && i + 1 < text.Length && text[i + 1] == '\'')
+                        quoted[++i] = true;
+                    else
+                        close = '\0';
+                    continue;
+                }
+                close = c == '\'' ? '\'' : c == '"' ? '"' : c == '[' ? ']' : c == '`' ? '`' : '\0';
+                quoted[i] = close != '\0';
+            }
+            return quoted;
+        }
+
+        // The index of the parenthesis that opens the one closing at closeAt, quoted text aside; -1 if there is none.
+        private static int MatchingOpen(string text, bool[] quoted, int closeAt)
+        {
+            var depth = 0;
+            for (var i = closeAt; i >= 0; i--)
+            {
+                if (quoted[i])
+                    continue;
+                if (text[i] == ')')
+                    depth++;
+                else if (text[i] == '(' && --depth == 0)
+                    return i;
+            }
+            return -1;
+        }
+
+        // Whether `operand` holds `token` whole: not glued to a word character on either side (`t.n` isn't in `t.name`).
+        private static bool HoldsToken(string operand, string token) =>
+            Regex.IsMatch(operand, @"(?<![\w$@#])" + Regex.Escape(token) + @"(?![\w$@#])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         /// <summary>
         /// Returns true when the translated <paramref name="whereClause"/> contains a <c>1=1</c> outside quotes, or
@@ -402,11 +852,27 @@ namespace Funcular.Data.Orm
         /// folds only where C# answers the same for every row: a direct property, not <c>float</c>/<c>double</c>
         /// (NaN), and not a nullable's <c>&gt;=</c>/<c>&lt;=</c> (false for null, true otherwise); a nullable's
         /// <c>&lt;</c>/<c>&gt;</c> is false for every row and folds. <see cref="Verdict"/> decides whether a mass
-        /// mutation would touch every row, or every non-null row, and counts any member chain of the entity compared
-        /// with itself, by any operator, as 3.10 did; <see cref="VerdictWithUnboundedSearch"/> also counts an empty
-        /// search value on a column as true. A memo belongs to one rule set; the verdict folds never take one.
+        /// mutation would touch every row, or every non-null row, and counts any operand that reads the entity compared
+        /// with itself or a copy (<see cref="IsSelfComparison"/>), by any operator, as 3.10 counted a member chain;
+        /// <see cref="VerdictWithUnboundedSearch"/> also counts an empty
+        /// search value on a column as true. <see cref="VerdictUnderACast"/> and
+        /// <see cref="VerdictWithUnboundedSearchUnderACast"/> are those two inside a cast through <c>object</c> around a
+        /// part that reads the row, where 3.11.0's verdict read nothing: they evaluate no leaf, so a captured value there
+        /// isn't read, and a self-comparison or a literal is still seen (R20-1), an empty search value written as
+        /// <c>""</c> or <c>string.Empty</c> among them (R21-1). A memo belongs to one rule set; the verdict folds never
+        /// take one.
         /// </summary>
-        private enum FoldRules { Sql, Verdict, VerdictWithUnboundedSearch }
+        private enum FoldRules { Sql, Verdict, VerdictWithUnboundedSearch, VerdictUnderACast, VerdictWithUnboundedSearchUnderACast }
+
+        // Whether a fold under these rules may evaluate a leaf (read a captured value, run a getter).
+        private static bool Evaluates(FoldRules rules) =>
+            rules != FoldRules.VerdictUnderACast && rules != FoldRules.VerdictWithUnboundedSearchUnderACast;
+
+        // The verdict's rules inside a cast through object around a part that reads the row.
+        private static FoldRules UnderACast(FoldRules rules) =>
+            rules == FoldRules.VerdictWithUnboundedSearch ? FoldRules.VerdictWithUnboundedSearchUnderACast
+            : rules == FoldRules.Verdict ? FoldRules.VerdictUnderACast
+            : rules;
 
         private static Truth FromValue(object? value) =>
             value is bool b ? (b ? Truth.True : Truth.False) : Truth.Unknown;
@@ -445,6 +911,69 @@ namespace Funcular.Data.Orm
             return truth;
         }
 
+        /// <summary>
+        /// <c>&amp;&amp;</c>, <c>||</c>, <c>&amp;</c> or <c>|</c>: the operands' truths combined. An operand that decides the
+        /// whole (false for an and, true for an or) ends the fold, so nothing in the other is read (C# evaluates both
+        /// operands of <c>&amp;</c> and <c>|</c>; the truth is the same). A right operand that is small and reads no row
+        /// (<see cref="IsSmallEvaluable"/>) is asked before a left one that isn't, so where it decides, nothing in the
+        /// left is read (3.12.0 R9-3, AC-N13).
+        /// </summary>
+        private static Truth FoldLogical(BinaryExpression binary, Type entityType, FoldRules rules, IDictionary<Expression, bool?>? memo)
+        {
+            var and = binary.NodeType == ExpressionType.AndAlso || binary.NodeType == ExpressionType.And;
+            var decides = and ? Truth.False : Truth.True;
+            var rightFirst = IsSmallEvaluable(binary.Right) && !IsSmallEvaluable(binary.Left);
+            var first = FoldTruth(rightFirst ? binary.Right : binary.Left, entityType, rules, memo);
+            if (first == decides)
+                return decides;
+            var second = FoldTruth(rightFirst ? binary.Left : binary.Right, entityType, rules, memo);
+            return and ? And(first, second) : Or(first, second);
+        }
+
+        /// <summary>The most nodes an operand that <see cref="FoldLogical"/> asks first may have.</summary>
+        private const int SmallOperand = 32;
+
+        /// <summary>The most nodes a part may have for <see cref="SameSqlUnifier"/> to ask the provider's SQL for it (R18-1).</summary>
+        private const int SmallPart = 64;
+
+        /// <summary>
+        /// Whether <paramref name="expression"/> has at most <see cref="SmallOperand"/> nodes and reads no row
+        /// (<see cref="IsEvaluable"/>). Its nodes are counted only up to the bound, so asking it of each operand of a
+        /// long chain costs a bounded amount per level, and the fold stays linear (3.12.0 R10-4).
+        /// </summary>
+        private static bool IsSmallEvaluable(Expression expression)
+        {
+            var counter = new NodeCounter(SmallOperand);
+            counter.Visit(expression);
+            return !counter.Exceeded && IsEvaluable(expression);
+        }
+
+        /// <summary>Counts nodes up to a limit, and stops descending past it.</summary>
+        private sealed class NodeCounter : ExpressionVisitor
+        {
+            private readonly int _limit;
+            private int _count;
+
+            public NodeCounter(int limit)
+            {
+                _limit = limit;
+            }
+
+            public bool Exceeded { get; private set; }
+
+            public override Expression? Visit(Expression? node)
+            {
+                if (node == null || Exceeded)
+                    return node;
+                if (++_count > _limit)
+                {
+                    Exceeded = true;
+                    return node;
+                }
+                return base.Visit(node);
+            }
+        }
+
         private static Truth FoldNode(Expression expression, Type entityType, FoldRules rules, IDictionary<Expression, bool?>? memo)
         {
             if (!IsBoolean(expression.Type))
@@ -463,26 +992,32 @@ namespace Funcular.Data.Orm
                 case ExpressionType.ConvertChecked:
                 {
                     var unary = (UnaryExpression)expression;
-                    var operand = unary.Method == null ? FoldTruth(unary.Operand, entityType, rules, memo) : Truth.Unknown;
+                    // The verdict sees through a cast through object to the bool it boxes, (bool)(object)(p == p) (rev 18 of
+                    // docs/plans/NULL_SEMANTICS_PLAN.md: 3.11.0's text check refused it, and the rewrite's text no longer
+                    // shows the copy); the SQL's fold leaves that to the rewrite's lift pass. It reads there only what
+                    // 3.11.0's verdict read (R20-1): a cast that reads no row is evaluated whole, as 3.11.0 evaluated it; one
+                    // that reads the row is folded inside under rules that evaluate nothing, so its self-comparisons and
+                    // literals count and no captured value under it is read.
+                    var inner = unary.Operand;
+                    if (rules != FoldRules.Sql && unary.Method == null && inner.Type == typeof(object) && inner.NodeType == ExpressionType.Convert
+                        && ((UnaryExpression)inner).Method == null && IsBoolean(((UnaryExpression)inner).Operand.Type))
+                    {
+                        if (IsEvaluable(expression))
+                            return EvaluateLeaf(expression, rules, memo);
+                        return FoldTruth(((UnaryExpression)inner).Operand, entityType, UnderACast(rules), memo);
+                    }
+                    var operand = unary.Method == null ? FoldTruth(inner, entityType, rules, memo) : Truth.Unknown;
                     // A cast whose operand isn't bool (a bool unboxed from a captured object) composes nothing: the cast
                     // itself is the leaf to read (review R-2, A/N-1).
-                    return operand != Truth.Unknown ? operand : EvaluateLeaf(expression);
+                    return operand != Truth.Unknown ? operand : EvaluateLeaf(expression, rules, memo);
                 }
                 case ExpressionType.AndAlso:
                 case ExpressionType.And:
-                {
-                    var binary = (BinaryExpression)expression;
-                    return binary.Method == null
-                        ? And(FoldTruth(binary.Left, entityType, rules, memo), FoldTruth(binary.Right, entityType, rules, memo))
-                        : Truth.Unknown;
-                }
                 case ExpressionType.OrElse:
                 case ExpressionType.Or:
                 {
                     var binary = (BinaryExpression)expression;
-                    return binary.Method == null
-                        ? Or(FoldTruth(binary.Left, entityType, rules, memo), FoldTruth(binary.Right, entityType, rules, memo))
-                        : Truth.Unknown;
+                    return binary.Method == null ? FoldLogical(binary, entityType, rules, memo) : Truth.Unknown;
                 }
                 case ExpressionType.Conditional:
                 {
@@ -504,6 +1039,10 @@ namespace Funcular.Data.Orm
                     var binary = (BinaryExpression)expression;
                     if (binary.Method == null && IsBoolean(binary.Left.Type) && IsBoolean(binary.Right.Type))
                     {
+                        // One that doesn't read the row is evaluated whole, once: folding each side and then the whole
+                        // read every value twice (R5-3, 3.12.0).
+                        if (IsEvaluable(expression))
+                            return Evaluates(rules) ? Evaluate(expression, memo) : Truth.Unknown;
                         var left = FoldTruth(binary.Left, entityType, rules, memo);
                         var right = left == Truth.Unknown ? Truth.Unknown : FoldTruth(binary.Right, entityType, rules, memo);
                         if (left != Truth.Unknown && right != Truth.Unknown)
@@ -511,35 +1050,43 @@ namespace Funcular.Data.Orm
                     }
                     return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql)
                         ? (expression.NodeType == ExpressionType.Equal ? Truth.True : Truth.False)
-                        : EvaluateLeaf(expression);
+                        : EvaluateLeaf(expression, rules, memo);
                 }
                 case ExpressionType.GreaterThanOrEqual:
                 case ExpressionType.LessThanOrEqual:
-                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.True : EvaluateLeaf(expression);
+                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.True : EvaluateLeaf(expression, rules, memo);
                 case ExpressionType.GreaterThan:
                 case ExpressionType.LessThan:
-                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.False : EvaluateLeaf(expression);
+                    return IsSelfComparison(expression, entityType, broad: rules != FoldRules.Sql) ? Truth.False : EvaluateLeaf(expression, rules, memo);
                 case ExpressionType.Call:
-                    return rules == FoldRules.VerdictWithUnboundedSearch && IsUnboundedSearch((MethodCallExpression)expression, entityType)
-                        ? Truth.True
-                        : EvaluateLeaf(expression);
+                    return FoldCall((MethodCallExpression)expression, entityType, rules, memo);
                 default:
-                    return EvaluateLeaf(expression);
+                    return EvaluateLeaf(expression, rules, memo);
             }
         }
 
+        // A call's truth: an empty search value on a column holds under the rules that count one (R21-1), else the call is a
+        // leaf. Apart from FoldNode, whose frame a long chain repeats at every level.
+        private static Truth FoldCall(MethodCallExpression call, Type entityType, FoldRules rules, IDictionary<Expression, bool?>? memo) =>
+            (rules == FoldRules.VerdictWithUnboundedSearch || rules == FoldRules.VerdictWithUnboundedSearchUnderACast)
+            && IsUnboundedSearch(call, entityType, Evaluates(rules))
+                ? Truth.True
+                : EvaluateLeaf(call, rules, memo);
+
         /// <summary>A leaf's truth: evaluated when it reads no parameter and is built from what <see cref="IsEvaluable"/> allows; else unknown.</summary>
-        private static Truth EvaluateLeaf(Expression expression) =>
-            IsEvaluable(expression) ? Evaluate(expression) : Truth.Unknown;
+        private static Truth EvaluateLeaf(Expression expression, FoldRules rules, IDictionary<Expression, bool?>? memo) =>
+            Evaluates(rules) && IsEvaluable(expression) ? Evaluate(expression, memo) : Truth.Unknown;
 
         /// <summary>
         /// A string <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> whose receiver is a property of the entity read
         /// directly, with no cast around it (what the translators accept as the receiver; a member of a member, a
         /// <c>ToString()</c>, a cast or a field is rejected by them on every path; review R-2 A/N-3, R-4 A/N-2, R-5)
         /// and whose search value reads no parameter and is the empty string: <c>LIKE '%%'</c>, which matches every
-        /// non-null row.
+        /// non-null row. Where <paramref name="reads"/> is false (under a cast through <c>object</c> around a part that
+        /// reads the row, where 3.11.0's verdict read nothing: R20-1) only a value written as <c>""</c> or
+        /// <c>string.Empty</c> counts, which reads nothing the caller wrote (R21-1); a captured one isn't read.
         /// </summary>
-        private static bool IsUnboundedSearch(MethodCallExpression call, Type entityType)
+        private static bool IsUnboundedSearch(MethodCallExpression call, Type entityType, bool reads)
         {
             if (call.Object == null || call.Method.DeclaringType != typeof(string) || call.Arguments.Count == 0
                 || call.Arguments[0].Type != typeof(string))
@@ -551,6 +1098,9 @@ namespace Funcular.Data.Orm
                 || !(receiver.Expression is ParameterExpression parameter) || parameter.Type != entityType)
                 return false;
             var argument = call.Arguments[0];
+            if (!reads)
+                return (argument is ConstantExpression constant && constant.Value is string literal && literal.Length == 0)
+                       || (argument is MemberExpression field && field.Expression == null && field.Member == StringEmpty);
             return IsEvaluable(argument) && TryRead(argument, out var value) && value is string text && text.Length == 0;
         }
 
@@ -642,8 +1192,30 @@ namespace Funcular.Data.Orm
         private static bool IsCoreLibraryMethod(MethodInfo? method) =>
             method == null || method.DeclaringType?.Assembly == CoreLibrary;
 
-        private static Truth Evaluate(Expression expression) =>
-            TryRead(expression, out var value) ? FromValue(value) : Truth.Unknown;
+        private static Truth Evaluate(Expression expression, IDictionary<Expression, bool?>? memo)
+        {
+            if (!TryRead(expression, out var value))
+                return Truth.Unknown;
+            // A captured member whose value a truth can't hold (a null bool?) is recorded beside the memo, so the
+            // null-semantics rewrite substitutes it without reading it again (AC-N13, 3.12.0 R6-5).
+            if (memo != null && !(value is bool) && Linq.RowIndependentEvaluator.IsRootedChain(expression))
+                MemoReads.GetOrCreateValue(memo)[expression] = value;
+            return FromValue(value);
+        }
+
+        /// <summary>The captured values each memo's folds read that the memo's truths can't hold, by node (see <see cref="Evaluate"/>).</summary>
+        private static readonly ConditionalWeakTable<IDictionary<Expression, bool?>, Dictionary<Expression, object?>> MemoReads =
+            new ConditionalWeakTable<IDictionary<Expression, bool?>, Dictionary<Expression, object?>>();
+
+        /// <summary>
+        /// The value a fold with <paramref name="memo"/> read for the captured member <paramref name="expression"/> and
+        /// couldn't record as a truth (a null <c>bool?</c>); false when it read none.
+        /// </summary>
+        internal static bool TryGetRead(IDictionary<Expression, bool?>? memo, Expression expression, out object? value)
+        {
+            value = null;
+            return memo != null && MemoReads.TryGetValue(memo, out var reads) && reads.TryGetValue(expression, out value);
+        }
 
         private static bool TryRead(Expression expression, out object? value)
         {
@@ -700,9 +1272,10 @@ namespace Funcular.Data.Orm
         }
 
         /// <summary>
-        /// Whether <paramref name="expression"/> compares a member chain of the entity with the same chain. With
-        /// <paramref name="broad"/> (the verdict's rule, 3.10's), any chain, type and operator; without it (the rule for
-        /// the SQL every path sends), only where C# answers the same for every row: a direct property (a member of a
+        /// Whether <paramref name="expression"/> compares an operand with itself. With <paramref name="broad"/> (the
+        /// verdict's rule, 3.10's for a column), any operand that reads the entity against the same operand or a copy
+        /// (<see cref="SameValue"/>), any type and operator; without it (the rule for the SQL every path sends), only a
+        /// member chain of the entity, and only where C# answers the same for every row: a direct property (a member of a
         /// member is the translator's to accept or reject; review R-1, A-3), not <c>float</c>/<c>double</c> (NaN isn't
         /// equal to itself; A-2), and not a nullable's <c>&gt;=</c>/<c>&lt;=</c> (false for a null operand, true
         /// otherwise, which translating it as written reproduces; A-2). A nullable's <c>&lt;</c>/<c>&gt;</c> is false for
@@ -723,6 +1296,15 @@ namespace Funcular.Data.Orm
                     return false;
             }
             var binary = (BinaryExpression)expression;
+            // The verdict also counts any operand compared with the same operand: a bool, a predicate or not, (x.N == 5) ==
+            // (x.N == 5), !x.Active == !x.Active (R4-4, R7-5), and since rev 18 of docs/plans/NULL_SEMANTICS_PLAN.md any
+            // type, a conditional or a call with itself (R17-2), where the null-semantics rewrite may distribute the
+            // comparison so that its SQL no longer shows the copy. Also where a copy differs only by casts, a string's
+            // ToString() (R12-1), an [SqlExpression] alias, or a template with the same text (SameValue). Every operator, as
+            // 3.10's rule counts a column's: >= and <= of a value that can be null too, whose C# answer skips the nulls
+            // (3.11.0's text check refused those where the copy's text was the same).
+            if (broad && SameValue(binary.Left, binary.Right) && ReadsTheEntity(binary.Left, entityType))
+                return true;
             var left = MemberChain(binary.Left, entityType);
             var right = MemberChain(binary.Right, entityType);
             if (left == null || right == null || !SameChain(left, right))
@@ -753,7 +1335,180 @@ namespace Funcular.Data.Orm
         }
 
         private static bool SameMember(MemberInfo left, MemberInfo right) =>
-            left == right || (left.Module == right.Module && left.MetadataToken == right.MetadataToken);
+            left == right || MemberKey(left).Equals(MemberKey(right));
+
+        // A member's identity: the module and metadata token of its original declaration, a property's being the property
+        // that first declared it (FirstDeclaration), so an override is the property it overrides. The compiler writes x.N
+        // with the declaration it binds, the base class's for an override, where the row type's GetProperty (an alias's
+        // target) finds the override (R21-4), with a getter or a setter alone (R22-1); a property of a generic base is its
+        // definition's token on every instantiation (R20-2).
+        private static Tuple<Module, int> MemberKey(MemberInfo member)
+        {
+            var declaration = member is PropertyInfo property ? FirstDeclaration(property) : member;
+            return Tuple.Create(declaration.Module, declaration.MetadataToken);
+        }
+
+        // The property that declares the accessor an override's accessor overrides at the root (GetBaseDefinition of its
+        // getter, or of its setter where it overrides only that), found on that type by the accessor; the property itself
+        // where it overrides nothing.
+        private static PropertyInfo FirstDeclaration(PropertyInfo property)
+        {
+            var root = (property.GetGetMethod(true) ?? property.GetSetMethod(true))?.GetBaseDefinition();
+            if (root?.DeclaringType == null || root.DeclaringType == property.DeclaringType)
+                return property;
+            foreach (var candidate in root.DeclaringType.GetProperties(BindingFlags.DeclaredOnly | BindingFlags.Instance
+                         | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (IsAccessor(candidate.GetGetMethod(true), root) || IsAccessor(candidate.GetSetMethod(true), root))
+                    return candidate;
+            }
+            return property;
+        }
+
+        private static bool IsAccessor(MethodInfo? accessor, MethodInfo root) =>
+            accessor != null && accessor.Module == root.Module && accessor.MetadataToken == root.MetadataToken;
+
+        private static bool ReadsTheEntity(Expression expression, Type entityType)
+        {
+            var finder = new MemberChainFinder(entityType);
+            finder.Visit(expression);
+            return finder.Found;
+        }
+
+        /// <summary>
+        /// Whether two trees hold the same value for every row: the same node types, members, methods, parameters and
+        /// constant values, all the way down, seen through the built-in casts and a string's <c>ToString()</c> (R12-1:
+        /// <c>(x.N == null) == ((long?)x.N == null)</c>), as the member-chain rule sees through a cast. Numeric constants
+        /// compare by value, so a widened one (<c>5L</c>) is the same. Constants, members, parameters, <c>!</c>, the binary
+        /// operators, calls and conditionals are compared; any other node is not the same.
+        /// </summary>
+        private static bool SameValue(Expression? left, Expression? right) => SameValue(left, right, null);
+
+        /// <summary>
+        /// <see cref="SameValue(Expression, Expression)"/>, where two parts that differ in shape are also the same when
+        /// <paramref name="sameSql"/> says so (the provider's SQL for each, R18-1).
+        /// </summary>
+        private static bool SameValue(Expression? left, Expression? right, Func<Expression, Expression, bool>? sameSql)
+        {
+            left = ValueOf(left);
+            right = ValueOf(right);
+            if (left == null || right == null)
+                return left == null && right == null;
+            return SameShape(left, right, sameSql) || (sameSql != null && sameSql(left, right));
+        }
+
+        private static bool SameShape(Expression left, Expression right, Func<Expression, Expression, bool>? sameSql)
+        {
+            if (left.NodeType != right.NodeType)
+                return false;
+            switch (left)
+            {
+                case ConstantExpression constant:
+                    return SameConstant(constant.Value, ((ConstantExpression)right).Value);
+                case ParameterExpression parameter:
+                    return parameter == right;
+                case MemberExpression member:
+                    return (SameMember(member.Member, ((MemberExpression)right).Member) || SameTemplate(member.Member, ((MemberExpression)right).Member))
+                        && SameValue(member.Expression, ((MemberExpression)right).Expression, sameSql);
+                case UnaryExpression unary:
+                    return unary.Method == ((UnaryExpression)right).Method && SameValue(unary.Operand, ((UnaryExpression)right).Operand, sameSql);
+                case BinaryExpression binary:
+                {
+                    var other = (BinaryExpression)right;
+                    return binary.Method == other.Method && SameValue(binary.Left, other.Left, sameSql) && SameValue(binary.Right, other.Right, sameSql);
+                }
+                case MethodCallExpression call:
+                {
+                    var other = (MethodCallExpression)right;
+                    if (call.Method != other.Method || call.Arguments.Count != other.Arguments.Count || !SameValue(call.Object, other.Object, sameSql))
+                        return false;
+                    for (var i = 0; i < call.Arguments.Count; i++)
+                    {
+                        if (!SameValue(call.Arguments[i], other.Arguments[i], sameSql))
+                            return false;
+                    }
+                    return true;
+                }
+                case ConditionalExpression conditional:
+                {
+                    var other = (ConditionalExpression)right;
+                    return SameValue(conditional.Test, other.Test, sameSql) && SameValue(conditional.IfTrue, other.IfTrue, sameSql)
+                        && SameValue(conditional.IfFalse, other.IfFalse, sameSql);
+                }
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="expression"/> under its built-in casts and a string's <c>ToString()</c>, and an <c>[SqlExpression]</c>
+        /// alias (a template that is one <c>{Token}</c> in every variant) as the property it names, whose SQL it is (R17-2).
+        /// </summary>
+        private static Expression? ValueOf(Expression? expression)
+        {
+            for (var aliases = 0; expression != null;)
+            {
+                if ((expression.NodeType == ExpressionType.Convert || expression.NodeType == ExpressionType.ConvertChecked)
+                    && ((UnaryExpression)expression).Method == null)
+                    expression = ((UnaryExpression)expression).Operand;
+                else if (expression is MethodCallExpression call && call.Method.Name == nameof(ToString) && call.Arguments.Count == 0
+                         && call.Object != null && call.Object.Type == typeof(string))
+                    expression = call.Object;
+                else if (aliases++ < 8 && expression is MemberExpression member && member.Expression is ParameterExpression row
+                         && member.Member is PropertyInfo property && AliasOf(property, row.Type) is PropertyInfo target)
+                    expression = Expression.Property(row, target);
+                else
+                    return expression;
+            }
+            return null;
+        }
+
+        private static readonly Regex OneToken = new Regex(@"^\s*\{(\w+)\}\s*$", RegexOptions.CultureInvariant);
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Tuple<PropertyInfo, Type>, PropertyInfo?> AliasCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<Tuple<PropertyInfo, Type>, PropertyInfo?>();
+
+        // The property an [SqlExpression] alias names on the row's type, as the providers resolve a {Token}; null otherwise.
+        private static PropertyInfo? AliasOf(PropertyInfo property, Type rowType) =>
+            AliasCache.GetOrAdd(Tuple.Create(property, rowType), key => FindAlias(key.Item1, key.Item2));
+
+        private static PropertyInfo? FindAlias(PropertyInfo property, Type rowType)
+        {
+            var attribute = (SqlExpressionAttribute?)Attribute.GetCustomAttribute(property, typeof(SqlExpressionAttribute));
+            if (attribute == null)
+                return null;
+            string? name = null;
+            foreach (var template in new[] { attribute.Expression, attribute.MsSql, attribute.PostgreSql })
+            {
+                if (template == null)
+                    continue;
+                var token = OneToken.Match(template);
+                if (!token.Success || (name != null && name != token.Groups[1].Value))
+                    return null;
+                name = token.Groups[1].Value;
+            }
+            var target = name == null ? null : rowType.GetProperty(name);
+            return target == null || target == property ? null : target;
+        }
+
+        // Two [SqlExpression] properties whose templates are the same text in every variant: the same SQL.
+        private static bool SameTemplate(MemberInfo left, MemberInfo right)
+        {
+            var a = (SqlExpressionAttribute?)Attribute.GetCustomAttribute(left, typeof(SqlExpressionAttribute));
+            var b = (SqlExpressionAttribute?)Attribute.GetCustomAttribute(right, typeof(SqlExpressionAttribute));
+            return a != null && b != null && a.Expression == b.Expression && a.MsSql == b.MsSql && a.PostgreSql == b.PostgreSql;
+        }
+
+        private static bool SameConstant(object? left, object? right)
+        {
+            if (Equals(left, right))
+                return true;
+            return IsIntegral(left) && IsIntegral(right) && Convert.ToDecimal(left, CultureInfo.InvariantCulture) == Convert.ToDecimal(right, CultureInfo.InvariantCulture);
+        }
+
+        private static bool IsIntegral(object? value) =>
+            value is sbyte || value is byte || value is short || value is ushort || value is int || value is uint || value is long
+            || value is ulong || value is decimal;
 
         /// <summary>Finds a member chain that ends at a parameter of the entity type, anywhere in a tree.</summary>
         private sealed class MemberChainFinder : ExpressionVisitor

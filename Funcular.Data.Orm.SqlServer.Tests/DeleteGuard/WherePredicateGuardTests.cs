@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Text;
 using System.Threading;
 
 #pragma warning disable CS1718 // Comparisons of a member with itself are the point of these rows.
@@ -35,11 +36,91 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             public DateTime Created { get; set; }
             public Inner Child { get; set; }
             public string Tag; // a field, which no translator accepts as a column (review R-5)
+            // R17-2: aliases (a template that is one token), two templates with the same text, and one that isn't an alias.
+            [Funcular.Data.Orm.Attributes.SqlExpression("{N}")] public int? NX { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("CASE WHEN {N} IS NULL THEN 0 ELSE {N} END")] public int? NBoth { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("CASE WHEN {N} IS NULL THEN 0 ELSE {N} END")] public int? NBoth2 { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("{NBoth}")] public int? NBothX { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("{N} + 0")] public int? NPlus0 { get; set; }
+            // R18-4: an alias of an alias; provider templates whose variants name different tokens or differ in one variant.
+            [Funcular.Data.Orm.Attributes.SqlExpression("{NX}")] public int? NXX { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("{Name}")] public string NameX { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("{N}", "{Other}")] public int? NDualOther { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("COALESCE({N}, 0)", "COALESCE({N}, 1)")] public int? NDualA { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("COALESCE({N}, 0)", "COALESCE({N}, 1)")] public int? NDualA2 { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("COALESCE({N}, 0)", "COALESCE({N}, 2)")] public int? NDualB { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("COALESCE({N}, 3)", "COALESCE({N}, 1)")] public int? NDualC { get; set; }
+            // R18-1: a template that is a provider's own SQL for a column's part, which only the provider's text shows.
+            [Funcular.Data.Orm.Attributes.SqlExpression("LENGTH({Name})")] public int NameLenInt { get; set; }
         }
 
         public class Inner
         {
             public string Name { get; set; }
+        }
+
+        /// <summary>R20-2: a column declared on a base class, and the derived entity's alias of it.</summary>
+        public class BaseRow
+        {
+            public int? N { get; set; }
+            public int Other { get; set; }
+        }
+
+        public class DerivedRow : BaseRow
+        {
+            [Funcular.Data.Orm.Attributes.SqlExpression("{N}")] public int? NX { get; set; }
+            public int Id { get; set; }
+        }
+
+        /// <summary>R21-4: virtual columns, which the entity below overrides.</summary>
+        public class VirtualBaseRow
+        {
+            public virtual int? N { get; set; }
+            public virtual int? M { get; set; }
+            public int Other { get; set; }
+        }
+
+        /// <summary>
+        /// R21-4: the compiler writes <c>x.N</c> with <see cref="VirtualBaseRow"/>'s declaration, and the alias's target is
+        /// found on this type, the override.
+        /// </summary>
+        public class OverridingRow : VirtualBaseRow
+        {
+            public override int? N { get; set; }
+            public override int? M { get; set; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("{N}")] public int? NX { get; set; }
+            public int Id { get; set; }
+        }
+
+        /// <summary>
+        /// R22-1: an override of the setter alone, so the property found on this type (the alias's target) has no getter,
+        /// while the compiler writes <c>x.N</c> with <see cref="VirtualBaseRow"/>'s declaration.
+        /// </summary>
+        public class SetterOverridingRow : VirtualBaseRow
+        {
+            public override int? N { set => base.N = value; }
+            [Funcular.Data.Orm.Attributes.SqlExpression("{N}")] public int? NX { get; set; }
+            public int Id { get; set; }
+        }
+
+        /// <summary>R22-3: another type's static field named <c>Empty</c>, which holds a value.</summary>
+        public static class OtherStrings
+        {
+            public static readonly string Empty = "x";
+        }
+
+        private const string ConstEmpty = "";
+
+        /// <summary>A user-defined conversion that changes the value (R13-4's V13-8): a cast with an operator method isn't seen through.</summary>
+        public readonly struct Parity
+        {
+            private readonly int _bit;
+
+            private Parity(int bit) => _bit = bit;
+
+            public static explicit operator Parity(int value) => new Parity(value % 2);
+
+            public static explicit operator int(Parity parity) => parity._bit;
         }
 
         /// <summary>Counts the reads of its property, to show whether a path evaluated the captured part at all.</summary>
@@ -52,6 +133,15 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 {
                     Reads++;
                     return true;
+                }
+            }
+
+            public string Empty
+            {
+                get
+                {
+                    Reads++;
+                    return "";
                 }
             }
         }
@@ -150,6 +240,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             return true;
         }
 
+        public static int Five() => 5;
+
         // Captured values: each is read through a closure, as a caller's local would be.
         private readonly bool capturedTrue = true;
         private readonly bool capturedFalse = false;
@@ -159,6 +251,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         private readonly string capturedWildcard = "a%";
         private readonly string capturedUpperA = "A";
         private readonly string capturedEmpty = "";
+        private readonly int?[] capturedIds = { 1, 2 };
         private string FilterProperty { get; } = "b";
         private readonly Request request = new Request();
         private readonly Wrapper capturedWrapper = new Wrapper();
@@ -201,6 +294,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["longSelf"] = P(x => (long)x.Id == (long)x.Id),
                 ["nullableSelf"] = P(x => (int?)x.Id == (int?)x.Id),
                 ["nameSelf"] = P(x => x.Name == x.Name),
+                // A predicate compared with itself (R4-4): a call and a conditional are compared whole (R6-8 d).
+                ["containsSelfEq"] = P(x => x.Name.Contains(capturedS) == x.Name.Contains(capturedS)),
+                ["containsOtherEq"] = P(x => x.Name.Contains(capturedS) == x.Name.Contains(capturedUpperA)),
+                ["condPredicateSelfEq"] = P(x => (x.Id > 2 ? x.Id == 5 : x.Other == 1) == (x.Id > 2 ? x.Id == 5 : x.Other == 1)),
+                ["condPredicateOtherEq"] = P(x => (x.Id > 2 ? x.Id == 5 : x.Other == 1) == (x.Id > 2 ? x.Id == 5 : x.Other == 2)),
+                ["staticContainsSelfEq"] = P(x => capturedIds.Contains(x.N) == capturedIds.Contains(x.N)),
+                ["containsStartsWithEq"] = P(x => x.Name.Contains(capturedS) == x.Name.StartsWith(capturedS)),
+                // A type test isn't one of the nodes SameValue compares: not the same.
+                ["typeIsSelfEq"] = P(x => (x.Name is string) == (x.Name is string)),
+                // R7-5: a bool compared with the same operand, a predicate or not: `!` of a column, a conditional.
+                ["notFlagSelfEq"] = P(x => !x.Flag == !x.Flag),
+                ["notFlagSelfOrId2"] = P(x => (!x.Flag == !x.Flag) || x.Id == 2),
                 ["idOther"] = P(x => x.Id == x.Other),
                 // Or.
                 ["orTrue"] = P(x => x.Id == 2 || true),
@@ -308,6 +413,77 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                 ["idToStringSelfNe"] = P(x => x.Id.ToString() != x.Id.ToString()),
                 ["idToStringOther"] = P(x => x.Id.ToString() == x.Other.ToString()),
                 ["idToStringFormatSelf"] = P(x => x.Id.ToString("D2") == x.Id.ToString("D2")),
+                // R12-1: a bool compared with a copy of itself that differs only by casts or a string's ToString(): the same
+                // value for every row, as the scalar rule sees through a cast (3.11.0's text check refused these).
+                ["boolSelfUnderNullableCast"] = P(x => (x.N == null) == ((long?)x.N == null)),
+                ["boolSelfUnderWideningCasts"] = P(x => (x.Id > x.Other) == ((long)x.Id > (long)x.Other)),
+                ["boolSelfUnderEqualityCasts"] = P(x => (x.Id == x.Other) == ((long)x.Id == (long)x.Other)),
+                ["boolSelfUnderStringToString"] = P(x => (x.Name == null) == (x.Name.ToString() == null)),
+                ["boolSelfConstantWidened"] = P(x => (x.Id > 5) == ((long)x.Id > 5L)),
+                ["boolOtherUnderCast"] = P(x => (x.N == null) == ((long?)x.Other == null)),
+                ["boolOtherConstantUnderCast"] = P(x => (x.Id > 5) == ((long)x.Id > 6L)),
+                // R13-4 (V13-8): a user-defined cast may change the value, so it isn't stripped: Id 1 against Other 3 differs.
+                ["boolOtherUnderUserCast"] = P(x => (x.Id == x.Other) == ((int)(Parity)x.Id == (int)(Parity)x.Other)),
+                // R17-2: an operand of any type compared with a copy of itself, literal or through an alias (a template that
+                // is one token): distribution would hide it from the text check, so the verdict decides it. Alone it is a
+                // self-reference; inside an || the predicate is always true.
+                ["condSelfCopy"] = P(x => (x.Id > 2 ? x.N : (int?)x.Other) == (x.Id > 2 ? x.N : (int?)x.Other)),
+                ["condAliasCopy"] = P(x => (x.Id > 2 ? x.N : (int?)x.Other) == (x.Id > 2 ? x.NX : (int?)x.Other)),
+                ["nestedCondAliasCopy"] = P(x => ((x.Id > 2 ? x.N : (int?)x.Other) != 5 ? x.N : (int?)x.Other)
+                                                 == ((x.Id > 2 ? x.NX : (int?)x.Other) != 5 ? x.NX : (int?)x.Other)),
+                ["notCondAliasCopyNe"] = P(x => !((x.Id > 2 ? x.N : (int?)x.Other) != (x.Id > 2 ? x.NX : (int?)x.Other))),
+                ["condAliasCopyOrId2"] = P(x => (x.Id > 2 ? x.N : (int?)x.Other) == (x.Id > 2 ? x.NX : (int?)x.Other) || x.Id == 2),
+                ["arithmeticSelf"] = P(x => x.Id + 1 == x.Id + 1),
+                ["nAliasSelf"] = P(x => x.N == x.NX),
+                ["boolAliasSelf"] = P(x => (x.NX == null) == (x.N == null)),
+                ["templateTwinSelf"] = P(x => x.NBoth == x.NBoth2),
+                ["templateAliasSelf"] = P(x => x.NBoth == x.NBothX),
+                // Through a cast through object (the self-comparison fuzzer, fuzz18s): 3.11.0's text check refused these.
+                ["objBoolSelf"] = P(x => (bool)(object)((x.N == null) == (x.N == null))),
+                ["objAliasSelf"] = P(x => (bool)(object)(x.N == x.NX)),
+                // R20-1: a cast through object that reads no row is evaluated whole, as 3.11.0 evaluated it; one that reads the
+                // row is folded inside without evaluating anything (3.11.0's verdict read nothing there), so a captured value
+                // under it doesn't decide the verdict, and a self-comparison under it still does.
+                ["orObjCapturedTrue"] = P(x => x.Id == 2 || (bool)(object)capturedTrue),
+                ["objOrCapturedTrue"] = P(x => (bool)(object)(x.Id == 2 || capturedTrue)),
+                ["objOrCapturedTrueEqTrue"] = P(x => (bool)(object)(x.Id == 2 || capturedTrue == true)),
+                ["objSelfOrCapturedTrue"] = P(x => (bool)(object)(x.Id == x.Id || capturedTrue)),
+                // R21-1: an empty search value under such a cast counts where it is written as `""` or string.Empty, which
+                // reads nothing the caller wrote; a captured one isn't read there (3.11.0's verdict read none): a Known issue.
+                ["objNameContainsEmpty"] = P(x => (bool)(object)x.Name.Contains("")),
+                ["idOrObjNameStartsWithEmpty"] = P(x => x.Id == 2 || (bool)(object)x.Name.StartsWith("")),
+                ["objNameEndsWithStringEmptyOrId"] = P(x => (bool)(object)(x.Name.EndsWith(string.Empty) || x.Id == 2)),
+                ["objNameContainsCapturedEmpty"] = P(x => (bool)(object)x.Name.Contains(capturedEmpty)),
+                // R22-3: a literal that isn't empty, and another type's static Empty that holds a value, aren't the empty
+                // value; R22-4: a const holding "" is written in place, a literal.
+                ["objNameContainsA"] = P(x => (bool)(object)x.Name.Contains("a")),
+                ["objNameContainsOtherEmpty"] = P(x => (bool)(object)x.Name.Contains(OtherStrings.Empty)),
+                ["objNameContainsConstEmpty"] = P(x => (bool)(object)x.Name.Contains(ConstEmpty)),
+                // R21-5: a cast through object under another one evaluates nothing either, whether it reads the row or not.
+                ["objObjOrCapturedTrue"] = P(x => (bool)(object)((bool)(object)(x.Id == 2 || capturedTrue))),
+                ["objOrObjCapturedTrue"] = P(x => (bool)(object)(x.Id == 2 || (bool)(object)capturedTrue)),
+                // >= and <= of an operand with itself, whose C# answer skips a null: counted, as 3.10's rule counts a
+                // column's x.N >= x.N (3.11.0's text check refused such a copy where its text was the same).
+                ["condSelfGeNullable"] = P(x => (x.Id > 2 ? x.N : (int?)x.Other) >= (x.Id > 2 ? x.N : (int?)x.Other)),
+                ["condSelfGeNotNull"] = P(x => (x.Id > 2 ? x.Id : x.Other) >= (x.Id > 2 ? x.Id : x.Other)),
+                ["notCondSelfLtNullable"] = P(x => !((x.Id > 2 ? x.N : (int?)x.Other) < (x.Id > 2 ? x.NX : (int?)x.Other))),
+                // R18-4: an alias of an alias is the column; a template whose variants name different tokens is no alias,
+                // and two templates are the same only where every variant is.
+                ["aliasOfAliasSelf"] = P(x => x.N == x.NXX),
+                // R18-2 (d), R18-5: the Changelog's examples of a column against its alias's under a `!`, and compared with a
+                // bool value (always true, the self-comparison sitting under another operator).
+                ["notNAliasNe"] = P(x => !(x.N != x.NX)),
+                ["nAliasEqTrue"] = P(x => (x.N == x.NX) == true),
+                ["nameAliasNeNeTrue"] = P(x => (x.Name != x.NameX) != true),
+                ["dualTemplatesSame"] = P(x => x.NDualA == x.NDualA2),
+                ["nDualOtherNotAlias"] = P(x => x.N == x.NDualOther),
+                ["otherDualOtherNotAlias"] = P(x => (int?)x.Other == x.NDualOther),
+                ["dualTemplatesDifferPostgreSql"] = P(x => x.NDualA == x.NDualB),
+                ["dualTemplatesDifferMsSql"] = P(x => x.NDualA == x.NDualC),
+                // Neighbours: a template that isn't one token, another branch, another test.
+                ["nNotAnAlias"] = P(x => x.N == x.NPlus0),
+                ["condOtherBranch"] = P(x => (x.Id > 2 ? x.N : (int?)x.Other) == (x.Id > 2 ? x.N : (int?)x.Id)),
+                ["condOtherTest"] = P(x => (x.Id > 2 ? x.N : (int?)x.Other) == (x.Id > 3 ? x.NX : (int?)x.Other)),
                 ["nameContains"] = P(x => x.Name.Contains("a")),
                 ["orContainsName"] = P(x => x.Id == 2 || capturedS.Contains(x.Name)),
                 // Not evaluated: another string method, and ToString() that could run user code.
@@ -371,11 +547,70 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("longSelf", WherePredicateVerdict.SelfReference)]
         [DataRow("nullableSelf", WherePredicateVerdict.SelfReference)]
         [DataRow("nameSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("containsSelfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("containsOtherEq", WherePredicateVerdict.Acceptable)]
+        [DataRow("condPredicateSelfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("condPredicateOtherEq", WherePredicateVerdict.Acceptable)]
+        [DataRow("staticContainsSelfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("containsStartsWithEq", WherePredicateVerdict.Acceptable)]
+        [DataRow("typeIsSelfEq", WherePredicateVerdict.Acceptable)]
+        [DataRow("notFlagSelfEq", WherePredicateVerdict.SelfReference)]
+        [DataRow("notFlagSelfOrId2", WherePredicateVerdict.AlwaysTrue)]
         [DataRow("idToStringSelf", WherePredicateVerdict.SelfReference)]
         [DataRow("nameToStringSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolSelfUnderNullableCast", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolSelfUnderWideningCasts", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolSelfUnderEqualityCasts", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolSelfUnderStringToString", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolSelfConstantWidened", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolOtherUnderCast", WherePredicateVerdict.Acceptable)]
+        [DataRow("boolOtherConstantUnderCast", WherePredicateVerdict.Acceptable)]
+        [DataRow("boolOtherUnderUserCast", WherePredicateVerdict.Acceptable)]
+        [DataRow("condSelfCopy", WherePredicateVerdict.SelfReference)]
+        [DataRow("condAliasCopy", WherePredicateVerdict.SelfReference)]
+        [DataRow("nestedCondAliasCopy", WherePredicateVerdict.SelfReference)]
+        [DataRow("notCondAliasCopyNe", WherePredicateVerdict.SelfReference)]
+        [DataRow("condAliasCopyOrId2", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("arithmeticSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("nAliasSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("boolAliasSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("templateTwinSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("templateAliasSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("objBoolSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("objAliasSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("orObjCapturedTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("objOrCapturedTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("objOrCapturedTrueEqTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("objSelfOrCapturedTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("objNameContainsEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("idOrObjNameStartsWithEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("objNameEndsWithStringEmptyOrId", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("objNameContainsCapturedEmpty", WherePredicateVerdict.Acceptable)]
+        [DataRow("objNameContainsA", WherePredicateVerdict.Acceptable)]
+        [DataRow("objNameContainsOtherEmpty", WherePredicateVerdict.Acceptable)]
+        [DataRow("objNameContainsConstEmpty", WherePredicateVerdict.UnboundedSearch)]
+        [DataRow("objObjOrCapturedTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("objOrObjCapturedTrue", WherePredicateVerdict.Acceptable)]
+        [DataRow("condSelfGeNullable", WherePredicateVerdict.SelfReference)]
+        [DataRow("condSelfGeNotNull", WherePredicateVerdict.SelfReference)]
+        [DataRow("notCondSelfLtNullable", WherePredicateVerdict.SelfReference)]
+        [DataRow("aliasOfAliasSelf", WherePredicateVerdict.SelfReference)]
+        [DataRow("notNAliasNe", WherePredicateVerdict.SelfReference)]
+        [DataRow("nAliasEqTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("nameAliasNeNeTrue", WherePredicateVerdict.AlwaysTrue)]
+        [DataRow("dualTemplatesSame", WherePredicateVerdict.SelfReference)]
+        [DataRow("nDualOtherNotAlias", WherePredicateVerdict.Acceptable)]
+        [DataRow("otherDualOtherNotAlias", WherePredicateVerdict.Acceptable)]
+        [DataRow("dualTemplatesDifferPostgreSql", WherePredicateVerdict.Acceptable)]
+        [DataRow("dualTemplatesDifferMsSql", WherePredicateVerdict.Acceptable)]
+        [DataRow("nNotAnAlias", WherePredicateVerdict.Acceptable)]
+        [DataRow("condOtherBranch", WherePredicateVerdict.Acceptable)]
+        [DataRow("condOtherTest", WherePredicateVerdict.Acceptable)]
         [DataRow("idToStringSelfNe", WherePredicateVerdict.Acceptable)]
         [DataRow("idToStringOther", WherePredicateVerdict.Acceptable)]
-        [DataRow("idToStringFormatSelf", WherePredicateVerdict.Acceptable)]
+        // Since rev 18 (R17-2) the verdict counts any operand compared with itself, a call with the same arguments included
+        // (not evaluated); a delete of it still throws the translator's NotSupportedException for the format, first.
+        [DataRow("idToStringFormatSelf", WherePredicateVerdict.SelfReference)]
         [DataRow("idOther", WherePredicateVerdict.Acceptable)]
         [DataRow("orTrue", WherePredicateVerdict.AlwaysTrue)]
         [DataRow("orCapturedTrue", WherePredicateVerdict.AlwaysTrue)]
@@ -486,6 +721,375 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         public void Classify_ReturnsTheVerdict(string key, WherePredicateVerdict expected)
         {
             Assert.AreEqual(expected, WherePredicateGuard.Classify(Predicates()[key]), key);
+        }
+
+        /// <summary>
+        /// R21-1, R21-5 (AC-N13): under a cast through <c>object</c> around a part that reads the row the verdict reads no
+        /// captured value, as 3.11.0's read none there: not a search value, and not one under a second cast, whether that
+        /// cast reads the row or not.
+        /// </summary>
+        [TestMethod]
+        public void Classify_UnderACastThroughObject_ReadsNoCapturedValue()
+        {
+            var shapes = new Dictionary<string, Expression<Func<GuardRow, bool>>>
+            {
+                ["search"] = x => (bool)(object)x.Name.Contains(counting.Empty),
+                ["searchOrId"] = x => (bool)(object)(x.Name.Contains(counting.Empty) || x.Id == 2),
+                ["nested"] = x => (bool)(object)((bool)(object)(x.Id == 2 || counting.Flag)),
+                ["nestedRowFree"] = x => (bool)(object)(x.Id == 2 || (bool)(object)counting.Flag),
+            };
+            foreach (var shape in shapes)
+            {
+                CountingHolder.Reads = 0;
+                Assert.AreEqual(WherePredicateVerdict.Acceptable, WherePredicateGuard.Classify(shape.Value), shape.Key);
+                Assert.AreEqual(0, CountingHolder.Reads, shape.Key + ": a captured value under the cast is read");
+            }
+        }
+
+        /// <summary>
+        /// R21-4: an alias of a column the entity overrides is that column, as an alias of any column is; two overridden
+        /// columns are two.
+        /// </summary>
+        [TestMethod]
+        public void Classify_SeesAnAliasOfAnOverriddenColumnAsTheColumn()
+        {
+            Expression<Func<OverridingRow, bool>> alias = x => x.N == x.NX;
+            Expression<Func<OverridingRow, bool>> two = x => x.N == x.M;
+            Assert.AreEqual(WherePredicateVerdict.SelfReference, WherePredicateGuard.Classify(alias), "x.N == x.NX");
+            Assert.AreEqual(WherePredicateVerdict.Acceptable, WherePredicateGuard.Classify(two), "x.N == x.M");
+            // R22-1: an override of the setter alone is the property it overrides too.
+            Expression<Func<SetterOverridingRow, bool>> setterAlias = x => x.N == x.NX;
+            Assert.AreEqual(WherePredicateVerdict.SelfReference, WherePredicateGuard.Classify(setterAlias), "setter override: x.N == x.NX");
+        }
+
+        /// <summary>
+        /// A stand-in for a provider's operand SQL (R18-1), in which <c>NameLenInt</c>'s text is <c>x.Name.Length</c>'s, as a
+        /// template that is the provider's own SQL for a column's part is: in lower case for <paramref name="mode"/>
+        /// <c>lower</c>, null for <c>null</c>, and a throw for <c>throws</c>. Every operand asked is logged in <paramref name="asked"/>.
+        /// </summary>
+        private static Func<Expression, string> TwinSql(List<string> asked, string mode = "")
+        {
+            return operand =>
+            {
+                asked.Add(operand.ToString());
+                if (mode == "throws")
+                    throw new NotSupportedException("no operand SQL");
+                if (mode == "null")
+                    return null;
+                return operand.ToString().Replace("x.NameLenInt", mode == "lower" ? "x.name.length" : "x.Name.Length");
+            };
+        }
+
+        /// <summary>
+        /// R18-1: with the provider's operand SQL, two operands that read only the row and translate to the same text (letter
+        /// case aside) are an operand compared with itself, under every wrapper, nested or not, where neither the expression
+        /// (each row is Acceptable to <see cref="WherePredicateGuard.Classify"/>) nor the rewritten clause's text shows it. A
+        /// captured value is never translated again (AC-N13), an operand that reads no row isn't asked, and an operand SQL
+        /// that is null or throws leaves the verdict as it was.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("twinFlat", "", SelfReferenceMessage)]
+        [DataRow("twinCond", "", SelfReferenceMessage)]
+        [DataRow("twinCondReversed", "", SelfReferenceMessage)]
+        [DataRow("twinNested", "", SelfReferenceMessage)]
+        [DataRow("twinNotNe", "", SelfReferenceMessage)]
+        [DataRow("twinGe", "", SelfReferenceMessage)]
+        [DataRow("twinLe", "", SelfReferenceMessage)]
+        [DataRow("twinNotLt", "", SelfReferenceMessage)]
+        [DataRow("twinNotGt", "", SelfReferenceMessage)]
+        [DataRow("twinObj", "", SelfReferenceMessage)]
+        [DataRow("twinOrId2", "", AlwaysTrueMessage)]
+        [DataRow("twinInsideABoolComparison", "", SelfReferenceMessage)]
+        [DataRow("twinWithAliasInTest", "", SelfReferenceMessage)]
+        [DataRow("twinCond", "lower", SelfReferenceMessage)]
+        [DataRow("twinRowFreeCall", "", "")]
+        [DataRow("twinOtherTest", "", "")]
+        [DataRow("twinOtherColumn", "", "")]
+        [DataRow("twinCapturedTest", "", SelfReferenceMessage)]
+        [DataRow("twinCapturedOtherTest", "", "")]
+        [DataRow("twinCond", "null", "")]
+        [DataRow("twinCond", "throws", "")]
+        [DataRow("idEq2", "", "")]
+        public void Validate_WithTheOperandSql_RefusesTwoOperandsOfTheSameSql(string key, string mode, string expectedMessage)
+        {
+            var two = 2;
+            var alsoTwo = 2;
+            var cases = new Dictionary<string, Expression<Func<GuardRow, bool>>>
+            {
+                ["twinFlat"] = x => x.NameLenInt == x.Name.Length,
+                ["twinCond"] = x => (x.Flag ? x.NameLenInt : x.Other) == (x.Flag ? x.Name.Length : x.Other),
+                ["twinCondReversed"] = x => (x.Flag ? x.Name.Length : x.Other) == (x.Flag ? x.NameLenInt : x.Other),
+                ["twinNested"] = x => ((x.Flag ? x.Id : x.Other) == 5 ? x.NameLenInt : x.Other) == ((x.Flag ? x.Id : x.Other) == 5 ? x.Name.Length : x.Other),
+                ["twinNotNe"] = x => !((x.Flag ? x.NameLenInt : x.Other) != (x.Flag ? x.Name.Length : x.Other)),
+                ["twinGe"] = x => (x.Flag ? x.NameLenInt : x.Other) >= (x.Flag ? x.Name.Length : x.Other),
+                ["twinLe"] = x => (x.Flag ? x.NameLenInt : x.Other) <= (x.Flag ? x.Name.Length : x.Other),
+                ["twinNotLt"] = x => !((x.Flag ? x.NameLenInt : x.Other) < (x.Flag ? x.Name.Length : x.Other)),
+                ["twinNotGt"] = x => !((x.Flag ? x.NameLenInt : x.Other) > (x.Flag ? x.Name.Length : x.Other)),
+                ["twinObj"] = x => (bool)(object)((x.Flag ? x.NameLenInt : x.Other) == (x.Flag ? x.Name.Length : x.Other)),
+                ["twinOrId2"] = x => (x.Flag ? x.NameLenInt : x.Other) == (x.Flag ? x.Name.Length : x.Other) || x.Id == 2,
+                ["twinInsideABoolComparison"] = x => (x.NameLenInt == 1) == (x.Name.Length == 1),
+                // Compared part by part: the tests differ by an alias, the branches by the twin, and neither whole operand's
+                // text is the other's (a visitor folds x.N == x.N, not x.N == x.NX).
+                ["twinWithAliasInTest"] = x => (x.N == x.N ? x.NameLenInt : x.Other) == (x.N == x.NX ? x.Name.Length : x.Other),
+                // A call that reads no row is never sent for its SQL: a visitor would run it again.
+                ["twinRowFreeCall"] = x => x.NameLenInt == Math.Max(x.Name.Length, Five()),
+                // Neighbours: another test, another column. A captured value is compared as written, never translated: the
+                // same captured member is the same value; another captured member isn't.
+                ["twinOtherTest"] = x => (x.Id > 2 ? x.NameLenInt : x.Other) == (x.Id > 3 ? x.Name.Length : x.Other),
+                ["twinOtherColumn"] = x => (x.Flag ? x.NameLenInt : x.Other) == (x.Flag ? x.Name.Length : x.Id),
+                ["twinCapturedTest"] = x => (x.Id > two ? x.NameLenInt : x.Other) == (x.Id > two ? x.Name.Length : x.Other),
+                ["twinCapturedOtherTest"] = x => (x.Id > two ? x.NameLenInt : x.Other) == (x.Id > alsoTwo ? x.Name.Length : x.Other),
+                ["idEq2"] = x => x.Id == 2,
+            };
+            var predicate = cases[key];
+            Assert.AreEqual(WherePredicateVerdict.Acceptable, WherePredicateGuard.Classify(predicate), key + ": without the operand SQL");
+            var asked = new List<string>();
+            var operandSql = TwinSql(asked, mode);
+            if (expectedMessage.Length == 0)
+            {
+                WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation, operandSql);
+            }
+            else
+            {
+                var refused = Assert.ThrowsException<InvalidOperationException>(
+                    () => WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation, operandSql), key);
+                Assert.AreEqual(expectedMessage, refused.Message, key);
+            }
+            foreach (var operand in asked)
+            {
+                Assert.IsFalse(operand.Contains("value("), key + ": a captured value is translated again: " + operand);
+                Assert.IsFalse(operand.Contains("Five()"), key + ": a call that reads no row is translated again: " + operand);
+            }
+            if (key == "idEq2")
+                Assert.AreEqual(0, asked.Count, "an operand that reads no row is asked");
+            if (mode == "null" || mode == "throws")
+                Assert.AreNotEqual(0, asked.Count, key + ": nothing was asked");
+        }
+
+        /// <summary>
+        /// R18-1: the comparer asks each node's SQL once (the parts here are shared nodes), so a long disjunction of twins, and a conditional chain whose every
+        /// level compares a twin, stay linear. A timing proof with a wide margin.
+        /// </summary>
+        [TestMethod]
+        public void Validate_WithTheOperandSql_OfLongPredicates_StaysLinear()
+        {
+            var row = Expression.Parameter(typeof(GuardRow), "x");
+            Expression nameLen = Expression.Property(row, nameof(GuardRow.NameLenInt));
+            Expression length = Expression.Property(Expression.Property(row, nameof(GuardRow.Name)), nameof(string.Length));
+            Expression id = Expression.Property(row, nameof(GuardRow.Id));
+            Expression other = Expression.Property(row, nameof(GuardRow.Other));
+            Expression disjunction = Expression.Equal(id, Expression.Constant(2));
+            for (var i = 0; i < DisjunctionTerms; i++)
+                disjunction = Expression.OrElse(disjunction, Expression.OrElse(Expression.Equal(id, Expression.Constant(i)), Expression.Equal(nameLen, length)));
+            // A chain whose every level compares the conditional below with a constant: the twin is in each level's branch;
+            // and the same chain with another column in the branch, which isn't refused.
+            Func<Expression, Expression> chain = branch =>
+            {
+                Expression level = branch;
+                for (var i = 0; i < 60; i++)
+                    level = Expression.Condition(Expression.Equal(level, Expression.Constant(i)), branch, other);
+                return level;
+            };
+            // And chains whose every level compares the conditional below with a column, the column on the right and on the
+            // left: both sides read the row, so the bound on each side is what keeps the cost per level bounded (R19-4).
+            Func<Expression, bool, Expression> columnChain = (branch, columnLeft) =>
+            {
+                Expression level = branch;
+                for (var i = 0; i < 60; i++)
+                    level = Expression.Condition(columnLeft ? Expression.Equal(other, level) : Expression.Equal(level, other), branch, id);
+                return level;
+            };
+            var bodies = new[]
+            {
+                (Body: disjunction, Refused: true),
+                (Body: Expression.Equal(chain(nameLen), chain(length)), Refused: true),
+                (Body: Expression.Equal(chain(nameLen), chain(id)), Refused: false),
+                (Body: Expression.Equal(columnChain(nameLen, false), columnChain(length, false)), Refused: true),
+                (Body: Expression.Equal(columnChain(nameLen, true), columnChain(length, true)), Refused: true),
+            };
+            foreach (var shape in bodies)
+            {
+                var asked = new List<string>();
+                var predicate = Expression.Lambda<Func<GuardRow, bool>>(shape.Body, row);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                if (shape.Refused)
+                {
+                    var refused = Assert.ThrowsException<InvalidOperationException>(() =>
+                        WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation, TwinSql(asked)));
+                    Assert.IsTrue(refused.Message == SelfReferenceMessage || refused.Message == AlwaysTrueMessage, refused.Message);
+                }
+                else
+                {
+                    WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation, TwinSql(asked));
+                }
+                Assert.IsTrue(clock.Elapsed.TotalSeconds < 2, asked.Count + " parts asked: " + clock.Elapsed.TotalSeconds.ToString("F1") + " s");
+                // Each node is asked once, and only a part of at most 64 nodes: the levels near the bottom, not one per level
+                // (sixty levels without the bound ask about 240).
+                Assert.IsTrue(asked.Count <= 64, asked.Count + " parts asked");
+            }
+        }
+
+        public static int StaticFive => 5;
+
+        /// <summary>
+        /// R18-1, AC-N13: a part that reads or runs anything but the row and constants is never sent for its SQL, where a
+        /// visitor would read it or run it again: a static member, another parameter, a constructor, an initializer, an
+        /// array, an invocation, a nested lambda. Each part also reads the row and is compared with a part of another
+        /// shape, so only the row-only check stands between it and the provider.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("staticMember")]
+        [DataRow("otherParameter")]
+        [DataRow("constructor")]
+        [DataRow("memberInit")]
+        [DataRow("listInit")]
+        [DataRow("newArray")]
+        [DataRow("invocation")]
+        [DataRow("nestedLambda")]
+        [DataRow("parameterlessLambda")]
+        public void Validate_WithTheOperandSql_NeverSendsAPartThatReadsOrRunsAnythingElse(string key)
+        {
+            Func<int, int> same = v => v;
+            var row = Expression.Parameter(typeof(GuardRow), "x");
+            var other = Expression.Parameter(typeof(GuardRow), "y");
+            Expression<Func<GuardRow, bool>> P(Expression<Func<GuardRow, bool>> predicate) => predicate;
+            var cases = new Dictionary<string, Expression<Func<GuardRow, bool>>>
+            {
+                ["staticMember"] = P(x => x.NameLenInt == Math.Max(x.Name.Length, StaticFive)),
+                ["otherParameter"] = Expression.Lambda<Func<GuardRow, bool>>(
+                    Expression.Equal(Expression.Property(row, nameof(GuardRow.NameLenInt)),
+                        Expression.Call(typeof(Math).GetMethod(nameof(Math.Max), new[] { typeof(int), typeof(int) }),
+                            Expression.Property(row, nameof(GuardRow.Id)), Expression.Property(other, nameof(GuardRow.Id)))), row),
+                ["constructor"] = P(x => x.Created == new DateTime(x.Id, 1, 1)),
+                ["memberInit"] = P(x => x.NameLenInt == new Inner { Name = x.Name }.Name.Length),
+                ["listInit"] = P(x => x.NameLenInt == new List<int> { x.Id }.Count),
+                ["newArray"] = P(x => x.NameLenInt == new[] { x.Id }.Length),
+                ["invocation"] = P(x => x.NameLenInt == same(x.Id)),
+                ["nestedLambda"] = P(x => x.NameLenInt == System.Linq.Enumerable.Count(x.Name, c => c == 'a')),
+                ["parameterlessLambda"] = Expression.Lambda<Func<GuardRow, bool>>(
+                    Expression.Equal(Expression.Property(row, nameof(GuardRow.NameLenInt)),
+                        Expression.Invoke(Expression.Lambda<Func<int>>(Expression.Property(row, nameof(GuardRow.Id))))), row),
+            };
+            var asked = new List<string>();
+            WherePredicateGuard.Validate(cases[key], WhereOperation.MassMutation, TwinSql(asked));
+            Assert.AreEqual(0, asked.Count, key + ": " + string.Join(" / ", asked));
+        }
+
+        /// <summary>
+        /// R19-2 (a): a member of the row's SQL is asked once, an alias's target's included, though the verdict sees an
+        /// alias as a new node for the property it names each time it reaches it (and the compiler makes each written
+        /// member a node of its own).
+        /// </summary>
+        [TestMethod]
+        public void Validate_WithTheOperandSql_AsksEachMemberOnce()
+        {
+            var asked = new List<string>();
+            Expression<Func<GuardRow, bool>> twice = x => x.NX == (int?)x.Other || x.NX == (int?)x.Id || x.N == (int?)x.Other;
+            WherePredicateGuard.Validate(twice, WhereOperation.MassMutation, TwinSql(asked));
+            Assert.AreEqual(asked.Count, new HashSet<string>(asked).Count, string.Join(" / ", asked));
+            CollectionAssert.Contains(asked, "x.N");
+            // R20-2: a column declared on a base class, whose alias the verdict resolves on the derived type: one member.
+            asked.Clear();
+            Expression<Func<DerivedRow, bool>> inherited = x => x.NX == (int?)x.Other || x.NX == (int?)x.Id || x.N == (int?)x.Other;
+            WherePredicateGuard.Validate(inherited, WhereOperation.MassMutation, TwinSql(asked));
+            Assert.AreEqual(asked.Count, new HashSet<string>(asked).Count, "a base class's column: " + string.Join(" / ", asked));
+            // R21-4: a column the entity overrides, which the compiler writes as the base declaration and the alias's target
+            // finds as the override: one member.
+            asked.Clear();
+            Expression<Func<OverridingRow, bool>> overridden = x => x.NX == (int?)x.Other || x.N == (int?)x.Id;
+            WherePredicateGuard.Validate(overridden, WhereOperation.MassMutation, TwinSql(asked));
+            Assert.AreEqual(asked.Count, new HashSet<string>(asked).Count, "an overridden column: " + string.Join(" / ", asked));
+            CollectionAssert.Contains(asked, "x.N");
+            // R22-1: an override of the setter alone, whose property on the entity has no getter: one member too.
+            asked.Clear();
+            Expression<Func<SetterOverridingRow, bool>> setterOverridden = x => x.NX == (int?)x.Other || x.N == (int?)x.Id;
+            WherePredicateGuard.Validate(setterOverridden, WhereOperation.MassMutation, TwinSql(asked));
+            Assert.AreEqual(asked.Count, new HashSet<string>(asked).Count, "a setter-only override: " + string.Join(" / ", asked));
+            CollectionAssert.Contains(asked, "x.N");
+            // R20-6 (X20-2): only a member of the row is keyed by its member: two columns' Length are two parts.
+            asked.Clear();
+            Expression<Func<GuardRow, bool>> lengths = x => x.Other == x.Name.Length || x.NameLenInt == x.NameX.Length;
+            WherePredicateGuard.Validate(lengths, WhereOperation.MassMutation, TwinSql(asked));
+            CollectionAssert.Contains(asked, "x.NameX.Length");
+        }
+
+        /// <summary>
+        /// R19-4 (X14): the overload gives the verdict itself, whether or not any part is the provider's twin: the providers
+        /// call it alone (R19-1).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("selfEq", SelfReferenceMessage)]
+        [DataRow("true", NoColumnMessage)]
+        [DataRow("nameContainsEmpty", UnboundedSearchMessage)]
+        [DataRow("notFlagSelfOrId2", AlwaysTrueMessage)]
+        [DataRow("idEq2", "")]
+        public void Validate_WithTheOperandSql_GivesTheVerdict(string key, string expectedMessage)
+        {
+            var predicate = Predicates()[key];
+            var asked = new List<string>();
+            if (expectedMessage.Length == 0)
+            {
+                WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation, TwinSql(asked));
+                return;
+            }
+            var refused = Assert.ThrowsException<InvalidOperationException>(
+                () => WherePredicateGuard.Validate(predicate, WhereOperation.MassMutation, TwinSql(asked)), key);
+            Assert.AreEqual(expectedMessage, refused.Message, key);
+        }
+
+        [TestMethod]
+        public void Validate_WithTheOperandSql_ForARead_AsksNothing()
+        {
+            var asked = new List<string>();
+            Expression<Func<GuardRow, bool>> twin = x => x.NameLenInt == x.Name.Length;
+            WherePredicateGuard.Validate(twin, WhereOperation.Read, TwinSql(asked));
+            Assert.AreEqual(0, asked.Count);
+        }
+
+        /// <summary>
+        /// R18-1: an operand's text with each parameter written as its value, so two operands that send the same constants
+        /// under different parameter names are the same text (letter case aside), and two that send different values, or the
+        /// same value as another type, or a string in another letter case, are not. A longer name isn't read as a shorter one
+        /// and a digit.
+        /// </summary>
+        [TestMethod]
+        public void OperandText_WritesEachParameterAsItsValue()
+        {
+            KeyValuePair<string, object> P(string name, object value) => new KeyValuePair<string, object>(name, value);
+            var first = WherePredicateGuard.OperandText("CASE WHEN t.id > @p__linq__1 THEN t.n ELSE @p__linq__10 END",
+                new[] { P("@p__linq__1", 2), P("@p__linq__10", 7) });
+            var renamed = WherePredicateGuard.OperandText("case when t.id > @p__linq__4 then t.n else @p__linq__5 end",
+                new[] { P("@p__linq__4", 2), P("@p__linq__5", 7) });
+            Assert.IsTrue(string.Equals(first, renamed, StringComparison.OrdinalIgnoreCase), first + " / " + renamed);
+            foreach (var other in new[]
+                     {
+                         WherePredicateGuard.OperandText("CASE WHEN t.id > @p0 THEN t.n ELSE @p1 END", new[] { P("@p0", 3), P("@p1", 7) }),
+                         WherePredicateGuard.OperandText("CASE WHEN t.id > @p0 THEN t.n ELSE @p1 END", new[] { P("@p0", 2L), P("@p1", 7) }),
+                         WherePredicateGuard.OperandText("CASE WHEN t.id > @p0 THEN t.n ELSE @p1 END", new[] { P("@p0", 7), P("@p1", 2) }),
+                     })
+                Assert.IsFalse(string.Equals(first, other, StringComparison.OrdinalIgnoreCase), other);
+            Assert.IsFalse(string.Equals(WherePredicateGuard.OperandText("t.name = @p0", new[] { P("@p0", "a") }),
+                WherePredicateGuard.OperandText("t.name = @p0", new[] { P("@p0", "A") }), StringComparison.OrdinalIgnoreCase), "a string's letter case");
+            Assert.AreEqual(WherePredicateGuard.OperandText("t.n = @p0", new[] { P("@p0", DBNull.Value) }),
+                WherePredicateGuard.OperandText("t.n = @p0", new[] { P("@p0", null) }), "a null value, either way");
+            Assert.AreEqual("LENGTH(t.name)", WherePredicateGuard.OperandText("LENGTH(t.name)", new KeyValuePair<string, object>[0]));
+            // R19-3: letter case is aside only outside quoted text: a string literal, a JSON path and a quoted identifier
+            // keep theirs, so a letter-case-blind comparison tells them apart; SQL's own words and bare names don't.
+            string T(string sql) => WherePredicateGuard.OperandText(sql, new KeyValuePair<string, object>[0]);
+            Assert.IsTrue(string.Equals(T("CASE WHEN t.name = 'a' THEN 1 END"), T("case when T.NAME = 'a' then 1 end"), StringComparison.OrdinalIgnoreCase));
+            foreach (var pair in new[]
+                     {
+                         ("CASE WHEN t.name = 'a' THEN 1 END", "CASE WHEN t.name = 'A' THEN 1 END"),
+                         ("json_extract(t.doc, '$.k')", "json_extract(t.doc, '$.K')"),
+                         ("\"t\".\"Name\"", "\"t\".\"name\""),
+                         ("[t].[Name]", "[t].[name]"),
+                         ("`t`.`Name`", "`t`.`name`"),
+                         ("t.name = 'it''s A'", "t.name = 'it''s a'"),
+                     })
+                Assert.IsFalse(string.Equals(T(pair.Item1), T(pair.Item2), StringComparison.OrdinalIgnoreCase), pair.Item1 + " / " + pair.Item2);
+            Assert.IsTrue(string.Equals(T("t.name = 'it''s a'"), T("T.NAME = 'it''s a'"), StringComparison.OrdinalIgnoreCase), "an escaped quote");
+            // R20-6 (X20-1): exactly what is written: a quoted run's characters in hexadecimal between « and », the text around it kept.
+            Assert.AreEqual("t.k = \u00ab002700610027\u00bb AND t.m", T("t.k = 'a' AND t.m"));
         }
 
         [TestMethod]
@@ -719,6 +1323,133 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
             Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Fold(orFalse, null));
         }
 
+        /// <summary>
+        /// 3.12.0 R9-3 (AC-N13): the fold stops at an operand of <c>&amp;&amp;</c> or <c>||</c> that decides the whole, as C#
+        /// does, and asks an operand that reads no row before one that reads it, so a captured value the answer doesn't
+        /// need isn't read.
+        /// </summary>
+        [TestMethod]
+        public void Fold_StopsAtAnOperandThatDecides()
+        {
+            var off = false;
+            var on = true;
+            CountingHolder.Reads = 0;
+            Assert.AreEqual(false, WherePredicateGuard.Fold(P(x => off && counting.Flag).Body, typeof(GuardRow)), "false && …");
+            Assert.AreEqual(0, CountingHolder.Reads, "the right operand of a false && is read");
+            Assert.AreEqual(true, WherePredicateGuard.Fold(P(x => on || counting.Flag).Body, typeof(GuardRow)), "true || …");
+            Assert.AreEqual(0, CountingHolder.Reads, "the right operand of a true || is read");
+            Assert.AreEqual(false, WherePredicateGuard.Fold(P(x => (x.Id == 1 && counting.Flag) && off).Body, typeof(GuardRow)), "… && false");
+            Assert.AreEqual(0, CountingHolder.Reads, "a captured operand that decides is asked first, so nothing in the row operand is read");
+            Assert.AreEqual(true, WherePredicateGuard.Fold(P(x => (x.Id == 1 && counting.Flag) || on).Body, typeof(GuardRow)), "… || true");
+            Assert.AreEqual(0, CountingHolder.Reads, "a captured operand that decides is asked first (||)");
+            Assert.AreEqual(false, WherePredicateGuard.Fold(P(x => off & counting.Flag).Body, typeof(GuardRow)), "false & …");
+            Assert.AreEqual(true, WherePredicateGuard.Fold(P(x => on | counting.Flag).Body, typeof(GuardRow)), "true | …");
+            Assert.AreEqual(0, CountingHolder.Reads, "the bitwise forms are decided the same way");
+            Assert.IsNull(WherePredicateGuard.Fold(P(x => (x.Id == 1 && counting.Flag) || off).Body, typeof(GuardRow)), "… || false is unknown");
+            Assert.AreEqual(1, CountingHolder.Reads, "an operand that doesn't decide: the other is folded");
+            Assert.AreEqual(true, WherePredicateGuard.Fold(P(x => counting.Flag || x.Id == 1).Body, typeof(GuardRow)), "both read no row, or the left: left first");
+            Assert.AreEqual(2, CountingHolder.Reads);
+        }
+
+        /// <summary>
+        /// R17-1: the text check of EF's self-equality is linear: a clause that starts as one and runs on for a quarter of a
+        /// million characters (16,000 `IS NULL AND`s), a million-character one with no outer parentheses, and EF's form with
+        /// 64,000 witnesses in its NULL test, each check in well under a second (rev 17's pattern: 105 and 174 seconds for the
+        /// first two). All are accepted: none is one self-equality with EF's two witnesses.
+        /// </summary>
+        [TestMethod]
+        public void ValidateTranslation_OfLongClauses_StaysLinear()
+        {
+            var nulls = new StringBuilder("(r.n = r.n OR (");
+            for (var i = 0; i < 16000; i++)
+                nulls.Append("r.n IS NULL AND ");
+            nulls.Append("r.m IS NULL) OR r.q = 1)");
+            var disjunction = new StringBuilder("(r.n = r.n OR (r.n IS NULL AND r.n IS NULL)) OR (");
+            for (var i = 0; i < 16000; i++)
+                disjunction.Append("(r.a" + i + " = r.b" + i + " OR (r.a" + i + " IS NULL AND r.b" + i + " IS NULL)) AND ");
+            disjunction.Append("r.q = 1)");
+            // The parser's own worst case: EF's form with 64,000 witnesses in its NULL test, a million characters, each split a
+            // candidate (only those short enough to be tokens of the operand are tried; trying all copies the clause at each).
+            var witnesses = new StringBuilder("(r.n = r.n OR (");
+            for (var i = 0; i < 64000; i++)
+                witnesses.Append("r.n IS NULL AND ");
+            witnesses.Append("r.n IS NULL))");
+            foreach (var clause in new[] { nulls.ToString(), disjunction.ToString(), witnesses.ToString() })
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                WherePredicateGuard.ValidateTranslation(clause);
+                Assert.IsTrue(clock.Elapsed.TotalSeconds < 2, clause.Length + " characters: " + clock.Elapsed.TotalSeconds.ToString("F1") + " s");
+            }
+        }
+
+        /// <summary>
+        /// 3.12.0 R10-4: the fold's order (a small captured operand first) is decided per level without walking the rest of
+        /// the chain, so a long chain whose right operands are captured costs about what one whose operands read the row
+        /// does. A timing proof, best of five, with a wide margin: the walk made it about twenty times slower.
+        /// </summary>
+        [TestMethod]
+        public void Fold_OfALongChainOfCapturedOperands_StaysLinear()
+        {
+            var x = Expression.Parameter(typeof(GuardRow), "x");
+            var off = Expression.Property(Expression.Constant(new ChainHolder()), nameof(ChainHolder.Flag));
+            Expression rowChain = Expression.Equal(Expression.Property(x, nameof(GuardRow.Id)), Expression.Constant(0));
+            Expression capturedChain = rowChain;
+            for (var i = 1; i < DisjunctionTerms; i++)
+            {
+                rowChain = Expression.OrElse(rowChain, Expression.Equal(Expression.Property(x, nameof(GuardRow.Id)), Expression.Constant(i)));
+                capturedChain = Expression.OrElse(capturedChain, Expression.Not(off));
+            }
+            var rows = Expression.Lambda<Func<GuardRow, bool>>(rowChain, x);
+            var captured = Expression.Lambda<Func<GuardRow, bool>>(capturedChain, x);
+            Func<LambdaExpression, double> best = lambda =>
+            {
+                var fastest = double.MaxValue;
+                for (var run = 0; run < 5; run++)
+                {
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    WherePredicateGuard.Classify(lambda);
+                    WherePredicateGuard.Fold(lambda.Body, typeof(GuardRow));
+                    fastest = Math.Min(fastest, clock.Elapsed.TotalMilliseconds);
+                }
+                return fastest;
+            };
+            best(rows);
+            best(captured);
+            var rowTime = best(rows);
+            var capturedTime = best(captured);
+            Assert.IsTrue(capturedTime <= 4 * rowTime + 15,
+                "captured operands: " + capturedTime.ToString("F1") + " ms against " + rowTime.ToString("F1") + " ms for row operands");
+        }
+
+        /// <summary>
+        /// R11-6: the operand asked first is small, 32 nodes at most. A right operand of 32 nodes that decides an `&amp;&amp;` is
+        /// asked first, so nothing in the left is read; one of 33 isn't, so the left's captured operand is read.
+        /// </summary>
+        [TestMethod]
+        public void Fold_AsksASmallOperandFirst_UpToItsBound()
+        {
+            var off = false;
+            var on = true;
+            Expression thirtyTwo = ((Expression<Func<GuardRow, bool>>)(x => off)).Body;   // 2 nodes, false
+            for (var i = 0; i < 30; i++)
+                thirtyTwo = Expression.Not(thirtyTwo);                                    // 32 nodes, false
+            Expression thirtyThree = ((Expression<Func<GuardRow, bool>>)(x => on)).Body;  // 2 nodes, true
+            for (var i = 0; i < 31; i++)
+                thirtyThree = Expression.Not(thirtyThree);                                // 33 nodes, false
+            var left = P(x => x.Id == 1 && counting.Flag).Body;
+            CountingHolder.Reads = 0;
+            Assert.AreEqual(false, WherePredicateGuard.Fold(Expression.AndAlso(left, thirtyTwo), typeof(GuardRow)), "32 nodes");
+            Assert.AreEqual(0, CountingHolder.Reads, "a right operand of 32 nodes is asked first");
+            Assert.AreEqual(false, WherePredicateGuard.Fold(Expression.AndAlso(left, thirtyThree), typeof(GuardRow)), "33 nodes");
+            Assert.AreEqual(1, CountingHolder.Reads, "a right operand of 33 nodes isn't");
+        }
+
+        /// <summary>A captured flag for the chain above, apart from <see cref="CountingHolder"/>'s shared count.</summary>
+        private sealed class ChainHolder
+        {
+            public bool Flag => true;
+        }
+
         private const int DisjunctionTerms = 1500;
 
         /// <summary>A left-deep disjunction of <see cref="DisjunctionTerms"/> terms, each reading the row: 1500 comparisons under 1499 <c>||</c>.</summary>
@@ -890,6 +1621,48 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("(t.id = @p__linq__0 AND NOT 1=0)", "")]
         [DataRow("t.id = t.other", "")]
         [DataRow("t.a = t.a AND t.id = @p", "")]
+        // R14-3: EF's form of a self-comparison whose operand can be null (3.12.0), where 3.11.0 sent `t.n = t.n`: the
+        // operand and its own copy, or a witness, tested for NULL beside it. Embedded in an AND or an OR, as 3.11.0's was.
+        [DataRow("(t.n = t.n OR (t.n IS NULL AND t.n IS NULL))", SelfReferenceMessage)]
+        [DataRow("(LENGTH(t.name) = LENGTH(t.name) OR t.name IS NULL)", SelfReferenceMessage)]
+        [DataRow("((LEN(t.name + N'x') - 1) = (LEN(t.name + N'x') - 1) OR t.name IS NULL)", SelfReferenceMessage)]
+        [DataRow("(t.n = t.m OR (t.n IS NULL AND t.m IS NULL))", "")]
+        [DataRow("(t.n = t.n OR (t.n IS NULL AND t.m IS NULL))", "")]
+        [DataRow("((t.n = t.n OR (t.n IS NULL AND t.n IS NULL)) OR t.id = @p__linq__0)", "")]
+        [DataRow("(t.id = @p__linq__0 AND (t.n = t.n OR (t.n IS NULL AND t.n IS NULL)))", "")]
+        // R15-2: a part of a column compared with the same part of its alias: EF's form tests the column itself for NULL.
+        [DataRow("(LENGTH(t.name) = LENGTH(t.name) OR (t.name IS NULL AND t.name IS NULL))", SelfReferenceMessage)]
+        [DataRow("((LEN(t.name + N'x') - 1) = (LEN(t.name + N'x') - 1) OR (t.name IS NULL AND t.name IS NULL))", SelfReferenceMessage)]
+        [DataRow("(DATEPART(year, t.d) = DATEPART(year, t.d) OR (t.d IS NULL AND t.d IS NULL))", SelfReferenceMessage)]
+        [DataRow("((LEN([t].[name] + N'x') - 1) = (LEN([t].[name] + N'x') - 1) OR ([t].[name] IS NULL AND [t].[name] IS NULL))", SelfReferenceMessage)]
+        // R16-1: a computed property whose SQL is a column's part, against that part: two witnesses, the computed SQL and
+        // the column, each read by the operand.
+        [DataRow("(LENGTH(t.name) = LENGTH(t.name) OR (LENGTH(t.name) IS NULL AND t.name IS NULL))", SelfReferenceMessage)]
+        [DataRow("((LEN(t.name + N'x') - 1) = (LEN(t.name + N'x') - 1) OR ((LEN(t.name + N'x') - 1) IS NULL AND t.name IS NULL))", SelfReferenceMessage)]
+        [DataRow("(CHAR_LENGTH(`t`.`name`) = CHAR_LENGTH(`t`.`name`) OR (`t`.`name` IS NULL AND CHAR_LENGTH(`t`.`name`) IS NULL))", SelfReferenceMessage)]
+        [DataRow("(DATEPART(year, t.d) = DATEPART(year, t.d) OR (t.d IS NULL AND DATEPART(year, t.d) IS NULL))", SelfReferenceMessage)]
+        [DataRow("(LENGTH(t.name) = LENGTH(t.name) OR (LENGTH(t.name) IS NULL AND t.other IS NULL))", "")]
+        // R17-1: an operand whose own SQL holds `IS NULL AND` (a template, or a conditional whose test is EF's both-null
+        // equality): every split of the witnesses is tried, not only the first.
+        [DataRow("(CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END = CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END OR (CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END IS NULL AND CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END IS NULL))", SelfReferenceMessage)]
+        [DataRow("( CASE WHEN (t.n = t.m OR (t.n IS NULL AND t.m IS NULL)) THEN t.n ELSE t.m END =  CASE WHEN (t.n = t.m OR (t.n IS NULL AND t.m IS NULL)) THEN t.n ELSE t.m END OR ( CASE WHEN (t.n = t.m OR (t.n IS NULL AND t.m IS NULL)) THEN t.n ELSE t.m END IS NULL AND  CASE WHEN (t.n = t.m OR (t.n IS NULL AND t.m IS NULL)) THEN t.n ELSE t.m END IS NULL))", SelfReferenceMessage)]
+        [DataRow("(CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END = CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END OR (CASE WHEN t.n IS NULL AND t.m IS NULL THEN 0 ELSE t.n END IS NULL AND t.other IS NULL))", "")]
+        [DataRow("(t.n = t.n OR (t.n IS NULL AND t.n IS NULL)) OR t.id = @p__linq__0", "")]
+        [DataRow("(t.n = t.n OR ')' IS NULL)", "")]
+        [DataRow("(COALESCE(t.name, ')') = COALESCE(t.name, ')') OR (COALESCE(t.name, ')') IS NULL AND t.name IS NULL))", SelfReferenceMessage)]
+        // The parser's other paths: whitespace before the closing parenthesis and after the opening one, an escaped quote,
+        // an unbalanced clause, a group with no OR before it, a group without IS NULL, a bare IS NULL without an OR.
+        [DataRow("( t.n = t.n OR t.n IS NULL )", SelfReferenceMessage)]
+        [DataRow("(t.n = t.n OR 'x''y' IS NULL)", "")]
+        [DataRow("(t.n = t.n))", "")]
+        [DataRow("((t.n IS NULL AND t.n IS NULL))", "")]
+        [DataRow("(t.n = t.n OR (t.n = 1))", "")]
+        [DataRow("(t.n IS NULL)", "")]
+        // R15-4: a NULL test of a column the comparison doesn't read is 3.11.0's own text, which it accepted; a column
+        // whose name begins another's isn't read by it.
+        [DataRow("(t.active = t.active OR t.flag IS NULL)", "")]
+        [DataRow("(LENGTH(t.name) = LENGTH(t.name) OR (t.other IS NULL AND t.other IS NULL))", "")]
+        [DataRow("(t.name = t.name OR t.n IS NULL)", "")]
         public void ValidateTranslation_RejectsAnEmptyTautologicalOrSelfComparingClause(string whereClause, string expectedMessage)
         {
             if (expectedMessage.Length == 0)
@@ -929,6 +1702,10 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
         [DataRow("validateNull")]
         [DataRow("hasLiteralTautologyNull")]
         [DataRow("validateTranslationNull")]
+        [DataRow("validateWithOperandSqlNull")]
+        [DataRow("operandSqlNull")]
+        [DataRow("operandTextNull")]
+        [DataRow("operandTextParametersNull")]
         [DataRow("zeroParameters")]
         [DataRow("twoParameters")]
         [DataRow("intBody")]
@@ -947,6 +1724,19 @@ namespace Funcular.Data.Orm.SqlServer.Tests.DeleteGuard
                     break;
                 case "validateTranslationNull":
                     Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.ValidateTranslation(null));
+                    break;
+                case "validateWithOperandSqlNull":
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Validate(null, WhereOperation.MassMutation, operand => ""));
+                    break;
+                case "operandSqlNull":
+                    Expression<Func<GuardRow, bool>> idEq2 = x => x.Id == 2;
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.Validate(idEq2, WhereOperation.Read, null));
+                    break;
+                case "operandTextNull":
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.OperandText(null, new KeyValuePair<string, object>[0]));
+                    break;
+                case "operandTextParametersNull":
+                    Assert.ThrowsException<ArgumentNullException>(() => WherePredicateGuard.OperandText("t.n", null));
                     break;
                 case "zeroParameters":
                     Expression<Func<bool>> zero = () => true;

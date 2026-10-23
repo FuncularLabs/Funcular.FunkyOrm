@@ -43,13 +43,20 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         {
             if (expression is LambdaExpression lambda)
             {
-                VisitPredicate(lambda.Body);
+                // C#'s null semantics, as EF Core's: the body is rewritten so that its SQL selects the rows C# selects
+                // (docs/plans/NULL_SEMANTICS_PLAN.md §5).
+                VisitPredicate(Funcular.Data.Orm.Linq.NullSemantics.Rewrite(
+                    lambda, _truths, property => !IsUnmappedProperty(property), RemotePropertyNames));
             }
             else
             {
                 VisitExpression(expression);
             }
         }
+
+        /// <summary>The names of the properties in the remote map, which the null-semantics rewrite classifies as the visitor does.</summary>
+        private IReadOnlyCollection<string> RemotePropertyNames =>
+            _remotePropertyMap != null ? (IReadOnlyCollection<string>)_remotePropertyMap.Keys : Array.Empty<string>();
 
         // One memo per translation: the folds of the body and of each truth position inside it are one pass (review R-1, A-4).
         private readonly Dictionary<Expression, bool?> _truths = new Dictionary<Expression, bool?>();
@@ -62,13 +69,36 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         /// <c>!</c>). A part whose truth is known without a row (<see cref="WherePredicateGuard.Fold"/>) is sent as a
         /// literal, so every path answers it as C# does (D-003 as amended by D-128).
         /// </summary>
-        private void VisitPredicate(Expression node)
+        private void VisitPredicate(Expression node) => VisitPredicate(node, truthPosition: true);
+
+        /// <summary>Whether <paramref name="node"/> is a conditional under any <c>!</c>s and casts.</summary>
+        private static bool EndsAtConditional(Expression node)
         {
-            var truth = WherePredicateGuard.Fold(node, typeof(T), _truths);
+            while (node.NodeType == ExpressionType.Not || node.NodeType == ExpressionType.Convert || node.NodeType == ExpressionType.ConvertChecked)
+                node = ((UnaryExpression)node).Operand;
+            return node is ConditionalExpression;
+        }
+
+        /// <summary>
+        /// <see cref="VisitPredicate(Expression)"/>, or, with <paramref name="truthPosition"/> false, the operand of a
+        /// <c>!</c> that is itself a comparison's operand. There a conditional, alone or under more <c>!</c>s and casts,
+        /// keeps its value's form whether or not its truth is known, and its branches stay values, as 3.11.0 sent them:
+        /// T-SQL has no boolean value, so a literal there isn't one it accepts (NULL_SEMANTICS_PLAN.md R6-1). Any other
+        /// known truth is the literal, from the memo, as 3.11.0 sent it (R7-2).
+        /// </summary>
+        private void VisitPredicate(Expression node, bool truthPosition)
+        {
+            var truth = truthPosition || !EndsAtConditional(node)
+                ? WherePredicateGuard.Fold(node, typeof(T), _truths)
+                : null;
             if (truth == true)
                 _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.TrueSql);
             else if (truth == false)
                 _commandTextBuilder.Append(Funcular.Data.Orm.Linq.RowIndependentEvaluator.FalseSql);
+            else if (node is ConditionalExpression conditional)
+                VisitConditional(conditional, truthPosition);
+            else if (node is UnaryExpression unary)
+                VisitUnary(unary, truthPosition);
             else
                 VisitExpression(node);
         }
@@ -77,24 +107,31 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
         {
             switch (node)
             {
-                case UnaryExpression unary: VisitUnary(unary); break;
+                case UnaryExpression unary: VisitUnary(unary, truthPosition: false); break;
                 case BinaryExpression binary: VisitBinary(binary); break;
                 case MemberExpression member: VisitMember(member); break;
                 case ConstantExpression constant: VisitConstant(constant); break;
                 case MethodCallExpression methodCall: VisitMethodCall(methodCall); break;
                 case NewExpression newExpr: VisitNew(newExpr); break;
-                case ConditionalExpression conditional: VisitConditional(conditional); break;
+                case ConditionalExpression conditional: VisitConditional(conditional, truthPosition: false); break;
                 default:
                     throw new NotSupportedException($"Expression type {node.NodeType} is not supported. Expression: {node}");
             }
         }
 
-        private void VisitUnary(UnaryExpression node)
+        private void VisitUnary(UnaryExpression node, bool truthPosition)
         {
             if (node.NodeType == ExpressionType.Not)
             {
+                // A negated method call is answered by the translator, which compensates a column that can be null
+                // (NULL_SEMANTICS_PLAN.md §5.2); any other operand is NOT and the operand, in the NOT's own position.
+                if (node.Operand is MethodCallExpression call && call.Type == typeof(bool))
+                {
+                    _translator.TranslateMethodCall(call, _commandTextBuilder, _parameters, ColumnFor, negated: true);
+                    return;
+                }
                 _commandTextBuilder.Append("NOT ");
-                VisitPredicate(node.Operand);
+                VisitPredicate(node.Operand, truthPosition);
             }
             else if (node.NodeType == ExpressionType.Convert)
             {
@@ -301,14 +338,24 @@ namespace Funcular.Data.Orm.Sqlite.Visitors
             _translator.TranslateMethodCall(node, _commandTextBuilder, _parameters, ColumnFor);
         }
 
-        private void VisitConditional(ConditionalExpression node)
+        private void VisitConditional(ConditionalExpression node, bool truthPosition)
         {
+            // The test is a truth position, and so are the branches of a conditional that is in one: a part that doesn't
+            // read the row is sent as a literal, not a parameter (NULL_SEMANTICS_PLAN.md §5.3; AC-N11's exception (a)). A
+            // conditional in a value position keeps its branches as values: T-SQL has no boolean value (R5-1).
+            var boolBranches = truthPosition;
             _commandTextBuilder.Append(" CASE WHEN ");
-            Visit(node.Test);
+            VisitPredicate(node.Test);
             _commandTextBuilder.Append(" THEN ");
-            Visit(node.IfTrue);
+            if (boolBranches)
+                VisitPredicate(node.IfTrue);
+            else
+                Visit(node.IfTrue);
             _commandTextBuilder.Append(" ELSE ");
-            Visit(node.IfFalse);
+            if (boolBranches)
+                VisitPredicate(node.IfFalse);
+            else
+                Visit(node.IfFalse);
             _commandTextBuilder.Append(" END");
         }
 

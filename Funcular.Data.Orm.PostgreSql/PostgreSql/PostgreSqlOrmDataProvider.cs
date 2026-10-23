@@ -178,9 +178,10 @@ namespace Funcular.Data.Orm.PostgreSql
         /// <summary>
         /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
         /// translated by the WHERE path every query takes, and refused by the all-rows guard
-        /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
-        /// column, compares a column with itself, always holds or searches a column for an empty value that nothing else
-        /// bounds, where a query would run it and return every row.
+        /// (<see cref="WherePredicateGuard"/>, once the predicate has translated, and on its WHERE clause; D-003 as amended
+        /// by D-128) when it reads no column, compares an operand with itself or a copy of it, always holds or searches a column for an empty value that nothing else
+        /// bounds, where a query would run it and return every row. The checks don't catch every predicate that is true
+        /// for every row.
         /// </summary>
         public override async Task<int> DeleteAsync<T>(Expression<Func<T, bool>> predicate)
         {
@@ -378,9 +379,10 @@ namespace Funcular.Data.Orm.PostgreSql
         /// <summary>
         /// Deletes the rows matching <paramref name="predicate"/>, inside an active transaction. The predicate is
         /// translated by the WHERE path every query takes, and refused by the all-rows guard
-        /// (<see cref="WherePredicateGuard"/>, before and after translation; D-003 as amended by D-128) when it reads no
-        /// column, compares a column with itself, always holds or searches a column for an empty value that nothing else
-        /// bounds, where a query would run it and return every row.
+        /// (<see cref="WherePredicateGuard"/>, once the predicate has translated, and on its WHERE clause; D-003 as amended
+        /// by D-128) when it reads no column, compares an operand with itself or a copy of it, always holds or searches a column for an empty value that nothing else
+        /// bounds, where a query would run it and return every row. The checks don't catch every predicate that is true
+        /// for every row.
         /// </summary>
         public override int Delete<T>(Expression<Func<T, bool>> predicate)
         {
@@ -909,6 +911,23 @@ namespace Funcular.Data.Orm.PostgreSql
         }
 
         /// <summary>
+        /// The SQL of one operand of a predicate over <typeparamref name="T"/>, its parameters written as their values
+        /// (<see cref="WherePredicateGuard.OperandText"/>), from a fresh visitor and parameter generator, so the predicate's
+        /// own parameters are untouched (NULL_SEMANTICS_PLAN.md R18-1).
+        /// </summary>
+        private string OperandSql<T>(Expression operand, ResolvedRemoteJoinInfo remoteInfo) where T : class, new()
+        {
+            var parameterGenerator = new PostgreSqlParameterGenerator();
+            var visitor = new PostgreSqlWhereClauseVisitor<T>(
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
+                parameterGenerator, new PostgreSqlExpressionTranslator(parameterGenerator), GetTableName<T>(), remoteInfo.PropertyToColumnMap);
+            visitor.Visit(operand);
+            return WherePredicateGuard.OperandText(visitor.WhereClauseBody,
+                visitor.Parameters.Select(p => new KeyValuePair<string, object>(p.ParameterName, p.Value)));
+        }
+
+        /// <summary>
         /// Translates <paramref name="expression"/> with a fresh visitor over the discovered columns of <typeparamref name="T"/>
         /// and its remote joins (<paramref name="remoteInfo"/>). The one place a WHERE predicate is translated, for every
         /// operation (D-001); a translator's rejection throws from here.
@@ -948,20 +967,12 @@ namespace Funcular.Data.Orm.PostgreSql
             var paramGen = parameterGenerator ?? new PostgreSqlParameterGenerator();
             var trans = translator ?? new PostgreSqlExpressionTranslator(paramGen);
 
-            // The all-rows guard runs first, so a refused mass mutation never sends the mutation; for a read it accepts
-            // everything (D-003 as amended by D-128: one translation path, one flag). A refusal is held (D-005: the
-            // translator has the first word): the type is discovered and the predicate translated exactly as for a
-            // read, so a discovery failure (a missing table) or a shape no path translates throws here as on every
-            // read path, and the guard's refusal stands only for a predicate that translates (D-156, option 1).
-            InvalidOperationException refusal = null;
-            try
-            {
-                WherePredicateGuard.Validate(expression, operation);
-            }
-            catch (InvalidOperationException ex)
-            {
-                refusal = ex;
-            }
+            // The argument contract first: a read's validation is the contract alone. The all-rows guard's verdict comes once
+            // the predicate has translated (D-005: the translator has the first word; D-156, option 1), so a discovery
+            // failure (a missing table) or a shape no path translates throws as on every read path, and a refused mass
+            // mutation never sends the mutation. It is given once, with the provider's SQL for a part of an operand
+            // (NULL_SEMANTICS_PLAN.md R18-1; R19-1: twice read a captured value twice).
+            WherePredicateGuard.Validate(expression, WhereOperation.Read);
 
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
@@ -969,7 +980,7 @@ namespace Funcular.Data.Orm.PostgreSql
             DiscoverColumns<T>();
 
             var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
-            if (refusal != null) throw refusal;
+            WherePredicateGuard.Validate(expression, operation, operand => OperandSql<T>(operand, remoteInfo));
             WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
 
             if (commandElements != null)

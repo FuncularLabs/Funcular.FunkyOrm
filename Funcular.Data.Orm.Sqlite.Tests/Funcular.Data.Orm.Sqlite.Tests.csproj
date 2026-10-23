@@ -42,6 +42,8 @@
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\CapturedValues\CapturedValueHarness.cs" Link="CapturedValues\CapturedValueHarness.cs" />
     <!-- WHERE parity rows (docs/plans/DECISIONS-3.10.2.md, D-001), shared with SqlServer.Tests. -->
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Parity\WhereParityHarness.cs" Link="Parity\WhereParityHarness.cs" />
+    <!-- Null semantics as EF Core answers them (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md), shared with SqlServer.Tests. -->
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\NullSemantics\NullSemanticsHarness.cs" Link="NullSemantics\NullSemanticsHarness.cs" />
     <!-- Aggregate correctness rows (3.11.0, FD-04), shared with SqlServer.Tests. -->
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Aggregates\AggregateHarness.cs" Link="Aggregates\AggregateHarness.cs" />
   </ItemGroup>

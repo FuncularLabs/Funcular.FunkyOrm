@@ -323,7 +323,7 @@ namespace Funcular.Data.Orm.Tests.Caching
                 ("Any(predicate)", p => p.Query<LinqProbe>().Any(x => x.FirstName == "x"),
                     new[] { $"WHERE {qualifiedFirstName} = " }),
                 ("All(predicate)", p => p.Query<LinqProbe>().All(x => x.FirstName == "x"),
-                    new[] { $"WHERE NOT ({qualifiedFirstName} = " }),
+                    new[] { $"WHERE ({qualifiedFirstName} != " }), // 3.12.0: All translates !p (NULL_SEMANTICS_PLAN.md AC-N9)
                 ("Max", p => p.Query<LinqProbe>().Max(x => x.Id), new[] { $"MAX({qualifiedId})" }),
                 ("Sum", p => p.Query<LinqProbe>().Sum(x => x.Id), new[] { $"SUM({qualifiedId})" }),
                 ("Average", p => p.Query<LinqProbe>().Average(x => x.Id), new[] { AverageFragment(qualifiedId) }),
