@@ -1375,6 +1375,10 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         [DataRow("allChildIdSumGt0Pin", true)]
         [DataRow("allChildIdSumNe0Pin", true)]
         [DataRow("allChildIdSumNGt0", false)]
+        // T8L-1: a Contains on a value that doesn't come from the row, its string null, is NULL LIKE NULL: All counts the
+        // row it leaves unknown as satisfying the predicate (3.11.0's Known issue, still open there); the control is false
+        [DataRow("allIdEq1OrNullStringContainsPin", true)]
+        [DataRow("allIdEq1OrStringContainsZz", false)]
         public void All_AnswersAsTheOracle(string key, bool expected)
         {
             WithTables((provider, log) =>
@@ -1392,6 +1396,8 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                     case "allChildIdSumGt0Pin": actual = provider.Query<NsComputed>().All(x => x.ChildIdSum > 0); break;
                     case "allChildIdSumNe0Pin": actual = provider.Query<NsComputed>().All(x => x.ChildIdSum != 0); break;
                     case "allChildIdSumNGt0": actual = provider.Query<NsComputed>().All(x => x.ChildIdSumN > 0); break;
+                    case "allIdEq1OrNullStringContainsPin": actual = provider.Query<NsRow>().All(x => x.Id == 1 || noName.Contains(a)); break;
+                    case "allIdEq1OrStringContainsZz": actual = provider.Query<NsRow>().All(x => x.Id == 1 || a.Contains("zz")); break;
                     default: throw new ArgumentException(key);
                 }
                 Assert.AreEqual(expected, actual, key);

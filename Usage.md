@@ -369,7 +369,8 @@ var potentialRisks = provider.Query<Person>()
 
 ### Null comparisons (v3.12.0)
 
-A `Where` selects the rows C# would select, as EF Core does by default, when a value or a column is null. In SQL a
+A `Where` selects the rows C# would select, as EF Core does by default, when a value or a column is null (for a
+non-nullable property over a SQL NULL, see the Changelog's Known issues). In SQL a
 comparison with NULL is unknown, and an unknown row isn't selected, so FunkyORM adds what C# means. In this table,
 `hospitalId` holds 5, `none` and `filter` hold null, and `ids` is `new int?[] { 1, 2 }`. The SQL is SQL Server's;
 the other providers send the same shapes.
@@ -628,8 +629,10 @@ var people = provider.Query<Person>()
 
 Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
 from the row (`role.Contains("admin")`) is answered before the query, as C# would, except that a null `role` (or a
-null search value) matches no row where C# would throw; `StartsWith` and `EndsWith` on anything but an entity
-property throw `NotSupportedException` — test the value in C# before the query instead.
+null search value) matches no row, negated or not, where C# would throw (it is sent as `NULL LIKE NULL`: test it in
+the predicate, `role != null && role.Contains("admin")`; inside `All`, see the Changelog's Known issues); `StartsWith`
+and `EndsWith` on anything but an entity property throw `NotSupportedException` — test the value in C# before the
+query instead.
 
 `Delete`, `Count`, `Any` and `All` translate these the same way (v3.11.0): a search value that is null, a wildcard
 character or a property of an object you hold, and a string `Contains` on a value that doesn't come from the row,

@@ -82,8 +82,8 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 - **A conditional's test** is rewritten wherever the conditional is: `(x.N != 5 ? 1 : 0) == 1` also counts the NULL
   rows as `!= 5`.
 - **`All(p)` answers as C# does:** it is true when no row satisfies `!p`. `All(x => x.N > 0)` is `false` when an `N`
-  is null (3.11.0's Known issue), and `All` over a null search value is `false`, EF Core's answer (C# throws). For a
-  non-nullable property over a SQL NULL, see Known issues.
+  is null (3.11.0's Known issue), and `All` over a column's null search value (`All(x => x.Name.Contains(filter))`) is
+  `false`, EF Core's answer (C# throws). For a non-nullable property over a SQL NULL, see Known issues.
 - **Delete verdicts that change.** A delete selects the rows the query selects, so these deletes change:
 
   | Shape | 3.11.0 | 3.12.0 |
@@ -168,7 +168,9 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 
 ### Fixed
 - **`All` counted a row whose predicate SQL was unknown as satisfying it** (3.11.0's Known issue): see Behaviour
-  change. Over a `[SubqueryAggregate]` `Sum` or `Avg` declared non-nullable it still can: see Known issues.
+  change. It still can for a row where the SQL of `!p` is unknown, for example over a `[SubqueryAggregate]` `Sum` or
+  `Avg` declared non-nullable, or a `Contains` on a value that doesn't come from the row whose string or search value
+  is null: see Known issues.
 - **The `[SubqueryAggregate]` conditional-count examples** in Usage.md and the AI instructions named constructor
   parameters that don't exist, and didn't compile. They use the `ConditionColumn`/`ConditionValue` properties. So
   did the `[JsonCollection]` examples: `Columns` and `OrderBy` are properties, and the `joins:` option they showed
@@ -240,8 +242,14 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   does; `(x.Total == 0 ? 0 : 1) == 1` selects it, as 3.11.0 did; and `x.Paid != (x.Total == 0)` selects the paid
   parents with no child rows, which 3.11.0 didn't select where its text ran, and leaves out the unpaid ones. `All(p)`
   is `true` when no row satisfies `!p`, so it can answer otherwise than C# too: `All(x => x.Total > 0)` and
-  `All(x => x.Total != 0)` don't count a parent with no child rows as failing them, as in 3.11.0, where C# does.
-  Declare the property nullable for C#'s rows: a nullable `Sum` or `Avg` is compared as C# compares its null.
+  `All(x => x.Total != 0)` don't count a parent with no child rows, or whose child values are all NULL, as failing
+  them, as in 3.11.0, where C# does. Declare the property nullable for C#'s rows: a nullable `Sum` or `Avg` is
+  compared as C# compares its null.
+- **A `Contains` on a value that doesn't come from the row is unknown in SQL when its string or search value is null**
+  (`role.Contains("admin")` with `role` null is sent as `NULL LIKE NULL`), as in 3.11.0. So it matches no row, negated
+  or not, and `All` counts a row it leaves unknown as satisfying the predicate: with `role` null,
+  `All(x => x.OwnerId == me || role.Contains("admin"))` is `true` where `Where` selects only your rows (C# throws for
+  both). Test the value in the predicate: `role != null && role.Contains("admin")` is read before the query.
 - **MySQL reads a JSON null as the text `'null'`**, so `x.DocK == null` doesn't select a row whose key holds a JSON
   null there.
 - **PostgreSQL sorts NULLs last ascending**, the other providers first.
