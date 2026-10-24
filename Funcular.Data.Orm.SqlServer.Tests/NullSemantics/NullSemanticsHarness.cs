@@ -1550,6 +1550,10 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         // rows makes the predicate false there
         [DataRow("activeNeChildIdSumEq0Pin")]
         [DataRow("condChildIdSumEq0EqFalsePin")]
+        // T8I-1, T8I-3: a bool value against the predicate is p or its NOT, the NULL left unknown; a distributed leaf is
+        // two-valued
+        [DataRow("childIdSumEq5EqFalse")]
+        [DataRow("nestedCondChildIdSumNe5Pin")]
         [DataRow("childIdSumNNe0")]
         [DataRow("childAvgDNe0")]
         [DataRow("docKEqNone")]
@@ -1615,6 +1619,15 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                 case "condChildIdSumEq0EqFalsePin":
                     predicate = x => (x.Id > 2 ? x.ChildIdSum == 0 : x.Active) == false;
                     oracle = r => (r.Id > 2 ? ChildIdSumN(r) == 0 : r.Active) == false;
+                    break;
+                // T8I-1: compared with a bool value the predicate is sent as itself or its NOT (AC-N14), so a parent with no
+                // child rows is left out, as by `x.ChildIdSum != 5`; C# over the rows read back (0) selects it.
+                case "childIdSumEq5EqFalse": predicate = x => (x.ChildIdSum == 5) == false; oracle = r => ChildIdSumN(r) != null && ChildIdSumN(r) != 5; break;
+                // T8I-3: a distributed comparison's leaf over the non-nullable Sum is its two-valued CASE (R12-2): a parent with
+                // no child rows on that branch is left out, 3.11.0's rows (the owner's ruling); C# over the rows read back (0) differs.
+                case "nestedCondChildIdSumNe5Pin":
+                    predicate = x => ((x.Id > 2 ? x.Code : x.Id) > 3 ? x.ChildIdSum : x.N) != 5;
+                    oracle = r => (r.Id > 2 ? r.Code : r.Id) > 3 ? ChildIdSumN(r) != null && ChildIdSumN(r) != 5 : r.N != 5;
                     break;
                 case "childIdSumNNe0": predicate = x => x.ChildIdSumN != 0; oracle = r => ChildIdSumN(r) != 0; break;
                 case "childAvgDNe0": predicate = x => x.ChildAvgD != 0m; oracle = r => ChildAvgD(r) != null && ChildAvgD(r) != 0m; break;

@@ -227,22 +227,25 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   3.11.0 took about 900, and about 590 nested to the right, where it took about 950. Past the limit the process ends
   with a stack overflow, which can't be caught, as in 3.11.0 past its own. For a long list of values use `Contains`
   on a collection, `ids.Contains(x.Id)`, which sends one `IN` list.
-- **A non-nullable property over a SQL NULL reads back as its default.** A missing parent's `[RemoteProperty] int`,
-  an absent JSON key, or a `[SubqueryAggregate]` `Sum` or `Avg` over no child rows, or over child values that are all
+- **A non-nullable property over a SQL NULL reads back as its default.** A missing parent's `[RemoteProperty] int`, an
+  absent JSON key, or a `[SubqueryAggregate]` `Sum` or `Avg` over no child rows, or over child values that are all
   NULL, reads back as `0`, while WHERE compares, and ORDER BY sorts, the SQL NULL: for a missing parent as EF Core
   does, and for a `Sum` or `Avg` declared non-nullable, which counts as a column that can't be null, without the
-  NULL's compensation, as 3.11.0 compared it with a value. So `x.Total == 0` and `x.Total != 5` leave out a parent with
-  no child rows, which C# over the rows read back selects, and which EF Core, sending `COALESCE(SUM(…), 0)` for a
-  `Sum`, selects too; `x.Total != 0` leaves it out, as C# does. A conditional whose test the aggregate's NULL leaves
-  unknown takes its `ELSE` branch, as in 3.11.0, so `(x.Total == 0 ? 0 : 1) == 1` selects, and a delete removes, a
-  parent with no child rows, where C# doesn't. Where a predicate over such a `Sum` or `Avg` is sent as its two-valued
-  `CASE` (a `bool` compared with it, or a conditional with it as a branch, compared with a value, a column or a
-  predicate), the predicate is false wherever the aggregate's NULL leaves it unknown, for a parent with no child rows
-  or whose child values are all NULL, so the comparison can select, and a delete remove, that parent where C#
-  doesn't: `x.Paid != (x.Total == 0)` selects the paid parents with no child rows, and
-  `(x.Id > 2 ? x.Total == 0 : x.Paid) == false` every parent past the test with no child rows, which 3.11.0 didn't
-  select where its text ran. Declare the property nullable for C#'s rows: a nullable `Sum` or `Avg` is compared as
-  C# compares its null.
+  NULL's compensation, as 3.11.0 compared it with a value. So `x.Total == 0` and `x.Total != 5` leave out a parent
+  with no child rows, which C# over the rows read back selects, and which EF Core, sending `COALESCE(SUM(…), 0)` for a
+  `Sum`, selects too; `x.Total != 0` leaves it out, as C# does. Compared with a `bool` that doesn't read the row, such
+  as `false` or a captured `bool`, a predicate over such a `Sum` or `Avg` is sent as itself or its `NOT`, the NULL
+  left unknown, so `(x.Total == 5) == false` leaves out a parent with no child rows, as `x.Total != 5` does. A
+  conditional whose test the aggregate's NULL leaves unknown takes its `ELSE` branch, as in 3.11.0, so
+  `(x.Total == 0 ? 0 : 1) == 1` selects, and a delete removes, a parent with no child rows, where C# doesn't. Where a
+  predicate over such a `Sum` or `Avg` is sent as its two-valued `CASE` (a `bool` that reads the row compared with it,
+  or a conditional with it as a branch, compared with a value, a column or a predicate), the predicate is false
+  wherever the aggregate's NULL leaves it unknown, for a parent with no child rows or whose child values are all NULL,
+  so the comparison can select, and a delete remove, that parent where C# doesn't, and leave out one that C# selects:
+  `x.Paid != (x.Total == 0)` selects the paid parents with no child rows and leaves out the unpaid ones, and
+  `(x.Id > 2 ? x.Total == 0 : x.Paid) == false` selects every parent past the test with no child rows, which 3.11.0
+  didn't select where its text ran. Declare the property nullable for C#'s rows: a nullable `Sum` or `Avg` is compared
+  as C# compares its null.
 - **MySQL reads a JSON null as the text `'null'`**, so `x.DocK == null` doesn't select a row whose key holds a JSON
   null there.
 - **PostgreSQL sorts NULLs last ascending**, the other providers first.
