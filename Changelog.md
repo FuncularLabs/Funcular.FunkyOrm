@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.12.0] - 2026-10-23
+## [3.12.0] - 2026-10-24
 
 **Release notes.** A WHERE predicate now selects the rows C# selects when a value or a column is null, as EF Core
 does by default (`UseRelationalNulls(false)`), on every provider and every path: `Query(predicate)`, `QueryAsync`,
@@ -20,9 +20,10 @@ variable that isn't null (`x.N == 5`, `x.Flag == include`) is unchanged; the sha
 column compared with a `bool` worked out from captured values (`x.Archived == (mode == "archived")`).
 - **`!=` also selects the rows where the column is NULL:** `x.N != 5` sends `(n != @p OR n IS NULL)`. So does a
   `bool?` (`x.Flag != true`), an enum (`x.E != Color.Red`), a date part or `Length` of a column that can be null, a
-  conditional with a branch that can be null, a `[RemoteProperty]`, `[RemoteKey]`, `[JsonPath]`, `[SqlExpression]`
-  or `[SubqueryAggregate]` `Avg` whatever its CLR type, and a `[SubqueryAggregate]` `Sum` declared nullable, since a
-  LEFT JOIN, a JSON key or an aggregate over no rows can be NULL. **Every string column counts as able to be null**
+  conditional with a branch that can be null, a `[RemoteProperty]`, `[RemoteKey]`, `[JsonPath]` or `[SqlExpression]`
+  whatever its CLR type, and a `[SubqueryAggregate]` `Sum` or `Avg` declared nullable, since a LEFT JOIN, a JSON key or
+  an aggregate over no rows can be NULL (a `Sum` or `Avg` declared non-nullable is compared as 3.11.0 compared it: see
+  Known issues). **Every string column counts as able to be null**
   (FunkyORM doesn't read `NOT NULL`), so `x.Req != "a"` gains `OR req IS NULL`: the same rows, more SQL. A
   conditional takes EF's form, sent again for its `IS NULL`: `(x.Id > 2 ? x.N : x.M) != 5` is
   `(CASE … END != @p OR CASE … END IS NULL)`. A conditional whose test holds another, as nesting such comparisons
@@ -94,7 +95,7 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   | A cast through `object` around a part that is always true by its own columns and literals, or compares a column with itself: `x.Id == 2 \|\| (bool)(object)(x.Code == x.Code)`, `fls != (bool)(object)(x.Name.Length <= x.Name.Length)` with `fls` false | accepted (the cast hid the part from the guard; SQL Server: an error for the second) | refused: always true, or self-referencing, as the same shape without the cast was in 3.11.0 (a captured value under the cast isn't read: see Known issues) |
   | An empty search value under a cast through `object`, written as `""` or `string.Empty`: `(bool)(object)x.Name.Contains("")`, `x.Id == 2 \|\| (bool)(object)x.Name.StartsWith(string.Empty)` | accepted: the rows with a name (and, for the second, the other operand's) | refused: an empty search value |
   | A part under a cast through `object` that a captured value makes a self-comparison or a constant, which the WHERE clause then shows: `(bool)(object)(on ? x.Id == x.Id : x.Id == 2)`, `(bool)(object)(on ? true : x.Id == 2)`, `(bool?)(object)(x.Id == 2 \|\| on) == true`, with `on` true | accepted, every row | refused: always true (the check of the translated clause) |
-  | A `bool` compared with the same operand: `(x.N == 5) == (x.N == 5)`, `!x.Active == !x.Active`, a conditional with itself, or a copy that differs by casts, a string's `ToString()` or a widened constant, `(x.Id > 2) == ((int?)x.Id > (int?)2)`; inside an `\|\|` too | accepted: nothing for an equality predicate; for a relational one on SQLite, the rows whose operand isn't NULL (every row over columns that can't be null; MySQL: nothing); every row for a conditional compared with itself; SQL Server and PostgreSQL rejected the predicate and `!` forms; refused where a copy's text matched its original's | refused: self-referencing, or always true |
+  | A `bool` compared with the same operand: `(x.N == 5) == (x.N == 5)`, `!x.Active == !x.Active`, a conditional with itself, or a copy that differs by casts, a string's `ToString()` or a widened constant, `(x.Id > 2) == ((int?)x.Id > (int?)2)`; inside an `\|\|` too | accepted: nothing for an equality predicate; for a relational one on SQLite, the rows whose operand isn't NULL (every row over columns that can't be null; MySQL: nothing); every row for a conditional compared with itself, and on SQLite for a `!` form beside another operand (`x.Id == 2 \|\| !x.Active == !x.Active`); SQL Server rejected the predicate and `!` forms, PostgreSQL the predicate forms; refused where a copy's text matched its original's | refused: self-referencing, or always true |
   | A predicate that compares a column with its own `[SqlExpression]` alias, compared with a `bool` value: `(x.Active == x.ActiveX) != false`, `ActiveX` being `{Active}` | accepted, every row (SQL Server, PostgreSQL: an error) | refused: always true |
   | A column, or its `Length`, date part or `ToString()`, compared with its own `[SqlExpression]` alias's where a `!`, or a comparison with a `bool` value, makes it always true: `!(x.N != x.NX)`, `!!(x.N == x.NX)`, `!(x.Name.Length != x.NameX.Length)`, `x.Active != !x.ActiveX`; `(x.N == x.NX) == true`, `(x.Name != x.NameX) != true`; `NX` being `{N}` | accepted: the rows that aren't NULL, or every row | refused: self-referencing; compared with a `bool` value, always true |
   | A computed property whose template is the dialect's own SQL for a column's part, compared with that part under a `!`: `!(x.NameLen != x.Name.Length)`, `NameLen` being `LENGTH({Name})` | accepted: the rows with a name (`NOT LENGTH(name) != LENGTH(name)`) | refused: self-referencing |
@@ -107,18 +108,13 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 
   The guard still proves only the plain always-true shapes (see Known issues), so a delete that is always true only
   once NULLs count is accepted and now deletes every row.
-- **A `[SubqueryAggregate]` `Sum` declared non-nullable is `COALESCE(SUM(…), 0)`,** as EF Core sends a `Sum`: a row
-  with no child rows sums to the 0 the property reads back, in WHERE, ORDER BY and the SELECT alike. So
-  `x.Total == 0` selects it and `x.Total != 0` doesn't, as C# answers over the rows read back (3.11.0 compared a SQL
-  NULL, so `x.Total == 0` missed those rows), and it sorts as 0. A `Sum` declared nullable keeps the SQL NULL, which
-  it reads back as null.
 - **SQL text that changes, where the rows don't or as stated:**
   - a conditional's test, or a branch of a `bool` conditional in a truth position (the predicate itself, or an
     operand of `&&`, `||` or `!` there), that doesn't read the row is sent as `NOT 1=0` / `1=0`, not as parameters.
     That includes a part a cast hid: a conditional that a cast back to `bool` kept in a value position
     (`(bool)(bool?)(x.Id > 3 ? x.Active : true)` sends `ELSE NOT 1=0`, was `ELSE @p`), and a part under a cast through
     `object` (`(bool)(object)(x.Code == x.Code) && x.Id == 2` sends `NOT 1=0`, was `code = code`). Two strings there
-    now compare as C# does (ordinal), not under the database's collation. So does a branch's comparison that reads no
+    now compare as C# does (ordinal), not under the database's collation (on MySQL, the connection's). So does a branch's comparison that reads no
     row where a conditional is compared in its branches: with `t` holding a conditional, `(t ? "A" : x.Name) != "a"`
     sends `@p` (true) for `"A" != "a"`, where 3.11.0 and the flat form compare the two under the collation;
   - a `bool` operand of a comparison that doesn't read the row, or whose truth is known, is one parameter holding its
@@ -231,9 +227,12 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   with a stack overflow, which can't be caught, as in 3.11.0 past its own. For a long list of values use `Contains`
   on a collection, `ids.Contains(x.Id)`, which sends one `IN` list.
 - **A non-nullable property over a SQL NULL reads back as its default.** A missing parent's `[RemoteProperty] int`,
-  an absent JSON key, or a `[SubqueryAggregate]` `Avg` over no rows reads back as `0`, while WHERE compares the SQL
-  NULL, as EF Core does for a missing parent. Declare the property nullable to see the null. (A `Sum` declared
-  non-nullable is `COALESCE(SUM(…), 0)` since 3.12.0: see Behaviour change.)
+  an absent JSON key, or a `[SubqueryAggregate]` `Sum` or `Avg` over no child rows reads back as `0`, while WHERE
+  compares the SQL NULL: for a missing parent as EF Core does, and for a `Sum` or `Avg` declared non-nullable as
+  3.11.0 did, without the NULL's compensation. So `x.Total == 0` and `x.Total != 5` leave out a parent with no child
+  rows, which C# over the rows read back selects, and which EF Core, sending `COALESCE(SUM(…), 0)` for a `Sum`,
+  selects too; `x.Total != 0` leaves it out, as C# does. Declare the property nullable to see the null: a nullable
+  `Sum` or `Avg` is compared as C# compares its null.
 - **MySQL reads a JSON null as the text `'null'`**, so `x.DocK == null` doesn't select a row whose key holds a JSON
   null there.
 - **PostgreSQL sorts NULLs last ascending**, the other providers first.
