@@ -1546,6 +1546,10 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         [DataRow("childIdSumNe0")]
         [DataRow("childIdSumEq0")]
         [DataRow("childIdSumEq3")]
+        // T8H-3: the Known issue's rows under the two-valued CASE (the owner's ruling, 2026-10-24): a parent with no child
+        // rows makes the predicate false there
+        [DataRow("activeNeChildIdSumEq0Pin")]
+        [DataRow("condChildIdSumEq0EqFalsePin")]
         [DataRow("childIdSumNNe0")]
         [DataRow("childAvgDNe0")]
         [DataRow("docKEqNone")]
@@ -1605,6 +1609,13 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                 case "childIdSumEq0": predicate = x => x.ChildIdSum == 0; oracle = r => ChildIdSumN(r) != null && ChildIdSumN(r) == 0; break;
                 // T8G-6: a sum some parents have (1 and 5), so a translation that selects nothing can't pass.
                 case "childIdSumEq3": predicate = x => x.ChildIdSum == 3; oracle = r => ChildIdSumN(r) == 3; break;
+                // T8H-3, a Known issue pinned: the two-valued CASE takes the SQL NULL's unknown as false, which C#'s lifted
+                // null == 0 also gives, so the oracle compares the SQL value (C# over the rows read back, 0, differs).
+                case "activeNeChildIdSumEq0Pin": predicate = x => x.Active != (x.ChildIdSum == 0); oracle = r => r.Active != (ChildIdSumN(r) == 0); break;
+                case "condChildIdSumEq0EqFalsePin":
+                    predicate = x => (x.Id > 2 ? x.ChildIdSum == 0 : x.Active) == false;
+                    oracle = r => (r.Id > 2 ? ChildIdSumN(r) == 0 : r.Active) == false;
+                    break;
                 case "childIdSumNNe0": predicate = x => x.ChildIdSumN != 0; oracle = r => ChildIdSumN(r) != 0; break;
                 case "childAvgDNe0": predicate = x => x.ChildAvgD != 0m; oracle = r => ChildAvgD(r) != null && ChildAvgD(r) != 0m; break;
                 case "childCountNe1": predicate = x => x.ChildCount != 1; oracle = r => Children.Count(c => c.RowId == r.Id) != 1; break;

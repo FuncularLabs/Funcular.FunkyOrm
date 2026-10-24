@@ -125,8 +125,9 @@ namespace Funcular.Data.Orm.Linq
         /// a value as 3.11.0 compared it, without the NULL's compensation, and with a null value as <c>1=0</c> /
         /// <c>NOT 1=0</c> (the owner's ruling on Task 8's T8E2-4: compensating it made <c>x.Total != 0</c> select the rows
         /// with no children, which the property reads back as 0); where a predicate over it is sent as its two-valued
-        /// CASE, a NULL aggregate makes the predicate false (a Known issue). A <c>Count</c>/<c>ConditionalCount</c> is
-        /// never NULL. The translators use it for <c>IN</c>, negated <c>LIKE</c> and an integer's <c>ToString()</c>.
+        /// CASE, the predicate is false wherever a NULL aggregate leaves it unknown (a Known issue). A
+        /// <c>Count</c>/<c>ConditionalCount</c> is never NULL. The translators use it for <c>IN</c>, negated <c>LIKE</c>
+        /// and an integer's <c>ToString()</c>.
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="property"/> is null.</exception>
         public static bool CanBeNull(PropertyInfo property)
