@@ -394,7 +394,8 @@ these would make shapes that returned correct rows throw.
   column as a conditional's test (`x.Active ? … : …`) is rejected there too, as in 3.11.0.
 - **The read-back of a non-nullable property over a SQL NULL.** A missing LEFT JOIN parent, an absent JSON key, or
   an empty `Sum` reads back as `default(T)`, because the materializer skips `DBNull`. WHERE compares the SQL value,
-  as EF does. A Known issue; unchanged.
+  as EF does for a missing parent (for a `Sum`, EF sends `COALESCE(SUM(…), 0)`; a non-nullable `Sum` or `Avg` is
+  compared as 3.11.0 compared it, by the owner's ruling on Task 8's T8E2-4). A Known issue.
 - **MySQL's JSON null.** `JSON_UNQUOTE(JSON_EXTRACT(…))` gives `'null'` text. A Known issue; unchanged.
 - **The SQLite `Guid`/`DateTime` binding (FD-11).** Unchanged. Its class also covers `decimal`: Microsoft.Data.Sqlite
   binds a `decimal` as TEXT, so a comparison with an expression that has no column affinity (a `[SubqueryAggregate]`,
@@ -774,7 +775,7 @@ A proof that passes at `25956e0` is a TEST-GAP, fixed before Task 2.
 | AC | Proofs | Pins and rows-pin/SQL-proof | Where |
 |---|---|---|---|
 | N1 | `nNeV`, `nNe5`, `vNeN`, `nameNeA`, `aNeName`, `flagNeTrue`, `flagNeFalse`, `dYearNe2020`, `nameLengthNe1`, `eNeRed` and `eNeGreenLiteral` (provider-rejected on PostgreSQL), `condNullableNe`. The **Convert twins on nullable columns** (R3-3), each asserting 3.11.0's exact comparison and parameters plus ` OR col IS NULL`: `nNeCapturedShort` (`x.N != c.ShortVal`), `nLongNeCapturedInt`, `nPriceNeCapturedInt`, `colorNeCapturedColor` and `eNeGreenLiteral` (provider-rejected on PostgreSQL) | `reqNeA` rows-pin/SQL-proof | `NsRow`, all four |
-| N1, attributes | `parentLabelNeP`, `parentCodeNe5` (`[RemoteProperty] int`), `parentKeyNe1` (`[RemoteKey] int`), `docKNe5` (`[JsonPath]` string), `docKEqNone` (MySQL's expected rows are its own: a JSON null is the text `'null'`, a Known issue), `nPlusOneIntNe6` (`[SqlExpression("{N} + 1")] int`), `childSumDNe99` (`[SubqueryAggregate(Sum)] decimal`: uncompensated since the owner's ruling on T8E2-4), `childIdSumNe0`, `childIdSumEq0` (a non-nullable `int` Sum against 0: 3.11.0's rows), `childIdAvgNe0` (a non-nullable `double` Avg), `childIdSumNNe0` (a nullable Sum, compensated), `parentCodeToStringNe5`, `parentCodeToStringEqEmpty` (COALESCE; R4-10) | `childCountNe1`, `parentCodeEq0` | `NsComputed`, `NsRemote`, all four |
+| N1, attributes | `parentLabelNeP`, `parentCodeNe5` (`[RemoteProperty] int`), `parentKeyNe1` (`[RemoteKey] int`), `docKNe5` (`[JsonPath]` string), `docKEqNone` (MySQL's expected rows are its own: a JSON null is the text `'null'`, a Known issue), `nPlusOneIntNe6` (`[SqlExpression("{N} + 1")] int`), `childSumDNe99` (`[SubqueryAggregate(Sum)] decimal`: uncompensated since the owner's ruling on T8E2-4), `childIdSumNe0`, `childIdSumEq0` (a non-nullable `int` Sum against 0: 3.11.0's rows), `childAvgDNe0` (a non-nullable `decimal` Avg), `childIdSumNNe0` (a nullable Sum, compensated), `parentCodeToStringNe5`, `parentCodeToStringEqEmpty` (COALESCE; R4-10) | `childCountNe1`, `parentCodeEq0` | `NsComputed`, `NsRemote`, all four |
 | N2 | `nEqNone`, `nNeNone`, `noneNeN`, `nameEqNoName`, `nameNeNoName`, `eEqNoColor` and `nEqShortNull` (a null under a `Convert`, R3-2: C# {3,4}; 3.11.0 {}), `idNeNoneInt`, `idEq2OrIdNeNoneInt`, `idNeNullLiteral`, `notIdEqNullLiteral`, `notIdEqNone`, `condFoldedTest` (`(x.Id == none ? x.N : x.M) != 5`: rows {5,6} → {2,4,5,6}), `nEq5OrNNe5` (every row; the delete accepted, §4.3) | `idEqNoneInt` and `idEqNullLiteral`: rows-pin/SQL-proof (`1=0`). `reqNeNoName` is a proof (R4-5: 3.11.0 selected and deleted nothing; the delete is accepted, every row) | `NsRow` |
 | N3 | `nEqM`, `nNeM`, `nNeCode`, `nameLengthSelf` (the de-duplicated text asserted) | `nEqCode` | `NsRow` |
 | N4 | `notNEqV`, `notNGtV`, `notNGeNone`, `notNGtNone`, `notNLtNone`, `notNLeNone`, `notAndEq`, `notOrEq`, `nNe5OrNameEqA`, `notNameLengthGt1`, `condTestNe` (the test of a non-`bool` conditional, R3-1), `condTestNeGt0`, `condTestNeEqV` and `nestedCondTestNe` (a test inside `>`, under a `Convert`, and nested; R4-2), `idOrNotNGeNone`; a negated call beside a sibling that needs nothing (R4-1): `notIdAndNameContainsA`, `notIdOrIdsContainsN`, `notIdAndNameContainsNull`; `notCondTestNeEq1` (a negated comparison that needs nothing around a compensated test; R5-5), `notNGtM` (two witnesses; R5-5) | `notNNeV` (`NOT n != @p`, kept: the flipped `==` needs nothing); `doubleNot` (`NOT NOT …`); `notIdAndCodeEq5` (`NOT (id = @p AND code = @p)`, the structure rule's own evidence, an N11 pin; R4-1); `notBoolCond`, `boolCondBranches`: dialect-rejected on SQL Server (reads and delete), proofs elsewhere | `NsRow` |
@@ -2714,13 +2715,13 @@ zero per provider.
 |---|---|---|---|---|
 | T8F-1 | Major | AC-GAP | Usage.md's and the AI instructions' "a column compared by `==` with a constant or a variable that isn't null doesn't change" was false for the COALESCE'd Sum (`x.Total == 0` selected the parents with no children; 3.11.0 didn't) (**fix-introduced**) | Moot under the ruling: a non-nullable Sum's `==` is 3.11.0's again, so the sentences are true; the Known issue states the Sum's and Avg's rows |
 | T8F-2, T8F-5 | Minor | PLAN-GAP, OTHER | The COALESCE's uncounted CASE level on SQL Server; its double evaluation there; "as EF Core sends" described EF's text, not FunkyORM's | Moot under the ruling: no COALESCE is sent |
-| T8F-3 | Minor | TEST-GAP | Nothing pinned the Avg's rows (a mutant COALESCE-ing it, and one counting it as unable to be NULL, survived the SQLite suite) | Under the ruling a non-nullable Avg is uncompensated like the Sum; the harness's `childIdAvgNe0` (red at `5563d43`, which compensated it) and the core tests' `ChildAvg`/`ChildAvgN` rows pin it; D115 |
+| T8F-3 | Minor | TEST-GAP | Nothing pinned the Avg's rows (a mutant COALESCE-ing it, and one counting it as unable to be NULL, survived the SQLite suite) | Under the ruling a non-nullable Avg is uncompensated like the Sum; the harness's `childAvgDNe0` (a `decimal` Avg; red at `5563d43` as `childIdAvgNe0`, a `double` one, which compensated it) and the core tests' `ChildAvg`/`ChildAvgN` rows pin it; D115 |
 | T8F-4, T8F-8 | Minor, Nit | OTHER | A `decimal` Sum on SQLite compares as text with COALESCE's integer 0; a Sum whose children's values are all NULL | Moot under the ruling (the bare SUM is 3.11.0's; the decimal Known issue stands as it was) |
 | T8F-6 | Minor | TEST-GAP | The verdict table's "A `bool` compared with the same operand" 3.11.0 cell said SQL Server and PostgreSQL rejected the `!` forms; 3.11.0's SQLite accepted `x.Id == 2 \|\| !x.Active == !x.Active` and deleted every row | The cell says so for SQLite, SQL Server's rejection of both forms, PostgreSQL's of the predicate forms; it doesn't claim PostgreSQL's or MySQL's reading of the `!` form, which no one ran |
 | T8F-7 | Nit | OTHER | On MySQL literals and parameters take the connection's collation | "(on MySQL, the connection's)" |
 | T8F-9 | Nit | OTHER | The runs paragraph held a broken machine path (a TAB and a line feed) | Folder names only |
 
-The ruling's layer: the harness's `childSumDNe99`, `childSumDRoundTripNe99`, `childIdSumEq0`, `childIdAvgNe0` and the core
+The ruling's layer: the harness's `childSumDNe99`, `childSumDRoundTripNe99`, `childIdSumEq0`, `childIdAvgNe0` (now `childAvgDNe0`) and the core
 tests' `Classify_ByOperandKind`, `CanBeNull_ByPropertyKind` red at `5563d43` (`red-ruling-sqlite.txt`: 4 of 319;
 `red-ruling-core.txt`: 2 of 53), green after; the four providers' files are `91dfc8c`'s again, byte for byte. Its runs
 (`nullsem-green25`, `nullsem-final25`): 229 mutants (`mutate28.py`: rev 23's 226, M-N11 re-anchored, D112, D115), all
@@ -2731,12 +2732,32 @@ read into a `double` (a pre-existing limit, for the backlog), so the key is a `d
 allowed NotExecuted), PostgreSQL 2,017, MySQL 1,959, the TRX gate on each, net48 53 / 53. The Changelog's heading is
 dated 2026-10-24.
 
+**Lens G** (a fresh non-author pass over `5563d43..f9c135e` and the release at `f9c135e`, 2026-10-24 02:22): NOT CLEAN, 1
+Major, 1 Minor, 4 Nit. The ruling's code checked: the four providers' files `91dfc8c`'s, their SQL per property 3.11.0's,
+301 of 357 non-nullable cases on SQLite 3.11.0's in rows, SQL and verdict (the rest the two classes below or C#'s rows for
+a nullable aggregate); D112, D115, M-N11 and four mutants of its own killed; the release clean (DB-free 693, SQLite 1,483,
+every gate step, 12 DLLs all 3.12.0, the heading dated 2026-10-24, nothing private, no user text describing the
+withdrawn COALESCE).
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8G-1 | Major | AC-GAP | Where 3.12.0 sends a predicate as its two-valued `CASE` (a `bool` compared with a predicate, AC-N14; a conditional's predicate branch compared with a value, AC-N16), a predicate over a non-nullable `Sum`/`Avg`, NULL for a parent with no child rows, is false, so `(x.Id > 2 ? x.Total == 0 : x.Flag) == false` selects, and deletes, such parents, which C# and 3.11.0 leave out (SQLite: C# and 3.11.0 [2,6,8], 3.12.0 [2,3,4,6,7,8]) | **The owner's call (Paul, 2026-10-24): "Known issue, ship"**, EF's `COALESCE` with a typed zero per provider the follow-up that removes it and the ruling's Known issue. The Known issue states the two shapes and their rows (lens G's text, but "which 3.11.0 didn't select where its text ran": for `x.Paid != (x.Total == 0)` 3.11.0's text was `a = b = c`, which PostgreSQL rejects); `CanBeNull`'s summary names it |
+| T8G-2 | Minor | OTHER | "compared as 3.11.0 compared it" was broader than true: such an aggregate counts as a column that can't be null, so a null value is `1=0` / `NOT 1=0` (`x.Total != none` selects every row and its delete is refused; 3.11.0 selected nothing) | The `!=` bullet, the Known issue and `CanBeNull` say it counts as unable to be NULL, as 3.11.0 compared it with a value, and a null value is `1=0` / `NOT 1=0` |
+| T8G-3 | Nit | OTHER | Child values all NULL read back 0 too, and ORDER BY sorts the SQL NULL | The Known issue says both |
+| T8G-4 | Nit | OTHER | `CanBeNull` opened "Whether the SQL value … can be NULL", and left the integer `ToString()` out of its users | Reworded as lens G gave it |
+| T8G-5 | Nit | OTHER | The plan's §3 said WHERE compares the SQL value "as EF does" (EF sends COALESCE for a Sum), and named `childIdAvgNe0` (a `double`) for the `decimal` `childAvgDNe0`; `f9c135e`'s message stated lens F's unverified PostgreSQL claim as fact | The plan corrected; the commit message carried (a record) |
+| T8G-6 | Nit | TEST-GAP | `childIdSumEq0` expects no row, which a translation selecting nothing passes | `childIdSumEq3` (parents 1 and 5) |
+
+The lens G layer changes documents, `CanBeNull`'s summary and one harness key, so no mutant moved; its runs
+(`nullsem-green26`, `nullsem-final26`): SQLite 1,484, SQL Server 3,443 / 3,444 (the allowed NotExecuted), PostgreSQL
+2,018, MySQL 1,960, the TRX gate on each, net48 53 / 53.
+
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
 TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1, OTHER 1. Round 7: TEST-GAP 3,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

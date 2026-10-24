@@ -1545,6 +1545,7 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         // the SQL NULL, so `== 0` leaves it out: a Known issue), and a nullable Sum, whose NULL compares as C#'s null does
         [DataRow("childIdSumNe0")]
         [DataRow("childIdSumEq0")]
+        [DataRow("childIdSumEq3")]
         [DataRow("childIdSumNNe0")]
         [DataRow("childAvgDNe0")]
         [DataRow("docKEqNone")]
@@ -1602,6 +1603,8 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                 case "childSumDNe99": predicate = x => x.ChildSumD != 99m; oracle = r => ChildSum(r) != null && ChildSum(r) != 99m; break;
                 case "childIdSumNe0": predicate = x => x.ChildIdSum != 0; oracle = r => ChildIdSumN(r) != null && ChildIdSumN(r) != 0; break;
                 case "childIdSumEq0": predicate = x => x.ChildIdSum == 0; oracle = r => ChildIdSumN(r) != null && ChildIdSumN(r) == 0; break;
+                // T8G-6: a sum some parents have (1 and 5), so a translation that selects nothing can't pass.
+                case "childIdSumEq3": predicate = x => x.ChildIdSum == 3; oracle = r => ChildIdSumN(r) == 3; break;
                 case "childIdSumNNe0": predicate = x => x.ChildIdSumN != 0; oracle = r => ChildIdSumN(r) != 0; break;
                 case "childAvgDNe0": predicate = x => x.ChildAvgD != 0m; oracle = r => ChildAvgD(r) != null && ChildAvgD(r) != 0m; break;
                 case "childCountNe1": predicate = x => x.ChildCount != 1; oracle = r => Children.Count(c => c.RowId == r.Id) != 1; break;

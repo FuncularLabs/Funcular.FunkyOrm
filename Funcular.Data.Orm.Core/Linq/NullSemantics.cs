@@ -117,14 +117,16 @@ namespace Funcular.Data.Orm.Linq
         }
 
         /// <summary>
-        /// Whether the SQL value of <paramref name="property"/>'s column can be NULL: a <see cref="Nullable{T}"/> or
-        /// reference type; and, whatever its CLR type, a <c>[RemoteProperty]</c> or <c>[RemoteKey]</c> (a LEFT JOIN), a
-        /// <c>[JsonPath]</c>, a <c>[SqlExpression]</c> or a <c>[JsonCollection]</c>; a <c>[SubqueryAggregate]</c> <c>Sum</c> or
-        /// <c>Avg</c> only where its CLR type can hold null. A <c>Sum</c> or <c>Avg</c> over no rows is NULL in SQL, but one
-        /// declared non-nullable is compared as 3.11.0 compared it, without the NULL's compensation (the owner's ruling on
-        /// Task 8's T8E2-4: compensating it made <c>x.Total != 0</c> select the rows with no children, which the property
-        /// reads back as 0); a <c>Count</c>/<c>ConditionalCount</c> is never NULL. The translators use it for <c>IN</c> and
-        /// negated <c>LIKE</c>.
+        /// Whether FunkyORM counts the SQL value of <paramref name="property"/>'s column as able to be NULL: a
+        /// <see cref="Nullable{T}"/> or reference type; and, whatever its CLR type, a <c>[RemoteProperty]</c> or
+        /// <c>[RemoteKey]</c> (a LEFT JOIN), a <c>[JsonPath]</c>, a <c>[SqlExpression]</c> or a <c>[JsonCollection]</c>; a
+        /// <c>[SubqueryAggregate]</c> <c>Sum</c> or <c>Avg</c> only where its CLR type can hold null. A <c>Sum</c> or
+        /// <c>Avg</c> over no rows is NULL in SQL, but one declared non-nullable counts as unable to be NULL: compared with
+        /// a value as 3.11.0 compared it, without the NULL's compensation, and with a null value as <c>1=0</c> /
+        /// <c>NOT 1=0</c> (the owner's ruling on Task 8's T8E2-4: compensating it made <c>x.Total != 0</c> select the rows
+        /// with no children, which the property reads back as 0); where a predicate over it is sent as its two-valued
+        /// CASE, a NULL aggregate makes the predicate false (a Known issue). A <c>Count</c>/<c>ConditionalCount</c> is
+        /// never NULL. The translators use it for <c>IN</c>, negated <c>LIKE</c> and an integer's <c>ToString()</c>.
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="property"/> is null.</exception>
         public static bool CanBeNull(PropertyInfo property)

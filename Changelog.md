@@ -22,8 +22,9 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   `bool?` (`x.Flag != true`), an enum (`x.E != Color.Red`), a date part or `Length` of a column that can be null, a
   conditional with a branch that can be null, a `[RemoteProperty]`, `[RemoteKey]`, `[JsonPath]` or `[SqlExpression]`
   whatever its CLR type, and a `[SubqueryAggregate]` `Sum` or `Avg` declared nullable, since a LEFT JOIN, a JSON key or
-  an aggregate over no rows can be NULL (a `Sum` or `Avg` declared non-nullable is compared as 3.11.0 compared it: see
-  Known issues). **Every string column counts as able to be null**
+  an aggregate over no rows can be NULL (a `Sum` or `Avg` declared non-nullable counts as unable to be NULL, as a
+  column that can't be null does, so `!=` gains no `IS NULL`, as in 3.11.0, and a null value is `1=0` / `NOT 1=0`:
+  see Known issues). **Every string column counts as able to be null**
   (FunkyORM doesn't read `NOT NULL`), so `x.Req != "a"` gains `OR req IS NULL`: the same rows, more SQL. A
   conditional takes EF's form, sent again for its `IS NULL`: `(x.Id > 2 ? x.N : x.M) != 5` is
   `(CASE … END != @p OR CASE … END IS NULL)`. A conditional whose test holds another, as nesting such comparisons
@@ -227,12 +228,18 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   with a stack overflow, which can't be caught, as in 3.11.0 past its own. For a long list of values use `Contains`
   on a collection, `ids.Contains(x.Id)`, which sends one `IN` list.
 - **A non-nullable property over a SQL NULL reads back as its default.** A missing parent's `[RemoteProperty] int`,
-  an absent JSON key, or a `[SubqueryAggregate]` `Sum` or `Avg` over no child rows reads back as `0`, while WHERE
-  compares the SQL NULL: for a missing parent as EF Core does, and for a `Sum` or `Avg` declared non-nullable as
-  3.11.0 did, without the NULL's compensation. So `x.Total == 0` and `x.Total != 5` leave out a parent with no child
-  rows, which C# over the rows read back selects, and which EF Core, sending `COALESCE(SUM(…), 0)` for a `Sum`,
-  selects too; `x.Total != 0` leaves it out, as C# does. Declare the property nullable to see the null: a nullable
-  `Sum` or `Avg` is compared as C# compares its null.
+  an absent JSON key, or a `[SubqueryAggregate]` `Sum` or `Avg` over no child rows, or over child values that are all
+  NULL, reads back as `0`, while WHERE compares, and ORDER BY sorts, the SQL NULL: for a missing parent as EF Core
+  does, and for a `Sum` or `Avg` declared non-nullable, which counts as a column that can't be null, without the
+  NULL's compensation, as 3.11.0 compared it with a value. So `x.Total == 0` and `x.Total != 5` leave out a parent with
+  no child rows, which C# over the rows read back selects, and which EF Core, sending `COALESCE(SUM(…), 0)` for a
+  `Sum`, selects too; `x.Total != 0` leaves it out, as C# does. Where a predicate over such a `Sum` or `Avg` is sent
+  as its two-valued `CASE` (a `bool` compared with it, or a conditional's predicate branch compared with a value), the
+  predicate is false for a parent with no child rows, so the comparison can select, and a delete remove, that parent
+  where C# doesn't: `x.Paid != (x.Total == 0)` selects the paid parents with no child rows, and
+  `(x.Id > 2 ? x.Total == 0 : x.Paid) == false` every parent past the test with no child rows, which 3.11.0 didn't
+  select where its text ran. Declare the property nullable for C#'s rows: a nullable `Sum` or `Avg` is compared as
+  C# compares its null.
 - **MySQL reads a JSON null as the text `'null'`**, so `x.DocK == null` doesn't select a row whose key holds a JSON
   null there.
 - **PostgreSQL sorts NULLs last ascending**, the other providers first.
