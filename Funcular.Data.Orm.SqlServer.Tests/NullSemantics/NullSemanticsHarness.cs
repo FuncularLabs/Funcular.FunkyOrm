@@ -1370,6 +1370,11 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         [DataRow("allReqNeZz", true)]
         [DataRow("allNotNameContainsNull", true)]
         [DataRow("firstTwoAllNameContainsA", false)]
+        // T8K-1: All over a non-nullable Sum keeps 3.11.0's answer (the owner's ruling): a parent with no child rows
+        // doesn't fail it where the NULL leaves the predicate unknown; C# over the rows read back (0) answers false
+        [DataRow("allChildIdSumGt0Pin", true)]
+        [DataRow("allChildIdSumNe0Pin", true)]
+        [DataRow("allChildIdSumNGt0", false)]
         public void All_AnswersAsTheOracle(string key, bool expected)
         {
             WithTables((provider, log) =>
@@ -1384,6 +1389,9 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                     case "allReqNeZz": actual = provider.Query<NsRow>().All(x => x.Req != "zz"); break;
                     case "allNotNameContainsNull": actual = provider.Query<NsRow>().All(x => !x.Name.Contains(noName)); break;
                     case "firstTwoAllNameContainsA": actual = provider.Query<NsRow>().Where(x => x.Id <= 2).All(x => x.Name.Contains(a)); break;
+                    case "allChildIdSumGt0Pin": actual = provider.Query<NsComputed>().All(x => x.ChildIdSum > 0); break;
+                    case "allChildIdSumNe0Pin": actual = provider.Query<NsComputed>().All(x => x.ChildIdSum != 0); break;
+                    case "allChildIdSumNGt0": actual = provider.Query<NsComputed>().All(x => x.ChildIdSumN > 0); break;
                     default: throw new ArgumentException(key);
                 }
                 Assert.AreEqual(expected, actual, key);
@@ -1555,7 +1563,7 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         [DataRow("childIdSumEq5EqFalse")]
         [DataRow("nestedCondChildIdSumNe5Pin")]
         // T8J-1: a bool that reads the row but whose truth the fold knows is a value too; a conditional whose test the NULL
-        // leaves unknown takes its ELSE branch (the Known issue's examples)
+        // leaves unknown takes its ELSE branch (the Known issue's general sentence and its conditional example)
         [DataRow("childIdSumEq5NeActiveOrAll")]
         [DataRow("condChildIdSumEq0ElsePin")]
         [DataRow("childIdSumNNe0")]

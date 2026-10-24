@@ -402,7 +402,8 @@ What to expect:
   no NULL anywhere.
 - **Every string column counts as able to be null**, because FunkyORM doesn't read the schema's `NOT NULL`. So
   `p.LastName != "x"` gains `OR person.last_name IS NULL` even on a required column: the same rows, more SQL.
-- **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital.
+- **`All` answers as C# does.** `All(p => p.HospitalId > 0)` is `false` when someone has no hospital. For a
+  non-nullable property over a SQL NULL it can answer otherwise (see the Changelog's Known issues).
 - **Deletes follow the same rows.** `Delete(p => p.HospitalId != 5)` also deletes the people with no hospital, as C#
   would select them. The guard refuses only the plain all-rows shapes: `Delete(p => !p.MiddleInitial.Contains(filter))`
   with `filter == null` is refused, but `Delete(p => p.HospitalId == 5 || p.HospitalId != 5)`, true for every row once
@@ -613,8 +614,9 @@ var underscored = provider.Query<Person>()
 ```
 
 The search value can be a literal, a local, a property of an object you hold (including `this`) or a static
-member; FunkyORM reads it before the query. A `null` value matches no row, negated or not (except inside `All`: see
-the Changelog's Known issues), and a comparison that doesn't read the row (`filter == null`) is evaluated in C# and
+member; FunkyORM reads it before the query. A `null` value matches no row, so under a `!` it matches every row
+(`NOT 1=0`, since 3.12.0; a delete refuses that as always true), and a comparison that doesn't read the row
+(`filter == null`) is evaluated in C# and
 sent as a literal, so an optional filter works:
 
 ```csharp
