@@ -1554,6 +1554,10 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         // two-valued
         [DataRow("childIdSumEq5EqFalse")]
         [DataRow("nestedCondChildIdSumNe5Pin")]
+        // T8J-1: a bool that reads the row but whose truth the fold knows is a value too; a conditional whose test the NULL
+        // leaves unknown takes its ELSE branch (the Known issue's examples)
+        [DataRow("childIdSumEq5NeActiveOrAll")]
+        [DataRow("condChildIdSumEq0ElsePin")]
         [DataRow("childIdSumNNe0")]
         [DataRow("childAvgDNe0")]
         [DataRow("docKEqNone")]
@@ -1629,6 +1633,18 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                     predicate = x => ((x.Id > 2 ? x.Code : x.Id) > 3 ? x.ChildIdSum : x.N) != 5;
                     oracle = r => (r.Id > 2 ? r.Code : r.Id) > 3 ? ChildIdSumN(r) != null && ChildIdSumN(r) != 5 : r.N != 5;
                     break;
+                // T8J-1: `x.Active || all`, with `all` true, reads the row, but the fold knows its truth, so it's AC-N14's value:
+                // the predicate is sent as itself or its NOT, and a parent with no child rows is left out, as by `x.ChildIdSum != 5`.
+                case "childIdSumEq5NeActiveOrAll":
+                    {
+                        var all = true;
+                        predicate = x => (x.ChildIdSum == 5) != (x.Active || all);
+                        oracle = r => ChildIdSumN(r) != null && ChildIdSumN(r) != 5;
+                        break;
+                    }
+                // T8J-1: the conditional's test is unknown for a parent with no child rows, so SQL takes the ELSE branch (Id > 2),
+                // as 3.11.0 did; C# over the rows read back (0 == 0) takes the first.
+                case "condChildIdSumEq0ElsePin": predicate = x => (x.ChildIdSum == 0 ? 0 : x.Id) > 2; oracle = r => (ChildIdSumN(r) == 0 ? 0 : r.Id) > 2; break;
                 case "childIdSumNNe0": predicate = x => x.ChildIdSumN != 0; oracle = r => ChildIdSumN(r) != 0; break;
                 case "childAvgDNe0": predicate = x => x.ChildAvgD != 0m; oracle = r => ChildAvgD(r) != null && ChildAvgD(r) != 0m; break;
                 case "childCountNe1": predicate = x => x.ChildCount != 1; oracle = r => Children.Count(c => c.RowId == r.Id) != 1; break;
