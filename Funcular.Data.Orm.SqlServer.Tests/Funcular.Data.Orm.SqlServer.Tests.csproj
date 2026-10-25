@@ -13,7 +13,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="EPPlus" Version="8.1.0" />
-    <!-- EPPlus 8.1.0 brings System.Security.Cryptography.Xml 8.0.2 (GHSA-37gx-xxp4-5rgx, GHSA-cvvh-rhrc-wg4q); 8.0.4 is the fix. -->
+    <!-- EPPlus 8.1.0 brings System.Security.Cryptography.Xml 8.0.2 (GHSA-37gx-xxp4-5rgx, GHSA-cvvh-rhrc-wg4q and others); 8.0.5 is the first 8.0 version outside all of them (GHSA-7hqp-7c5m-4vq6, GHSA-r955-8q5j-3h83, GHSA-vrv5-2jg9-4mmr and GHSA-c399-9853-6jmj reach 8.0.4). -->
     <PackageReference Include="System.Security.Cryptography.Xml" Version="8.0.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.8" />

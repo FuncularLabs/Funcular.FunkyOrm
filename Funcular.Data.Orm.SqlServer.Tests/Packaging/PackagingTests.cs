@@ -167,8 +167,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
         }
 
         /// <summary>
-        /// 3.12.1: the package declares a patched minimum for each vulnerable package its drivers bring transitively, so a
-        /// first install has no known vulnerability: <c>Microsoft.Data.SqlClient</c> 6.0.0 brings
+        /// 3.12.1: the package declares a patched minimum for each vulnerable package its dependencies bring transitively, so
+        /// a first install reports none of these advisories: <c>Microsoft.Data.SqlClient</c> 6.0.0 brings
         /// <c>System.Security.Cryptography.Pkcs</c> 8.0.1, or 9.0.0 to a net9.0 or later app (GHSA-846f-f764-76mx,
         /// GHSA-2fmv-rv2c-59x7), and <c>System.Data.Common</c> 4.3.0 brings <c>System.Text.RegularExpressions</c> 4.3.0
         /// (GHSA-cmhx-cq75-c4mj). net8.0's minimum is the 9.0 line's, because a net9.0 or later app resolves SqlClient's
@@ -189,6 +189,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             Assert.AreEqual(1, declared.Count, $"the package declares {package} {declared.Count} time(s) for {framework}");
             var version = new Version((string)declared[0].Attribute("Version"));
             Assert.IsTrue(version >= new Version(minimum), $"{package} for {framework} is {version}, below the patched {minimum}");
+            Assert.AreEqual(new Version(minimum).Major, version.Major,
+                $"{package} for {framework} is {version}, on another servicing line than the patched {minimum}: check that line's advisories, then update this row");
         }
 
         /// <summary>The README's provider table names each driver package and its minimum, as the csprojs pin it.</summary>

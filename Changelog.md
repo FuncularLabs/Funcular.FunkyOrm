@@ -4,8 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [3.12.1] - 2026-10-25
 
-**Release notes.** A fix for `bool` properties in SQL Server conditions, and patched minimums for vulnerable packages the
-drivers bring. **Upgrade recommended** for SQL Server users, and for anyone whose build treats vulnerability warnings as
+**Release notes.** A fix for `bool` properties in SQL Server conditions, and patched minimums for vulnerable packages its
+dependencies bring. **Upgrade recommended** for SQL Server users, and for anyone whose build treats vulnerability warnings as
 errors.
 
 ### Fixed
@@ -16,7 +16,7 @@ errors.
   `Delete` included. The other providers already ran these shapes, and their SQL doesn't change.
 
 ### Security
-- **The package declares patched minimums for vulnerable packages its drivers bring transitively**, so installing it
+- **The package declares patched minimums for vulnerable packages its dependencies bring transitively**, so installing it
   no longer reports them (NU1902, NU1903):
   - `System.Security.Cryptography.Pkcs` (GHSA-846f-f764-76mx, high; GHSA-2fmv-rv2c-59x7, moderate), which
     `Microsoft.Data.SqlClient` 6.0.0 brings at 8.0.1, or at 9.0.0 to a net9.0 or later app: at least 9.0.21 for
@@ -24,7 +24,12 @@ errors.
   - `System.Text.RegularExpressions` (GHSA-cmhx-cq75-c4mj, high), which `System.Data.Common` 4.3.0 brings on
     `netstandard2.0`: at least 4.3.1.
 
-  These are minimums: a newer version already in your project is kept.
+  These are minimums: a newer version already in your project is kept. On `net8.0` the minimum is the 9.0 line's,
+  because the package's `net8.0` build is also the one net9.0 and later apps use. So a `net8.0` app now gets
+  `System.Security.Cryptography.Pkcs` 9.0.21, and with it `System.Formats.Asn1` and `Microsoft.Bcl.Cryptography` 9.0.21.
+  **A `net8.0` project that references one of these three directly at an 8.0 version now fails restore**, for example
+  `System.Security.Cryptography.Pkcs` 8.0.2 or `System.Formats.Asn1` 8.0.1. The error is NU1605, or NU1109 under
+  central package management with transitive pinning. Raise that reference to 9.0.21 or later, or remove it.
 
 ### Known issues
 - The 3.12.0 Known issues still apply.

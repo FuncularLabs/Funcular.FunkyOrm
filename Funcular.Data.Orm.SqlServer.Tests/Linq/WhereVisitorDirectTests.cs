@@ -116,6 +116,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
         private static Expression Prop(string name) => Expression.Property(X, name);
 
         /// <summary>
+        /// 3.12.1 (D-133(b)): SQL Server compares a bool member alone in a truth position with <c>CAST(1 AS bit)</c> (CAST, so
+        /// a JSON path's text converts to bit, not int); a comparison's operand stays the column.
+        /// </summary>
+        [TestMethod]
+        public void ABareBoolMemberInATruthPosition_IsComparedWithCastTrue_OnSqlServer()
+        {
+            Func<Expression<Func<Row, bool>>, string> sqlServer = predicate => Normalized(Visitors().First(v => v.Key == "SqlServer").Value(predicate));
+            Assert.AreEqual("t.active = CAST(1 AS bit) |", sqlServer(x => x.Active));
+            Assert.AreEqual("NOT t.active = CAST(1 AS bit) |", sqlServer(x => !x.Active));
+            Assert.AreEqual("(t.active = CAST(1 AS bit) OR t.id > @p) | 2", sqlServer(x => x.Active || x.Id > 2));
+            Assert.AreEqual("CASE WHEN t.active = CAST(1 AS bit) THEN t.id ELSE @p END > @p | 0 2", sqlServer(x => (x.Active ? x.Id : 0) > 2));
+            Assert.AreEqual("t.flag = t.active |", sqlServer(x => x.Flag == x.Active));
+        }
+
+        /// <summary>
         /// R5-1(b): a branch of a conditional in a value position is a value: a literal there is a parameter, not
         /// <c>NOT 1=0</c>, which T-SQL doesn't accept as a CASE result.
         /// </summary>
