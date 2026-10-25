@@ -139,12 +139,12 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
     selects those rows, where 3.11.0 selected none, and a delete over a computed integer deletes them.
 
 ### Changed
-- **Shapes that failed now run.** On PostgreSQL a comparison with a variable holding null (`x.N == none`) failed
-  with 42883 (`operator does not exist: integer = text`), a `bool` compared with a comparison
-  (`(x.N == 5) == (x.M == 5)`: two comparisons in a row) with 42601, and a null
-  captured value in a `CASE` branch with 42804. On SQL Server a `bool` compared with a predicate, a captured `bool`
-  as a conditional's test, a predicate as a conditional's branch, `!` of a captured `bool` in a comparison, and a
-  predicate under a cast through `object` compared with a value were syntax errors.
+- **Shapes that failed now run.** On PostgreSQL a comparison with a variable holding null (`x.N == none`) failed with
+  42883 (`operator does not exist: integer = text`), a `bool` compared with a comparison (`(x.N == 5) == (x.M == 5)`:
+  two comparisons in a row) with 42601, and a null captured value in a `CASE` branch with 42804. On SQL Server a
+  `bool` compared with a predicate, a conditional compared with a value whose test is a captured `bool` or whose
+  branch is a predicate, `!` of a captured `bool` in a comparison, and a predicate under a cast through `object`
+  compared with a value were syntax errors.
 - **The delete guard reads a comparison's operands as the provider sends them.** Two operands whose parts the
   provider translates to the same SQL, letter case aside outside quoted text (a string literal, a JSON path or a quoted
   name keeps its case: text in single quotes, `''` escaped, in double quotes, in brackets or in backticks; PostgreSQL's
@@ -169,8 +169,8 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 ### Fixed
 - **`All` counted a row whose predicate SQL was unknown as satisfying it** (3.11.0's Known issue): see Behaviour
   change. It still can for a row where the SQL of `!p` is unknown, for example over a `[SubqueryAggregate]` `Sum` or
-  `Avg` declared non-nullable, or a string's `Contains` on a value that doesn't come from the row, the string or its
-  search value null: see Known issues.
+  `Avg` declared non-nullable, or a string's `Contains` that doesn't read the row, the string or its search value
+  null: see Known issues.
 - **The `[SubqueryAggregate]` conditional-count examples** in Usage.md and the AI instructions named constructor
   parameters that don't exist, and didn't compile. They use the `ConditionColumn`/`ConditionValue` properties. So
   did the `[JsonCollection]` examples: `Columns` and `OrderBy` are properties, and the `joins:` option they showed
@@ -246,9 +246,9 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
   `All(x => x.Total != 0)` don't count a parent with no child rows, or whose child values are all NULL, as failing
   them, as in 3.11.0, where C# does. Declare the property nullable for C#'s rows: a nullable `Sum` or `Avg` is
   compared as C# compares its null.
-- **A string's `Contains` on a value that doesn't come from the row is unknown in SQL when the string or its search
-  value is null** (`role.Contains("admin")` with `role` null is sent as `NULL LIKE NULL`), as in 3.11.0. So it matches
-  no row, negated or not, and `All` counts a row it leaves unknown as satisfying the predicate: with `role` null,
+- **A string's `Contains` that doesn't read the row is unknown in SQL when the string or its search value is null**
+  (`role.Contains("admin")` with `role` null is sent as `NULL LIKE NULL`), as in 3.11.0. So it matches no row, negated
+  or not, and `All` counts a row it leaves unknown as satisfying the predicate: with `role` null,
   `All(x => x.OwnerId == me || role.Contains("admin"))` is `true` where `Where` selects only your rows (C# throws for
   both). Test the value in the predicate: `role != null && role.Contains("admin")` is read before the query.
 - **MySQL reads a JSON null as the text `'null'`**, so `x.DocK == null` doesn't select a row whose key holds a JSON

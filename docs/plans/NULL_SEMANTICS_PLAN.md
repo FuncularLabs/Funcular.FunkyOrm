@@ -2828,12 +2828,26 @@ query; the release clean.
 | T8M-7 | Nit | OTHER | Fixed's rule also covers a `!p` left unknown where `All` gives C#'s answer | Carried (the rule says "can") |
 | T8M-8 | Nit | OTHER | M-L1 reds 5 of the whole SQLite suite (with 3.11.0's `allRowIndependentNull`), not the pin alone | Recorded: "alone" holds within `SqliteNullSemanticsTests` |
 
+**Lens N** (a fresh non-author pass over `f069bb8..5107dad` and the release at `5107dad`, 2026-10-24 19:56): **CLEAN**,
+0 Major, 3 Minor, 2 Nit. Every changed sentence true for what it names (63 predicate cases on every path, 24 `All`, 12
+ORDER BY, 76 accepted deletes each equal to its query, 67 shapes offline on the four visitors); `5107dad`'s 26 library
+DLLs byte-identical to `f069bb8`'s (comments only); the release clean. The Minors are fixed after it as narrowings that
+add no claim (the exit rule), and the push gate's pass covers that layer.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8N-1 | Minor | AC-GAP | "a string's `Contains` on a value that doesn't come from the row" is wider than the code's class, a call that doesn't read the row (`IsRowIndependent(call)`): `role.Contains(x.Name)` throws, on both builds | "that doesn't read the row" (3.11.0's wording) in the Known issue, Fixed, the AI LIKE line and Usage.md's two sentences of the class |
+| T8N-2 | Minor | AC-GAP | The AI line's "inside `All` doesn't fail the predicate" is too wide (as a conditional's test or in a two-valued CASE the unknown is false) | The Changelog's exact wording: "a row it leaves unknown counts as satisfying the predicate" |
+| T8N-3 | Minor | AC-GAP | "Shapes that failed now run" implied a `bool` conditional that is the predicate itself runs on SQL Server; it is a syntax error, as in 3.11.0 | Lens N's narrowing: "a conditional compared with a value whose test is a captured `bool` or whose branch is a predicate"; its optional Known issue not taken (no new claim) |
+| T8N-4 | Nit | OTHER | `NullSemantics`' comment quotes the list's title short ("… where the rows don't") | Carried (a product file left untouched, so the tested code stays `5107dad`'s) |
+| T8N-5 | Nit | OTHER | The AI line's "a `Where`, `All` or `Delete` compares the SQL NULL": a delete by a remote property fails (no join) | Carried |
+
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
 TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1, OTHER 1. Round 7: TEST-GAP 3,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4; lens H (CLEAN): AC-GAP 2, TEST-GAP 1, OTHER 2; lens I: AC-GAP 2, TEST-GAP 1; lens J: AC-GAP 1, OTHER 1; lens K: AC-GAP 2, OTHER 1; lens L: AC-GAP 2, OTHER 2; lens M: AC-GAP 5, OTHER 3.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4; lens H (CLEAN): AC-GAP 2, TEST-GAP 1, OTHER 2; lens I: AC-GAP 2, TEST-GAP 1; lens J: AC-GAP 1, OTHER 1; lens K: AC-GAP 2, OTHER 1; lens L: AC-GAP 2, OTHER 2; lens M: AC-GAP 5, OTHER 3; lens N (CLEAN): AC-GAP 3, OTHER 2.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

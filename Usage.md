@@ -627,15 +627,15 @@ var people = provider.Query<Person>()
     .ToList();
 ```
 
-Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` on a value that doesn't come
-from the row (`role.Contains("admin")`) is answered before the query, as C# would, except that a null `role` (or a
+Call `Contains`, `StartsWith` and `EndsWith` on a property of the entity. A `Contains` that doesn't read the row
+(`role.Contains("admin")`) is answered before the query, as C# would, except that a null `role` (or a
 null search value) matches no row, negated or not, where C# would throw (it is sent as `NULL LIKE NULL`: test it in
 the predicate, `role != null && role.Contains("admin")`; inside `All`, see the Changelog's Known issues); `StartsWith`
 and `EndsWith` on anything but an entity property throw `NotSupportedException` — test the value in C# before the
 query instead.
 
 `Delete`, `Count`, `Any` and `All` translate these the same way (v3.11.0): a search value that is null, a wildcard
-character or a property of an object you hold, and a string `Contains` on a value that doesn't come from the row,
+character or a property of an object you hold, and a string `Contains` that doesn't read the row,
 delete exactly the rows the query selects. A delete alone refuses a predicate that reads no column, always holds —
 the optional filter above with a null `filter` included — or searches a column for an empty value that nothing else
 bounds (`p.LastName.Contains("")` is `LIKE '%%'`, every row with a name): decide the delete in C#,
