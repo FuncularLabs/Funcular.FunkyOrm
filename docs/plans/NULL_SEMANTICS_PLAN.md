@@ -2812,12 +2812,28 @@ accepted delete equals its query; 97 standing 3.11.0 sentences read, true but fo
 | T8L-3 | Minor | OTHER | The AI instructions and Usage.md attached the non-nullable exception to `All` alone | Lens L's texts: `Where`, `All` and `Delete` compare the SQL NULL, not the `0` read back |
 | T8L-4 | Nit | OTHER | The Known issue's `All` sentence left out all-NULL child values | Added |
 
+**Lens M** (a fresh non-author pass over `35898f0..f069bb8`, a sweep of every list of cases and every "only", "still",
+"except", "every", "never" in the user documents and product comments, and the release at `f069bb8`, 2026-10-24 19:19):
+**NOT CLEAN**, 1 Major, 4 Minor, 3 Nit; no code defect; 75 cases × every path agree, every accepted delete equals its
+query; the release clean.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8M-1 | Major | AC-GAP | Fix-introduced (lens L's text, adopted in `f069bb8`): the null-`Contains` Known issue's subject, "a `Contains` on a value that doesn't come from the row", took in a collection's `Contains`, which C# answers (`1=0` / `NOT 1=0`, as in 3.11.0); Fixed's example and the AI LIKE line likewise | **The second fix-introduced finding in a row again (T8L-1, T8M-1), both from adopted reviewer text that widened a subject, so the fix adds no new claim:** the subject narrows to "a string's `Contains`" (3.11.0's own word); lens M's further sentence about collections is left out. The AI LIKE line takes lens M's text (closing T8M-3) |
+| T8M-2 | Minor | AC-GAP | The AI instructions' and the Known issue's lists of non-nullable kinds read closed | "For example", with lens M's verified items (`[RemoteKey]`, `[SqlExpression]`, all-NULL child values, the default `0`/`false`) |
+| T8M-3 | Minor | AC-GAP | The AI instructions were silent on `All` over a null string's `Contains` | T8M-1's AI text |
+| T8M-4 | Minor | AC-GAP | `FUNKYORM_AI_ADVANCED.md`'s `Where` row listed the NULL-selecting shapes as closed | "For example", lens M's verified text |
+| T8M-5 | Minor | AC-GAP | `NullSemantics`' and `Rewrite`'s summaries claimed C#'s answer for every row and 3.11.0's SQL for every uncompensated part | Qualified (comments only): over the operands `CanBeNull` counts as able to be NULL, the ruling named; except the Changelog's "SQL text that changes" shapes |
+| T8M-6 | Nit | OTHER | A null string's `Contains` compared with a `bool` keeps 3.11.0's unparenthesised text, which SQL Server rejects | Carried |
+| T8M-7 | Nit | OTHER | Fixed's rule also covers a `!p` left unknown where `All` gives C#'s answer | Carried (the rule says "can") |
+| T8M-8 | Nit | OTHER | M-L1 reds 5 of the whole SQLite suite (with 3.11.0's `allRowIndependentNull`), not the pin alone | Recorded: "alone" holds within `SqliteNullSemanticsTests` |
+
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
 TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1, OTHER 1. Round 7: TEST-GAP 3,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4; lens H (CLEAN): AC-GAP 2, TEST-GAP 1, OTHER 2; lens I: AC-GAP 2, TEST-GAP 1; lens J: AC-GAP 1, OTHER 1; lens K: AC-GAP 2, OTHER 1; lens L: AC-GAP 2, OTHER 2.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4; lens H (CLEAN): AC-GAP 2, TEST-GAP 1, OTHER 2; lens I: AC-GAP 2, TEST-GAP 1; lens J: AC-GAP 1, OTHER 1; lens K: AC-GAP 2, OTHER 1; lens L: AC-GAP 2, OTHER 2; lens M: AC-GAP 5, OTHER 3.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

@@ -32,12 +32,15 @@ namespace Funcular.Data.Orm.Linq
     }
 
     /// <summary>
-    /// Rewrites a WHERE predicate so that SQL's three-valued logic gives C#'s answer for every row, as EF Core's default
-    /// null semantics do (docs/plans/NULL_SEMANTICS_PLAN.md §5.1): a <c>!=</c> also selects the rows where an operand
+    /// Rewrites a WHERE predicate so that SQL's three-valued logic gives C#'s answer for every row, over the operands
+    /// <see cref="CanBeNull"/> and <see cref="Classify"/> count as able to be NULL (a non-nullable
+    /// <c>[SubqueryAggregate]</c> <c>Sum</c> or <c>Avg</c> counts as unable to, by the owner's ruling), as EF Core's
+    /// default null semantics do (docs/plans/NULL_SEMANTICS_PLAN.md §5.1): a <c>!=</c> also selects the rows where an operand
     /// that can be null is null, a comparison with a null value is <c>IS NULL</c> / <c>IS NOT NULL</c>, <c>!</c> is
     /// pushed down to the comparisons, and a <c>bool</c> compared with a predicate compares its two-valued value.
     /// Every provider's WHERE visitor translates the rewritten body. The result is built only from shapes the visitors
-    /// translate, and a part with nothing to compensate keeps 3.11.0's structure, so it sends 3.11.0's SQL.
+    /// translate, and a part with nothing to compensate keeps 3.11.0's structure, so it sends 3.11.0's SQL, except the
+    /// shapes the Changelog's 3.12.0 entry lists under "SQL text that changes, where the rows don't".
     /// </summary>
     public static class NullSemantics
     {
@@ -57,8 +60,9 @@ namespace Funcular.Data.Orm.Linq
 
         /// <summary>
         /// Returns the body of <paramref name="predicate"/> rewritten so that its SQL selects the rows C# selects
-        /// (EF Core's answer). Truth positions (the body, the operands of <c>&amp;&amp;</c>, <c>||</c> and <c>!</c>, a
-        /// <c>bool</c> conditional's branches, and the test of every conditional reached) are folded first with
+        /// (EF Core's answer) for the operands <see cref="CanBeNull"/> counts as able to be NULL. Truth positions (the
+        /// body, the operands of <c>&amp;&amp;</c>, <c>||</c> and <c>!</c>, a <c>bool</c> conditional's branches, and the
+        /// test of every conditional reached) are folded first with
         /// <see cref="WherePredicateGuard.Fold(Expression, Type, IDictionary{Expression, bool?})"/> and
         /// <paramref name="memo"/>; then, carrying a polarity, <c>!</c> is pushed down (De Morgan, only where an operand
         /// changes), <c>==</c>/<c>!=</c> and the relational comparisons are compensated for the operands that can be
