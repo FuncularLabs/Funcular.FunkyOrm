@@ -85,6 +85,9 @@
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Linq\RowIndependentEvaluatorTests.cs">
       <Link>Linq\RowIndependentEvaluatorTests.cs</Link>
     </Compile>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\NullSemantics\NullSemanticsTests.cs">
+      <Link>NullSemantics\NullSemanticsTests.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="EPPlus">

@@ -263,13 +263,14 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
 
         /// <summary>
         /// Review R-2 (A/N-2): a self-comparison of a member of a column (<c>FirstName.Length</c>) in a disjunction is
-        /// refused as a delete, as 3.10.0 refused it; a query translates it as written and selects the two rows with a
-        /// name (<c>LENGTH(NULL)</c> is null on every provider, as C# would throw on the null name).
+        /// refused as a delete, as 3.10.0 refused it. A query selects every row, as EF Core does (3.12.0,
+        /// docs/plans/NULL_SEMANTICS_PLAN.md AC-N3): two lengths that can be null are equal when both are null, so the
+        /// row with a null name is selected too (3.11.0 sent the comparison as written and selected the two rows with a name).
         /// </summary>
         [DataTestMethod]
         [DataRow("orFirstNameLengthSelf", "sync")] [DataRow("orFirstNameLengthSelf", "async")]
         public async Task AlwaysTrueThroughAMemberOfAColumn_IsRejected(string key, string path) =>
-            await AssertRejected(Row(key), path, AlwaysTrueMessage, key, selectedByQuery: 2);
+            await AssertRejected(Row(key), path, AlwaysTrueMessage, key, selectedByQuery: 3);
 
         /// <summary>
         /// A refused delete on a missing table reports discovery's error, exactly as a query of the same predicate does

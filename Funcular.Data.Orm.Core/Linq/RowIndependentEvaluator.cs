@@ -162,7 +162,8 @@ namespace Funcular.Data.Orm.Linq
             return null;
         }
 
-        private static bool IsRootedChain(Expression expression)
+        /// <summary>A constant, or a chain of field and property reads that starts at a constant or a static member (what <see cref="TryReadValue"/> reads).</summary>
+        internal static bool IsRootedChain(Expression expression)
         {
             var current = expression;
             while (current is MemberExpression member && (member.Member is FieldInfo || member.Member is PropertyInfo))

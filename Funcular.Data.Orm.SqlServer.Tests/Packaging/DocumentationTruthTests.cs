@@ -127,6 +127,233 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
                 string.Join("\n", offending.Select(l => l.number + ": " + l.line.Trim())));
         }
 
+        /// <summary>
+        /// 3.12.0, R2 (docs/plans/NULL_SEMANTICS_PLAN.md): every FunkyORM attribute shown in a document compiles as far
+        /// as names go. A <c>name:</c> argument is a parameter of one of the attribute's constructors (with the
+        /// positional arguments and the parameters left out fitting that constructor), and a <c>Name =</c> assignment is
+        /// a public settable property. The <c>[SubqueryAggregate]</c> conditional-count examples used
+        /// <c>conditionColumn:</c> and <c>conditionValue:</c>, which no constructor has (CS1739); they are properties.
+        /// Blocks with an ellipsis (<c>...</c>) are prose placeholders and are skipped.
+        /// </summary>
+        [TestMethod]
+        public void AttributeExamples_NameRealParametersAndProperties()
+        {
+            var problems = new List<string>();
+            var checkedBlocks = 0;
+            foreach (var relativePath in DocumentsWithExamples())
+            {
+                var text = File.ReadAllText(Path.Combine(Root, relativePath));
+                foreach (Match match in AttributeUsage.Matches(text))
+                {
+                    var attributeType = typeof(Funcular.Data.Orm.Attributes.SubqueryAggregateAttribute).Assembly
+                        .GetType("Funcular.Data.Orm.Attributes." + match.Groups["name"].Value + "Attribute", throwOnError: true);
+                    var open = match.Index + match.Length;
+                    var close = FindClosingParenthesis(text, open);
+                    if (close < 0)
+                        continue;
+                    var body = text.Substring(open, close - open);
+                    if (body.Contains("...") || body.Contains("\u2026"))
+                        continue;
+                    checkedBlocks++;
+                    var where = relativePath + ":" + (text.Take(match.Index).Count(c => c == '\n') + 1) + " [" + match.Groups["name"].Value + "(" +
+                                Regex.Replace(body, @"\s+", " ").Trim() + ")]";
+                    var problem = CheckAttributeArguments(attributeType, SplitTopLevel(body));
+                    if (problem != null)
+                        problems.Add(where + ": " + problem);
+                }
+            }
+            Assert.IsTrue(checkedBlocks > 20, "only " + checkedBlocks + " attribute examples found; the scan is broken");
+            Assert.AreEqual(0, problems.Count, "attribute examples that don't compile:\n" + string.Join("\n", problems));
+        }
+
+        private static readonly Regex AttributeUsage = new Regex(
+            @"\[\s*(?<name>RemoteLink|RemoteProperty|RemoteKey|SubqueryAggregate|SqlExpression|JsonPath|JsonCollection|Procedure)(?:Attribute)?\s*\(");
+
+        /// <summary>The user-facing Markdown in the repository: everything tracked except plans, GitHub prompts and agent notes.</summary>
+        private static IEnumerable<string> DocumentsWithExamples() =>
+            Directory.EnumerateFiles(Root, "*.md", SearchOption.AllDirectories)
+                .Select(p => p.Substring(Root.Length).TrimStart('\\', '/').Replace('\\', '/'))
+                .Where(p => !Regex.IsMatch(p, @"(^|/)(docs/plans|\.github|\.claude|\.work|_agent|bin|obj|node_modules|TestResults)/"))
+                .OrderBy(p => p, StringComparer.Ordinal);
+
+        /// <summary>The index of the ')' that closes the argument list starting at <paramref name="start"/>, skipping strings; -1 if none.</summary>
+        private static int FindClosingParenthesis(string text, int start)
+        {
+            var depth = 0;
+            for (var i = start; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (c == '"')
+                {
+                    i++;
+                    while (i < text.Length && text[i] != '"')
+                        i += text[i] == '\\' ? 2 : 1;
+                }
+                else if (c == '(')
+                    depth++;
+                else if (c == ')')
+                {
+                    if (depth == 0)
+                        return i;
+                    depth--;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>The arguments of an attribute's argument list, split on the commas outside parentheses and strings.</summary>
+        private static List<string> SplitTopLevel(string body)
+        {
+            var parts = new List<string>();
+            var depth = 0;
+            var current = new StringBuilder();
+            for (var i = 0; i < body.Length; i++)
+            {
+                var c = body[i];
+                if (c == '"')
+                {
+                    var end = i + 1;
+                    while (end < body.Length && body[end] != '"')
+                        end += body[end] == '\\' ? 2 : 1;
+                    current.Append(body, i, Math.Min(end, body.Length - 1) - i + 1);
+                    i = end;
+                    continue;
+                }
+                if (c == '(' || c == '<' || c == '{' || c == '[')
+                    depth++;
+                else if (c == ')' || c == '>' || c == '}' || c == ']')
+                    depth--;
+                if (c == ',' && depth == 0)
+                {
+                    parts.Add(current.ToString().Trim());
+                    current.Clear();
+                }
+                else
+                    current.Append(c);
+            }
+            if (current.ToString().Trim().Length > 0)
+                parts.Add(current.ToString().Trim());
+            return parts;
+        }
+
+        /// <summary>Null when some constructor of <paramref name="attributeType"/> accepts these arguments, else what is wrong.</summary>
+        private static string CheckAttributeArguments(Type attributeType, List<string> arguments)
+        {
+            var positional = 0;
+            var named = new List<string>();
+            foreach (var argument in arguments)
+            {
+                var namedArgument = Regex.Match(argument, @"^([A-Za-z_]\w*)\s*:(?!:)");
+                var assignment = Regex.Match(argument, @"^([A-Za-z_]\w*)\s*=(?!=)");
+                if (namedArgument.Success)
+                    named.Add(namedArgument.Groups[1].Value);
+                else if (assignment.Success)
+                {
+                    var property = attributeType.GetProperty(assignment.Groups[1].Value);
+                    if (property == null || property.SetMethod == null || !property.SetMethod.IsPublic)
+                        return "'" + assignment.Groups[1].Value + " =' isn't a settable property of " + attributeType.Name;
+                }
+                else if (named.Count > 0)
+                    return "a positional argument after a named one";
+                else
+                    positional++;
+            }
+
+            foreach (var constructor in attributeType.GetConstructors())
+            {
+                var parameters = constructor.GetParameters();
+                var isParams = parameters.Length > 0 && parameters[parameters.Length - 1].IsDefined(typeof(ParamArrayAttribute), false);
+                if (positional > parameters.Length && !isParams)
+                    continue;
+                var supplied = new HashSet<string>(parameters.Take(Math.Min(positional, parameters.Length)).Select(p => p.Name));
+                if (named.Any(n => !parameters.Any(p => p.Name == n) || supplied.Contains(n)))
+                    continue;
+                supplied.UnionWith(named);
+                if (parameters.All(p => supplied.Contains(p.Name) || p.HasDefaultValue || p.IsDefined(typeof(ParamArrayAttribute), false)))
+                    return null;
+            }
+            return named.Count > 0
+                ? "no constructor of " + attributeType.Name + " has the parameter(s) " + string.Join(", ", named.Select(n => n + ":")) +
+                  " with " + positional + " positional argument(s); constructors: " +
+                  string.Join(" | ", attributeType.GetConstructors().Select(c => "(" + string.Join(", ", c.GetParameters().Select(p => p.Name)) + ")"))
+                : "no constructor of " + attributeType.Name + " takes " + positional + " positional argument(s)";
+        }
+
+        #region Null comparisons (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md AC-N12)
+
+        [System.ComponentModel.DataAnnotations.Schema.Table("person")]
+        public class DocPerson
+        {
+            [System.ComponentModel.DataAnnotations.Key, System.ComponentModel.DataAnnotations.Schema.Column("id")] public int Id { get; set; }
+            [System.ComponentModel.DataAnnotations.Schema.Column("hospital_id")] public int? HospitalId { get; set; }
+            [System.ComponentModel.DataAnnotations.Schema.Column("referring_hospital_id")] public int? ReferringHospitalId { get; set; }
+            [System.ComponentModel.DataAnnotations.Schema.Column("middle_initial")] public string MiddleInitial { get; set; }
+        }
+
+        /// <summary>The predicates the null-comparison tables show, by their text there (the documents' captured values).</summary>
+        private static Dictionary<string, Expression<Func<DocPerson, bool>>> NullComparisonExamples()
+        {
+            int? hospitalId = 5;
+            int? none = null;
+            string filter = null;
+            var ids = new int?[] { 1, 2 };
+            return new Dictionary<string, Expression<Func<DocPerson, bool>>>
+            {
+                ["p => p.HospitalId == 5"] = p => p.HospitalId == 5,
+                ["p => p.HospitalId != hospitalId"] = p => p.HospitalId != hospitalId,
+                ["p => p.HospitalId == none"] = p => p.HospitalId == none,
+                ["p => p.Id == none"] = p => p.Id == none,
+                ["p => !(p.HospitalId == 5)"] = p => !(p.HospitalId == 5),
+                ["p => !(p.HospitalId > 5)"] = p => !(p.HospitalId > 5),
+                ["p => p.HospitalId == p.ReferringHospitalId"] = p => p.HospitalId == p.ReferringHospitalId,
+                ["p => !ids.Contains(p.HospitalId)"] = p => !ids.Contains(p.HospitalId),
+                ["p => !p.MiddleInitial.Contains(\"x\")"] = p => !p.MiddleInitial.Contains("x"),
+                ["p => p.MiddleInitial.Contains(\"x\") == false"] = p => p.MiddleInitial.Contains("x") == false,
+                ["p => !p.MiddleInitial.Contains(filter)"] = p => !p.MiddleInitial.Contains(filter),
+            };
+        }
+
+        /// <summary>The WHERE text SQL Server's visitor sends for <paramref name="predicate"/>, with <c>@p__linq__N</c> written <c>@pN</c>.</summary>
+        private static string SqlServerWhere(Expression<Func<DocPerson, bool>> predicate)
+        {
+            var generator = new Funcular.Data.Orm.Visitors.ParameterGenerator();
+            var visitor = new Funcular.Data.Orm.Visitors.WhereClauseVisitor<DocPerson>(
+                new System.Collections.Concurrent.ConcurrentDictionary<string, string>(), new List<PropertyInfo>(), generator,
+                new Funcular.Data.Orm.Visitors.SqlExpressionTranslator(generator), "person");
+            visitor.Visit(predicate);
+            return Regex.Replace(visitor.WhereClauseBody.Trim(), @"@p__linq__(\d+)", "@p$1");
+        }
+
+        /// <summary>
+        /// The null-comparison table (between <c>funky:null-semantics</c> markers) shows what the code sends: each row's
+        /// C# is translated by SQL Server's visitor and must give the row's SQL, every example appears in Usage.md, and a
+        /// row whose C# isn't one of the examples fails, so the table can't drift from the code.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("Usage.md")]
+        [DataRow("docs/ai-instructions/FUNKYORM_AI_INSTRUCTIONS.md")]
+        public void NullComparisons_DocumentedAsCSharp(string relativePath)
+        {
+            var text = File.ReadAllText(Path.Combine(Root, relativePath)).Replace("\r\n", "\n");
+            var block = Regex.Match(text, @"<!-- funky:null-semantics:begin -->\n(.*?)<!-- funky:null-semantics:end -->", RegexOptions.Singleline);
+            Assert.IsTrue(block.Success, relativePath + " has no null-comparison table");
+            var examples = NullComparisonExamples();
+            var shown = new HashSet<string>();
+            foreach (Match row in Regex.Matches(block.Groups[1].Value, @"^[ \t]*\| `([^`]+)` \| `([^`]+)` \|", RegexOptions.Multiline))
+            {
+                var csharp = row.Groups[1].Value;
+                Assert.IsTrue(examples.ContainsKey(csharp), relativePath + ": the table shows a predicate the test doesn't translate: " + csharp);
+                Assert.AreEqual(row.Groups[2].Value, SqlServerWhere(examples[csharp]), relativePath + ": " + csharp);
+                shown.Add(csharp);
+            }
+            if (relativePath == "Usage.md")
+                CollectionAssert.AreEquivalent(examples.Keys.ToList(), shown.ToList(), "Usage.md's table doesn't show every example");
+            else
+                Assert.IsTrue(shown.Count >= 4, relativePath + "'s table shows too few rows: " + shown.Count);
+        }
+
+        #endregion
+
         /// <summary>The package's own README says which providers it includes.</summary>
         [TestMethod]
         public void Readme_InstallationSentence_NamesAllFourProviders()

@@ -655,8 +655,9 @@ When it is scheduled:
 
 ## 4. Not in this backlog
 
-- **The 3.11 write guards proposal** (UpdateWhere compare-and-swap, `[ReadModel]`): a separate proposal awaiting
-  the owner, not something deferred from 3.10.
+- **The 3.11 write guards proposal** (UpdateWhere compare-and-swap): a separate proposal awaiting the owner, not
+  something deferred from 3.10. Its second item, a `[ReadModel]` attribute, was withdrawn on 2026-10-20 (owner: an
+  agent proposal, not part of the framework's design).
 - **The sponsored-tutorial creator brief:** it was on hold until #12/#13 shipped. 3.10.0 shipped them, so it is now
   unblocked (owner's call).
 

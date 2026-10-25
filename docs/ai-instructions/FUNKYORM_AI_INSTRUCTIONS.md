@@ -232,7 +232,7 @@ await Task.WhenAll(
     ```csharp
     var results = provider.Query<Person>()
         .Where(p => p.Age > 18)
-        .Where(p => p.IsActive)
+        .Where(p => p.IsActive == true)
         .ToList();
     ```
 
@@ -244,7 +244,18 @@ await Task.WhenAll(
 
 *   **Nullable Properties in Queries**: The ORM automatically unwraps nullables. Do NOT use `.Value` or `.HasValue` -- use the property directly. When using `list.Contains()` with a nullable entity property, cast the list to the nullable type (see Critical Rule #5 above).
 
-*   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on a string property. The value is matched literally (`%`, `_` and `[` are escaped with `!`, and the pattern ends with `ESCAPE '!'`); a `null` value matches no row. Call them on a property of the entity; `StartsWith`/`EndsWith` on anything else throw, and a `Contains` on a value that doesn't come from the row is answered in C#.
+*   **Null comparisons (v3.12.0)**: a `Where` selects the rows C# selects, as EF Core does by default. `!=` against a non-null value, `!` of a comparison C# makes true for a null (`!(p.X == 5)`, `!(p.X > 5)`), a negated `Contains`/`StartsWith`/`EndsWith` and a negated `IN` whose list holds no null also select the rows where the column is NULL (a negated `IN` whose list holds a null, `!(p.X != 5)` and `!(p.X == null)` don't, as in C#); a comparison with a variable holding null is `IS NULL`/`IS NOT NULL` (`1=0`/`NOT 1=0` on a column that can't be null); a column compared by `==` with a non-null constant or variable is unchanged, but one compared with a `bool` worked out from captured values (`p.Active == (status == "active")`) is now one parameter: 3.11.0 sent it as `active = @p0 = @p1`, an error on SQL Server and PostgreSQL and other rows on SQLite and MySQL (the Changelog's 3.12.0 entry lists the shapes that change). Write the C# you mean; don't add `|| p.X == null` to get the NULL rows. Every string column counts as able to be null. `All` answers as C# does, and a `Delete` deletes the same rows a query selects (the guard refuses only the plain all-rows shapes: `p.X == 5 || p.X != 5`, true for every row once NULLs count, is accepted and deletes every row). For a non-nullable property over a SQL NULL (for example a missing parent's `[RemoteProperty]` or `[RemoteKey]` `int`, an absent JSON key, an `[SqlExpression]` whose SQL is NULL, or a `[SubqueryAggregate]` `Sum`/`Avg` over no child rows or over child values that are all NULL), a `Where`, `All` or `Delete` compares the SQL NULL, not the default (`0`, `false`) read back, so it can answer otherwise: the Changelog's Known issues. SQL Server shown (`hospitalId` holds 5, `none` null, `ids` is `new int?[] { 1, 2 }`):
+    <!-- funky:null-semantics:begin -->
+    | C# | SQL | Selects |
+    |---|---|---|
+    | `p => p.HospitalId != hospitalId` | `(person.hospital_id != @p0 OR person.hospital_id IS NULL)` | also no hospital |
+    | `p => p.HospitalId == none` | `person.hospital_id IS NULL` | no hospital |
+    | `p => !(p.HospitalId > 5)` | `(NOT person.hospital_id > @p0 OR person.hospital_id IS NULL)` | also no hospital |
+    | `p => !ids.Contains(p.HospitalId)` | `(NOT person.hospital_id IN (@p0,@p1) OR person.hospital_id IS NULL)` | also no hospital |
+    | `p => !p.MiddleInitial.Contains("x")` | `(NOT person.middle_initial LIKE @p0 ESCAPE '!' OR person.middle_initial IS NULL)` | also no middle initial |
+    <!-- funky:null-semantics:end -->
+
+*   **LIKE Clauses**: Use `.StartsWith()`, `.EndsWith()`, or `.Contains()` on a string property. The value is matched literally (`%`, `_` and `[` are escaped with `!`, and the pattern ends with `ESCAPE '!'`); a `null` value matches no row (under a `!`, every row). Call them on a property of the entity; `StartsWith`/`EndsWith` on anything else throw, and a `Contains` that doesn't read the row is answered in C#, except a string's `Contains` whose string or search value is null: that is sent as `NULL LIKE NULL`, which matches no row, negated or not, and inside `All` a row it leaves unknown counts as satisfying the predicate (with `role` null, `All(x => x.OwnerId == me || role.Contains("admin"))` is `true`: the Changelog's Known issues). Test `role != null && role.Contains("admin")` in the predicate.
 
 *   **Date parts and length**: `p.D.Year`/`.Month`/`.Day` on a `DateTime` property and `p.Name.Length` on a string property translate to the dialect's functions; any other member of a member (`.Hour`, `.Date`, a nested object's member) throws `NotSupportedException` — compute it before the query. `p.Code.ToString()` on an integer property compares the column's invariant text; on other types, or with an argument, it throws.
 
@@ -255,10 +266,10 @@ await Task.WhenAll(
 *   **Aggregates**: Chain `Count()`, `Any()`, `Max()` directly off `.Query<T>()` to execute in SQL.
     ```csharp
     // GOOD: Executes COUNT in SQL
-    int count = provider.Query<Person>().Where(p => p.IsActive).Count();
+    int count = provider.Query<Person>().Where(p => p.IsActive == true).Count();
     
     // BAD: Loads all rows into memory first
-    int count = provider.Query<Person>().Where(p => p.IsActive).ToList().Count();
+    int count = provider.Query<Person>().Where(p => p.IsActive == true).ToList().Count();
     ```
 
 *   **Ternary Operators**: Supported in Select/Where/OrderBy (translates to SQL `CASE`).
@@ -716,8 +727,8 @@ Replaces `OUTER APPLY` / correlated subqueries with an attribute-driven approach
     sourceType: typeof(ChildEntity),
     foreignKey: nameof(ChildEntity.ParentId),
     function: AggregateFunction.ConditionalCount,
-    conditionColumn: nameof(ChildEntity.Status),
-    conditionValue: "overdue")]
+    ConditionColumn = nameof(ChildEntity.Status),
+    ConditionValue = "overdue")]
 ```
 
 #### Parameters
@@ -727,8 +738,11 @@ Replaces `OUTER APPLY` / correlated subqueries with an attribute-driven approach
 | `sourceType` | Yes | The child entity type to aggregate over | `typeof(ProjectMilestoneEntity)` |
 | `foreignKey` | Yes | Property name on the child that references the parent PK | `nameof(ProjectMilestoneEntity.ProjectId)` |
 | `function` | Yes | Aggregate function to apply | `AggregateFunction.Count`, `.Sum`, `.Avg`, `.ConditionalCount` |
-| `conditionColumn` | No | Column to filter on (for conditional aggregates) | `nameof(ProjectMilestoneEntity.Status)` |
-| `conditionValue` | No | Value to match in the condition | `"overdue"`, `"completed"` |
+| `AggregateColumn` (property) | For `Sum`, `Avg` | Column to aggregate | `AggregateColumn = nameof(OrderLineEntity.Amount)` |
+| `ConditionColumn` (property) | For `ConditionalCount` | Column to filter on | `ConditionColumn = nameof(ProjectMilestoneEntity.Status)` |
+| `ConditionValue` (property) | For `ConditionalCount` | Value to match in the condition | `ConditionValue = "overdue"` |
+
+`sourceType`, `foreignKey` and `function` are constructor parameters; the other three are properties, set with `Name = value` (a `conditionColumn:` argument doesn't compile: CS1739).
 
 #### `AggregateFunction` Enum
 
@@ -769,24 +783,24 @@ public class ProjectScorecard : ProjectEntity
     /// <summary>Completed milestone count (conditional).</summary>
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status),
-        conditionValue: "completed")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status),
+        ConditionValue = "completed")]
     public int MilestonesCompleted { get; set; }
     // ? 2
 
     /// <summary>Overdue milestone count (conditional).</summary>
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status),
-        conditionValue: "overdue")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status),
+        ConditionValue = "overdue")]
     public int MilestonesOverdue { get; set; }
     // ? 1
 
     /// <summary>Risk-flagged note count (different child table).</summary>
     [SubqueryAggregate(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectNoteEntity.Category),
-        conditionValue: "risk")]
+        ConditionColumn = nameof(ProjectNoteEntity.Category),
+        ConditionValue = "risk")]
     public int RiskNoteCount { get; set; }
 }
 ```
@@ -820,8 +834,8 @@ Projects child records into a JSON array in a single column, replacing `FOR JSON
 [JsonCollection(
     sourceType: typeof(ChildEntity),
     foreignKey: nameof(ChildEntity.ParentId),
-    columns: new[] { "Column1", "Column2" },
-    orderBy: "Column1")]
+    Columns = new[] { "Column1", "Column2" },
+    OrderBy = "Column1")]
 ```
 
 #### Parameters
@@ -830,9 +844,10 @@ Projects child records into a JSON array in a single column, replacing `FOR JSON
 |:---|:---|:---|:---|
 | `sourceType` | Yes | Child entity type to project | `typeof(ProjectMilestoneEntity)` |
 | `foreignKey` | Yes | FK property linking child to parent | `nameof(ProjectMilestoneEntity.ProjectId)` |
-| `columns` | Yes | Property names to include in the JSON objects | `new[] { "Title", "Status", "DueDate" }` |
-| `orderBy` | No | Property name to order results by | `"DueDate"` |
-| `joins` | No | Additional entity types to JOIN within the subquery | `new[] { typeof(PersonEntity) }` |
+| `Columns` (property) | Yes | Property names of the child entity to include in the JSON objects | `Columns = new[] { "Title", "Status", "DueDate" }` |
+| `OrderBy` (property) | No | Property name to order results by | `OrderBy = "DueDate"` |
+
+`sourceType` and `foreignKey` are constructor parameters; `Columns` and `OrderBy` are properties, set with `Name = value`. The subquery reads the child table only: there is no `joins` option, so a column from another table (an author's name) isn't available inside a `[JsonCollection]`.
 
 #### Examples
 
@@ -842,15 +857,14 @@ public class ProjectScorecard : ProjectEntity
 {
     /// <summary>Milestones projected as a JSON array.</summary>
     [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-        columns: new[] { "Title", "Status", "DueDate", "CompletedDate" },
-        orderBy: "DueDate")]
+        Columns = new[] { "Title", "Status", "DueDate", "CompletedDate" },
+        OrderBy = "DueDate")]
     public string MilestonesJson { get; set; }
 
-    /// <summary>Notes projected as a JSON array with joined author name.</summary>
+    /// <summary>Notes projected as a JSON array (the child table's own columns).</summary>
     [JsonCollection(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
-        columns: new[] { "Content", "Category", "AuthorName", "DateUtcCreated" },
-        joins: new[] { typeof(PersonEntity) },
-        orderBy: "DateUtcCreated")]
+        Columns = new[] { "Content", "Category", "DateUtcCreated" },
+        OrderBy = "DateUtcCreated")]
     public string NotesJson { get; set; }
 }
 ```
@@ -937,30 +951,29 @@ public class ProjectScorecard : ProjectEntity
 
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status), conditionValue: "completed")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status), ConditionValue = "completed")]
     public int MilestonesCompleted { get; set; }
 
     [SubqueryAggregate(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectMilestoneEntity.Status), conditionValue: "overdue")]
+        ConditionColumn = nameof(ProjectMilestoneEntity.Status), ConditionValue = "overdue")]
     public int MilestonesOverdue { get; set; }
 
     [SubqueryAggregate(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
         AggregateFunction.ConditionalCount,
-        conditionColumn: nameof(ProjectNoteEntity.Category), conditionValue: "risk")]
+        ConditionColumn = nameof(ProjectNoteEntity.Category), ConditionValue = "risk")]
     public int RiskNoteCount { get; set; }
 
     // ── Phase 4: JSON collection (✅) ──
 
     [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-        columns: new[] { "Title", "Status", "DueDate", "CompletedDate" },
-        orderBy: "DueDate")]
+        Columns = new[] { "Title", "Status", "DueDate", "CompletedDate" },
+        OrderBy = "DueDate")]
     public string MilestonesJson { get; set; }
 
     [JsonCollection(typeof(ProjectNoteEntity), nameof(ProjectNoteEntity.ProjectId),
-        columns: new[] { "Content", "Category", "AuthorName", "DateUtcCreated" },
-        joins: new[] { typeof(PersonEntity) },
-        orderBy: "DateUtcCreated")]
+        Columns = new[] { "Content", "Category", "DateUtcCreated" },
+        OrderBy = "DateUtcCreated")]
     public string NotesJson { get; set; }
 }
 ```

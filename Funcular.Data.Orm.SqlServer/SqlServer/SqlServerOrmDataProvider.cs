@@ -264,8 +264,8 @@ namespace Funcular.Data.Orm.SqlServer
         /// </summary>
         /// <remarks>This method requires an active transaction. If no transaction is active, an <see
         /// cref="InvalidOperationException"/> is thrown. The predicate is translated by the WHERE path every query
-        /// takes, and checked by the all-rows guard (<see cref="WherePredicateGuard"/>) before it is translated and on
-        /// its WHERE clause after: a predicate that reads no column, compares a column with itself, is always true
+        /// takes, and checked by the all-rows guard (<see cref="WherePredicateGuard"/>) once it has translated, and on
+        /// its WHERE clause: a predicate that reads no column, compares an operand with itself or a copy of it, is always true
         /// through literals or captured values, or searches a column for an empty value that nothing else bounds is
         /// refused here, where a query would run it and return every row. The checks don't catch every predicate that
         /// is true for every row.</remarks>
@@ -1453,6 +1453,26 @@ namespace Funcular.Data.Orm.SqlServer
             GenerateWhereClause(expression, commandElements, parameterGenerator, translator, WhereOperation.Read);
 
         /// <summary>
+        /// The SQL of one operand of a predicate over <typeparamref name="T"/>, its parameters written as their values
+        /// (<see cref="WherePredicateGuard.OperandText"/>), from a fresh visitor and parameter generator, so the predicate's
+        /// own parameters are untouched (NULL_SEMANTICS_PLAN.md R18-1).
+        /// </summary>
+        private string OperandSql<T>(Expression operand, ResolvedRemoteJoinInfo remoteInfo) where T : class, new()
+        {
+            var parameterGenerator = new ParameterGenerator();
+            var visitor = new WhereClauseVisitor<T>(
+                ColumnNameCache,
+                UnmappedPropertiesFor<T>(),
+                parameterGenerator,
+                new SqlExpressionTranslator(parameterGenerator),
+                GetTableName<T>(),
+                remoteInfo.PropertyToColumnMap);
+            visitor.Visit(operand);
+            return WherePredicateGuard.OperandText(visitor.WhereClauseBody,
+                visitor.Parameters.Select(p => new KeyValuePair<string, object>(p.ParameterName, p.Value)));
+        }
+
+        /// <summary>
         /// Translates <paramref name="expression"/> with a fresh visitor over the discovered columns of <typeparamref name="T"/>
         /// and its remote joins (<paramref name="remoteInfo"/>). The one place a WHERE predicate is translated, for every
         /// operation (D-001); a translator's rejection throws from here.
@@ -1499,19 +1519,12 @@ namespace Funcular.Data.Orm.SqlServer
             var paramGen = parameterGenerator ?? new ParameterGenerator();
             var trans = translator ?? new SqlExpressionTranslator(paramGen);
 
-            // The all-rows guard runs first, so a refused mass mutation never sends the mutation. A refusal is held
-            // (D-005: the translator has the first word): the type is discovered and the predicate translated exactly
-            // as for a read, so a discovery failure (a missing table) or a shape no path translates throws here as on
-            // every read path, and the guard's refusal stands only for a predicate that translates (D-156, option 1).
-            InvalidOperationException refusal = null;
-            try
-            {
-                WherePredicateGuard.Validate(expression, operation);
-            }
-            catch (InvalidOperationException ex)
-            {
-                refusal = ex;
-            }
+            // The argument contract first: a read's validation is the contract alone. The all-rows guard's verdict comes once
+            // the predicate has translated (D-005: the translator has the first word; D-156, option 1), so a discovery
+            // failure (a missing table) or a shape no path translates throws as on every read path, and a refused mass
+            // mutation never sends the mutation. It is given once, with the provider's SQL for a part of an operand
+            // (NULL_SEMANTICS_PLAN.md R18-1; R19-1: twice read a captured value twice).
+            WherePredicateGuard.Validate(expression, WhereOperation.Read);
 
             // Discover T before anything reads its columns: ResolveRemoteJoins resolves T's own [SqlExpression]
             // tokens through the column cache, and a convention-mapped member of T counts as unmapped while its
@@ -1519,7 +1532,7 @@ namespace Funcular.Data.Orm.SqlServer
             DiscoverColumns<T>();
 
             var visitor = TranslateWhere(expression, paramGen, trans, out var remoteInfo);
-            if (refusal != null) throw refusal;
+            WherePredicateGuard.Validate(expression, operation, operand => OperandSql<T>(operand, remoteInfo));
             WherePredicateGuard.ValidateTranslation(visitor.WhereClauseBody, operation);
             if (commandElements != null)
             {

@@ -48,7 +48,28 @@ namespace Funcular.Data.Orm.Visitors
             MethodCallExpression node,
             StringBuilder commandTextBuilder,
             List<Microsoft.Data.SqlClient.SqlParameter> parameters,
-            Func<PropertyInfo, string> getColumnName)
+            Func<PropertyInfo, string> getColumnName) =>
+            TranslateMethodCall(node, commandTextBuilder, parameters, getColumnName, false);
+
+        /// <summary>
+        /// <see cref="TranslateMethodCall(MethodCallExpression, StringBuilder, List{Microsoft.Data.SqlClient.SqlParameter}, Func{PropertyInfo, string})"/>,
+        /// negated when <paramref name="negated"/> is true (docs/plans/NULL_SEMANTICS_PLAN.md §5.2): a string
+        /// <c>Contains</c>, <c>StartsWith</c> or <c>EndsWith</c> is <c>(NOT col LIKE … OR col IS NULL)</c>, and every row
+        /// (<c>NOT 1=0</c>) for a null search value (AC-N7, AC-N8); a collection <c>Contains</c> follows AC-N6 on a column
+        /// that can be null, parenthesized, and is 3.11.0's SQL on one that can't; a <c>Contains</c> that doesn't read
+        /// the row is <c>NOT</c> and its literal. Positive, a null item in the collection also selects the NULLs.
+        /// </summary>
+        /// <param name="node">The method call expression to translate.</param>
+        /// <param name="commandTextBuilder">The StringBuilder to append the SQL to.</param>
+        /// <param name="parameters">The list to add generated SQL parameters to.</param>
+        /// <param name="getColumnName">A function to map properties to column names.</param>
+        /// <param name="negated">Whether the call is negated (<c>!x.Name.Contains(v)</c>).</param>
+        public void TranslateMethodCall(
+            MethodCallExpression node,
+            StringBuilder commandTextBuilder,
+            List<Microsoft.Data.SqlClient.SqlParameter> parameters,
+            Func<PropertyInfo, string> getColumnName,
+            bool negated)
         {
             if (node.Method.Name == "ToString")
             {
@@ -65,25 +86,26 @@ namespace Funcular.Data.Orm.Visitors
                 // string's Contains that doesn't read the row is answered as C# answers it (D4, D7).
                 if (RowIndependentEvaluator.TryTranslateContains(node, out var literal))
                 {
-                    commandTextBuilder.Append(literal);
+                    commandTextBuilder.Append(negated ? "NOT " + literal : literal);
                     return;
                 }
 
                 var searchValueExpression = node.Arguments[0];
                 if (!RowIndependentEvaluator.TryReadValue(searchValueExpression, out var searchValue))
                     throw new NotSupportedException($"Unsupported expression in string Contains: {searchValueExpression}");
-                AppendColumn(node.Object, node, ContainsReceiverMessage, commandTextBuilder, getColumnName);
+                var receiverProperty = ReceiverProperty(node.Object, node, ContainsReceiverMessage);
+                var receiverColumn = getColumnName(receiverProperty);
                 if (searchValue == null)
                 {
-                    // A null search value matches no row (D8).
-                    commandTextBuilder.Append(" LIKE NULL");
+                    // A null search value matches no row (D8), and its negation every row (AC-N8).
+                    commandTextBuilder.Append(negated ? RowIndependentEvaluator.TrueSql : receiverColumn + " LIKE NULL");
                     return;
                 }
-                commandTextBuilder.Append(" LIKE ");
                 // LIKE metacharacters in the value are matched literally (3.11.0, FD-03): LikePattern escapes them
                 // with '!' and the pattern names it with ESCAPE '!'.
-                AppendParameter($"%{LikePattern.Escape(searchValue.ToString())}%", commandTextBuilder, parameters);
-                commandTextBuilder.Append(LikePattern.EscapeClause);
+                var searchParameter = CreateParameter($"%{LikePattern.Escape(searchValue.ToString())}%", parameters);
+                AppendLike($"{receiverColumn} LIKE {searchParameter}{LikePattern.EscapeClause}", receiverColumn, receiverProperty, negated,
+                    commandTextBuilder);
                 return;
             }
 
@@ -121,7 +143,7 @@ namespace Funcular.Data.Orm.Visitors
                     // A Contains that doesn't read the row is answered as C# answers it, before anything else is read (D4).
                     if (RowIndependentEvaluator.TryTranslateContains(node, out var literal))
                     {
-                        commandTextBuilder.Append(literal);
+                        commandTextBuilder.Append(negated ? "NOT " + literal : literal);
                         return;
                     }
 
@@ -193,35 +215,38 @@ namespace Funcular.Data.Orm.Visitors
                     // A lazy collection runs the caller's code here; what it throws is reported as the read is (D9). A query
                     // used as the collection runs a query here: a database error, or the query's own NotSupportedException,
                     // passes through unchanged.
-                    List<object> values;
+                    List<object> items;
                     try
                     {
-                        values = collection.Cast<object>().Where(v => v != null).ToList();
+                        items = collection.Cast<object>().ToList();
                     }
                     catch (Exception ex) when (!(ex is NotSupportedException)
                         && !(ex is System.Data.Common.DbException) && !(ex.InnerException is System.Data.Common.DbException))
                     {
                         throw new NotSupportedException("Could not evaluate expression: " + collectionExpression, ex);
                     }
-                    if (!values.Any())
-                    {
-                        commandTextBuilder.Append("1=0");
-                        return;
-                    }
-
+                    // A null item is C#'s null: it selects the column's NULLs (AC-N6), where 3.11.0 dropped it.
+                    var values = items.Where(v => v != null).ToList();
+                    var hasNull = values.Count < items.Count;
                     var memberName = getColumnName(propertyInfo);
-                    commandTextBuilder.Append($"{memberName} IN (");
-                    var first = true;
-                    int index = parameters.Count;
-                    foreach (var value in values)
+                    string inList = null;
+                    if (values.Any())
                     {
-                        if (!first) commandTextBuilder.Append(",");
-                        first = false;
-                        var param = _parameterGenerator.CreateParameterForInClause(value, index++);
-                        parameters.Add(param);
-                        commandTextBuilder.Append(param.ParameterName);
+                        var list = new StringBuilder($"{memberName} IN (");
+                        var first = true;
+                        int index = parameters.Count;
+                        foreach (var value in values)
+                        {
+                            if (!first) list.Append(",");
+                            first = false;
+                            var param = _parameterGenerator.CreateParameterForInClause(value, index++);
+                            parameters.Add(param);
+                            list.Append(param.ParameterName);
+                        }
+                        list.Append(")");
+                        inList = list.ToString();
                     }
-                    commandTextBuilder.Append(")");
+                    commandTextBuilder.Append(InPredicate(memberName, inList, hasNull, NullSemantics.CanBeNull(propertyInfo), negated));
                     return;
                 }
             }
@@ -242,8 +267,8 @@ namespace Funcular.Data.Orm.Visitors
                 var memberName = getColumnName(receiverProperty);
                 if (argument == null)
                 {
-                    // A null value matches no row (D8).
-                    commandTextBuilder.Append($"{memberName} LIKE NULL");
+                    // A null value matches no row (D8), and its negation every row (AC-N8).
+                    commandTextBuilder.Append(negated ? RowIndependentEvaluator.TrueSql : $"{memberName} LIKE NULL");
                     return;
                 }
                 var param = _parameterGenerator.CreateParameter(LikePattern.Escape(argument.ToString()));
@@ -251,7 +276,7 @@ namespace Funcular.Data.Orm.Visitors
                 var pattern = node.Method.Name == "StartsWith"
                     ? $"{param.ParameterName} + '%'"
                     : $"'%' + {param.ParameterName}";
-                commandTextBuilder.Append($"{memberName} LIKE {pattern}{LikePattern.EscapeClause}");
+                AppendLike($"{memberName} LIKE {pattern}{LikePattern.EscapeClause}", memberName, receiverProperty, negated, commandTextBuilder);
                 return;
             }
 
@@ -261,8 +286,10 @@ namespace Funcular.Data.Orm.Visitors
         /// <summary>
         /// Translates <c>ToString</c> on a property of the entity (3.11.0, FD-03; docs/plans/LIKE_ESCAPING_TOSTRING_PLAN.md
         /// D4): an integer column (<c>sbyte</c> through <c>ulong</c>) is its text in the invariant form
-        /// (<c>NVARCHAR(20)</c> holds every integer's text; the longest is <c>-9223372036854775808</c>), a nullable one
-        /// <c>''</c> for null as <c>int?.ToString()</c> gives, a string column is itself; any other column type, and any
+        /// (<c>NVARCHAR(20)</c> holds every integer's text; the longest is <c>-9223372036854775808</c>), one whose value
+        /// can be NULL (a <c>Nullable&lt;T&gt;</c>, or a <c>[RemoteProperty]</c> over a missing parent) <c>''</c> for NULL, as
+        /// <c>int?.ToString()</c> gives and EF Core sends (3.12.0, docs/plans/NULL_SEMANTICS_PLAN.md R4-10), a string
+        /// column is itself; any other column type, and any
         /// argument (a format or a format provider), throws <see cref="NotSupportedException"/>, because the database's
         /// text isn't .NET's. <c>x.N.Value.ToString()</c> throws <see cref="Funcular.Data.Orm.Exceptions.NullableExpressionException"/>,
         /// whose message gives the rule above where the property's own <c>ToString()</c> isn't translated either. Any
@@ -308,7 +335,7 @@ namespace Funcular.Data.Orm.Visitors
                         $"ToString() on a column of type {type.Name} isn't translated, because the database's text for it isn't .NET's; " +
                         $"compare the column's value instead: {node}");
                 var cast = $"CAST({getColumnName(property)} AS NVARCHAR(20))";
-                commandTextBuilder.Append(member.Type == type ? cast : $"COALESCE({cast}, '')");
+                commandTextBuilder.Append(NullSemantics.CanBeNull(property) ? $"COALESCE({cast}, '')" : cast);
                 return;
             }
 
@@ -413,32 +440,55 @@ namespace Funcular.Data.Orm.Visitors
         private static void AppendDatePart(string part, string columnName, StringBuilder commandTextBuilder) =>
             commandTextBuilder.Append($"{part.ToUpperInvariant()}({columnName})");
 
-        /// <summary>Appends a parameter holding <paramref name="value"/>.</summary>
-        private void AppendParameter(object value, StringBuilder commandTextBuilder, List<Microsoft.Data.SqlClient.SqlParameter> parameters)
+        /// <summary>Adds a parameter holding <paramref name="value"/>; returns its name.</summary>
+        private string CreateParameter(object value, List<Microsoft.Data.SqlClient.SqlParameter> parameters)
         {
             var param = _parameterGenerator.CreateParameter(value);
             parameters.Add(param);
-            commandTextBuilder.Append(param.ParameterName);
+            return param.ParameterName;
         }
 
         /// <summary>
-        /// Appends the column of <paramref name="receiver"/>, which must be a property of the lambda parameter; anything
-        /// else (a member of a member, a field, a captured value the evaluator didn't take) is rejected with
-        /// <paramref name="message"/>, never translated by dropping part of it (AC7).
+        /// The property of the lambda parameter that <paramref name="receiver"/> reads; anything else (a member of a
+        /// member, a field, a captured value the evaluator didn't take) is rejected with <paramref name="message"/>,
+        /// never translated by dropping part of it (AC7).
         /// </summary>
-        private static void AppendColumn(
-            Expression receiver,
-            MethodCallExpression node,
-            string message,
-            StringBuilder commandTextBuilder,
-            Func<PropertyInfo, string> getColumnName)
+        private static PropertyInfo ReceiverProperty(Expression receiver, MethodCallExpression node, string message)
         {
             if (receiver is MemberExpression member && member.Expression is ParameterExpression && member.Member is PropertyInfo property)
-            {
-                commandTextBuilder.Append(getColumnName(property));
-                return;
-            }
+                return property;
             throw new NotSupportedException(message + node);
+        }
+
+        /// <summary>
+        /// Appends <paramref name="like"/>, a LIKE on <paramref name="column"/>; negated, as <c>NOT</c> and the LIKE, with
+        /// <c>OR column IS NULL</c> when the column can be null (AC-N7), parenthesized.
+        /// </summary>
+        private static void AppendLike(string like, string column, PropertyInfo property, bool negated, StringBuilder commandTextBuilder) =>
+            commandTextBuilder.Append(!negated ? like
+                : NullSemantics.CanBeNull(property) ? $"(NOT {like} OR {column} IS NULL)"
+                : "NOT " + like);
+
+        /// <summary>
+        /// A collection <c>Contains</c> on <paramref name="column"/> (AC-N6), where <paramref name="inList"/> is the
+        /// <c>IN (…)</c> over the non-null items, or null when there are none. On a column that can't be null, 3.11.0's
+        /// SQL. On one that can: a null item also selects the NULLs, and the negation selects them when no item is null
+        /// and excludes them when one is; parenthesized.
+        /// </summary>
+        private static string InPredicate(string column, string inList, bool hasNull, bool canBeNull, bool negated)
+        {
+            if (!canBeNull)
+            {
+                var positive = inList ?? RowIndependentEvaluator.FalseSql;
+                return negated ? "NOT " + positive : positive;
+            }
+            if (!negated)
+                return inList == null
+                    ? (hasNull ? $"{column} IS NULL" : RowIndependentEvaluator.FalseSql)
+                    : (hasNull ? $"({inList} OR {column} IS NULL)" : inList);
+            return inList == null
+                ? (hasNull ? $"{column} IS NOT NULL" : RowIndependentEvaluator.TrueSql)
+                : (hasNull ? $"({column} IS NOT NULL AND NOT {inList})" : $"(NOT {inList} OR {column} IS NULL)");
         }
     }
 }

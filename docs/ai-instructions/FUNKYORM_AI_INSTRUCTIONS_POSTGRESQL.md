@@ -4,7 +4,7 @@
 >
 > **Package**: `Funcular.Data.Orm` | **Namespace**: `Funcular.Data.Orm.PostgreSql`
 >
-> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
+> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
 
 ---
 
@@ -83,9 +83,9 @@ public class User
 
 ## JSON & Computed Column Attributes (PostgreSQL Dialect)
 
-FunkyORM's JSON and computed column attributes (v3.2+) work identically on PostgreSQL — the same C# attributes produce PostgreSQL-native SQL via `ISqlDialect`. See the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for the full attribute taxonomy, parameter tables, and examples.
+FunkyORM's JSON and computed column attributes (v3.2+) work identically on PostgreSQL â€” the same C# attributes produce PostgreSQL-native SQL via `ISqlDialect`. See the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) for the full attribute taxonomy, parameter tables, and examples.
 
-### Phase 1: `[JsonPath]` — Dialect Differences (? Implemented)
+### Phase 1: `[JsonPath]` â€” Dialect Differences (? Implemented)
 
 | Feature | SQL Server | PostgreSQL |
 |:---|:---|:---|
@@ -106,7 +106,7 @@ public int? RiskLevel { get; set; }
 
 > **Tip:** PostgreSQL `jsonb` columns offer better performance for JSON operations than `text`/`json` columns. If you plan to filter frequently on JSON values, consider using `jsonb` column type in your PostgreSQL schema.
 
-### Phase 2: `[SqlExpression]` — Dialect Differences (? Implemented)
+### Phase 2: `[SqlExpression]` â€” Dialect Differences (? Implemented)
 
 Key SQL syntax differences that the `mssql:` / `postgresql:` overrides address:
 
@@ -125,7 +125,7 @@ When expressions differ between providers, use the dual-expression constructor:
 public string LeadName { get; set; }
 ```
 
-### Phase 3: `[SubqueryAggregate]` — Dialect Differences (? Implemented)
+### Phase 3: `[SubqueryAggregate]` â€” Dialect Differences (? Implemented)
 
 Correlated scalar subqueries are syntactically identical on both providers. No dialect-specific overrides needed:
 
@@ -136,7 +136,7 @@ Correlated scalar subqueries are syntactically identical on both providers. No d
 
 Future optimization: SQL Server's `OUTER APPLY` may be used when multiple aggregates share the same source; PostgreSQL's equivalent is `LATERAL JOIN`.
 
-### Phase 4: `[JsonCollection]` — Dialect Differences (? Implemented)
+### Phase 4: `[JsonCollection]` â€” Dialect Differences (? Implemented)
 
 This is where the dialects differ most significantly:
 
@@ -150,8 +150,8 @@ The `ISqlDialect.BuildJsonCollectionSubquery()` method handles this difference t
 ```csharp
 // Same C# code produces different SQL per provider
 [JsonCollection(typeof(ProjectMilestoneEntity), nameof(ProjectMilestoneEntity.ProjectId),
-    columns: new[] { "Title", "Status", "DueDate" },
-    orderBy: "DueDate")]
+    Columns = new[] { "Title", "Status", "DueDate" },
+    OrderBy = "DueDate")]
 public string MilestonesJson { get; set; }
 ```
 
@@ -169,4 +169,4 @@ All shared rules apply without modification:
 - JSON & computed column querying (see shared instructions for full attribute taxonomy, examples, and agent rules)
 - The "Duplicate Class Name" problem
 
-See the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for complete details.
+See the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) for complete details.

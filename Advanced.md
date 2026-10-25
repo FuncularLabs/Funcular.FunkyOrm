@@ -207,7 +207,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 <!-- funky:supported-operators:begin -->
 | Operator | Translated as | Notes |
 |---|---|---|
-| `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. |
+| `Where` | `WHERE` (several are combined with `AND`) | A predicate over the queried entity. It selects the rows C# selects when a value or a column is null, as EF Core does (v3.12.0; Usage.md, "Null comparisons"). |
 | `Select` | a narrow `SELECT` | A column subset of the same entity (`new T { … }`) or a single member (`x => x.Member`); see §1. |
 | `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its values sent as parameters (such as strings, chars, `Guid`s, dates and times; booleans, enums and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline); a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL` (on PostgreSQL, a value that would be sent as a parameter is instead compared with `null` before the query is sent; an inline value such as `5` is still sent as `5 IS NULL`). |
 | `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |
@@ -245,6 +245,15 @@ throws.
 throws a clear message. Apply it to the concrete `IQueryable<T>`, or write the helper as a generic method
 constrained to a base class (`where TEntity : BaseClass`). (A helper constrained to an *interface* fails in the
 WHERE translator; that's a known limitation.)
+
+**Sort helpers: test the expression, not the object.** Every FunkyORM query object, the root included, is an
+`IOrderedQueryable<T>`, as EF Core's composed queries are, so a helper written as
+`q is IOrderedQueryable<T> o ? o.ThenBy(k) : q.OrderBy(k)` takes the `ThenBy` branch on an unordered query; after a
+`Where` (any operator that composes the query) System.Linq then throws `ArgumentException` ("Expression of type
+'System.Linq.IQueryable`1[…]' cannot be used for parameter of type 'System.Linq.IOrderedQueryable`1[…]'"), on EF Core
+too. (On FunkyORM's root the `ThenBy` runs and sorts by `k`; EF Core's `DbSet` isn't an `IOrderedQueryable<T>`.) Test whether the query's expression is ordered instead:
+`q.Expression.Type == typeof(IOrderedQueryable<T>) ? ((IOrderedQueryable<T>)q).ThenBy(k) : q.OrderBy(k)`, which picks
+`OrderBy` on the root and after `Where`, and `ThenBy` after an `OrderBy`, with either library (GitHub #16).
 
 **Everything else** throws, naming the operator: `Reverse`, `TakeWhile`, `SkipWhile`, `TakeLast`, `SkipLast`,
 `ElementAt`, `Concat`, `Union`, `Join`, `GroupBy`, `SelectMany`, `Contains`, `Aggregate`, `DefaultIfEmpty`,

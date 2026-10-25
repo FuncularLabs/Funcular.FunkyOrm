@@ -24,6 +24,15 @@ namespace Funcular.Data.Orm.Sqlite.Tests.CapturedValues
                 parameters.Select(p => new KeyValuePair<string, object>(p.ParameterName, p.Value)).ToList());
         }
 
+        protected override Translation TranslateNegatedMethodCall(MethodCallExpression node, Func<PropertyInfo, string> getColumnName)
+        {
+            var sql = new StringBuilder();
+            var parameters = new List<SqliteParameter>();
+            new SqliteExpressionTranslator(new SqliteParameterGenerator()).TranslateMethodCall(node, sql, parameters, getColumnName, negated: true);
+            return new Translation(sql.ToString(),
+                parameters.Select(p => new KeyValuePair<string, object>(p.ParameterName, p.Value)).ToList());
+        }
+
         protected override Translation TranslateDateMember(MemberExpression node, Func<PropertyInfo, string> getColumnName)
         {
             var sql = new StringBuilder();

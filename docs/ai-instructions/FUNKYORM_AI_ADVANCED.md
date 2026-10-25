@@ -198,7 +198,7 @@ LINQ-to-objects.
 <!-- funky:supported-operators:begin -->
 | Operator | SQL | Constraints |
 |---|---|---|
-| `Where` | `WHERE` | Predicate over the queried entity `T`. |
+| `Where` | `WHERE` | Predicate over the queried entity `T`. Null comparisons answer as C# (EF Core) does: for example `!=` against a value, `!` of a comparison (`!(x.N > 5)`, `!(x.N >= 5)`), a negated `Contains` or `IN`, and `==` between two columns that can be null also select the NULL rows where C# does (v3.12.0; FUNKYORM_AI_INSTRUCTIONS.md, "Null comparisons"). |
 | `Select` | narrow `SELECT` | `new T { … }` (same entity) or `x => x.Member` only (§1). |
 | `OrderBy`, `OrderByDescending` | `ORDER BY` | Once per query; add keys with `ThenBy*`. Own columns qualified on join entities; ternary → `CASE`; values other than booleans, enums, `NULL` and `sbyte`/`byte`/`short`/`ushort`/`int`/`uint`/`long`/`ulong`/`float`/`double`/`decimal` as parameters (`== null`, literal, captured or computed without the row, → `IS [NOT] NULL`; PostgreSQL decides a would-be parameter's null test before sending; an inline value stays `5 IS NULL`). NULL placement follows the database (PostgreSQL: NULLs last ascending). |
 | `ThenBy`, `ThenByDescending` | more `ORDER BY` keys | A repeated key is dropped. |
@@ -220,6 +220,7 @@ LINQ-to-objects.
 | A second `OrderBy`/`OrderByDescending` (even across `Where`/`Select`/`Distinct`) | One chain, primary key first: `query.OrderBy(later).ThenBy(earlier)` (LINQ makes the later ordering primary), keeping each earlier key's direction (`ThenByDescending` for a descending one). |
 | A predicate over a base-type or interface view (`IQueryable<Base> b = q; b.Where(x => …)`) | Apply it to the concrete `IQueryable<T>`, or use a generic helper constrained to a **base class** (`where TEntity : Base`). An interface-constrained helper fails in the WHERE translator. |
 | `Last()` after `Distinct()` + custom projection, with no `OrderBy` | Add `OrderBy` on a projected key before the `Select`. |
+| A sort helper that tests the object: `q is IOrderedQueryable<T> o ? o.ThenBy(k) : q.OrderBy(k)` (every query object is an `IOrderedQueryable<T>`, so it takes `ThenBy` on an unordered query, and after a `Where` System.Linq throws `ArgumentException`; the same on EF Core) | Test the expression: `q.Expression.Type == typeof(IOrderedQueryable<T>) ? ((IOrderedQueryable<T>)q).ThenBy(k) : q.OrderBy(k)` (GitHub #16; the same on EF Core). |
 
 ### ❌ Unlisted operators (throw, naming the operator)
 `Reverse`, `TakeWhile`, `SkipWhile`, `TakeLast`, `SkipLast`, `ElementAt*`, `Concat`, `Union`, `Intersect`,

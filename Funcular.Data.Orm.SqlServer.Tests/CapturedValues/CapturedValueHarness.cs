@@ -449,7 +449,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("optionalReceiverNull", "1,2,3")]
         [DataRow("containsNullValue", "2", "D8")]
         [DataRow("startsWithNullValue", "2", "D8")]
-        [DataRow("notContainsNullValue", "2", "D8")]
+        [DataRow("notContainsNullValue", "1,2,3", "D8")] // 3.12.0, AC-N8: a negated null search is every row (was 2)
         [DataRow("allRowIndependentNull", "", "D8")]
         // AC10
         [DataRow("idsX", "1,2")]
@@ -533,7 +533,6 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("orNullableToStringIsNull", "2")]
         [DataRow("containsNullValue", "2", "D8")]
         [DataRow("startsWithNullValue", "2", "D8")]
-        [DataRow("notContainsNullValue", "2", "D8")]
         [DataRow("idsX", "1,2")]
         [DataRow("notIdsX", "3")]
         [DataRow("nullableX", "1")]
@@ -569,6 +568,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("optionalThisFilterNull", AlwaysTrueMessage)]
         [DataRow("optionalStartsWithNull", AlwaysTrueMessage)]
         [DataRow("orNullableToStringIsEmpty", AlwaysTrueMessage)]
+        [DataRow("notContainsNullValue", AlwaysTrueMessage)] // 3.12.0, AC-N8: `OR NOT 1=0`
         [DataRow("aloneAbsent", NoColumnMessage)]
         [DataRow("aloneNotAbsent", NoColumnMessage)]
         [DataRow("optionalReceiverNull", NoColumnMessage)]
@@ -720,7 +720,7 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         [DataRow("orLocalReceiverCase", "OR 1=0)", 1)]
         [DataRow("containsNullValue", "OR " + Table + ".name LIKE NULL)", 1)]
         [DataRow("orCapturedContainsNull", "OR NULL LIKE NULL)", 1)]
-        [DataRow("notContainsNullValue", "OR NOT " + Table + ".name LIKE NULL)", 1)]
+        [DataRow("notContainsNullValue", "OR NOT 1=0)", 1)] // 3.12.0, AC-N8 (was OR NOT name LIKE NULL)
         // D-128: a row-independent comparison is evaluated in C# and sent as a literal, on every path; a disjunction
         // one of whose operands is known true is itself known true (as C# short-circuits it), so the whole WHERE is the literal.
         [DataRow("optionalFilterNull", "WHERE NOT 1=0", 0)]
@@ -811,28 +811,27 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         #region All (A1, FV1-B1)
 
         /// <summary>
-        /// All is NOT EXISTS(... WHERE NOT (p)), as in 3.9.0, so a row whose predicate SQL finds unknown (null) counts as
-        /// satisfying it. That is C#'s answer when the null makes p true in C# (<c>x.NullableId != 5</c>), and a known
-        /// divergence when it makes p false (<c>x.NullableId &gt; 0</c>, the Changelog's Known issues) or C# throws (D8's
-        /// null search value). No single negation is right for both; the fix belongs to the comparisons' null handling.
+        /// All is NOT EXISTS(... WHERE !p), with !p translated under C#'s null semantics (3.12.0,
+        /// docs/plans/NULL_SEMANTICS_PLAN.md AC-N9), so it answers as C# does: a null that makes p false in C#
+        /// (<c>x.NullableId &gt; 0</c>) makes All false, as one that makes p true (<c>x.NullableId != 5</c>) keeps it true.
+        /// Where C# throws (D8's null search value) it answers as EF Core: a null search value matches no row, so its
+        /// negation matches every row.
         /// </summary>
         [DataTestMethod]
         [DataRow("allIdPositive", true, null)]
         [DataRow("allNotIdsX", false, null)]
         [DataRow("allNullableNotEqual", true, null)]
         [DataRow("allNotNullableEquals", true, null)]
-        [DataRow("allNullableGreaterThanZero", true, "KnownIssue")]
-        [DataRow("allContainsNull", true, "D8")]
+        [DataRow("allNullableGreaterThanZero", false, null)] // 3.12.0 (was true, a Known issue)
+        [DataRow("allContainsNull", false, "D8")] // 3.12.0 (was true)
         [DataRow("allNotContainsNull", true, "D8")]
-        [DataRow("allOrContainsNull", true, "D8")]
+        [DataRow("allOrContainsNull", false, "D8")] // 3.12.0 (was true)
         [DataRow("allRowIndependentNull", true, "D8")]
-        public void All_UnknownCountsAsSatisfied(string key, bool expected, string knownDivergence)
+        public void All_AnswersAsCSharp(string key, bool expected, string knownDivergence)
         {
             var predicate = Predicate(key);
             if (knownDivergence == null)
                 Assert.AreEqual(expected, Rows.All(predicate.Compile()), key + ": the DataRow disagrees with LINQ to objects");
-            else if (knownDivergence == "KnownIssue")
-                Assert.AreNotEqual(expected, Rows.All(predicate.Compile()), key + ": a known issue must differ from LINQ to objects");
             WithTable((provider, log) => Assert.AreEqual(expected, provider.Query<CvRow>().All(predicate), key));
         }
 

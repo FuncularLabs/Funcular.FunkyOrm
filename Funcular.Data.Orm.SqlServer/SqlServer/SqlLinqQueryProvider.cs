@@ -550,7 +550,11 @@ namespace Funcular.Data.Orm.SqlServer
                 if (hasPredicate)
                 {
                     var lambda = (LambdaExpression)((UnaryExpression)methodCall.Arguments[1]).Operand;
-                    var predicateExpression = (Expression<Func<T, bool>>)lambda;
+                    // All(p) holds when no row satisfies !p, so the visitor translates !p under C#'s null semantics
+                    // (docs/plans/NULL_SEMANTICS_PLAN.md §5.3, AC-N9), not NOT (…) around p's text.
+                    var predicateExpression = isAll
+                        ? Expression.Lambda<Func<T, bool>>(Expression.Not(lambda.Body), lambda.Parameters)
+                        : (Expression<Func<T, bool>>)lambda;
                     var whereVisitor = new WhereClauseVisitor<T>(
                         _dataProvider.ScopeColumnNames,
                         _dataProvider.ScopeUnmappedProperties.GetOrAdd(typeof(T), t =>
@@ -647,7 +651,7 @@ namespace Funcular.Data.Orm.SqlServer
                     }
                     if (hasPredicate)
                     {
-                        combinedWhere += $"NOT ({modifiedWhereClause})";
+                        combinedWhere += modifiedWhereClause;
                     }
                     if (!string.IsNullOrEmpty(combinedWhere))
                     {
