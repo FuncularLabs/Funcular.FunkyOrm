@@ -2842,12 +2842,25 @@ add no claim (the exit rule), and the push gate's pass covers that layer.
 | T8N-4 | Nit | OTHER | `NullSemantics`' comment quotes the list's title short ("… where the rows don't") | Carried (a product file left untouched, so the tested code stays `5107dad`'s) |
 | T8N-5 | Nit | OTHER | The AI line's "a `Where`, `All` or `Delete` compares the SQL NULL": a delete by a remote property fails (no join) | Carried |
 
+**Lens O** (the push gate: a fresh non-author pass over `5107dad..0cca1f0` and the release at `0cca1f0`, 2026-10-24
+20:28): **CLEAN**, 0 Major, 2 Minor, 2 Nit, both Minors in text older than 3.12.0. The layer's sentences true (65 cases
+on every path + 15 `All` on SQLite, 124 shapes offline on the four visitors, every SQL Server WHERE through Microsoft's
+T-SQL parser); the release clean. The Minors and Nits fixed after it as mechanical edits, documents only; the push
+gate's pass covers that layer, and a CLEAN one ships: a Minor it finds in text older than 3.12.0 goes to the backlog.
+
+| # | Sev | Blame | Finding | Disposition |
+|---|---|---|---|---|
+| T8O-1 | Minor | OTHER | The AI instructions' examples `.Where(p => p.IsActive)` (three) are a `bool` column alone, which SQL Server rejects (Msg 4145); older than 3.12.0 | `p.IsActive == true`, lens O's verified form (same rows on all four providers) |
+| T8O-2 | Minor | OTHER | On .NET Framework, `Contains` with a `char` binds to LINQ's `Enumerable.Contains` and throws; older than 3.12.0 | Backlog (a sentence would add claims) |
+| T8O-3 | Nit | OTHER | "a conditional compared with a value whose test …": "whose" attaches to "a value"; one shape is Msg 4145, not a syntax error | "a conditional whose test is a captured `bool` or whose branch is a predicate, compared with a value"; "were errors" |
+| T8O-4 | Nit | OTHER | The PostgreSQL and SQLite supplements link `../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md`, a path that doesn't exist | `FUNKYORM_AI_INSTRUCTIONS.md` (the sibling file); README's links to the deprecated stubs carried (they resolve) |
+
 **Blame counts:** round 1: AC-GAP 4, TEST-GAP 5, HOUSE-RULE 3, PLAN-GAP 3. Round 2: TEST-GAP 4, PLAN-GAP 4, AC-GAP 3.
 Round 3: AC-GAP 4, TEST-GAP 4, PLAN-GAP 1, OTHER 1. Round 4: TEST-GAP 5, AC-GAP 3, PLAN-GAP 6. Round 5: AC-GAP 2,
 TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 3. Round 6: AC-GAP 2, TEST-GAP 5, PLAN-GAP 1, OTHER 1. Round 7: TEST-GAP 3,
 HOUSE-RULE 1, AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 8: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 9: TEST-GAP 2, AC-GAP 2,
 OTHER 1. Round 10: AC-GAP 2, TEST-GAP 2, OTHER 1. Round 11: AC-GAP 3, TEST-GAP 2, OTHER 1. Round 12: TEST-GAP 1
 (R12-5, the author's), AC-GAP 1, PLAN-GAP 1, OTHER 2. Round 13: AC-GAP 3, TEST-GAP 1, OTHER 1. Round 14: AC-GAP 2,
-TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4; lens H (CLEAN): AC-GAP 2, TEST-GAP 1, OTHER 2; lens I: AC-GAP 2, TEST-GAP 1; lens J: AC-GAP 1, OTHER 1; lens K: AC-GAP 2, OTHER 1; lens L: AC-GAP 2, OTHER 2; lens M: AC-GAP 5, OTHER 3; lens N (CLEAN): AC-GAP 3, OTHER 2.
+TEST-GAP 1, OTHER 1. Round 15: AC-GAP 1, TEST-GAP 2, PLAN-GAP 3, OTHER 1. Round 16: TEST-GAP 2, PLAN-GAP 4, OTHER 1. Round 17: TEST-GAP 4, PLAN-GAP 2, OTHER 1. Round 18: TEST-GAP 3, PLAN-GAP 1, OTHER 4. Round 19: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 1. Round 20: TEST-GAP 4, HOUSE-RULE 1, PLAN-GAP 1, OTHER 1. Round 21: TEST-GAP 3, HOUSE-RULE 1, PLAN-GAP 1, OTHER 2. Round 22: TEST-GAP 3, OTHER 1. Round 23: TEST-GAP 1, OTHER 1. Task 8: TEST-GAP 4, OTHER 3; lens C: TEST-GAP 4, OTHER 1; lens D: TEST-GAP 2, OTHER 1; lenses E1 and E2: AC-GAP 2, TEST-GAP 6, OTHER 8; lens F: AC-GAP 1, TEST-GAP 2, PLAN-GAP 1, OTHER 5; lens G: AC-GAP 1, TEST-GAP 1, OTHER 4; lens H (CLEAN): AC-GAP 2, TEST-GAP 1, OTHER 2; lens I: AC-GAP 2, TEST-GAP 1; lens J: AC-GAP 1, OTHER 1; lens K: AC-GAP 2, OTHER 1; lens L: AC-GAP 2, OTHER 2; lens M: AC-GAP 5, OTHER 3; lens N (CLEAN): AC-GAP 3, OTHER 2; lens O (CLEAN): OTHER 4.
 **Two fix-introduced findings in round 2 (R2-1, R2-2):** per the house rule, rev 3 narrows the design instead of
 patching.

@@ -232,7 +232,7 @@ await Task.WhenAll(
     ```csharp
     var results = provider.Query<Person>()
         .Where(p => p.Age > 18)
-        .Where(p => p.IsActive)
+        .Where(p => p.IsActive == true)
         .ToList();
     ```
 
@@ -266,10 +266,10 @@ await Task.WhenAll(
 *   **Aggregates**: Chain `Count()`, `Any()`, `Max()` directly off `.Query<T>()` to execute in SQL.
     ```csharp
     // GOOD: Executes COUNT in SQL
-    int count = provider.Query<Person>().Where(p => p.IsActive).Count();
+    int count = provider.Query<Person>().Where(p => p.IsActive == true).Count();
     
     // BAD: Loads all rows into memory first
-    int count = provider.Query<Person>().Where(p => p.IsActive).ToList().Count();
+    int count = provider.Query<Person>().Where(p => p.IsActive == true).ToList().Count();
     ```
 
 *   **Ternary Operators**: Supported in Select/Where/OrderBy (translates to SQL `CASE`).

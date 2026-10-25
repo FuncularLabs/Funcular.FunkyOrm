@@ -142,9 +142,9 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 - **Shapes that failed now run.** On PostgreSQL a comparison with a variable holding null (`x.N == none`) failed with
   42883 (`operator does not exist: integer = text`), a `bool` compared with a comparison (`(x.N == 5) == (x.M == 5)`:
   two comparisons in a row) with 42601, and a null captured value in a `CASE` branch with 42804. On SQL Server a
-  `bool` compared with a predicate, a conditional compared with a value whose test is a captured `bool` or whose
-  branch is a predicate, `!` of a captured `bool` in a comparison, and a predicate under a cast through `object`
-  compared with a value were syntax errors.
+  `bool` compared with a predicate, a conditional whose test is a captured `bool` or whose branch is a predicate,
+  compared with a value, `!` of a captured `bool` in a comparison, and a predicate under a cast through `object`
+  compared with a value were errors.
 - **The delete guard reads a comparison's operands as the provider sends them.** Two operands whose parts the
   provider translates to the same SQL, letter case aside outside quoted text (a string literal, a JSON path or a quoted
   name keeps its case: text in single quotes, `''` escaped, in double quotes, in brackets or in backticks; PostgreSQL's

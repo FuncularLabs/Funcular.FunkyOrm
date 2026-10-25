@@ -4,7 +4,7 @@
 >
 > **Package**: `Funcular.Data.Orm` | **Namespace**: `Funcular.Data.Orm.Sqlite`
 >
-> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) with SQLite-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
+> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) with SQLite-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
 
 ---
 

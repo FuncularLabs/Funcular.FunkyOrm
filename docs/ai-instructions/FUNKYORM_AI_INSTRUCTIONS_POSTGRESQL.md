@@ -4,7 +4,7 @@
 >
 > **Package**: `Funcular.Data.Orm` | **Namespace**: `Funcular.Data.Orm.PostgreSql`
 >
-> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
+> This file supplements the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) with PostgreSQL-specific guidance. All rules in the shared instructions apply here. **Read the shared instructions first.**
 
 ---
 
@@ -83,7 +83,7 @@ public class User
 
 ## JSON & Computed Column Attributes (PostgreSQL Dialect)
 
-FunkyORM's JSON and computed column attributes (v3.2+) work identically on PostgreSQL — the same C# attributes produce PostgreSQL-native SQL via `ISqlDialect`. See the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for the full attribute taxonomy, parameter tables, and examples.
+FunkyORM's JSON and computed column attributes (v3.2+) work identically on PostgreSQL — the same C# attributes produce PostgreSQL-native SQL via `ISqlDialect`. See the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) for the full attribute taxonomy, parameter tables, and examples.
 
 ### Phase 1: `[JsonPath]` — Dialect Differences (? Implemented)
 
@@ -169,4 +169,4 @@ All shared rules apply without modification:
 - JSON & computed column querying (see shared instructions for full attribute taxonomy, examples, and agent rules)
 - The "Duplicate Class Name" problem
 
-See the shared [FUNKYORM_AI_INSTRUCTIONS.md](../Funcular.Data.Orm.SqlServer/FUNKYORM_AI_INSTRUCTIONS.md) for complete details.
+See the shared [FUNKYORM_AI_INSTRUCTIONS.md](FUNKYORM_AI_INSTRUCTIONS.md) for complete details.
