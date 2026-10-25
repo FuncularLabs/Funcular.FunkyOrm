@@ -411,14 +411,13 @@ namespace Funcular.Data.Orm.Tests.DeleteGuard
             await AssertRejected(Row(key), path, AlwaysTrueMessage, key);
 
         /// <summary>
-        /// As above, for a bare <c>bool</c> member in a disjunction. The query half isn't asserted: a bare <c>bool</c>
-        /// member in a truth position is sent as the column alone (<c>archived OR NOT 1=0</c>), which SQL Server
-        /// rejects ("An expression of non-boolean type"); pre-existing, outside D-128 (backlog).
+        /// As above, for a bare <c>bool</c> member in a disjunction; the query runs it (3.12.1: SQL Server sends the member
+        /// as <c>archived = CAST(1 AS bit)</c>, where it sent the column alone and failed, D-133(b)).
         /// </summary>
         [DataTestMethod]
         [DataRow("archivedOrNotEmpty", "sync")] [DataRow("archivedOrNotEmpty", "async")]
         public async Task LiteralTautologyInSql_BareBoolMember_IsRejected(string key, string path) =>
-            await AssertRejected(Row(key), path, AlwaysTrueMessage, key, selectedByQuery: null);
+            await AssertRejected(Row(key), path, AlwaysTrueMessage, key);
 
         [DataTestMethod]
         [DataRow("sync")] [DataRow("async")]

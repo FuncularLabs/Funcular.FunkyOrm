@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.12.1] - 2026-10-25
+
+**Release notes.** A fix for `bool` properties in SQL Server conditions, and patched minimums for vulnerable packages the
+drivers bring. **Upgrade recommended** for SQL Server users, and for anyone whose build treats vulnerability warnings as
+errors.
+
+### Fixed
+- **SQL Server: a `bool` property alone in a condition failed** with Msg 4145 ("An expression of non-boolean type
+  specified in a context where a condition is expected"): `Where(p => p.IsActive)`, `Query(p => !p.IsActive)`,
+  `Count(p => p.IsActive || p.IsAdmin)`, and a `bool` property as a conditional's test,
+  `(p.IsActive ? p.Rank : 0) > 2`. It is now sent as `is_active = CAST(1 AS bit)`, as EF Core sends it, on every path,
+  `Delete` included. The other providers already ran these shapes, and their SQL doesn't change.
+
+### Security
+- **The package declares patched minimums for vulnerable packages its drivers bring transitively**, so installing it
+  no longer reports them (NU1902, NU1903):
+  - `System.Security.Cryptography.Pkcs` (GHSA-846f-f764-76mx, high; GHSA-2fmv-rv2c-59x7, moderate), which
+    `Microsoft.Data.SqlClient` 6.0.0 brings at 8.0.1, or at 9.0.0 to a net9.0 or later app: at least 9.0.21 for
+    `net8.0` (the build net9.0 and later apps use) and 8.0.2 for `netstandard2.0` and `net48`.
+  - `System.Text.RegularExpressions` (GHSA-cmhx-cq75-c4mj, high), which `System.Data.Common` 4.3.0 brings on
+    `netstandard2.0`: at least 4.3.1.
+
+  These are minimums: a newer version already in your project is kept.
+
+### Known issues
+- The 3.12.0 Known issues still apply.
+
 ## [3.12.0] - 2026-10-24
 
 **Release notes.** A WHERE predicate now selects the rows C# selects when a value or a column is null, as EF Core

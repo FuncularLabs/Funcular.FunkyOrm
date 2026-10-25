@@ -121,6 +121,14 @@ namespace Funcular.Data.Orm.Visitors
                 VisitConditional(conditional, truthPosition);
             else if (node is UnaryExpression unary)
                 VisitUnary(unary, truthPosition);
+            else if (truthPosition && node is MemberExpression member && member.Type == typeof(bool) && member.Expression is ParameterExpression)
+            {
+                // T-SQL has no boolean value, so a bool member alone in a truth position is compared with true, as EF
+                // sends it (3.12.1). Before, the column alone failed with Msg 4145 (D-133(b)). CAST keeps a JSON path's
+                // text ('true') converting to bit, not to int.
+                VisitMember(member);
+                _commandTextBuilder.Append(" = CAST(1 AS bit)");
+            }
             else
                 VisitExpression(node);
         }

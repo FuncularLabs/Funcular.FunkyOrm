@@ -5,11 +5,11 @@
 # nuget.org (so the drivers the package declares resolve at their declared minimums, never higher), and runs it for
 # net8.0 (every provider) and, on Windows, net48 (SQL Server only). Nothing is published anywhere.
 #
-# Usage: bash tools/consumer-smoke/run-consumer-smoke.sh [--version 3.12.0] [--configuration Release]
+# Usage: bash tools/consumer-smoke/run-consumer-smoke.sh [--version 3.12.1] [--configuration Release]
 #          [--skip-net48] [--skip-float-check] [--keep] [--expected "Microsoft.Data.SqlClient=6.0.0 Npgsql=9.0.5 ..."]
 set -u
 
-version="3.12.0"
+version="3.12.1"
 configuration="Release"
 expected="Microsoft.Data.SqlClient=6.0.0 Npgsql=9.0.5 MySqlConnector=2.6.2 Microsoft.Data.Sqlite=8.0.32"
 skip_net48=0

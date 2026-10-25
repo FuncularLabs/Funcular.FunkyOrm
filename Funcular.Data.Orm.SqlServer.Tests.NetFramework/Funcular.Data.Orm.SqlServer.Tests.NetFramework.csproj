@@ -105,6 +105,10 @@
     <PackageReference Include="System.ComponentModel.Annotations">
       <Version>5.0.0</Version>
     </PackageReference>
+    <!-- EPPlus 8.1.0 brings System.Security.Cryptography.Xml 8.0.2 (GHSA-37gx-xxp4-5rgx, GHSA-cvvh-rhrc-wg4q); 8.0.4 is the fix. -->
+    <PackageReference Include="System.Security.Cryptography.Xml">
+      <Version>8.0.5</Version>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config">
