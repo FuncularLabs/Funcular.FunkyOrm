@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [3.12.1] - 2026-10-25
 
-**Release notes.** A fix for `bool` properties in SQL Server conditions, and patched minimums for vulnerable packages its
-dependencies bring. **Upgrade recommended** for SQL Server users, and for anyone whose build treats vulnerability warnings as
-errors.
+**Release notes.** A fix for `bool` properties in SQL Server conditions, and patched minimums for vulnerable packages
+its dependencies bring. **Upgrade recommended** for SQL Server users, and for anyone whose build treats vulnerability
+warnings as errors.
 
 ### Fixed
 - **SQL Server: a `bool` property alone in a condition failed** with Msg 4145 ("An expression of non-boolean type
@@ -16,20 +16,28 @@ errors.
   `Delete` included. The other providers already ran these shapes, and their SQL doesn't change.
 
 ### Security
-- **The package declares patched minimums for vulnerable packages its dependencies bring transitively**, so installing it
-  no longer reports them (NU1902, NU1903):
+- **The package declares patched minimums for vulnerable packages its dependencies bring transitively**, so installing
+  it no longer reports them (NU1902, NU1903):
   - `System.Security.Cryptography.Pkcs` (GHSA-846f-f764-76mx, high; GHSA-2fmv-rv2c-59x7, moderate), which
     `Microsoft.Data.SqlClient` 6.0.0 brings at 8.0.1, or at 9.0.0 to a net9.0 or later app: at least 9.0.21 for
     `net8.0` (the build net9.0 and later apps use) and 8.0.2 for `netstandard2.0` and `net48`.
   - `System.Text.RegularExpressions` (GHSA-cmhx-cq75-c4mj, high), which `System.Data.Common` 4.3.0 brings on
     `netstandard2.0`: at least 4.3.1.
 
-  These are minimums: a newer version already in your project is kept. On `net8.0` the minimum is the 9.0 line's,
-  because the package's `net8.0` build is also the one net9.0 and later apps use. So a `net8.0` app now gets
-  `System.Security.Cryptography.Pkcs` 9.0.21, and with it `System.Formats.Asn1` and `Microsoft.Bcl.Cryptography` 9.0.21.
-  **A `net8.0` project that references one of these three directly at an 8.0 version now fails restore**, for example
-  `System.Security.Cryptography.Pkcs` 8.0.2 or `System.Formats.Asn1` 8.0.1. The error is NU1605, or NU1109 under
-  central package management with transitive pinning. Raise that reference to 9.0.21 or later, or remove it.
+  These are minimums: a newer version already in your project is kept. **A direct reference below one now fails
+  restore** with NU1605 (a package downgrade), and so does one below a package these bring, `System.Formats.Asn1` or
+  `Microsoft.Bcl.Cryptography`. On `net8.0` all three minimums are 9.0.21, the 9.0 line's, because the package's
+  `net8.0` build is also the one net9.0 and later apps use. For example, these now fail:
+  `System.Security.Cryptography.Pkcs` 8.0.2 or `System.Formats.Asn1` 8.0.1 on `net8.0`,
+  `System.Security.Cryptography.Pkcs` 9.0.10 on `net9.0`, and `System.Formats.Asn1` 8.0.1 in a `netstandard2.0`
+  library. Raise the reference to the version the error names or later (on the 10.0 line,
+  `System.Security.Cryptography.Pkcs` 10.0.13 or later: 10.0.0 to 10.0.12 are inside the same advisories), or remove it.
+
+  Under central package management with transitive pinning, a central version below a minimum with no
+  `PackageReference` fails restore with NU1109; raise it the same way. A `PackageReference` there can restore without
+  an error and keep its older version (recent .NET 9 and 10 SDKs do this; the .NET 8 SDK reports NU1605), so raise it
+  too: with `System.Formats.Asn1` 8.0.1 on `net8.0`, the app throws `FileNotFoundException` for `System.Formats.Asn1`
+  9.0.0.0 when Pkcs reads ASN.1.
 
 ### Known issues
 - The 3.12.0 Known issues still apply.

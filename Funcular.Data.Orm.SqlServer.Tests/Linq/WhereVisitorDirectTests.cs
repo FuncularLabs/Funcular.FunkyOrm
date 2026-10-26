@@ -14,7 +14,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
     /// docs/plans/NULL_SEMANTICS_PLAN.md §6.5's coverage floor): the nullable-unwrap rejections, an operand no visitor
     /// translates, a <c>new</c> operand, `!` in a value position, and a captured value the visitor reads itself (an
     /// expression visited without the rewrite: a body, not a lambda). Each row runs on SQL Server's, PostgreSQL's,
-    /// MySQL's and SQLite's visitor.
+    /// MySQL's and SQLite's visitor (the 3.12.1 bare-<c>bool</c> row pins SQL Server's text alone).
     /// </summary>
     [TestClass]
     public class WhereVisitorDirectTests
