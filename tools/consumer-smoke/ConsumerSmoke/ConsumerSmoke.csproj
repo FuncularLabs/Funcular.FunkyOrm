@@ -9,7 +9,7 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <FunkyVersion Condition="'$(FunkyVersion)' == ''">3.12.0</FunkyVersion>
+    <FunkyVersion Condition="'$(FunkyVersion)' == ''">3.12.1</FunkyVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 

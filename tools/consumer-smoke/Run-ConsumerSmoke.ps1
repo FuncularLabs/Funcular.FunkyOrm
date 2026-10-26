@@ -11,7 +11,7 @@
   Also fails if any driver PackageReference in the five library csprojs floats (contains '*').
 
 .PARAMETER Version
-  The package version to pack and install (the csprojs' <Version>). Default 3.12.0.
+  The package version to pack and install (the csprojs' <Version>). Default 3.12.1.
 .PARAMETER Expected
   name=version pairs the app checks: the informational version of each driver assembly a consumer gets.
 .PARAMETER SkipNet48
@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = "3.12.0",
+    [string]$Version = "3.12.1",
     [string]$Configuration = "Release",
     [string[]]$Expected = @("Microsoft.Data.SqlClient=6.0.0", "Npgsql=9.0.5", "MySqlConnector=2.6.2", "Microsoft.Data.Sqlite=8.0.32"),
     [switch]$SkipNet48,

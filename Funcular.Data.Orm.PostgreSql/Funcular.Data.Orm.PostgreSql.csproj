@@ -15,10 +15,10 @@
     <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <Title>Funcular.FunkyORM.PostgreSql</Title>
-    <Version>3.12.0</Version>
-    <AssemblyVersion>3.12.0.0</AssemblyVersion>
-    <FileVersion>3.12.0.0</FileVersion>
-    <InformationalVersion>3.12.0</InformationalVersion>
+    <Version>3.12.1</Version>
+    <AssemblyVersion>3.12.1.0</AssemblyVersion>
+    <FileVersion>3.12.1.0</FileVersion>
+    <InformationalVersion>3.12.1</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
@@ -48,6 +48,8 @@
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="System.Data.Common" Version="4.3.0" />
+    <!-- 3.12.1: System.Data.Common 4.3.0 brings System.Text.RegularExpressions 4.3.0 (GHSA-cmhx-cq75-c4mj). -->
+    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
   </ItemGroup>
 
   <ItemGroup>

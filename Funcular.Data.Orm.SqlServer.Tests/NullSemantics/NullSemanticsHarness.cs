@@ -556,6 +556,14 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                 case "notFlagNeTrue": return x => !x.Flag != true;
                 case "notFlagEqNull": return x => !x.Flag == null;
                 case "flagEqNotFlag": return x => x.Flag == !x.Flag;
+                // 3.12.1: a bare bool member in a truth position, which SQL Server rejected as the column alone (Msg 4145,
+                // D-133(b)); it is sent as `col = CAST(1 AS bit)` there, as EF does.
+                case "bareActive": return x => x.Active;
+                case "notBareActive": return x => !x.Active;
+                case "bareActiveOrOther": return x => x.Active || x.Other;
+                case "bareActiveAndIdGt2": return x => x.Active && x.Id > 2;
+                case "notBareActiveOrOther": return x => !(x.Active || x.Other);
+                case "condBareActiveTestGt2": return x => (x.Active ? x.Id : 0) > 2;
                 case "nboolCondPredicateBranchNeTrue": return x => (x.Id > 2 ? (bool?)(x.N == 5) : x.Flag) != true;
                 // R6-6: `!` of a predicate is a predicate; a conditional's predicate branch is its two-valued truth
                 case "notNEq5EqActive": return x => !(x.N == 5) == x.Active;
@@ -1223,6 +1231,9 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         [DataRow("objNameLengthSelfEq")] [DataRow("nestedCondChainNN8")] [DataRow("nestedCondChainNNRight8")]
         // Round 15
         [DataRow("nestedCondChainNestedLeft7")] [DataRow("nestedStrNeFlat8NToString")]
+        // 3.12.1: a bare bool member in a truth position (D-133(b))
+        [DataRow("bareActive")] [DataRow("notBareActive")] [DataRow("bareActiveOrOther")] [DataRow("bareActiveAndIdGt2")]
+        [DataRow("notBareActiveOrOther")] [DataRow("condBareActiveTestGt2")]
         public void EveryPath_SelectsTheOraclesRows(string key) => EveryPath(key, Predicate(key), Expected(key), r => r.Id);
 
         private void EveryPath<T>(string key, Expression<Func<T, bool>> predicate, string expected, Func<T, int> id) where T : class, new()
@@ -1563,6 +1574,8 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
         // T8H-3: the Known issue's rows under the two-valued CASE (the owner's ruling, 2026-10-24): a parent with no child
         // rows makes the predicate false there
         [DataRow("activeNeChildIdSumEq0Pin")]
+        // 3.12.1: a computed bool alone in a truth position (D-133(b))
+        [DataRow("bareActiveX")]
         [DataRow("condChildIdSumEq0EqFalsePin")]
         // T8I-1, T8I-3: a bool value against the predicate is p or its NOT, the NULL left unknown; a distributed leaf is
         // two-valued
@@ -1631,6 +1644,7 @@ namespace Funcular.Data.Orm.Tests.NullSemantics
                 case "childIdSumEq0": predicate = x => x.ChildIdSum == 0; oracle = r => ChildIdSumN(r) != null && ChildIdSumN(r) == 0; break;
                 // T8G-6: a sum some parents have (1 and 5), so a translation that selects nothing can't pass.
                 case "childIdSumEq3": predicate = x => x.ChildIdSum == 3; oracle = r => ChildIdSumN(r) == 3; break;
+                case "bareActiveX": predicate = x => x.ActiveX; oracle = r => r.Active; break;
                 // T8H-3, a Known issue pinned: the two-valued CASE takes the SQL NULL's unknown as false, which C#'s lifted
                 // null == 0 also gives, so the oracle compares the SQL value (C# over the rows read back, 0, differs).
                 case "activeNeChildIdSumEq0Pin": predicate = x => x.Active != (x.ChildIdSum == 0); oracle = r => r.Active != (ChildIdSumN(r) == 0); break;
