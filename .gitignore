@@ -364,6 +364,10 @@ FodyWeavers.xsd
 
 /Funcular.Data.Orm.SqlServer.Tests/PerformanceTests/*.xlsx
 
+# The consumer smoke app's own packages folder (its nuget.config), and a work folder an earlier smoke run used
+tools/consumer-smoke/ConsumerSmoke/packages/
+tools/consumer-smoke/.work/
+
 # Stray editor/linter backup files
 ~*.saved.bak
 ~*.saved.bak.*
