@@ -8,8 +8,8 @@ service account, a shared login). Two things become possible:
 - **Audit attribution**: your audit trail (e.g. Azure SQL Auditing) names the person, not the shared
   identity.
 
-> **Why FunkyORM has to do this.** Database session context is **per-connection** and is cleared when a
-> connection is reset and returned to the pool. FunkyORM uses a fresh pooled connection for each
+> **Why FunkyORM has to do this.** Database session context is **per-connection** and is cleared when the
+> pool resets the connection for its next use. FunkyORM uses a fresh pooled connection for each
 > non-transactional operation, so "set the context once per request" outside the ORM does not survive onto
 > the connection your query actually runs on. FunkyORM primes the context onto the *same* connection the
 > command is about to use.
@@ -33,8 +33,8 @@ PostgreSQL, MySQL and SQLite differences, the audit comment, security notes and 
 | Provider | RLS filtering | Audit attribution | Per-key immutability |
 |:--|:--|:--|:--|
 | **SQL Server** | ✅ `SESSION_CONTEXT(key)` | ✅ | ✅ (`@read_only=1`) |
-| **PostgreSQL** | ✅ `current_setting(key)` | ✅ | ⚠️ emulated (no read-only GUC) |
-| **MySQL** | ❌ (no native RLS) | ✅ (session vars) | ❌ best-effort |
+| **PostgreSQL** | ✅ `current_setting(key)` | ✅ | ⚠️ not enforced (no read-only GUC) |
+| **MySQL** | ❌ (no native RLS) | ✅ (session vars) | ❌ not enforced |
 | **SQLite** | ❌ N/A | ❌ N/A | — |
 
 If you point a **strict** (audit-required) provider at SQLite, FunkyORM throws on first use. There is
@@ -44,7 +44,9 @@ no isolation model to enforce, so silently doing nothing would be unsafe for a P
 
 ## 1. What FunkyORM provides
 
-Everything below ships in the `Funcular.Data.Orm` NuGet package, in the `Funcular.Data.Orm` namespace.
+Everything below ships in the `Funcular.Data.Orm` NuGet package. The audit types are in the
+`Funcular.Data.Orm` namespace; the provider classes that carry the `AuditContext` property are in
+`Funcular.Data.Orm.SqlServer`, `.PostgreSql`, `.MySql` and `.Sqlite`.
 **None of it is a base class; you inherit from nothing.** There is one interface you implement and three
 sealed classes you construct; the rest is behaviour.
 
@@ -52,7 +54,7 @@ sealed classes you construct; the rest is behaviour.
 |:--|:--|:--|
 | `IAuditContextAccessor` | Interface, one member: `FunkyAuditContext? Current { get; }` | **Implement it.** It is the only seam where your code plugs in. FunkyORM reads `Current` whenever it primes a connection or builds a command. Return `null` when nobody is signed in. |
 | `FunkyAuditContext` | Sealed class: `Entries`, `AuditSubjectId`, `AuditCorrelationId` | **Construct one per request**, usually in authentication middleware. |
-| `SessionContextEntry` | Sealed class: `new SessionContextEntry(string key, string value, bool readOnly = true)` | **Construct one per key** your database policy or audit logic will read. Key and value are opaque strings to FunkyORM; `null` throws. |
+| `SessionContextEntry` | Sealed class: `new SessionContextEntry(string key, string value, bool readOnly = true)` | **Construct one per key** your database policy or audit logic will read. The value is an opaque string to FunkyORM; key rules differ by provider (see [PostgreSQL](#postgresql) and [MySQL](#mysql--sqlite)). `null` throws. |
 | `AuditContextOptions` | Sealed class: `Accessor`, `RequireAuditContext` (default `false`), `EmitAuditComment` (default `true`) | **Construct one per provider** and assign it to the provider's `AuditContext` property. |
 | `AuditContext` | Property on every provider (`SqlServerOrmDataProvider`, `PostgreSqlOrmDataProvider`, `MySqlOrmDataProvider`, `SqliteOrmDataProvider`) | **Set it** where you create providers. Its default is an `AuditContextOptions` with no accessor, which means the feature is off. |
 | `SystemContextScope` | Sealed class, public | FunkyORM wraps its own bootstrap queries in it. You normally never touch it (see [Security notes](#security-notes-read-before-production)). |
@@ -64,7 +66,7 @@ Once a provider's `AuditContext.Accessor` is set, FunkyORM does five things for 
    connection of a transaction started with `provider.BeginTransaction()` is primed once, when the
    transaction begins.
 2. **Fails closed when told to.** With `RequireAuditContext = true` and `Current == null`, FunkyORM throws
-   `InvalidOperationException` before sending anything.
+   `InvalidOperationException` before sending your command.
 3. **Labels each statement.** With `EmitAuditComment = true`, FunkyORM prepends
    `/* funky:audit sub=… corr=… */` to each text command, after validating both identifiers.
 4. **Exempts its own bootstrap queries.** Schema discovery and table-name resolution run without
@@ -137,7 +139,9 @@ app.Use(async (ctx, next) =>
     if (ctx.User.Identity?.IsAuthenticated == true)
     {
         // Pull opaque identifiers from your authenticated principal, never a name/email/UPN.
-        var userId   = ctx.User.FindFirst("sub")?.Value;                 // your auth scheme's subject id
+        // Use your auth scheme's subject-id claim type; SessionContextEntry throws on a null value.
+        var userId   = ctx.User.FindFirst("sub")?.Value
+                       ?? throw new InvalidOperationException("No subject id claim.");
         var groupIds = ctx.User.FindAll("groups").Select(c => c.Value);  // opaque group/role keys
 
         accessor.Set(new FunkyAuditContext
@@ -240,6 +244,7 @@ RETURN
            SELECT 1 FROM STRING_SPLIT(CONVERT(nvarchar(max), SESSION_CONTEXT(N'myapp.group_ids')), ',') g
            WHERE g.value = CONVERT(nvarchar(64), @owner_id)   -- or join to a group-membership column
        );
+GO
 
 -- The binding. This is what makes SQL Server apply the function to every query on dbo.record.
 CREATE SECURITY POLICY dbo.record_rls
@@ -297,8 +302,8 @@ Step by step, for one request:
      required for this provider…"), closes the connection, and sends nothing.
    - **No context, lenient provider**: FunkyORM primes nothing and runs the query. The keys are unset on
      that connection, so `SESSION_CONTEXT(N'myapp.user_id')` returns `NULL` and the Step 5 predicate
-     matches no rows. With that predicate, a lenient provider reads nothing from the protected table, and
-     the block predicate rejects its writes.
+     matches no rows. With that predicate, a lenient provider reads nothing from the protected table and
+     cannot change its rows; its inserts fail on the block predicate.
 4. **FunkyORM sends your query, labelled.** The statement text begins with
    `/* funky:audit sub=<AuditSubjectId> corr=<AuditCorrelationId> */`. An identifier outside the safe
    character set throws before the command is sent.
@@ -307,9 +312,11 @@ Step by step, for one request:
    `WHERE` clause, passing each row's `owner_id`. The function reads `SESSION_CONTEXT(N'myapp.user_id')`,
    which FunkyORM set moments earlier on this same connection, and keeps only the rows it allows.
    - **Reads** return only allowed rows.
-   - **UPDATE and DELETE** can only see allowed rows, so they affect 0 rows for anything else.
-   - **INSERT, or an UPDATE that would move a row out of the caller's scope,** fails on the block
-     predicate.
+   - **Deletes** can only see allowed rows, so FunkyORM's `Delete` affects 0 rows for anything else
+     (it returns 0, or `false` for a delete by key).
+   - **`Update`** reads the row by its key first, so for a row the policy hides it throws
+     `InvalidOperationException` ("Entity does not exist in database.") before sending an UPDATE.
+   - **An INSERT or UPDATE that would put a row outside the caller's scope** fails on the block predicate.
 6. **The database audit records the statement**, with the shared login and the comment naming the person.
 7. **FunkyORM closes the connection** and it returns to the pool. The next checkout resets it, which
    clears its session context, so the next request cannot inherit this one's identity. FunkyORM primes
@@ -339,19 +346,21 @@ The same `FunkyAuditContext`, accessor and middleware. The factory creates a `Po
 > namespace is the portable choice if you target both.
 
 Your policy reads the keys with `current_setting`. PostgreSQL applies the policy's `USING` expression to
-every query on the table, as SQL Server applies its predicate:
+every query on the table, much as SQL Server applies its predicate, except for superusers, roles with
+`BYPASSRLS`, and the table's owner unless the table forces RLS:
 
 ```sql
 ALTER TABLE record ENABLE ROW LEVEL SECURITY;
+ALTER TABLE record FORCE ROW LEVEL SECURITY;   -- apply the policy to the table's owner too
 CREATE POLICY record_isolation ON record
     USING (owner_id = current_setting('myapp.user_id', true)
            OR owner_id = ANY (string_to_array(coalesce(current_setting('myapp.group_ids', true), ''), ',')));
 ```
 
 Notes: settings are session-scoped (`is_local=false`) and Npgsql clears them on pool return (verified by
-FunkyORM's no-leak test). There is no read-only GUC, so immutability is *emulated*: rely on FunkyORM being
-the only writer of these keys. PostgreSQL **superusers bypass RLS**, so author and test enforcement under a
-non-superuser role.
+FunkyORM's no-leak test). There is no read-only GUC, so immutability is not enforced: rely on FunkyORM
+being the only writer of these keys. PostgreSQL **superusers and `BYPASSRLS` roles always bypass RLS**, so
+author and test enforcement under a regular role.
 
 ---
 
@@ -392,7 +401,7 @@ SELECT ... FROM record WHERE ...
 ## Fail-closed vs. unauthenticated requests
 
 - `RequireAuditContext = true` → if **no** context is present when a command would run, FunkyORM throws
-  *before* sending anything. Use this on PHI providers.
+  *before* sending your command. Use this on PHI providers.
 - `RequireAuditContext = false` → a missing context primes nothing (opportunistic). Use this for genuinely
   unauthenticated/non-PHI paths (app settings, health checks).
 - **Recommended boundary:** set this per **provider** in your factory (strict providers for PHI
