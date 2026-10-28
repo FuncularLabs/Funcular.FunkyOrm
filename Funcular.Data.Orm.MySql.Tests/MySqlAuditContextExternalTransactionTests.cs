@@ -9,7 +9,7 @@ using MySqlConnector;
 namespace Funcular.Data.Orm.MySql.Tests
 {
     /// <summary>
-    /// Issue #24 (3.13.0): a transaction the provider didn't begin is primed once on its first command, and a strict
+    /// Issue #24 (3.13.0): a transaction the provider didn't begin is primed once, by its first operation with a context, and a strict
     /// provider fails closed on it. MySQL is attribution only, so the tests read the session variable back on the same
     /// connection. Every test rolls its transaction back.
     /// </summary>
@@ -104,10 +104,11 @@ namespace Funcular.Data.Orm.MySql.Tests
             using (var connection = Open())
             using (var transaction = connection.BeginTransaction())
             {
-                // Keys become variable names in the SQL text, so they are validated before the first read.
+                // Keys become variable names in the SQL text, so they are validated before the first read. MySQL itself
+                // accepts '$' in a variable name, so only FunkyORM's check stops this one.
                 var accessor = new TestAccessor
                 {
-                    Current = new FunkyAuditContext { Entries = new[] { new SessionContextEntry("bad-key", "v") } },
+                    Current = new FunkyAuditContext { Entries = new[] { new SessionContextEntry("bad$key", "v") } },
                 };
                 var db = Provider(accessor, connection, transaction);
                 var log = new List<string>();

@@ -23,7 +23,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
 
     /// <summary>
     /// Issue #24 (3.13.0): a transaction the provider didn't begin (passed to the constructor, or assigned to
-    /// <c>Transaction</c>) is primed once on its first command, and a strict provider fails closed on it. Every test
+    /// <c>Transaction</c>) is primed once, by its first operation with a context, and a strict provider fails closed on it. Every test
     /// rolls its transaction back, so no rows are left behind. Runs against FUNKY_CONNECTION (.\SQL2019), whose
     /// schema includes rls_demo + dbo.rls_demo_policy (filter and block predicates on owner_id).
     /// </summary>

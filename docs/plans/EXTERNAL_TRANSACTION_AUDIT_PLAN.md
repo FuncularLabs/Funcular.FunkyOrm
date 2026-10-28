@@ -33,8 +33,8 @@ Affected: SQL Server, PostgreSQL, MySQL (priming) and SQLite (strict guard), eve
   SQL Server.)
 - **AC-3** Strict provider, no context, transaction it didn't begin: `InvalidOperationException` (the existing
   message) before the operation's own commands are sent. The provider stays usable: the transactional-scope guard is
-  released, and a later operation with a context primes and runs. The check runs once per transaction, when it is
-  primed, as at `BeginTransaction()`.
+  released, and a later operation with a context primes and runs. Once the transaction is primed, later operations in
+  it aren't checked again, as after `BeginTransaction()`.
 - **AC-4** Keys already on that connection (another provider, `BeginTransaction`, or the application set them):
   - a key already holding the entry's value is not set again (no SQL Server Msg 15664 for read-only keys); it keeps
     whatever read-only setting it had (PostgreSQL: an empty entry value is always set, since `''` reads as unset);
@@ -94,6 +94,8 @@ mutation instead of by a red run. Log assertions match ordinally: `SESSION_CONTE
 | 1 | `ExternalTransaction_ConstructorSupplied_Primes` | MySQL | MY-M1 |
 | 1 | `ExternalTransaction_Assigned_PrimesAndRlsFilters`, `ExternalTransaction_Async_Primes` | SQL Server | M1 |
 | 1, 3 | `ExternalTransaction_DeleteFirst_Primes`, `ExternalTransaction_Delete_Strict_NoContext_Throws`, `ExternalTransaction_DeleteAsync_Strict_NoContext_Throws` | SQL Server | M13a/b: deletes outside the scope |
+| 1, 3 | `ExternalTransaction_Deletes_Strict_NoContext_Throw` (sync and async, predicate and key) | PostgreSQL, MySQL | PG-M13a/b, MY-M13a/b (round 1 m1) |
+| 4 | `SelectEntriesToSet_ComparesOrdinally_CaseDifferenceIsAMismatch` | SqlServer.Tests (core) | M15: case-insensitive comparison (round 1 m6) |
 | 2 | `ExternalTransaction_PrimesOnce_NoSecondReadOrSet` (exactly 1 read, 1 set over 3 operations) | SQL Server | M8: never mark |
 | 2 | `ExternalTransaction_Reassigned_NewConnectionAndTransaction_PrimesAgain` | SQL Server | M14: once per provider |
 | 8 | `BeginTransaction_LaterOps_DoNotReadOrRePrime` (0 reads, 1 set over 3 operations) | SQL Server | M6: BeginTransaction doesn't mark |
@@ -107,7 +109,7 @@ mutation instead of by a red run. Log assertions match ordinally: `SESSION_CONTE
 | 5, 7 | `ExternalTransaction_Lenient_NoContextThenContext_Primes`, `ExternalTransaction_SystemScopeOperation_DoesNotMarkPrimed` | SQL Server | M12: mark when nothing was primed; M2 |
 | 6 | `ExternalTransaction_FeatureOff_NoAuditCommands` | SQL Server | behaviour pin |
 | 7 | `ExternalTransaction_ColdEntity_DiscoveryThenPrime` | SQL Server | smoke test (discovery, then prime) |
-| 9 | `StrictProvider_OnSqlite_ExternalTransaction_ThrowsNotSupported` (GetList and Delete, then lenient works) | SQLite | M11: no guard; M13-SQLite; M3-SQLite |
+| 9 | `StrictProvider_OnSqlite_ExternalTransaction_ThrowsNotSupported` (GetList and all four deletes, then lenient works) | SQLite | M11: no guard; M13-SQLite; LITE-M13b; M3-SQLite |
 | 10 | `VersionCarriers_MatchTheChangelog` (existing) | SqlServer.Tests | — |
 
 Opt-in suites: the integration tests need FUNKY_CONNECTION (.\SQL2019), the PostgreSQL non-superuser role
@@ -140,3 +142,8 @@ cobertura runs; the provider files are large and their whole-file rate predates 
 | 7 MySQL invalid-key and SQLite guard-release tests missing | Minor | TEST-GAP | Added (MY-validate, M3-SQLite) |
 | 8 coverage line inconsistent | Minor | PLAN-GAP | §4 states what is measured |
 | Nits (M6 spec, red-first header, table rows, PG empty entry, marker on connection, cleanup) | Nit | — | Applied except recording the connection in the marker (SqlClient and MySqlConnector reject a transaction from another connection) |
+
+Review rounds: round 1 (`1cef722..4c75864`) CLEAN, 6 Minor + 5 Nit, applied in `eee0e77`; round 2 (`1cef722..eee0e77`)
+CLEAN, 2 Minor (wording) + 5 Nit, applied in the next commit (two optional nits left: "a context with entries", and the
+PostgreSQL savepoint edge for a key unset before the savepoint, which already reads as unset). 26 mutations, all killed
+(`mutate2.out`).

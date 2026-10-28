@@ -439,7 +439,7 @@ SELECT ... FROM record WHERE ...
    - a key that already holds your entry's value is not set again, so two providers can share one
      transaction under the same context;
    - a key that holds a different value throws `InvalidOperationException` when your entry is read-only,
-     because another identity's context is on that connection, and is overwritten when it isn't (on SQL
+     because another identity's context may be on that connection, and is overwritten when it isn't (on SQL
      Server, unless whoever set it made it read-only: then SQL Server refuses with Msg 15664);
    - a key left alone keeps whatever read-only setting it was given;
    - on PostgreSQL, a setting that reads as an empty string counts as unset.

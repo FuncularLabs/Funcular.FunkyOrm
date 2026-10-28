@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file.
 
 **Release notes.** The audit context now covers a transaction FunkyORM didn't begin (issue #24). **Upgrade
 recommended** if you use `AuditContextOptions` with a transaction you create yourself. **Behaviour change:** on such a
-transaction, a strict provider now throws when no context is present, where before it ran; and a read-only entry whose
-key already holds a different value on that connection throws.
+transaction, a strict provider now throws when no context is present, where before it ran; a read-only entry whose
+key already holds a different value on that connection throws; and priming can fail where nothing was sent before
+(see below).
 
 ### Fixed
 - **A transaction FunkyORM didn't begin skipped the audit context** (#24, every release since 3.8.0). A transaction
@@ -20,8 +21,8 @@ key already holds a different value on that connection throws.
     is primed, later operations in it aren't checked again, as after `BeginTransaction()`.
   - The keys the connection already holds are read first, in one extra command when the transaction is primed. A key
     that already holds the entry's value isn't set again, so two providers can share one transaction with the same
-    context. A key that holds a different value throws when the entry is read-only (another identity's context is on
-    the connection) and is overwritten when it isn't; on SQL Server, a key someone else set read-only can't be
+    context. A key that holds a different value throws when the entry is read-only (another identity's context may be
+    on the connection) and is overwritten when it isn't; on SQL Server, a key someone else set read-only can't be
     overwritten (Msg 15664). Values are compared as text, exactly, so a key you set yourself with a typed value whose
     text differs, or with different casing, counts as different. On PostgreSQL, a setting that reads as an empty
     string counts as unset.

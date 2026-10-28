@@ -171,7 +171,7 @@ namespace Funcular.Data.Orm
         /// the entries still to set, in order. <paramref name="existingValues"/>[i] is what the connection holds for
         /// entries[i] (null when unset). A key already holding the entry's value is skipped; one holding another value
         /// is set when the entry is writable, and throws when it is <see cref="SessionContextEntry.ReadOnly"/>, since
-        /// another identity's context is on the connection. The message names the key, never a value.
+        /// another identity's context may be on the connection. The message names the key, never a value.
         /// </summary>
         /// <param name="entries">The context's entries.</param>
         /// <param name="existingValues">The connection's current value for each entry, in the same order.</param>
@@ -193,7 +193,7 @@ namespace Funcular.Data.Orm
                 else if (entry.ReadOnly)
                     throw new InvalidOperationException(
                         "Session-context key '" + entry.Key + "' already holds a different value on this transaction's " +
-                        "connection, and the entry is read-only: another identity's context is on the connection. " +
+                        "connection, and the entry is read-only: another identity's context may be on the connection. " +
                         "FunkyORM will not run commands under it.");
                 else
                     toSet.Add(entry);

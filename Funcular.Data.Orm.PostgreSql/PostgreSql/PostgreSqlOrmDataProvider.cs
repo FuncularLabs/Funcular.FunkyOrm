@@ -544,10 +544,11 @@ namespace Funcular.Data.Orm.PostgreSql
 
         /// <summary>
         /// Primes a transaction this provider didn't begin (passed to the constructor, or assigned to
-        /// <see cref="Transaction"/>) on its first command, once (3.13.0, issue #24); one <see cref="BeginTransaction"/>
+        /// <see cref="Transaction"/>) once, by its first operation with a context (3.13.0, issue #24); one
+        /// <see cref="BeginTransaction"/>
         /// began was primed there and is skipped. Throws when the provider requires a context and none is present. The
         /// connection may already hold keys (another provider, or the application, set them), so they are read first: a
-        /// key holding the entry's value is not set again, a read-only key holding another value throws, and a key that
+        /// key holding the entry's value is not set again, a read-only entry whose key holds another value throws, and a key that
         /// reads as an empty string (a reset setting) counts as unset. The transaction is marked primed only once its
         /// keys are set, so a bootstrap query under a <see cref="SystemContextScope"/>, or a lenient operation with no
         /// context, leaves it to the next command.

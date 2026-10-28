@@ -8,7 +8,7 @@ using Npgsql;
 namespace Funcular.Data.Orm.PostgreSql.Tests
 {
     /// <summary>
-    /// Issue #24 (3.13.0): a transaction the provider didn't begin is primed once on its first command, and a strict
+    /// Issue #24 (3.13.0): a transaction the provider didn't begin is primed once, by its first operation with a context, and a strict
     /// provider fails closed on it. Runs as the non-superuser role <c>funky_rls_tester</c> so rls_demo's policy
     /// enforces; every test rolls its transaction back.
     /// </summary>
