@@ -17,7 +17,10 @@ namespace Funcular.Data.Orm
 
         /// <summary>
         /// When true (the default), the key is set immutable for the connection's session lifetime where the
-        /// provider supports it (SQL Server <c>@read_only=1</c>). Emulated or ignored on other providers.
+        /// provider supports it (SQL Server <c>@read_only=1</c>); PostgreSQL and MySQL have no read-only setting, so it
+        /// isn't enforced there. On a transaction the provider didn't begin (3.13.0), a key that already holds the
+        /// entry's value is left as it is, read-only or not, and a read-only entry whose key holds a different value
+        /// throws instead of priming.
         /// </summary>
         public bool ReadOnly { get; }
 

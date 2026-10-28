@@ -58,6 +58,30 @@ namespace Funcular.Data.Orm.Sqlite.Tests
         }
 
         [TestMethod]
+        public void StrictProvider_OnSqlite_ExternalTransaction_ThrowsNotSupported()
+        {
+            // Issue #24 (3.13.0): a transaction the provider didn't begin is held to the same guard.
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var provider = new SqliteOrmDataProvider(_connectionString, connection, transaction)
+                    {
+                        AuditContext = new AuditContextOptions { Accessor = new TestAccessor(), RequireAuditContext = true }
+                    };
+                    Assert.ThrowsException<NotSupportedException>(() => provider.GetList<Widget>());
+                    Assert.ThrowsException<NotSupportedException>(() => provider.Delete<Widget>(w => w.Id == 1));
+
+                    // The throw released the transactional guard: the provider works once it is lenient.
+                    provider.AuditContext = new AuditContextOptions { Accessor = new TestAccessor(), RequireAuditContext = false };
+                    Assert.AreEqual(1, provider.GetList<Widget>().Count);
+                    transaction.Rollback();
+                }
+            }
+        }
+
+        [TestMethod]
         public void LenientProvider_OnSqlite_IgnoresContextAndWorks()
         {
             var accessor = new TestAccessor

@@ -164,6 +164,73 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             Assert.ThrowsException<ArgumentNullException>(() => new SessionContextEntry("k", null!));
         }
 
+        // ── Priming a connection that may already hold keys (3.13.0, issue #24) ──
+
+        private static IReadOnlyList<SessionContextEntry> ToSet(bool emptyMeansUnset, SessionContextEntry[] entries, params string?[] existing)
+            => OrmDataProvider.SelectSessionContextEntriesToSet(entries, existing, emptyMeansUnset);
+
+        [TestMethod]
+        public void SelectEntriesToSet_UnsetKey_IsSet()
+        {
+            var entry = new SessionContextEntry("myapp.user_id", "a");
+            CollectionAssert.AreEqual(new[] { entry }, ToSet(false, new[] { entry }, (string?)null).ToArray());
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_KeyAlreadyHoldingTheValue_IsNotSetAgain()
+        {
+            var entry = new SessionContextEntry("myapp.user_id", "a");
+            Assert.AreEqual(0, ToSet(false, new[] { entry }, "a").Count);
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_ReadOnlyKeyHoldingAnotherValue_ThrowsNamingTheKeyNotTheValues()
+        {
+            var entry = new SessionContextEntry("myapp.user_id", "value-wanted");
+            var ex = Assert.ThrowsException<InvalidOperationException>(() => ToSet(false, new[] { entry }, "value-held"));
+            StringAssert.Contains(ex.Message, "myapp.user_id");
+            Assert.IsFalse(ex.Message.Contains("value-wanted"), "the message must not carry the entry's value");
+            Assert.IsFalse(ex.Message.Contains("value-held"), "the message must not carry the connection's value");
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_WritableKeyHoldingAnotherValue_IsSet()
+        {
+            var entry = new SessionContextEntry("myapp.request_id", "b", readOnly: false);
+            CollectionAssert.AreEqual(new[] { entry }, ToSet(false, new[] { entry }, "a").ToArray());
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_EmptyMeansUnset_EmptyValueIsSetNotAMismatch()
+        {
+            var entry = new SessionContextEntry("myapp.user_id", "a");
+            CollectionAssert.AreEqual(new[] { entry }, ToSet(true, new[] { entry }, "").ToArray());
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_EmptyIsAValue_ReadOnlyMismatchThrows()
+        {
+            var entry = new SessionContextEntry("myapp.user_id", "a");
+            Assert.ThrowsException<InvalidOperationException>(() => ToSet(false, new[] { entry }, ""));
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_Mixed_ReturnsOnlyTheEntriesToSet_InOrder()
+        {
+            var unset = new SessionContextEntry("k.one", "1");
+            var equal = new SessionContextEntry("k.two", "2");
+            var writable = new SessionContextEntry("k.three", "3", readOnly: false);
+            var result = ToSet(false, new[] { unset, equal, writable }, null, "2", "old");
+            CollectionAssert.AreEqual(new[] { unset, writable }, result.ToArray());
+        }
+
+        [TestMethod]
+        public void SelectEntriesToSet_ValueCountDiffers_Throws()
+        {
+            var entry = new SessionContextEntry("k.one", "1");
+            Assert.ThrowsException<ArgumentException>(() => ToSet(false, new[] { entry }, "1", "2"));
+        }
+
         /// <summary>Minimal stub exposing the protected audit helpers; CRUD abstracts are not under test.</summary>
         private sealed class StubProvider : OrmDataProvider
         {

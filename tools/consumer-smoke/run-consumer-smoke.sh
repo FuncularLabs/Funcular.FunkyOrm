@@ -9,7 +9,7 @@
 #          [--skip-net48] [--skip-float-check] [--keep] [--expected "Microsoft.Data.SqlClient=6.0.0 Npgsql=9.0.5 ..."]
 set -u
 
-version="3.12.1"
+version="3.13.0"
 configuration="Release"
 expected="Microsoft.Data.SqlClient=6.0.0 Npgsql=9.0.5 MySqlConnector=2.6.2 Microsoft.Data.Sqlite=8.0.32"
 skip_net48=0

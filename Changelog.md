@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.13.0] - 2026-10-27
+
+**Release notes.** The audit context now covers a transaction FunkyORM didn't begin (issue #24). **Upgrade
+recommended** if you use `AuditContextOptions` with a transaction you create yourself. **Behaviour change:** a strict
+provider now throws on such a transaction when no context is present, where before it ran.
+
+### Fixed
+- **A transaction FunkyORM didn't begin skipped the audit context** (#24, every release since 3.8.0). A transaction
+  passed to a provider's constructor, or assigned to its `Transaction` property, was never primed, and
+  `RequireAuditContext = true` wasn't enforced on it: a row-level security policy saw no keys, and a strict provider
+  ran with no context. That included `Delete` and `DeleteAsync`, which always run in a transaction. On SQL Server,
+  PostgreSQL and MySQL, a transaction the provider didn't begin is now primed once, on its first command, `Delete`
+  included:
+  - A strict provider with no context throws `InvalidOperationException`, as on every other path. As at
+    `BeginTransaction()`, the check runs once per transaction, when it is primed.
+  - The keys the connection already holds are read first, in one extra command on that first command only. A key that
+    already holds the entry's value isn't set again, so two providers can share one transaction with the same
+    context. A key that holds a different value throws when the entry is read-only (another identity's context is on
+    the connection) and is overwritten when it isn't; on SQL Server, a key someone else set read-only can't be
+    overwritten (Msg 15664). On PostgreSQL, a setting that reads as an empty string counts as unset.
+  - On PostgreSQL the keys are set inside that transaction, so rolling back to a savepoint taken before FunkyORM's first
+    command undoes them, and they aren't set again in that transaction.
+  - On MySQL, the connection you pass in needs `AllowUserVariables=true`, as the provider's own connections do.
+
+  On SQLite, a strict provider throws its `NotSupportedException` on such a transaction too, `Delete` included.
+  `BeginTransaction()` is unchanged.
+
+### Documentation
+- The Audit Context Runbook, the AI instructions and `SessionContextEntry.ReadOnly`'s XML comment describe the above.
+  The comment no longer says read-only keys are emulated on other providers: only SQL Server enforces them.
+
 ## [3.12.1] - 2026-10-25
 
 **Release notes.** A fix for `bool` properties in SQL Server conditions, and patched minimums for vulnerable packages

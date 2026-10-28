@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = "3.12.1",
+    [string]$Version = "3.13.0",
     [string]$Configuration = "Release",
     [string[]]$Expected = @("Microsoft.Data.SqlClient=6.0.0", "Npgsql=9.0.5", "MySqlConnector=2.6.2", "Microsoft.Data.Sqlite=8.0.32"),
     [switch]$SkipNet48,
