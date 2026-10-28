@@ -64,9 +64,12 @@ Once a provider's `AuditContext.Accessor` is set, FunkyORM does five things for 
 1. **Primes every connection it uses.** Before the first command of an operation, on the connection that
    operation will run on, FunkyORM sends your entries in one parameterized batch (one round trip). The
    connection of a transaction started with `provider.BeginTransaction()` is primed once, when the
-   transaction begins.
+   transaction begins. A transaction it didn't begin (passed to the constructor, or assigned to
+   `Transaction`) is primed once, by its first operation that has a context, with one extra command to
+   read the keys first (3.13.0; see security note 6).
 2. **Fails closed when told to.** With `RequireAuditContext = true` and `Current == null`, FunkyORM throws
-   `InvalidOperationException` before sending your command.
+   `InvalidOperationException` before sending your command. Once a transaction is primed, later operations
+   in it aren't checked again.
 3. **Labels each statement.** With `EmitAuditComment = true`, FunkyORM prepends
    `/* funky:audit sub=… corr=… */` to each text command, after validating both identifiers.
 4. **Exempts its own bootstrap queries.** Schema discovery and table-name resolution run without
@@ -79,7 +82,8 @@ What FunkyORM does **not** provide:
 - any RLS function, security policy, migration or DDL;
 - your database's audit configuration.
 
-FunkyORM never reads the keys back, and **it never calls your RLS function.** The database does that (see
+FunkyORM reads the keys back only on a transaction it didn't begin, to avoid setting them twice (security
+note 6). **It never calls your RLS function.** The database does that (see
 [What happens at runtime](#4-what-happens-at-runtime)).
 
 ---
@@ -322,12 +326,16 @@ Step by step, for one request:
    clears its session context, so the next request cannot inherit this one's identity. FunkyORM primes
    again on the next open.
 
-Two variations:
+Three variations:
 
 - **In a transaction**, `BeginTransaction()` primes the transaction's connection once, before the
   transaction begins. Every command in the transaction reuses that connection, and every one of them sees
   the person. FunkyORM does not prime again inside the transaction; SQL Server would reject a second set
   of a read-only key.
+- **In a transaction FunkyORM didn't begin** (3.13.0), the first operation that has a context primes it,
+  after the same fail-closed check. That connection may already carry keys, so FunkyORM first reads them,
+  in one extra command: keys that already hold your values are left alone, and a read-only entry whose key
+  holds another value throws (security note 6). Later commands in that transaction are not primed again.
 - **FunkyORM's own bootstrap queries** (schema discovery and table-name resolution) run inside a
   `SystemContextScope`: they are not primed, carry no comment and are exempt from fail-closed. Your own
   queries on a strict provider still need a signed-in user.
@@ -401,7 +409,8 @@ SELECT ... FROM record WHERE ...
 ## Fail-closed vs. unauthenticated requests
 
 - `RequireAuditContext = true` → if **no** context is present when a command would run, FunkyORM throws
-  *before* sending your command. Use this on PHI providers.
+  *before* sending your command. Once a transaction is primed, later operations in it aren't checked
+  again (security note 6). Use this on PHI providers.
 - `RequireAuditContext = false` → a missing context primes nothing (opportunistic). Use this for genuinely
   unauthenticated/non-PHI paths (app settings, health checks).
 - **Recommended boundary:** set this per **provider** in your factory (strict providers for PHI
@@ -421,11 +430,29 @@ SELECT ... FROM record WHERE ...
    keys on its connections. It complements, but does not replace, network/database-level controls.
 5. **Connection pooling:** isolation depends on the pool resetting session state between logical opens.
    FunkyORM re-primes per connection lifetime; do not disable connection reset.
-6. **Start transactions with `BeginTransaction()`.** FunkyORM primes in two places only: each connection it
-   opens for an operation, and the connection of a transaction it begins. A transaction you create
-   yourself and pass to the provider's constructor (`new SqlServerOrmDataProvider(cs, connection,
-   transaction)`) is outside both: FunkyORM neither primes that connection nor enforces
-   `RequireAuditContext` for commands on it.
+6. **Transactions FunkyORM didn't begin.** A transaction you create yourself and pass to the provider's
+   constructor (`new SqlServerOrmDataProvider(cs, connection, transaction)`), or assign to its `Transaction`
+   property, is primed by its first operation that has a context and held to `RequireAuditContext`, from
+   3.13.0. Before 3.13.0
+   it was neither (issue #24), so on older versions start transactions with `BeginTransaction()`. The
+   connection's existing keys are read first:
+   - a key that already holds your entry's value is not set again, so two providers can share one
+     transaction under the same context;
+   - a key that holds a different value throws `InvalidOperationException` when your entry is read-only,
+     because another identity's context may be on that connection, and is overwritten when it isn't (on SQL
+     Server, unless whoever set it made it read-only: then SQL Server refuses with Msg 15664);
+   - a key left alone keeps whatever read-only setting it was given;
+   - on PostgreSQL, a setting that reads as an empty string counts as unset.
+
+   Once the transaction is primed, later operations in it aren't checked again (as after
+   `BeginTransaction()`). On PostgreSQL the keys are set inside your transaction, so rolling back to a
+   savepoint taken before FunkyORM primed it restores the values they held before, and FunkyORM doesn't set
+   them again in that transaction. On MySQL, the connection you pass in needs `AllowUserVariables=true`, as
+   the provider's own connections do. Values are compared as text, exactly: if you set the keys yourself
+   (for example, to work around issue #24 before 3.13.0), a typed value whose text form differs, or
+   different casing, counts as a different value.
+
+   On SQLite, a strict provider throws `NotSupportedException` on such a transaction, as everywhere else.
 7. **Don't wrap application data access in `SystemContextScope`.** It is public because FunkyORM's
    providers use it, but inside it priming, the comment and fail-closed are all switched off.
 
@@ -440,7 +467,8 @@ SELECT ... FROM record WHERE ...
 | `Msg 15664: Cannot set key '…' in the session context. The key has been set as read_only for this session.` | You're setting the same `read_only` key yourself outside FunkyORM on the same connection |
 | Context bleeds between users | `AsyncLocal` not set per request, or connection reset disabled |
 | Works for reads, not writes | RLS BLOCK predicate missing or different from the FILTER predicate |
-| A strict provider runs commands with no context | The commands run on a transaction passed to the provider's constructor (security note 6), or inside a `SystemContextScope` (note 7) |
+| `InvalidOperationException: Session-context key '…' already holds a different value on this transaction's connection…` | Your read-only entry's key already holds a different value on a transaction you passed in or assigned: another provider or your own code set it under a different context, or set the same value with a different type or casing (security note 6) |
+| A strict provider runs commands with no context | The commands run inside a `SystemContextScope` (security note 7); or in a transaction that was primed earlier, after the context was cleared (later operations aren't checked again); or on a transaction passed in or assigned on a version before 3.13.0 (note 6) |
 
 ---
 

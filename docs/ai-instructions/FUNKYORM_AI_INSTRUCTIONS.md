@@ -334,6 +334,7 @@ provider.AuditContext = new AuditContextOptions { Accessor = accessor, RequireAu
 *   **Per-provider capability** (FunkyORM throws where unsupported): **SQL Server** & **PostgreSQL** = RLS filtering + attribution; **MySQL** = attribution only (no RLS; needs `AllowUserVariables=true`; keys `[A-Za-z0-9_]`); **SQLite** = no-op (a `RequireAuditContext` provider throws).
 *   **PostgreSQL keys must be dot-namespaced** (e.g. `myapp.user_id`) — FunkyORM passes keys verbatim and errors otherwise; a dotted namespace also works on SQL Server, so it's the portable choice.
 *   **`RequireAuditContext = true`** makes the provider fail-closed (throws when no context is present). Set it per provider for PHI repositories; leave it off for unauthenticated/non-PHI paths.
+*   **A transaction FunkyORM didn't begin** (passed to the constructor, or assigned to `Transaction`) is primed by its first operation that has a context and held to `RequireAuditContext` from 3.13.0; a read-only entry whose key already holds a different value on that connection throws. Before 3.13.0 it was neither, so on older versions start transactions with `BeginTransaction()`.
 *   Keys default to immutable (`read_only`) where supported; never put PII in the audit comment identifiers. Full setup + RLS examples: `docs/guides/AUDIT_CONTEXT_RUNBOOK.md`.
 
 ---

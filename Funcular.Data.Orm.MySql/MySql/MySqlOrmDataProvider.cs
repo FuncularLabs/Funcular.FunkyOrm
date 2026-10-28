@@ -37,6 +37,13 @@ namespace Funcular.Data.Orm.MySql
         /// shared transactional connection. Used to detect invalid concurrent usage during a transaction.
         /// </summary>
         private int _activeTransactionalScopes;
+
+        /// <summary>
+        /// The transaction whose connection this provider has primed with the audit context: one it began, or one it
+        /// didn't begin, once its keys are set (3.13.0, issue #24).
+        /// </summary>
+        private IDbTransaction _auditPrimedTransaction;
+
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
 
         /// <summary>
@@ -180,7 +187,10 @@ namespace Funcular.Data.Orm.MySql
             var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
-            using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, components.SqlParameters))
             {
                 InvokeLogAction(command);
                 var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
@@ -199,7 +209,10 @@ namespace Funcular.Data.Orm.MySql
             var pkColumn = GetCachedColumnName(pk);
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {pkColumn} = @id");
             var param = new MySqlParameter("@id", id);
-            using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, new[] { param }))
             {
                 InvokeLogAction(command);
                 var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
@@ -375,7 +388,10 @@ namespace Funcular.Data.Orm.MySql
             var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
-            using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, components.SqlParameters))
             {
                 InvokeLogAction(command);
                 var affected = command.ExecuteNonQuery();
@@ -394,7 +410,10 @@ namespace Funcular.Data.Orm.MySql
             var pkColumn = GetCachedColumnName(pk);
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {pkColumn} = @id");
             var param = new MySqlParameter("@id", id);
-            using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, new[] { param }))
             {
                 InvokeLogAction(command);
                 var affected = command.ExecuteNonQuery();
@@ -422,6 +441,7 @@ namespace Funcular.Data.Orm.MySql
             // Prime per-request session context once for the transaction's connection, before it begins.
             PrimeConnectionWithAuditContext(Connection);
             Transaction = Connection?.BeginTransaction(IsolationLevel.ReadCommitted);
+            _auditPrimedTransaction = Transaction;
             TransactionName = name ?? string.Empty;
         }
 
@@ -494,17 +514,77 @@ namespace Funcular.Data.Orm.MySql
         {
             var context = ResolveAuditContextForPriming();
             if (context == null) return;
-            var entries = context.Entries;
+            SetSessionContext(connection, context.Entries);
+        }
+
+        /// <summary>
+        /// Primes a transaction this provider didn't begin (passed to the constructor, or assigned to
+        /// <see cref="Transaction"/>) once, by its first operation with a context (3.13.0, issue #24); one
+        /// <see cref="BeginTransaction"/>
+        /// began was primed there and is skipped. Throws when the provider requires a context and none is present. The
+        /// connection may already hold the variables (another provider, or the application, set them), so they are read
+        /// first: a variable holding the entry's value is not set again, and a read-only entry whose variable holds
+        /// another value throws. The transaction is marked primed only once its variables are set, so a bootstrap query
+        /// under a <see cref="SystemContextScope"/>, or a lenient operation with no context, leaves it to the next command.
+        /// </summary>
+        protected internal void PrimeTransactionWithAuditContext(IDbConnection connection)
+        {
+            if (ReferenceEquals(_auditPrimedTransaction, Transaction)) return;
+            var entries = ResolveAuditContextForPriming()?.Entries;
             if (entries == null || entries.Count == 0) return;
+            ValidateSessionContextKeys(entries);
+
+            var existing = ReadSessionContext(connection, entries);
+            SetSessionContext(connection, SelectSessionContextEntriesToSet(entries, existing, emptyMeansUnset: false));
+            _auditPrimedTransaction = Transaction;
+        }
+
+        /// <summary>Keys become variable names in the SQL text, so each must match [A-Za-z0-9_].</summary>
+        private static void ValidateSessionContextKeys(IReadOnlyList<SessionContextEntry> entries)
+        {
+            foreach (var entry in entries)
+                if (!IsSafeVariableName(entry.Key))
+                    throw new InvalidOperationException(
+                        "MySQL session-context key '" + entry.Key + "' is invalid; keys must match [A-Za-z0-9_].");
+        }
+
+        /// <summary>The connection's current value of each entry's variable (null when unset), in one command.</summary>
+        private string[] ReadSessionContext(IDbConnection connection, IReadOnlyList<SessionContextEntry> entries)
+        {
+            var sql = new StringBuilder("SELECT ");
+            for (var index = 0; index < entries.Count; index++)
+            {
+                if (index > 0) sql.Append(", ");
+                sql.Append("CAST(@").Append(entries[index].Key).Append(" AS CHAR)");
+            }
+
+            using (var command = new MySqlCommand(sql.ToString(), (MySqlConnection)connection))
+            {
+                if (Transaction != null && ReferenceEquals(connection, Connection))
+                    command.Transaction = (MySqlTransaction)Transaction;
+                InvokeLogAction(command);
+                using (var reader = command.ExecuteReader())
+                {
+                    reader.Read();
+                    var values = new string[entries.Count];
+                    for (var index = 0; index < values.Length; index++)
+                        values[index] = reader.IsDBNull(index) ? null : reader.GetString(index);
+                    return values;
+                }
+            }
+        }
+
+        /// <summary>Sets <paramref name="entries"/> as session variables with one SET statement; none, no command.</summary>
+        private void SetSessionContext(IDbConnection connection, IReadOnlyList<SessionContextEntry> entries)
+        {
+            if (entries == null || entries.Count == 0) return;
+            ValidateSessionContextKeys(entries);
 
             var sql = new StringBuilder("SET ");
             var parameters = new List<MySqlParameter>(entries.Count);
             var index = 0;
             foreach (var entry in entries)
             {
-                if (!IsSafeVariableName(entry.Key))
-                    throw new InvalidOperationException(
-                        "MySQL session-context key '" + entry.Key + "' is invalid; keys must match [A-Za-z0-9_].");
                 if (index > 0) sql.Append(", ");
                 sql.Append("@").Append(entry.Key).Append(" = @__scv").Append(index);
                 parameters.Add(new MySqlParameter("@__scv" + index, entry.Value));
@@ -1521,6 +1601,7 @@ namespace Funcular.Data.Orm.MySql
         {
             Transaction.Dispose();
             Transaction = null;
+            _auditPrimedTransaction = null;
             TransactionName = null;
             CloseConnectionIfNoTransaction();
         }
@@ -1636,6 +1717,19 @@ namespace Funcular.Data.Orm.MySql
                             "It can also surface from re-entrant (nested) use on a single thread — " +
                             "e.g. invoking a provider operation that opens its own connection from " +
                             "inside another operation on the same transactional provider.");
+                    }
+
+                    // A transaction the provider didn't begin is primed here, once (3.13.0, issue #24). A throw
+                    // (fail-closed, or another identity's variables on the connection) releases the guard first, so
+                    // the provider stays usable.
+                    try
+                    {
+                        provider.PrimeTransactionWithAuditContext(provider.GetConnection());
+                    }
+                    catch
+                    {
+                        Interlocked.Decrement(ref provider._activeTransactionalScopes);
+                        throw;
                     }
                 }
                 else

@@ -244,7 +244,10 @@ namespace Funcular.Data.Orm.Sqlite
             var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
-            using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, components.SqlParameters))
             {
                 InvokeLogAction(command);
                 var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
@@ -263,7 +266,10 @@ namespace Funcular.Data.Orm.Sqlite
             var pkColumn = GetCachedColumnName(pk);
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {pkColumn} = @id");
             var param = new SqliteParameter("@id", id);
-            using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, new[] { param }))
             {
                 InvokeLogAction(command);
                 var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
@@ -424,7 +430,10 @@ namespace Funcular.Data.Orm.Sqlite
             var components = GenerateWhereClause(predicate, operation: WhereOperation.MassMutation); // the shared path, flagged (D-128)
             var tableName = GetTableName<T>();
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {components.WhereClause}");
-            using (var command = BuildSqlCommandObject(commandText, Connection, components.SqlParameters))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, components.SqlParameters))
             {
                 InvokeLogAction(command);
                 var affected = command.ExecuteNonQuery();
@@ -443,7 +452,10 @@ namespace Funcular.Data.Orm.Sqlite
             var pkColumn = GetCachedColumnName(pk);
             var commandText = Dialect.BuildDeleteCommand(tableName, $" WHERE {pkColumn} = @id");
             var param = new SqliteParameter("@id", id);
-            using (var command = BuildSqlCommandObject(commandText, Connection, new[] { param }))
+            // Inside a ConnectionScope, so a transaction the provider didn't begin is primed (or a strict provider
+            // fails closed) before the delete, as for every other operation (3.13.0, issue #24).
+            using (var scope = new ConnectionScope(this))
+            using (var command = BuildSqlCommandObject(commandText, scope.Connection, new[] { param }))
             {
                 InvokeLogAction(command);
                 var affected = command.ExecuteNonQuery();
@@ -1412,6 +1424,18 @@ namespace Funcular.Data.Orm.Sqlite
                             "It can also surface from re-entrant (nested) use on a single thread — " +
                             "e.g. invoking a provider operation that opens its own connection from " +
                             "inside another operation on the same transactional provider.");
+                    }
+
+                    // A transaction the provider didn't begin is held to the same guard (3.13.0, issue #24); a throw
+                    // releases the concurrency guard first, so the provider stays usable.
+                    try
+                    {
+                        provider.GuardAuditContextUnsupported();
+                    }
+                    catch
+                    {
+                        Interlocked.Decrement(ref provider._activeTransactionalScopes);
+                        throw;
                     }
                 }
                 else
