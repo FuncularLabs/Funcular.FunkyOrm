@@ -72,6 +72,9 @@ namespace Funcular.Data.Orm.Sqlite.Tests
                     };
                     Assert.ThrowsException<NotSupportedException>(() => provider.GetList<Widget>());
                     Assert.ThrowsException<NotSupportedException>(() => provider.Delete<Widget>(w => w.Id == 1));
+                    Assert.ThrowsException<NotSupportedException>(() => provider.Delete<Widget>(1L));
+                    Assert.ThrowsException<NotSupportedException>(() => provider.DeleteAsync<Widget>(w => w.Id == 1).GetAwaiter().GetResult());
+                    Assert.ThrowsException<NotSupportedException>(() => provider.DeleteAsync<Widget>(1L).GetAwaiter().GetResult());
 
                     // The throw released the transactional guard: the provider works once it is lenient.
                     provider.AuditContext = new AuditContextOptions { Accessor = new TestAccessor(), RequireAuditContext = false };

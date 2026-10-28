@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Funcular.Data.Orm;
 using Funcular.Data.Orm.PostgreSql;
 using Npgsql;
@@ -109,6 +110,26 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 accessor.Current = Context(a);
                 db.Insert(new RlsDemo { OwnerId = a, Payload = "recovered" });
                 Assert.IsTrue(db.GetList<RlsDemo>().Any(r => r.Payload == "recovered"));
+                transaction.Rollback();
+            }
+        }
+
+        [TestMethod]
+        public async Task ExternalTransaction_Deletes_Strict_NoContext_Throw()
+        {
+            using (var connection = Open())
+            using (var transaction = connection.BeginTransaction())
+            {
+                var db = new PostgreSqlOrmDataProvider(_rlsConnectionString, connection, transaction) { AuditContext = Options(new TestAccessor()) };
+
+                StringAssert.Contains(Assert.ThrowsException<InvalidOperationException>(() => db.Delete<RlsDemo>(r => r.OwnerId == "nobody")).Message,
+                    "An audit context is required");
+                StringAssert.Contains(Assert.ThrowsException<InvalidOperationException>(() => db.Delete<RlsDemo>(-1L)).Message,
+                    "An audit context is required");
+                StringAssert.Contains((await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => db.DeleteAsync<RlsDemo>(r => r.OwnerId == "nobody"))).Message,
+                    "An audit context is required");
+                StringAssert.Contains((await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => db.DeleteAsync<RlsDemo>(-1L))).Message,
+                    "An audit context is required");
                 transaction.Rollback();
             }
         }

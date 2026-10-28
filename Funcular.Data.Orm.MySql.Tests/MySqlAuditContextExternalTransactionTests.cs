@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Funcular.Data.Orm;
 using Funcular.Data.Orm.MySql.Tests.Domain;
 using MySqlConnector;
@@ -107,9 +110,32 @@ namespace Funcular.Data.Orm.MySql.Tests
                     Current = new FunkyAuditContext { Entries = new[] { new SessionContextEntry("bad-key", "v") } },
                 };
                 var db = Provider(accessor, connection, transaction);
+                var log = new List<string>();
+                db.Log = log.Add;
 
                 var ex = Assert.ThrowsException<InvalidOperationException>(() => db.Query<Person>(p => p.Id == -1));
                 StringAssert.Contains(ex.Message, "[A-Za-z0-9_]");
+                Assert.IsFalse(log.Any(l => l.Contains("CAST(@") || l.StartsWith("SET @")), "no read or set may be sent");
+                transaction.Rollback();
+            }
+        }
+
+        [TestMethod]
+        public async Task ExternalTransaction_Deletes_Strict_NoContext_Throw()
+        {
+            using (var connection = Open())
+            using (var transaction = connection.BeginTransaction())
+            {
+                var db = Provider(new TestAccessor(), connection, transaction);
+
+                StringAssert.Contains(Assert.ThrowsException<InvalidOperationException>(() => db.Delete<Person>(p => p.Id == -1)).Message,
+                    "An audit context is required");
+                StringAssert.Contains(Assert.ThrowsException<InvalidOperationException>(() => db.Delete<Person>(-1L)).Message,
+                    "An audit context is required");
+                StringAssert.Contains((await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => db.DeleteAsync<Person>(p => p.Id == -1))).Message,
+                    "An audit context is required");
+                StringAssert.Contains((await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => db.DeleteAsync<Person>(-1L))).Message,
+                    "An audit context is required");
                 transaction.Rollback();
             }
         }

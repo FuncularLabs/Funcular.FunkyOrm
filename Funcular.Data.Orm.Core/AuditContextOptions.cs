@@ -11,10 +11,10 @@ namespace Funcular.Data.Orm
         public IAuditContextAccessor? Accessor { get; set; }
 
         /// <summary>
-        /// When true, the provider throws if a command would run with no ambient context (fail-closed). In a
-        /// transaction, the check runs once, when the transaction is primed: at <c>BeginTransaction()</c>, or on the
-        /// first operation in a transaction the provider didn't begin (3.13.0). Use on PHI providers. When false, a
-        /// missing context simply primes nothing (opportunistic).
+        /// When true, the provider throws if a command would run with no ambient context (fail-closed). Once a
+        /// transaction is primed (at <c>BeginTransaction()</c>, or, from 3.13.0, by the first operation with a context
+        /// in a transaction the provider didn't begin), later operations in it aren't checked again. Use on PHI
+        /// providers. When false, a missing context simply primes nothing (opportunistic).
         /// </summary>
         public bool RequireAuditContext { get; set; }
 

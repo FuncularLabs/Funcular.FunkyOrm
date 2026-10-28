@@ -225,6 +225,13 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         }
 
         [TestMethod]
+        public void SelectEntriesToSet_ComparesOrdinally_CaseDifferenceIsAMismatch()
+        {
+            var entry = new SessionContextEntry("myapp.user_id", "A");
+            Assert.ThrowsException<InvalidOperationException>(() => ToSet(false, new[] { entry }, "a"));
+        }
+
+        [TestMethod]
         public void SelectEntriesToSet_ValueCountDiffers_Throws()
         {
             var entry = new SessionContextEntry("k.one", "1");

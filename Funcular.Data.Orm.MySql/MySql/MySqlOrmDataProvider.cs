@@ -43,6 +43,7 @@ namespace Funcular.Data.Orm.MySql
         /// didn't begin, once its keys are set (3.13.0, issue #24).
         /// </summary>
         private IDbTransaction _auditPrimedTransaction;
+
         internal static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnOrdinalsCache = new ConcurrentDictionary<string, Dictionary<string, int>>();
 
         /// <summary>

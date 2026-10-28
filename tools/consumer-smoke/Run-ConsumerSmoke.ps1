@@ -11,7 +11,7 @@
   Also fails if any driver PackageReference in the five library csprojs floats (contains '*').
 
 .PARAMETER Version
-  The package version to pack and install (the csprojs' <Version>). Default 3.12.1.
+  The package version to pack and install (the csprojs' <Version>). Default 3.13.0.
 .PARAMETER Expected
   name=version pairs the app checks: the informational version of each driver assembly a consumer gets.
 .PARAMETER SkipNet48
