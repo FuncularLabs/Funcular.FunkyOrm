@@ -10,6 +10,18 @@
 >   MySQL's `user` also leak; they are recorded in §6 for a follow-up.
 > - Owner directive for 3.10 (2026-10-03): keep it simple, no edge-case accommodation.
 
+> **2026-11-02 (rev 14): ships in 3.14.0, not 3.10.0.** The branch (CLEAN at `9c37ac0`) was never pushed; it was
+> merged into `development/3.14.0` on 2026-11-02 (merge `48dd2d7`; two adjacent-insert conflicts, both kept both
+> sides; the fixtures were byte-identical from the branch base to 3.13.0) and re-verified on master's test suites
+> (docs/plans/RELEASE_3.14.0_PLAN.md, stream H). Owner decisions taken as defaults there: OD-4 the net48 project stays
+> without coverlet; OD-5 `MySqlTestFixture.cs` at 68.2 % accepted; OD-6 the SQL Server EntityFramework comparison
+> class keeps its carve-out: it is compiled under `PERFORMANCE_TESTS` only, and under that symbol its
+> `EfSqlDataProvider` no longer compiles (14 × CS0535: `IOrmDataProvider` gained `ExecScalarAsync`, `ExecNonQueryAsync`
+> and others since the harness was written), so the class is dead code that cannot run or leak; a wiring was written,
+> found unverifiable, and withdrawn. Reviving or deleting the harness is a backlog item. Found on master:
+> `MySqlProviderScopedCacheTests.MapperCache_IsScoped_ThroughARealRead` needed a leaked row (the MySQL schema seeds
+> none); it now inserts and deletes its own. The leftover rows of §5/§9 are untouched.
+>
 > **Status (2026-10-03):** rev 13. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in
 > rev 3 (`f4d33a0`). Its re-review (§9.3) is **CLEAN** with 2 non-blocking findings, folded into rev 4 (`b406abd`).

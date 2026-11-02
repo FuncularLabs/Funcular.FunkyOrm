@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.14.0] - unreleased
+
+### Tests
+- **The integration suites no longer add rows to `person` and its related tables on each run** (`address`,
+  `person_address`, `organization`, `country`, and the project tables where the schema has them). Runs used to add
+  `person` rows to the shared test databases: SQL Server 177, PostgreSQL 87, MySQL 59 (measured), net48 101 (counted
+  from its tests). The tests that left those rows now delete them by primary key after each test; the tests built on
+  the shared fixtures and the classes that used to leak fail when a test changes those tables' row counts. The MySQL
+  scoped-cache read test seeds its own row instead of relying on one left behind. `rls_demo`, `non_identity_*`,
+  MySQL's `user`, and SQL Server's EntityFramework comparison class (compiled under `PERFORMANCE_TESTS` only, and not
+  compiling there since the provider interface grew) still collect rows if run; a follow-up covers them. No library
+  change.
+
 ## [3.13.0] - 2026-10-27
 
 **Release notes.** The audit context now covers a transaction FunkyORM didn't begin (issue #24). **Upgrade
