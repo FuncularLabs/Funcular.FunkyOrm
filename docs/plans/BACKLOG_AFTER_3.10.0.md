@@ -667,34 +667,51 @@ When it is scheduled:
 
 Sources are on master unless a branch is named. Each needs an owner decision before work starts.
 
-| # | Issue | Source |
-|---|---|---|
-| 1 | The ORDER BY visitors' `OrderByClause` getter writes "Generated ORDER BY clause" to stdout (all four) | operator plan §8 |
-| 2 | `GenerateOrderByClause` is dead code (three providers) | operator plan §8 |
-| 3 | SQL Server: `OrderBy(computedSubquery).Select(…).Distinct()` fails ("ORDER BY items must appear in the select list") | operator plan §8 |
-| 4 | The net48 test project should become SDK-style (`dotnet build` leaves out `System.Memory.dll`) | operator plan §8 |
-| 5 | PostgreSQL: an enum WHERE parameter throws `InvalidCastException` (reading enums works) | operator plan §8 |
-| 6 | `.HasValue` on a captured or static value in an ORDER BY ternary is read as an entity column | operator plan §8 |
-| 7 | An ORDER BY ternary comparison that the compiler wraps in `ConvertChecked` (`char`, `byte`, `short`, `int` vs `long`) throws | operator plan §8 |
-| 8 | Unordered default paging hard-codes `id` (wrong for other key names) | operator plan §8 |
-| 9 | PostgreSQL sorts NULLs last (LINQ first); `NULLS FIRST`/`LAST` is a candidate | operator plan §8; `Advanced.md` §5 |
-| 10 | A predicate or ordering after a subset `Select` reads base columns, not the projected values | operator plan §8 |
-| 11 | Over an interface-typed source, interface members don't get the entity's mapped column | operator plan §8 |
-| 12 | A generic helper constrained to an interface (`Convert(x, IHasId).Id`) fails in every WHERE translator | operator plan §8 |
-| 13 | `is IOrderedQueryable` sort helpers crash on composed queries | GitHub #16 |
-| 14 | PostgreSQL WHERE timestamps depend on whether Npgsql or FunkyORM starts first (`EnableLegacyTimestampBehavior`) | operator plan §8 |
-| 15 | SQL Server: an ORDER BY ternary with a constant test that selects a constant branch fails (errors 408/1008) | operator plan §8 |
-| 16 | SQL Server `DateTime` under a day-first session language is read day-first | operator plan §8 |
-| 17 | SQLite provider state isn't safe for concurrent execution from one root | operator plan §8 |
-| 18 | A collection holding null drops it from `IN (…)` (fewer rows) | I1-6 plan §8 (branch F) |
-| 19 | The `StringComparison` overloads and `Enumerable.Contains` comparers are ignored (the server decides) | I1-6 plan §8; LIKE plan §6 |
-| 20 | A `[NotMapped]` member used as an item or receiver is sent as a column (server error) | I1-6 plan §8 |
-| 21 | The visitor drops the inner exception, and a closure property read can let `TargetInvocationException` escape | I1-6 plan §8 |
-| 22 | `req == null \|\| ids.Contains(req.Id)` with `req` null still throws (both sides are evaluated) | I1-6 plan §8 |
-| 23 | SQL Server: a supplementary-plane character in a `LIKE` pattern matches every row under `SQL_Latin1_General_CP1_CI_AS` (a collation behavior: §1.1's collation rule) | LIKE plan §6 (branch G) |
-| 24 | A `CHAR(n)` column's padding breaks `EndsWith` on SQL Server and PostgreSQL; `LIKE` patterns are limited to 8,000 bytes on SQL Server (escaping can double a value's length) | LIKE plan §6 |
-| 25 | Date-part translation uses the unqualified column (ambiguous with joins) | caches plan §9.15 FVE-1 |
-| 26 | SQLite base without a `rowid` and one remote join: unordered paging fails | Changelog 3.10.0 |
+| # | Issue | Source | Status (2026-11-02 pass, for 3.14.0) |
+|---|---|---|---|
+| 1 | The ORDER BY visitors' `OrderByClause` getter writes "Generated ORDER BY clause" to stdout (all four) | operator plan §8 | FIXED 3.11.0 (Changelog, console output) |
+| 2 | `GenerateOrderByClause` is dead code (three providers) | operator plan §8 | OPEN, engineering (dead code still present 3.13.0) |
+| 3 | SQL Server: `OrderBy(computedSubquery).Select(…).Distinct()` fails ("ORDER BY items must appear in the select list") | operator plan §8 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md, SQL Server) |
+| 4 | The net48 test project should become SDK-style (`dotnet build` leaves out `System.Memory.dll`) | operator plan §8 | OPEN, engineering (both net48 csprojs old-style) |
+| 5 | PostgreSQL: an enum WHERE parameter throws `InvalidCastException` (reading enums works) | operator plan §8 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md, PostgreSQL); fix sketched in RELEASE_3.14.0_PLAN.md §6.4 |
+| 6 | `.HasValue` on a captured or static value in an ORDER BY ternary is read as an entity column | operator plan §8 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md, ORDER BY ternaries) |
+| 7 | An ORDER BY ternary comparison that the compiler wraps in `ConvertChecked` (`char`, `byte`, `short`, `int` vs `long`) throws | operator plan §8 | OPEN, not re-verified since 3.10 (same entry) |
+| 8 | Unordered default paging hard-codes `id` (wrong for other key names) | operator plan §8 | OPEN, documented (KNOWN_ISSUES.md: unordered paging sorts by a column named `id`) |
+| 9 | PostgreSQL sorts NULLs last (LINQ first); `NULLS FIRST`/`LAST` is a candidate | operator plan §8; `Advanced.md` §5 | OPEN, documented (KNOWN_ISSUES.md, PostgreSQL NULLs last; `NULLS FIRST` a candidate) |
+| 10 | A predicate or ordering after a subset `Select` reads base columns, not the projected values | operator plan §8 | FIXED 3.14.0 (the policy rejects the read before any query) |
+| 11 | Over an interface-typed source, interface members don't get the entity's mapped column | operator plan §8 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md; Advanced.md §5) |
+| 12 | A generic helper constrained to an interface (`Convert(x, IHasId).Id`) fails in every WHERE translator | operator plan §8 | OPEN, documented (Advanced.md §5; KNOWN_ISSUES.md) |
+| 13 | `is IOrderedQueryable` sort helpers crash on composed queries | GitHub #16 | CLOSED: behaviour kept and documented, EF-identical (Changelog 3.12.0; GitHub #16 closed 2026-10-25) |
+| 14 | PostgreSQL WHERE timestamps depend on whether Npgsql or FunkyORM starts first (`EnableLegacyTimestampBehavior`) | operator plan §8 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md, PostgreSQL) |
+| 15 | SQL Server: an ORDER BY ternary with a constant test that selects a constant branch fails (errors 408/1008) | operator plan §8 | OPEN, not re-verified since 3.10 (same entry as #6/#7) |
+| 16 | SQL Server `DateTime` under a day-first session language is read day-first | operator plan §8 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md, SQL Server) |
+| 17 | SQLite provider state isn't safe for concurrent execution from one root | operator plan §8 | OPEN, not re-verified since 3.10; may overlap 3.10.0's sequential-reuse fix (KNOWN_ISSUES.md, SQLite) |
+| 18 | A collection holding null drops it from `IN (…)` (fewer rows) | I1-6 plan §8 (branch F) | FIXED 3.12.0 (Changelog: a null item in a collection) |
+| 19 | The `StringComparison` overloads and `Enumerable.Contains` comparers are ignored (the server decides) | I1-6 plan §8; LIKE plan §6 | OPEN, not re-verified since 3.10 (KNOWN_ISSUES.md: comparers ignored) |
+| 20 | A `[NotMapped]` member used as an item or receiver is sent as a column (server error) | I1-6 plan §8 | FIXED 3.11.0 (rejected with a clear message) |
+| 21 | The visitor drops the inner exception, and a closure property read can let `TargetInvocationException` escape | I1-6 plan §8 | PARTLY FIXED 3.11.0 (the inner exception is kept); the TargetInvocationException half not re-verified |
+| 22 | `req == null \|\| ids.Contains(req.Id)` with `req` null still throws (both sides are evaluated) | I1-6 plan §8 | FIXED 3.11.0 per the Changelog (the null check now prevents the evaluation); the 2026-10-25 report's contrary note is unprobed |
+| 23 | SQL Server: a supplementary-plane character in a `LIKE` pattern matches every row under `SQL_Latin1_General_CP1_CI_AS` (a collation behavior: §1.1's collation rule) | LIKE plan §6 (branch G) | OPEN, recorded (KNOWN_ISSUES.md, SQL Server collation) |
+| 24 | A `CHAR(n)` column's padding breaks `EndsWith` on SQL Server and PostgreSQL; `LIKE` patterns are limited to 8,000 bytes on SQL Server (escaping can double a value's length) | LIKE plan §6 | OPEN, recorded (KNOWN_ISSUES.md, SQL Server/PostgreSQL CHAR(n) and LIKE limits) |
+| 25 | Date-part translation uses the unqualified column (ambiguous with joins) | caches plan §9.15 FVE-1 | FIXED 3.11.0 (date parts table-qualified) |
+| 26 | SQLite base without a `rowid` and one remote join: unordered paging fails | Changelog 3.10.0 | OPEN, documented (Changelog 3.10.0; KNOWN_ISSUES.md, SQLite) |
+
+### Appendix A.1 — Engineering items, as of 3.14.0 (2026-11-02; not user-facing, so not in docs/KNOWN_ISSUES.md)
+
+| Item | Status |
+|---|---|
+| A local pack can ship a stale `Funcular.Data.Orm.dll` after an incremental Release build (3.13.0 readiness report) | OPEN: build `--no-incremental` before a local pack; CI packs clean |
+| The published nupkg's DLL versions are checked only by hand after each publish | OPEN: 3.14.0's publish job verifies the strong names of every DLL in the nupkg; the version check stays manual |
+| Carried doc nits: `NullSemantics.cs:43` quotes a Changelog title short (T8N-4); README links the deprecated AI stubs | OPEN |
+| 3.13.0's carried nits: three guard comments say "another identity's keys"; reflowed comment lines; "a context with entries" | OPEN (comments only) |
+| `GenerateOrderByClause` is dead code in the SQL Server, PostgreSQL and MySQL providers (#2) | OPEN |
+| The net48 test projects are old-style csprojs; `dotnet build` leaves out `System.Memory.dll` (#4) | OPEN: 3.14.0's CI job builds them with VS MSBuild |
+| `Funcular.Data.Orm.NetFramework.Tests` references a csproj that does not exist and is not in the solution | OPEN: delete or repair |
+| The EntityFramework comparison harness (`SqlServer.Tests/EntityFramework/`) is compiled under `PERFORMANCE_TESTS` only and no longer compiles there (`EfSqlDataProvider` lacks the `Exec*` members `IOrmDataProvider` gained in 3.7.0) | OPEN: revive or delete (found 2026-11-02, TEST_ROW_HYGIENE_PLAN.md rev 14) |
+| On an empty database the computed-attribute and JSON-path classes create two reference organizations once with raw SQL, before the row ledger counts | OPEN: seed them from the data scripts or delete them in a `ClassCleanup` (TEST_ROW_HYGIENE_PLAN.md rev 14) |
+| The SQL Server data script's 50 `project` inserts fail their FK to `organization` on a fresh database (Msg 547); CI runs it without `-b` | OPEN: seed the organizations first, or run with `-b` once fixed |
+| The ten Appendix A rows marked "not re-verified since 3.10" (#3, #5, #6, #7, #11, #14, #15, #16, #17, #19) | OPEN: one probe each on 3.14.0, then fix or keep |
+| The audit-key check uses `char.IsLetterOrDigit` while the docs say `[A-Za-z0-9_]`; the runbook blames MySQL naming for dotted keys (MySQL allows `.` and `$`) | OPEN (KNOWN_ISSUES.md, MySQL) |
 
 ## Appendix B — Evidence for WPs A and B (executed 2026-10-05)
 

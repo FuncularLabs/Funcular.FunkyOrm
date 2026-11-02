@@ -59,6 +59,19 @@ All notable changes to this project will be documented in this file.
   compiled under `PERFORMANCE_TESTS` only and no longer compiles there (its provider predates the stored-procedure
   members of 3.7.0), so it is not run. No library change.
 
+### Known issues
+- **One list from now on.** [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) holds every open item as of 3.14.0 (51
+  entries, grouped by area, each with the release that first recorded it and a workaround or the by-design reason;
+  the ten recorded against 3.10 that nobody has re-run since are marked as such). It replaces the per-release
+  Known issues sections of 3.10.0 through 3.12.1, which now point at it; each release from here records only the
+  delta. Fixed by 3.14.0, so absent from the list: the three exception types a consumer could not name (Fixed) and
+  a lambda after a column-subset `Select` reading a member the projection did not copy (Changed). Closed by this
+  release's other work: the assemblies are strong-named, net48 runs in CI, and the integration suites no longer
+  leave rows. New since 3.13.0 and still open: none beyond the list.
+- **CI** (no Changelog entry at the time): since 3.13.0 (commit 7c4e6ac) the NuGet push runs with
+  `--skip-duplicate`, so a docs-only merge to master no longer turns CI red; the price is that a forgotten version
+  bump publishes nothing silently, so the publish log is checked on every release.
+
 ## [3.13.0] - 2026-10-27
 
 **Release notes.** The audit context now covers a transaction FunkyORM didn't begin (issue #24). **Upgrade
@@ -132,6 +145,7 @@ warnings as errors.
   9.0.0.0 when Pkcs reads ASN.1.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - The 3.12.0 Known issues still apply.
 
 ## [3.12.0] - 2026-10-24
@@ -314,6 +328,7 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 - The never-built `[ReadModel]` proposal is withdrawn from the plans; there is no read-only entity attribute.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - **A conditional compared in its branches can nest one `CASE` more than 3.11.0:** each branch's comparison is a
   two-valued `CASE`, which adds a level where the predicate's deepest part is a branch or the other operand rather
   than a test (a branch that is a conditional at least as deep as the test, or another conditional one level shallower
@@ -680,6 +695,7 @@ before:
   is unchanged and shares its date-part SQL.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - **`Length` counts what the database counts.** All four providers count characters (code points), where C#'s
   `Length` counts UTF-16 code units, so a string holding a character outside the Basic Multilingual Plane (an emoji)
   is one shorter in SQL than in C# (SQL Server under a non-`_SC` collation counts as C# does). A `CHAR(n)` column's
@@ -745,7 +761,9 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
   `OrmDataProvider`) prepare the key.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - The aggregate fixes listed under 3.10.0's Known issues are now planned for the next release (3.11.0).
+  *They shipped in 3.11.0.*
 - `Update` of an entity whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server and PostgreSQL) still
   fails, as in 3.10.0: the UPDATE statement's own key parameter isn't converted yet.
 
@@ -982,6 +1000,7 @@ Other changes:
   collation; the database's collation decides them, as before.
 
 ### Known issues (fixes planned for 3.10.1)
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 Aggregates keep their 3.9 behavior in 3.10.0:
 - `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
   and SQLite.

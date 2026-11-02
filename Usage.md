@@ -117,7 +117,7 @@ While FunkyORM is designed to be forgiving, there are a few things to watch out 
 
 3.  **Complex LINQ Queries**: We support a subset of LINQ optimized for SQL generation. Highly complex in-memory operations (like custom method calls inside a `.Where()` clause) may not translate to SQL. Keep your predicates simple and focused on data filtering.
 
-4.  **Nullable Properties in LINQ Expressions**: FunkyORM automatically unwraps nullable types during SQL translation. Do **not** use `.Value` or `.HasValue` in your LINQ expressions—the ORM translates them literally as SQL column names (e.g., `HospitalId.Value`), which produces invalid SQL. Use the nullable property directly instead.
+4.  **Nullable Properties in LINQ Expressions**: FunkyORM automatically unwraps nullable types during SQL translation. Do **not** use `.Value` or `.HasValue` in your LINQ expressions—since 3.11.0 the translator rejects them with `NullableExpressionException` before any query (earlier releases sent them as invalid column names). Use the nullable property directly instead.
 
     ```csharp
     // GOOD: Use the nullable property directly
