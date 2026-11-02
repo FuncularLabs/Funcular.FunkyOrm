@@ -229,11 +229,25 @@ namespace Funcular.Data.Orm.MySql.Tests
         [TestMethod]
         public void Distinct_OrderByUnprojectedColumn_Throws()
         {
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            // Since 3.14.0 the operator policy rejects the read of an unprojected member before any SQL is built
+            // (NotSupportedException); the ordering-before-the-Select form below still reaches the Distinct-key check.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
                 SeededScorecards()
                     .Select(p => new ProjectScorecard { Name = p.Name })
                     .Distinct()
                     .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+            StringAssert.Contains(ex.Message, "after a column-subset Select reads Score,");
+        }
+
+        [TestMethod]
+        public void OrderByUnprojected_ThenSubsetSelect_Distinct_ThrowsTheDistinctKeyCheck()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .OrderBy(p => p.Score) // ordered before the projection: the policy allows it
+                    .Select(p => new ProjectScorecard { Name = p.Name })
+                    .Distinct()
                     .ToList());
         }
 

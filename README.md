@@ -347,6 +347,8 @@ db.Query<ProjectScorecard>().OrderBy(p => p.EffectiveScore).Distinct();   // ful
 db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name }).Distinct();
 db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name })
                             .Distinct().OrderBy(p => p.Name);       // order key is in the projection — OK
+// .Select(p => new ProjectScorecard { Name = p.Name }).OrderBy(p => p.Score)   // throws (3.14.0): Score wasn't projected,
+//                                                                               // so LINQ and SQL would disagree; order first
 ```
 
 **Documented limits (clear errors, by design):**

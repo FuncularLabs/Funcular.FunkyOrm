@@ -14,6 +14,21 @@ All notable changes to this project will be documented in this file.
   unchanged. There is no binary compatibility with 3.13.0 in any case (3.14.0's assemblies carry a new strong name;
   see Changed): recompile against 3.14.0.
 
+### Changed
+- **A lambda after a column-subset `Select` that reads a member the projection did not copy from itself now throws
+  before any query.** `Query<T>().Select(x => new T { Id = x.Id }).Where(t => t.Name == "x")` ran and filtered on
+  the base table's `name` column, where LINQ to objects would see `Name` at its default; the same for an ordering, a
+  predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` after the subset.
+  It is now `NotSupportedException`, naming the operator and the member, with no SQL sent (all four providers; the
+  rule is in the Core operator policy). A member counts as projected only when the `Select` copies it from itself
+  (`Name = x.Name`): the key is unprojected unless projected, and a member bound from another member
+  (`FirstName = x.LastName`) or from a constant is not projected either, since reading it would diverge the same
+  way. Reads of projected members (`Select(subset).Distinct().OrderBy(p => p.Name)` with `Name` projected) still
+  work, as do `Distinct`, `Skip`/`Take`, `Cast`/`OfType` and the parameterless terminals after the subset. One
+  message changed: ordering a `Select(subset).Distinct()` by an unprojected column was `InvalidOperationException`
+  from the DISTINCT key check; it is now the policy's `NotSupportedException` (the key check still guards an
+  ordering placed before the `Select`). Documented in Advanced.md §5 and the AI instructions.
+
 ### Tests
 - **The integration suites no longer add rows to `person` and its related tables on each run** (`address`,
   `person_address`, `organization`, `country`, and the project tables where the schema has them). Runs used to add

@@ -761,6 +761,70 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         }
 
         #endregion
+        #region 3.14.0: a lambda after a column-subset Select may read only identity-bound members (plan stream S)
+
+        private const string SubsetSelectMessage = "after a column-subset Select reads";
+
+        /// <summary>Key → (the operator the message must name, the member it must name, the shape).</summary>
+        private static readonly Dictionary<string, (string Operator, string Member, Func<IQueryable<PersonWithEmployer>, object> Run)> RejectedAfterSubsetSelect =
+            new Dictionary<string, (string, string, Func<IQueryable<PersonWithEmployer>, object>)>
+            {
+                ["Where"] = ("Where", "LastName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).Where(p => p.LastName == "x").ToList()),
+                ["OrderBy"] = ("OrderBy", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).OrderBy(p => p.FirstName).ToList()),
+                ["OrderByDescending"] = ("OrderByDescending", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).OrderByDescending(p => p.FirstName).ToList()),
+                ["ThenBy"] = ("ThenBy", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).OrderBy(p => p.Id).ThenBy(p => p.FirstName).ToList()),
+                ["ThenByDescending"] = ("ThenByDescending", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).OrderBy(p => p.Id).ThenByDescending(p => p.FirstName).ToList()),
+                ["First(pred)"] = ("First", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).First(p => p.FirstName == "a")),
+                ["FirstOrDefault(pred)"] = ("FirstOrDefault", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).FirstOrDefault(p => p.FirstName == "a")),
+                ["Single(pred)"] = ("Single", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).Single(p => p.FirstName == "a")),
+                ["SingleOrDefault(pred)"] = ("SingleOrDefault", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).SingleOrDefault(p => p.FirstName == "a")),
+                ["Last(pred)"] = ("Last", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).OrderBy(p => p.Id).Last(p => p.FirstName == "a")),
+                ["LastOrDefault(pred)"] = ("LastOrDefault", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).OrderBy(p => p.Id).LastOrDefault(p => p.FirstName == "a")),
+                ["Count(pred)"] = ("Count", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).Count(p => p.FirstName == "a")),
+                ["LongCount(pred)"] = ("LongCount", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).LongCount(p => p.FirstName == "a")),
+                ["Any(pred)"] = ("Any", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).Any(p => p.FirstName == "a")),
+                ["All"] = ("All", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).All(p => p.FirstName == "a")),
+                ["Sum"] = ("Sum", "Id", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Sum(p => p.Id)),
+                ["Average"] = ("Average", "Id", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Average(p => p.Id)),
+                ["Min"] = ("Min", "Id", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Min(p => p.Id)),
+                ["Max"] = ("Max", "Id", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Max(p => p.Id)),
+                ["Select(scalar, unbound)"] = ("Select", "LastName", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Select(p => p.LastName).ToList()),
+                ["Select(subset reading unbound)"] = ("Select", "LastName", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Select(p => new PersonWithEmployer { FirstName = p.FirstName, LastName = p.LastName }).ToList()),
+                ["Id is unbound unless bound"] = ("Where", "Id", q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName }).Where(p => p.Id > 0).ToList()),
+                ["cross binding (inherited member)"] = ("Where", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.LastName }).Where(p => p.FirstName == "a").ToList()),
+                ["constant binding"] = ("Where", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = "c" }).Where(p => p.FirstName == "a").ToList()),
+                ["chained subset rebinding a cross-bound member"] = ("Select", "FirstName", q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.LastName }).Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName }).ToList()),
+                ["chained subset drops a member, then Where reads it"] = ("Where", "LastName", q => q.Select(p => new PersonWithEmployer { Id = p.Id, LastName = p.LastName }).Select(p => new PersonWithEmployer { Id = p.Id }).Where(p => p.LastName == "x").ToList()),
+                ["Distinct between"] = ("Where", "LastName", q => q.Select(p => new PersonWithEmployer { Id = p.Id }).Distinct().Where(p => p.LastName == "x").ToList()),
+            };
+
+        public static IEnumerable<object[]> RejectedAfterSubsetSelectRows => RejectedAfterSubsetSelect.Keys.Select(k => new object[] { k });
+
+        [DataTestMethod]
+        [DynamicData(nameof(RejectedAfterSubsetSelectRows))]
+        public void AfterSubsetSelect_NonIdentityBoundRead_RejectedBeforeAnyQuery(string shape)
+        {
+            var (marker, _) = SeedAbc();
+            var (op, member, run) = RejectedAfterSubsetSelect[shape];
+
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => run(People(marker)));
+            StringAssert.Contains(ex.Message, SubsetSelectMessage);
+            StringAssert.Contains(ex.Message, op + "(...)");
+            StringAssert.Contains(ex.Message, " " + member + ",");
+        }
+
+        [TestMethod]
+        public void SubsetSelect_ThenScalarSelect_ThenLambda_GetsTheScalarOutermostMessage()
+        {
+            var (marker, _) = SeedAbc();
+            var query = People(marker).Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName }).Select(p => p.FirstName).OrderBy(s => s.Length);
+
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => query.ToList());
+            StringAssert.Contains(ex.Message, CompositionMessage);
+            Assert.IsFalse(ex.Message.Contains(SubsetSelectMessage), "a bound scalar Select clears the subset set: " + ex.Message);
+        }
+
+        #endregion
     }
 
     /// <summary>A method that composes a query but isn't a <see cref="Queryable"/> operator (AC13-4).</summary>

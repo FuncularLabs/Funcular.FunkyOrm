@@ -48,7 +48,7 @@ var summaries = provider.Query<PersonSummary>().ToList();   // PersonSummary : [
 
 **The performance idiom.** `Select(x => new T { Key = x.Key })` doesn't just work — it emits a **narrow
 `SELECT`** of only the projected column(s) and composes with `Where` + `OrderBy` (including a `[RemoteProperty]`
-join column) + `Skip`/`Take`. On a wide entity with many `[JsonPath]`/`[SqlExpression]`/`[RemoteProperty]`
+join column) + `Skip`/`Take`, applied **before** it. A `Where`, an ordering, a predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` placed **after** a column-subset `Select` may read only the members the projection copied from themselves (`Name = x.Name`). Reading any other member of the row (one the projection left out, the key unless projected, one bound from another member or from a constant) throws `NotSupportedException` before any query, naming the operator and the member: LINQ would see the projected value and SQL would read the base column, so the results would differ (3.14.0). On a wide entity with many `[JsonPath]`/`[SqlExpression]`/`[RemoteProperty]`
 members, that **defers computing the unprojected columns until after the Top-N**. When you filter/order/page by
 a computed or joined column but only need a key back, this is dramatically faster than materializing the whole
 entity — and it's the supported way to do it. (You get back a `T` with only the projected members populated.)
@@ -231,6 +231,10 @@ before `Skip`/`Take`, or materialize the page first: `query.Skip(n).Take(k).ToLi
 **One `OrderBy`.** A second `OrderBy`/`OrderByDescending` anywhere after an earlier ordering throws. In LINQ the
 later ordering becomes the primary key and the earlier one only breaks ties; write that as one chain:
 `query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction (`ThenByDescending` for a descending one).
+
+**After a column-subset `Select`.** A `Where`, an ordering, a predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` placed **after** a column-subset `Select` may read only the members the projection copied from themselves (`Name = x.Name`). Reading any other member of the row (one the projection left out, the key unless projected, one bound from another member or from a constant) throws `NotSupportedException` before any query, naming the operator and the member: LINQ would see the projected value and SQL would read the base column, so the results would differ (3.14.0). `Distinct`, `Skip`/`Take`, `Cast`/`OfType` and the parameterless
+terminals after it are unaffected, and `Select(subset).Distinct().OrderBy(p => p.Name)` with `Name` projected
+still works. Apply the operator before the `Select`, or project the member from itself.
 
 **NULLs in an ordering.** The database decides where NULLs sort: SQL Server, MySQL and SQLite put them first in
 ascending order, as LINQ does; PostgreSQL puts them last. `First`, `Last` and `ToList` all follow the database's
