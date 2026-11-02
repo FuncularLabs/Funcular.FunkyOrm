@@ -125,7 +125,8 @@ per run, PostgreSQL +87 and MySQL +59.
 - The SQL Server figures are for the CI filter (`FullyQualifiedName!~PerformanceTests&FullyQualifiedName!~EntityFramework`),
   which the owner's measurement used. The class it leaves out, `EntityFramework/EfSqlDataProviderIntegrationTests`,
   also inserts `person`, `address` and `person_address` rows into the same database and deletes almost none; it is
-  out of scope (§6).
+  out of scope (§6). *Superseded by rev 14 (2026-11-02): the class is compiled under `PERFORMANCE_TESTS` only and
+  does not compile there, so it cannot run or leak.*
 
 ### 1.2 What isn't affected
 
@@ -562,6 +563,9 @@ the exact sha).
   own hooks, outside the CI filter and the measured command) insert `person`, `address` and `person_address` rows
   and delete only the Delete tests' own; an unfiltered run or a Test Explorer "Run All" still adds them. Not
   wired here (found by the Task 7 re-verification, R3-1); the follow-up covers it unless the owner asks for it here.
+  *Superseded by rev 14 (2026-11-02): the class sits under `#if PERFORMANCE_TESTS` (since 3.0.1-beta1) and its
+  provider no longer implements `IOrmDataProvider` (since 3.7.0), so no run, filtered or not, compiles or executes
+  it; reviving or deleting the harness is a backlog item.*
 - **Rows earlier runs left** stay. No sweep by name or marker (owner rule: don't delete rows you didn't create).
   `Query_MaxDateWithSelector` reads the table's maximum birthdate, which those rows have pushed forward; it stops
   moving once runs stop leaking.

@@ -10,10 +10,10 @@ All notable changes to this project will be documented in this file.
   `person` rows to the shared test databases: SQL Server 177, PostgreSQL 87, MySQL 59 (measured), net48 101 (counted
   from its tests). The tests that left those rows now delete them by primary key after each test; the tests built on
   the shared fixtures and the classes that used to leak fail when a test changes those tables' row counts. The MySQL
-  scoped-cache read test seeds its own row instead of relying on one left behind. `rls_demo`, `non_identity_*`,
-  MySQL's `user`, and SQL Server's EntityFramework comparison class (compiled under `PERFORMANCE_TESTS` only, and not
-  compiling there since the provider interface grew) still collect rows if run; a follow-up covers them. No library
-  change.
+  scoped-cache read test seeds its own row instead of relying on one left behind. `rls_demo`, `non_identity_*` and
+  MySQL's `user` still collect rows; a follow-up covers them. SQL Server's EntityFramework comparison class is
+  compiled under `PERFORMANCE_TESTS` only and no longer compiles there (its provider predates the stored-procedure
+  members of 3.7.0), so it is not run. No library change.
 
 ## [3.13.0] - 2026-10-27
 
