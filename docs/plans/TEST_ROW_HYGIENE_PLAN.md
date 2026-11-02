@@ -20,7 +20,13 @@
 > and others since the harness was written), so the class is dead code that cannot run or leak; a wiring was written,
 > found unverifiable, and withdrawn. Reviving or deleting the harness is a backlog item. Found on master:
 > `MySqlProviderScopedCacheTests.MapperCache_IsScoped_ThroughARealRead` needed a leaked row (the MySQL schema seeds
-> none); it now inserts and deletes its own. The leftover rows of §5/§9 are untouched.
+> none); it now inserts and deletes its own. The leftover rows of §5/§9 are untouched. Re-measured on throwaway
+> databases built from the schema scripts (RELEASE_3.14.0_PLAN.md §7.4): per-run growth is zero on SQL Server,
+> PostgreSQL and MySQL. One new item for the follow-up list in §6: on an **empty** database the computed-attribute and
+> JSON-path classes create two reference organizations once (`ComputedTest Org`, `JsonTest Org`; `Pg…` on
+> PostgreSQL) with raw `IF NOT EXISTS … INSERT` SQL in their `SeedTestData`, before the ledger counts; the shared
+> databases have held them for months, which is why no earlier measurement saw them. Seed them from the data scripts
+> or delete them in a `ClassCleanup`.
 >
 > **Status (2026-10-03):** rev 13. Task 0 review of rev 1 (`369c2cf`, §9.1) found 2 blocking and 11 non-blocking
 > findings, answered in rev 2 (`307af68`). Its re-review (§9.2) found 1 blocking and 6 non-blocking, answered in

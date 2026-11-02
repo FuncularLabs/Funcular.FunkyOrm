@@ -49,9 +49,10 @@ rejects), or one bound to a constant.
 **N. Nothing is strong-named.** Every production csproj has `SignAssembly` false or unset; every
 `InternalsVisibleTo` grant is unqualified; the owner's key exists (`D:\func\keys\FuncularLabs.snk`, 2048-bit RSA,
 public-key token `0650eba294fc9e3f`, public key file `FuncularLabs.publickey`, extracted and cross-checked 2026-11-02
-with `sn -p` / `sn -tp`). A consumer that is itself strong-named gets warning CS8002 on every build for the unsigned
-reference, cannot put the package in the GAC, and fails under a host that enforces strong names; and adding the name
-later is an identity change for every such consumer, so the cost only grows.
+with `sn -p` / `sn -tp`). A consumer that is itself strong-named gets warning CS8002 on every .NET Framework build
+for the unsigned reference (checked 2026-11-02: the compiler emits CS8002 for a net48 target, fully signed or
+public-signed, and not for a net8.0 target), cannot put the package in the GAC, and fails under a host that enforces
+strong names; and adding the name later is an identity change for every such consumer, so the cost only grows.
 
 **K. Known issues are a chain.** `Changelog.md` [3.13.0] has no Known issues; [3.12.1] says the 3.12.0 list applies;
 [3.12.0] ends "the 3.11.0 Known issues not listed as fixed above still apply"; [3.11.0], [3.10.1] and [3.10.0] have
@@ -144,8 +145,9 @@ schema script seeds none).
   and full-signed (`Run-ConsumerSmoke.ps1 -KeyFile <path>`, passed through as `-p:FunkyOrmKeyFile`), plus a
   strong-named-consumer mode (`-StrongNamedConsumer`: the smoke app itself public-signs with the committed
   `build/FuncularLabs.publickey`, which is enough to make it a strong-named referrer, and builds with
-  `WarningsAsErrors=CS8002`). Green on 3.14.0 through the script; the red half on nuget.org 3.13.0 is a scratch run
-  recorded as E3's is, since the script packs the local tree.
+  `WarningsAsErrors=CS8002`). The proof lives on the smoke's net48 target, where the compiler emits CS8002 (the net8.0
+  target never warns, so it cannot fail this way). Green on 3.14.0 through the script; the red half on nuget.org
+  3.13.0 is a scratch run on net48, recorded as E3's is, since the script packs the local tree.
 - N6. Changelog [3.14.0] explains the identity change for .NET Framework consumers (CS8002 and GAC/strong-name hosts,
   not "cannot reference"); README names the token.
 - N7. The publish job's signing path can be exercised before the release merge: `workflow_dispatch` runs the same
@@ -505,3 +507,67 @@ verified accurate (the EF harness guard dates from 98eefef; the 14 members arriv
 
 Carried for the final review: `1b7b84a`'s new test code and `48dd2d7`'s two conflict resolutions are not covered by
 the CLEAN pass at 9c37ac0 and get their own adversarial pass before any push.
+
+### 7.6 Streams N and C record (2026-11-02)
+
+Public-signed solution build: 0 errors, 246 warnings, **0 × CS8002** (the test-only Spittoon packages did not raise
+it after all: the compiler emits CS8002 for .NET Framework targets only, see below) and 0 × CS0436; net48 builds under
+VS MSBuild; every production assembly, the net8.0 test assembly and the net48 test assembly carry token
+`0650eba294fc9e3f` at 3.14.0.0 (tests keep their own versions). DB-free pins: 71/72 then 72/72 (one pin's quoting fixed).
+Rehearsal (scratchpad `rehearsal.sh`, logs in `n/`):
+1. `-p:FunkyOrmKeyFile=C:/nope/FuncularLabs.snk` fails with the props' own message. ✓
+2. Fully signed build + pack with the owner's key; `Verify-StrongNames.ps1`: PASS, 12 DLLs, all token `0650eba294fc9e3f`. ✓
+3. Public-signed pack; `Verify-StrongNames.ps1`: FAIL, exit 1, all 12 DLLs "Strong name validation failed" (the mutation). ✓
+4. Consumer smoke: public-signed PASS (net8.0 + net48); `-KeyFile` PASS; `-StrongNamedConsumer -KeyFile` PASS. ✓
+5. The strong-named consumer's red half against nuget.org 3.13.0: on **net8.0 it built clean** (no CS8002: the compiler
+   does not emit it for .NET targets, fully signed or public-signed, checked both ways with a throwaway key); on
+   **net48 it fails with `error CS8002` for `Funcular.Data.Orm` and `Funcular.Data.Orm.Core`** (`sn_red/`, exit 1). So
+   the smoke's `-StrongNamedConsumer` mode proves its point on the net48 target only, and the Changelog says "a
+   strong-named .NET Framework consumer". ✓ (wording corrected)
+6. The net48 CI job rehearsed with its exact commands on a public-signed build: MSBuild `-restore -t:Rebuild` exit 0,
+   vstest with the filter 186/186, the TRX gate exit 0 ("186 results; every test that didn't run is on the allowlist"),
+   the loaded `Funcular.Data.Orm.dll` is 3.14.0.0 with the token: public-signed assemblies load under vstest on
+   .NET Framework (the bypass premise holds). ✓
+Open for the first CI run: `sn.exe` on windows-latest (the verify script fails closed if absent), `setup-msbuild@v2`
+plus `vswhere` resolving vstest on the runner, and the `FUNKYORM_SNK_BASE64` secret, which the owner must add
+before the release merge (a manual `workflow_dispatch` run from the branch exercises the publish job without pushing).
+
+### 7.5 Streams E and S record (2026-11-02)
+
+- **E** (`c259032`): red run against 3.13.0's layout: the three pins failed for the right reasons (type not in Core;
+  base-type pin; SqlServer still declaring the type) and 24 `NullableValueToString_IsRejected` rows failed on the
+  assembly assertion. Green after the move: pins 3/3; the exception-related subsets SQL Server 856, PostgreSQL 504,
+  MySQL 497, SQLite 184; net48 builds; the package project's Release build reports **0 × CS0436** (40 before); the
+  solution's warning count fell from 251 to 175. Consumer-smoke `catch` clauses compile against the local pack (the
+  smoke runs are in §7.6). The CS0433 red proof against nuget.org 3.13.0 is scratchpad `cs0433red/`.
+- **S** (`01172b0`): red run with the unchanged policy: SQL Server 39 of 49 new tests failed, PostgreSQL 28/35, MySQL
+  29/35, SQLite 28/35, net48 9/14 (every rejection row, the four Distinct flips, the DB-free rows); two test defects
+  found in that run and fixed before green (the oracle rows compared `"A"` against the seeded `"a"`, which only a
+  case-insensitive collation matched; the hand-built `Max` spine picked the one-generic-argument overload). Green:
+  SQL Server 49/49, PostgreSQL 35/35, MySQL 35/35, SQLite 35/35, net48 14/14. Full regression on the E+S build:
+  SQL Server 3551 passed + 1 skip + 1 expected failure (`VersionCarriers_MatchTheChangelog`, the csprojs said 3.13.0
+  until the bump), PostgreSQL 2083/2083, MySQL 2026/2026, SQLite 1534/1534, net48 186/186.
+
+### 7.4 Stream H record (2026-11-02)
+
+- Merge `48dd2d7`; follow-up `1b7b84a`; supersession notes `371e9b8`. The ledger contract tests pass on SQL Server,
+  PostgreSQL and MySQL (7/7 each) after the merge; the MySQL scoped-cache read test passes on the local database.
+- **H3 on throwaway databases** (`funky_db_h3` on `.\SQL2019`, PostgreSQL 18 and MySQL 8, created from
+  name-substituted copies of the schema and data scripts; `funky_db` never dropped, its counts recorded before and
+  after on all three servers and unchanged; evidence in scratchpad `h3/`). Suites ran from copies of the test build
+  outputs so later rebuilds could not disturb them, which makes the repository-relative DB-free tests (the packaging
+  and CI pins, `Compile_OnlyInTheSeam`) fail in those runs: 49 such on SQL Server and 1 on net48, none database
+  related.
+  - MySQL (schema only, all guarded tables empty): 1996 passed, 0 failed; counts unchanged.
+  - SQL Server, first run: 3431 passed (the 76 failures = 27 stream-E red pins at that moment + 49 repository-relative);
+    `organization` 0 → 2. PostgreSQL, first run: 2051 passed, 0 failed; `organization` 0 → 2. net48: 171/172.
+    The two rows are `ComputedTest Org` / `JsonTest Org` (PostgreSQL: `PgComputedTest Org` / `PgJsonTest Org`),
+    created once by the computed-attribute and JSON-path classes' `SeedTestData` with raw `IF NOT EXISTS … INSERT`
+    SQL before the ledger's count, as reference data; on the shared databases they have existed for months, which is
+    why neither the branch's measurement nor the local runs could see them.
+  - SQL Server, second run: 3457 passed (50 = the 49 + 1 repository-relative); PostgreSQL 2050 passed; net48
+    171/172; **every guarded count unchanged** on both. Per-run growth is zero; the one-time reference seed is
+    recorded as a follow-up in TEST_ROW_HYGIENE_PLAN.md rev 14 (seed it from the data scripts, or delete it in a
+    `ClassCleanup`), not fixed here.
+  - Also found: the SQL Server data script's 50 `project` inserts fail their FK to `organization` (Msg 547) on a fresh
+    database, so the project tables are empty there; CI runs the script without `-b` and ignores it. Backlog.
