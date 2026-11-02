@@ -6,6 +6,7 @@ using Funcular.Data.Orm;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.StoredProcedure;
+using Funcular.Data.Orm.Tests.Shared;
 using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -20,6 +21,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     {
         private string _connectionString;
         private SqlServerOrmDataProvider _provider;
+        private TestRowLedger _rows;
 
         [TestInitialize]
         public void Setup()
@@ -32,10 +34,18 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 catch (SqlException ex) { Assert.Inconclusive($"SQL Server not available.\n{ex.Message}"); }
             }
             _provider = new SqlServerOrmDataProvider(_connectionString);
+            _rows = TestRowLedger.Begin(() => new SqlConnection(_connectionString), TestRowLedger.SqlServerTables);
         }
 
         [TestCleanup]
-        public void Cleanup() => _provider?.Dispose();
+        public void Cleanup()
+        {
+            _provider?.Dispose();
+            _rows?.Finish();
+        }
+
+        /// <summary>Records a row this test inserted, for <see cref="Cleanup"/> to delete.</summary>
+        private void Track(object entity) => _rows.Track(entity);
 
         /// <summary>A gender token unique to this test run; fits the gender NVARCHAR(10) column.</summary>
         private static string UniqueGender() => "g" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -51,7 +61,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 UniqueId = Guid.NewGuid()
             };
             _provider.Insert(person);
+            Track(person);
             return person.Id;
+        }
+
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var person = new Person { FirstName = "Probe", LastName = Guid.NewGuid().ToString(), UniqueId = Guid.NewGuid() };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new SqlConnection(_connectionString),
+                "person", person.Id);
         }
 
         // ── Result set ──

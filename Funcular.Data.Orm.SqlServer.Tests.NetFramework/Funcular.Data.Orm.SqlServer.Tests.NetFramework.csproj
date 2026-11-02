@@ -88,6 +88,9 @@
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\NullSemantics\NullSemanticsTests.cs">
       <Link>NullSemantics\NullSemanticsTests.cs</Link>
     </Compile>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Shared\TestRowLedger.cs">
+      <Link>Shared\TestRowLedger.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="EPPlus">

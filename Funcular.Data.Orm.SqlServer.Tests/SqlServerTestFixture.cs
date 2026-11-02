@@ -1,8 +1,13 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Address;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Country;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Organization;
+using Funcular.Data.Orm.SqlServer.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.Domain.Objects.Person;
+using Funcular.Data.Orm.Tests.Shared;
 using Microsoft.Data.SqlClient;
 
 namespace Funcular.Data.Orm.SqlServer.Tests
@@ -12,11 +17,17 @@ namespace Funcular.Data.Orm.SqlServer.Tests
     /// and helper methods for SQL Server integration tests. This is NOT a [TestClass]
     /// to prevent inherited test method duplication in MSTest.
     /// </summary>
+    /// <remarks>
+    /// Each test runs with a <see cref="TestRowLedger"/>: a test that inserts into person or a related table passes
+    /// each inserted entity to <see cref="Track"/> (the Insert helpers here do), and <see cref="Cleanup"/> deletes
+    /// those rows and fails the test if it left the guarded tables' row counts changed.
+    /// </remarks>
     public abstract class SqlServerTestFixture
     {
         protected string _connectionString;
         public required SqlServerOrmDataProvider _provider;
         protected readonly StringBuilder _sb = new();
+        protected TestRowLedger _rows;
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
         {
@@ -41,12 +52,39 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                     _sb.AppendLine(s);
                 }
             };
+            _rows = TestRowLedger.Begin(() => new SqlConnection(_connectionString), TestRowLedger.SqlServerTables);
         }
 
         [TestCleanup]
         public void Cleanup()
         {
+            // Dispose first: it rolls back a transaction a failed test left open, so the deletes don't wait on it.
             _provider?.Dispose();
+            _rows?.Finish();
+        }
+
+        /// <summary>Records a row this test inserted, for <see cref="Cleanup"/> to delete.</summary>
+        protected void Track(object entity) => _rows.Track(entity);
+
+        /// <summary>
+        /// Inserts and tracks one forward remote chain: a country named <paramref name="countryPrefix"/> plus a guid,
+        /// an address in it, an organization headquartered there, and a person it employs.
+        /// </summary>
+        protected (int PersonId, int CountryId, string CountryName) SeedEmployerChain(string countryPrefix)
+        {
+            var country = new CountryEntity { Name = countryPrefix + Guid.NewGuid() };
+            _provider.Insert(country);
+            Track(country);
+            var address = new AddressEntity { Line1 = "1 Chain St", City = "ChainCity", StateCode = "NY", PostalCode = "10001", CountryId = country.Id };
+            _provider.Insert(address);
+            Track(address);
+            var organization = new OrganizationEntity { Name = "ChainOrg_" + Guid.NewGuid(), HeadquartersAddressId = address.Id };
+            _provider.Insert(organization);
+            Track(organization);
+            var person = new PersonEntity { FirstName = "Chain", LastName = "Test_" + Guid.NewGuid().ToString().Substring(0, 8), EmployerId = organization.Id };
+            _provider.Insert(person);
+            Track(person);
+            return (person.Id, country.Id, country.Name);
         }
 
         private void EnsureSchema()
@@ -208,6 +246,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
             };
 
             _provider.Insert(person);
+            Track(person);
             return person.Id;
         }
 
@@ -222,6 +261,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
                 PostalCode = postalCode
             };
             _provider.Insert(address);
+            Track(address);
             return address.Id;
         }
 
@@ -229,6 +269,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests
         {
             var link = new PersonAddress { PersonId = personId, AddressId = addressId };
             _provider.Insert(link);
+            Track(link);
         }
     }
 }

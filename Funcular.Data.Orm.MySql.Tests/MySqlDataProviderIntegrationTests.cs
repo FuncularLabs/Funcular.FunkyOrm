@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Funcular.Data.Orm.MySql.Tests.Domain;
+using Funcular.Data.Orm.Tests.Shared;
+using MySqlConnector;
 
 namespace Funcular.Data.Orm.MySql.Tests
 {
@@ -29,6 +31,15 @@ namespace Funcular.Data.Orm.MySql.Tests
         };
 
         [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var person = NewPerson("Probe", Guid.NewGuid().ToString("N"));
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new MySqlConnection(_connectionString),
+                "person", person.Id);
+        }
+
+        [TestMethod]
         public void Update_WithinTransaction_Persists()
         {
             // Regression (3.6.1): Update inside a BeginTransaction scope must not trip the
@@ -39,6 +50,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             {
                 var person = NewPerson("Before", "Tx-" + Guid.NewGuid().ToString("N").Substring(0, 8));
                 _provider.Insert(person);
+                Track(person);
 
                 person.FirstName = "After";
                 _provider.Update(person);
@@ -58,6 +70,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             var person = NewPerson("Ada", "Lovelace", "F");
             _provider.Insert(person);
+            Track(person);
 
             Assert.IsTrue(person.Id > 0, "Identity id should be assigned via LAST_INSERT_ID().");
 
@@ -72,6 +85,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             var person = NewPerson("Grace", "Hopper", "F");
             _provider.Insert(person);
+            Track(person);
 
             person.LastName = "Hopper-Murray";
             _provider.Update(person);
@@ -84,9 +98,9 @@ namespace Funcular.Data.Orm.MySql.Tests
         public void Query_Where_FiltersByColumn()
         {
             var marker = "Q" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            _provider.Insert(NewPerson("Alan", marker));
-            _provider.Insert(NewPerson("Edsger", marker));
-            _provider.Insert(NewPerson("Donald", "Other" + marker));
+            InsertTracked(NewPerson("Alan", marker));
+            InsertTracked(NewPerson("Edsger", marker));
+            InsertTracked(NewPerson("Donald", "Other" + marker));
 
             var results = _provider.Query<Person>().Where(p => p.LastName == marker).ToList();
             Assert.AreEqual(2, results.Count);
@@ -96,9 +110,9 @@ namespace Funcular.Data.Orm.MySql.Tests
         public void Query_StartsWith_TranslatesToLikeConcat()
         {
             var marker = "S" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            _provider.Insert(NewPerson(marker + "andra", "Test"));
-            _provider.Insert(NewPerson(marker + "amuel", "Test"));
-            _provider.Insert(NewPerson("Nope", "Test"));
+            InsertTracked(NewPerson(marker + "andra", "Test"));
+            InsertTracked(NewPerson(marker + "amuel", "Test"));
+            InsertTracked(NewPerson("Nope", "Test"));
 
             var results = _provider.Query<Person>().Where(p => p.FirstName.StartsWith(marker)).ToList();
             Assert.AreEqual(2, results.Count);
@@ -108,9 +122,9 @@ namespace Funcular.Data.Orm.MySql.Tests
         public void Query_CollectionContains_TranslatesToInClause()
         {
             var marker = "I" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            _provider.Insert(NewPerson("InA", marker));
-            _provider.Insert(NewPerson("InB", marker));
-            _provider.Insert(NewPerson("InC", marker));
+            InsertTracked(NewPerson("InA", marker));
+            InsertTracked(NewPerson("InB", marker));
+            InsertTracked(NewPerson("InC", marker));
 
             var wanted = new[] { "InA", "InC" };
             var results = _provider.Query<Person>()
@@ -123,7 +137,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             var marker = "P" + Guid.NewGuid().ToString("N").Substring(0, 8);
             for (int i = 0; i < 5; i++)
-                _provider.Insert(NewPerson($"Page{i}", marker));
+                InsertTracked(NewPerson($"Page{i}", marker));
 
             var page = _provider.Query<Person>()
                 .Where(p => p.LastName == marker)
@@ -140,8 +154,8 @@ namespace Funcular.Data.Orm.MySql.Tests
         public void Query_Count_Aggregate()
         {
             var marker = "C" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            _provider.Insert(NewPerson("CountA", marker));
-            _provider.Insert(NewPerson("CountB", marker));
+            InsertTracked(NewPerson("CountA", marker));
+            InsertTracked(NewPerson("CountB", marker));
 
             var count = _provider.Query<Person>().Count(p => p.LastName == marker);
             Assert.AreEqual(2, count);
@@ -151,7 +165,7 @@ namespace Funcular.Data.Orm.MySql.Tests
         public void Query_Any_Aggregate()
         {
             var marker = "A" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            _provider.Insert(NewPerson("AnyA", marker));
+            InsertTracked(NewPerson("AnyA", marker));
 
             var absent = marker + "zzz";
             Assert.IsTrue(_provider.Query<Person>().Any(p => p.LastName == marker));
@@ -164,6 +178,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             var marker = "D" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var person = NewPerson("ToDelete", marker);
             _provider.Insert(person);
+            Track(person);
 
             // Delete requires an active transaction (safety guard).
             _provider.BeginTransaction();
@@ -192,6 +207,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             var person = NewPerson("Guid", "Holder");
             person.UniqueId = Guid.NewGuid();
             _provider.Insert(person);
+            Track(person);
 
             var fetched = _provider.Get<Person>(person.Id);
             Assert.AreEqual(person.UniqueId, fetched.UniqueId);
