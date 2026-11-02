@@ -28,6 +28,25 @@ All notable changes to this project will be documented in this file.
   message changed: ordering a `Select(subset).Distinct()` by an unprojected column was `InvalidOperationException`
   from the DISTINCT key check; it is now the policy's `NotSupportedException` (the key check still guards an
   ordering placed before the `Select`). Documented in Advanced.md §5 and the AI instructions.
+- **Every assembly is strong-named** with the Funcular Labs key (public-key token `0650eba294fc9e3f`; the public key
+  is committed as `build/FuncularLabs.publickey`, the private key never is). A strong-named .NET Framework consumer
+  no longer gets warning CS8002 for referencing the package (the compiler emits that warning for .NET Framework
+  targets; .NET builds never warned), and the assemblies can go in the GAC or under a host that enforces strong
+  names. **This is a new assembly identity:** a project compiled against 3.13.0 or earlier must be recompiled
+  against 3.14.0 (a binding redirect cannot bridge an unsigned assembly to a signed one), and `InternalsVisibleTo`
+  friends must be signed with the same key. A build without the private key public-signs with the committed public
+  key (same identity, no signature: fine for .NET, and accepted by .NET Framework's strong-name bypass for
+  full-trust assemblies), so pull requests and forks build; the published package is fully signed, and the publish
+  job verifies every DLL with `sn -vf` before pushing.
+
+### CI
+- **net48 runs in CI.** A `test-net48` job builds `Funcular.Data.Orm.SqlServer.Tests.NetFramework` with Visual
+  Studio's MSBuild (`dotnet build` leaves out `System.Memory.dll`) and runs it with `vstest.console.exe` on LocalDB,
+  filtered like the other jobs and gated by the same TRX check; `publish` waits for it. The job that had been
+  commented out since 3.10 never ran as written (wrong output path, no database step, and `vstest.console` has no
+  playlist switch).
+- **A manual run of the workflow is a publish dry run.** `workflow_dispatch` runs every job, the publish job
+  included (sign, pack, verify), and never pushes: the push step runs only on a push to `master`.
 
 ### Tests
 - **The integration suites no longer add rows to `person` and its related tables on each run** (`address`,

@@ -56,7 +56,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 
 ### 1. Installation
 
-Install the FunkyORM package — the SQL Server, PostgreSQL, MySQL and SQLite providers are all included (on `net48`, SQL Server only):
+Install the FunkyORM package — the SQL Server, PostgreSQL, MySQL and SQLite providers are all included (on `net48`, SQL Server only; since 3.14.0 every assembly is strong-named with the Funcular Labs key, public-key token `0650eba294fc9e3f`):
 
 ```bash
 dotnet add package Funcular.Data.Orm
