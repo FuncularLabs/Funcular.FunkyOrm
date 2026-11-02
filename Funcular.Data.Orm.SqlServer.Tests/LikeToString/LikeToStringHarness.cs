@@ -128,7 +128,7 @@ namespace Funcular.Data.Orm.Tests.LikeToString
 
         protected abstract OrmDataProvider CreateProvider();
 
-        /// <summary>The provider assembly, which defines its own <c>NullableExpressionException</c>.</summary>
+        /// <summary>The provider assembly under test (it forwards <c>NullableExpressionException</c> to Core since 3.14.0).</summary>
         protected abstract Assembly ProviderAssembly { get; }
 
         #endregion
@@ -513,7 +513,8 @@ namespace Funcular.Data.Orm.Tests.LikeToString
         {
             var exception = await AssertRejected(RowToString(key), path, key);
             Assert.AreEqual(NullableExpressionExceptionName, exception.GetType().FullName, $"{path}: {exception}");
-            Assert.AreEqual(ProviderAssembly, exception.GetType().Assembly, $"{path}: the exception's assembly");
+            // Since 3.14.0 the type lives in Core and each provider forwards it (RELEASE_3.14.0_PLAN.md, stream E).
+            Assert.AreEqual(typeof(OrmDataProvider).Assembly, exception.GetType().Assembly, $"{path}: the exception's assembly");
             if (key == "ncodeValue")
                 Assert.AreEqual(NullableValueToStringMessage, exception.Message, path);
             else if (key == "namountValue")

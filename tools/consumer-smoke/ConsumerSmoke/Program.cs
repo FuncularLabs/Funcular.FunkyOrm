@@ -81,6 +81,11 @@ namespace ConsumerSmoke
                 catch (FileNotFoundException ex) { Failures.Add(provider + ": a driver assembly is missing: " + ex.Message); }
                 catch (FileLoadException ex) { Failures.Add(provider + ": a driver assembly failed to load: " + ex.Message); }
                 catch (TypeLoadException ex) { Failures.Add(provider + ": a type failed to load: " + ex.Message); }
+                // A consumer must be able to name FunkyORM's own exception types (3.14.0 moved them to Core; before
+                // that each bundled provider declared a copy and this did not compile on net8.0: error CS0433).
+                catch (Funcular.Data.Orm.Exceptions.NullableExpressionException ex) { Failures.Add(provider + ": unexpected " + ex.GetType().Name); }
+                catch (Funcular.Data.Orm.Exceptions.PathNotFoundException ex) { Failures.Add(provider + ": unexpected " + ex.GetType().Name); }
+                catch (Funcular.Data.Orm.Exceptions.AmbiguousMatchException ex) { Failures.Add(provider + ": unexpected " + ex.GetType().Name); }
                 catch (Exception ex)
                 {
                     // The connection attempt failed, as expected: the driver was reached.

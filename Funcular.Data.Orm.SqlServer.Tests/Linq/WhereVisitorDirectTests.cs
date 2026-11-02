@@ -286,7 +286,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
         {
             foreach (var visitor in Visitors())
             {
-                // Each provider assembly defines its own NullableExpressionException: asserted by name.
+                // NullableExpressionException lives in Core since 3.14.0 (each provider forwards it): asserted by name.
                 Exception ex = null;
                 try { visitor.Value(Lambda(Expression.Property(Prop(nameof(Row.N)), "HasValue"))); } catch (Exception thrown) { ex = thrown; }
                 Assert.IsNotNull(ex, visitor.Key + ": no exception");

@@ -192,8 +192,8 @@ namespace Funcular.Data.Orm.Tests.CapturedValues
         }
 
         /// <summary>
-        /// Each provider assembly defines its own <c>Funcular.Data.Orm.Exceptions.NullableExpressionException</c>, and
-        /// SqlServer.Tests references all four, so the type is asserted by its full name, not by a compile-time type.
+        /// Until 3.14.0 each provider assembly defined its own <c>Funcular.Data.Orm.Exceptions.NullableExpressionException</c>
+        /// (now it lives in Core, forwarded by each provider); the assertion by full name predates the move and still holds.
         /// </summary>
         protected void AssertRejectedNullableExpression(MethodCallExpression node, string messagePrefix)
         {

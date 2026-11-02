@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [3.14.0] - unreleased
 
+### Fixed
+- **A consumer could not name FunkyORM's own exception types.** `PathNotFoundException`, `AmbiguousMatchException`
+  and `NullableExpressionException` (namespace `Funcular.Data.Orm.Exceptions`) were declared by each bundled provider
+  assembly, so on net8.0 `catch (NullableExpressionException)` did not compile (error CS0433: the type exists in both
+  `Funcular.Data.Orm.MySql` and `Funcular.Data.Orm.PostgreSql`), and the package build carried 40 CS0436 warnings.
+  They now live once, in `Funcular.Data.Orm.Core`, and every provider assembly forwards them (`TypeForwardedTo`), so
+  the namespace, the base types (`Exception`, `Exception`, `InvalidOperationException`) and the constructors are
+  unchanged. There is no binary compatibility with 3.13.0 in any case (3.14.0's assemblies carry a new strong name;
+  see Changed): recompile against 3.14.0.
+
 ### Tests
 - **The integration suites no longer add rows to `person` and its related tables on each run** (`address`,
   `person_address`, `organization`, `country`, and the project tables where the schema has them). Runs used to add
