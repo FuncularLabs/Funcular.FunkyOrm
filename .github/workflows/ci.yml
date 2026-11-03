@@ -249,7 +249,8 @@ jobs:
         path: '**/test-results.trx'
 
   # 3.14.0: the package is fully strong-name signed with the key from the FUNKYORM_SNK_BASE64 secret (the owner's
-  # D:\func\keys\FuncularLabs.snk, base64), on both the build and the pack (pack rebuilds), and every DLL in the nupkg
+  # D:\func\keys\FuncularLabs.snk, base64), on the build (which produces what pack packs: with GeneratePackageOnBuild,
+  # `dotnet pack` does not build) and on the pack (so a pack-triggered build would sign too), and every DLL in the nupkg
   # is verified with sn.exe before the push. The job also runs on a manual workflow_dispatch from any branch, as a dry
   # run; only the push step is limited to a push to master, so a manual run can never publish.
   publish:

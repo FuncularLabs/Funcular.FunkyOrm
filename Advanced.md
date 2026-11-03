@@ -217,7 +217,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 | `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its values sent as parameters (such as strings, chars, `Guid`s, dates and times; booleans, enums and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline); a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL` (on PostgreSQL, a value that would be sent as a parameter is instead compared with `null` before the query is sent; an inline value such as `5` is still sent as `5 IS NULL`). |
 | `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |
 | `Skip`, `Take` | `OFFSET … FETCH` (SQL Server), `LIMIT … OFFSET` (others) | See the paging rule below. Without an `OrderBy`, pages are ordered by `id` (SQLite: `rowid`). `Skip(n < 0)` acts as `Skip(0)`; `Take(n ≤ 0)` returns an empty result without a query. |
-| `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. |
+| `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. A `Select` after it throws (3.14.0): apply `Distinct` after the `Select`. |
 | `First`, `FirstOrDefault` | the first row of the order | With or without a predicate. |
 | `Single`, `SingleOrDefault` | at most two rows (`TOP (2)` / `LIMIT 2`), then LINQ's checks | Two or more matches throw; `Single` also throws on none. |
 | `Last`, `LastOrDefault` | the first row of the **inverted** order (`TOP (1)` / `LIMIT 1`) | Every ordering key is inverted. With no `OrderBy`, the order is `Id DESC`. |
@@ -240,6 +240,11 @@ later ordering becomes the primary key and the earlier one only breaks ties; wri
 **After a column-subset `Select`.** A `Where`, an ordering, a predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` placed **after** a column-subset `Select` may read only the members the projection copied from themselves (`Name = x.Name`). Reading any other member of the row (one the projection left out, the key unless projected, one bound from another member or from a constant) throws `NotSupportedException` before any query, naming the operator and the member: LINQ would see the projected value and SQL would read the base column, so the results would differ (3.14.0). `Distinct`, `Skip`/`Take`, `Cast`/`OfType` and the parameterless
 terminals after it are unaffected, and `Select(subset).Distinct().OrderBy(p => p.Name)` with `Name` projected
 still works. Apply the operator before the `Select`, or project the member from itself.
+
+**`Select` after `Distinct`.** A `Select` (column subset or scalar) placed after `Distinct()` throws
+`NotSupportedException` (3.14.0): SQL applies `DISTINCT` to the final column list wherever `Distinct` sits, so the
+projection would be made distinct where LINQ makes the rows distinct first. For distinct projections write
+`query.Select(...).Distinct()`; to keep LINQ's result, materialize first: `query.Distinct().ToList().Select(...)`.
 
 **NULLs in an ordering.** The database decides where NULLs sort: SQL Server, MySQL and SQLite put them first in
 ascending order, as LINQ does; PostgreSQL puts them last. `First`, `Last` and `ToList` all follow the database's

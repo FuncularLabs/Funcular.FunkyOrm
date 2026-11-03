@@ -112,7 +112,7 @@ schema script seeds none).
   parameter or a captured object of type `T` is not a row read). `Distinct`, `Skip`, `Take`, `Cast`, `OfType`
   between the `Select` and the reading operator neither reset nor widen the set. `Distinct`, `Skip`, `Take`, `Cast`,
   `OfType` and parameterless terminals after a subset `Select` are unchanged (`Select(subset).Distinct().Count()`
-  stays rejected by the parse loop as before).
+  stays rejected by the parse loop as before). A `Select` after `Distinct` is the one exception: S9.
 - S4. The primary key is not bound unless the projection binds it from itself. A `MemberListBinding` or
   `MemberMemberBinding` (which the visitors skip) is not a binding either, and causes no exception of another type.
 - S5. Precedence is unchanged: after paging (D8), after an earlier ordering (D10) and the predicate-type rule (I1)
@@ -123,6 +123,12 @@ schema script seeds none).
 - S7. The four `Distinct_OrderByUnprojectedColumn_Throws` tests expect the policy's `NotSupportedException`; the
   Distinct-key check (`SqlLinqQueryProvider.cs:814-831` and siblings) stays covered by the
   `OrderBy(unbound).Select(subset).Distinct()` form.
+- S9 (review round 1). A `Select` of either kind after `Distinct()` throws `NotSupportedException` before any SQL on
+  all four providers, whether or not its reads are identity-bound: SQL applies DISTINCT to the final column list,
+  LINQ makes the rows distinct first. `Select(...).Distinct()` is unchanged; `Distinct().Where/OrderBy/Skip/Take`
+  are unchanged. The message names `Select(...)` and says to apply `Distinct` after the `Select` for distinct
+  projections, or to materialize first to keep LINQ's result. Documented in Advanced.md §2 and §5, README, the AI
+  files' tables and checklist, and the Changelog.
 - S8. Docs state the rule: Advanced.md (the subset idiom at :49-54, the positional rules at :225-233), the AI
   instruction files (FUNKYORM_AI_ADVANCED.md :37-42, :216-222, :245-246; FUNKYORM_AI_INSTRUCTIONS.md :574-578),
   README.md:348-349 (the `Select(subset).Distinct().OrderBy(bound)` example is still OK and says why), Changelog.
@@ -134,7 +140,10 @@ schema script seeds none).
   passes), not public-signed.
 - N2. A build without the private key public-signs with the committed public key (same identity), so PRs, forks and
   local builds work; a `FunkyOrmKeyFile` that is set but does not exist is a build error, never a silent fallback;
-  the publish job fails before packing if the secret is empty; the key reaches the pack step (pack rebuilds); the
+  the publish job fails before packing if the secret is empty; the key reaches the build step, which produces what
+  pack packs (with `GeneratePackageOnBuild`, `dotnet pack` does not build), and the pack step too, so a
+  pack-triggered build would sign as well; a change of signing mode forces a recompile (a mode stamp among the
+  compiler's inputs), so an incremental build with the key never leaves public-signed DLLs behind; the
   verification step finds `sn.exe` by its SDK path and fails if it is absent; the four `<SignAssembly>False</SignAssembly>`
   lines are deleted (a project property overrides the props).
 - N3. Every `InternalsVisibleTo` grant carries the FuncularLabs public key (the hex itself is asserted); every friend
@@ -233,7 +242,7 @@ rest documented or open; scratchpad `known_issues_inventory.md`)
 ## 3. Design
 
 **E.** Move `Exceptions/RemoteKeyExceptions.cs` to `Funcular.Data.Orm.Core/Exceptions/RemoteKeyExceptions.cs` (the
-SqlServer text). Delete the four provider copies. In each provider add `Properties/TypeForwards.cs` with three
+SqlServer text). Delete the four provider copies. In each provider add `Exceptions/TypeForwards.cs` with three
 `[assembly: TypeForwardedTo(typeof(…))]`. The throw sites are unchanged (same namespace; `RemotePathResolver.cs` already
 has the `using`). Why forwarders: the standard courtesy when a public type moves between assemblies of one package,
 so that anything compiled against a provider assembly's TypeRef (a direct file reference, an `extern alias`) keeps
@@ -269,7 +278,9 @@ folder's README); `.gitignore` gets `*.snk`. Every IVT grant (Core `AssemblyInfo
 build/test jobs public-sign (no secret; a public-signed assembly loads under .NET 8 and, by the strong-name bypass
 that .NET Framework has applied to full-trust assemblies since 3.5 SP1, under vstest on net48: the local rehearsal
 first, then the test-net48 job proves it on every run); `publish` decodes `secrets.FUNKYORM_SNK_BASE64` to a temp file, fails if the secret is empty, passes
-`-p:FunkyOrmKeyFile=…` to **both** build and pack (pack rebuilds: `GeneratePackageOnBuild=True`, no `--no-build`),
+`-p:FunkyOrmKeyFile=…` to **both** build and pack (the build produces the DLLs; with `GeneratePackageOnBuild=True`
+`dotnet pack` does not build, it packs what the build left in `bin`, so the key on the build step is the one that
+matters and the key on pack covers a pack-triggered build),
 then runs `tools/signing/Verify-StrongNames.ps1`, which extracts every DLL from the nupkg and runs `sn.exe -vf` on
 each, locating `sn.exe` by the glob `${env:ProgramFiles(x86)}\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8*Tools\sn.exe`
 (this machine has both `NETFX 4.8 Tools` and `NETFX 4.8.1 Tools`; windows-latest ships the .NET Framework 4.8 SDK) and
@@ -316,7 +327,7 @@ FIXED rows are out (they live in the Fixed entries; nine were fixed in 3.10.0–
 3.13.0); PLANNED-3.14.0 rows are out; the three rows 3.14.0 closes (K-63 signing, K-64 net48 in CI, K-66 the row
 leaks) are out; the seven engineering rows (K-54, K-67 to K-72) go to the backlog's new "Engineering, as of 3.14.0"
 heading (K4), joined by the dead EF comparison harness found in stream H; everything else is in: 73 − 10 − 2 − 3 − 7 =
-51 rows.
+51 rows, plus the unverified `TargetInvocationException` half of Appendix A #21 added in review round 1: 52.
 
 ## 4. Test plan
 
@@ -331,10 +342,11 @@ Mutations run by hand (edit, build, run the named test, revert); each is recorde
 | S1, S2, S4 | `AfterSubsetSelect_NonIdentityBoundRead_RejectedBeforeAnyQuery` ([DynamicData] table: each operator in S1 × a left-out member; the `Id` row; a cross binding `FirstName = p.LastName` then `Where(t => t.FirstName …)` (an inherited member, so the visitors pass it); a constant binding then a read; a chained subset `Select` reading a member the first left out; a chained subset `Select` that rebinds a cross-bound member) via `AssertThrowsNoQuery<NotSupportedException>`; message names operator and member | the four `*QueryOperatorRejectionTests` | M-S1: never set `boundMembers`; M-S2: treat `Id` as bound; M-S3: check `Where` only; M-S4: message without the member; **M-S7: bound = every binding** (the cross/constant/chained rows must fail) |
 | S1, S3, S4, S5, S6 | DB-free rows in `QueryOperatorPolicyTests` (C# 7.3, `AsQueryable` root): left-out read rejected; identity-bound read passes; `((PersonBase)x).LastName` (Convert unwrap) rejected when unbound and passes when bound; a covariant `IQueryable<IHasId>` view over `subset{Id}` with `Max(x => x.Id)` passes (match by name); a nested lambda `o => o.LastName == x.FirstName` where only the outer parameter's reads count (passes when `FirstName` is bound) **and** its companion `o => o.LastName == x.LastName` with `LastName` unbound (rejected: the outer read inside the nested lambda counts); a captured `other.Id` of type `T` is not a read; `Distinct`/`Cast<T>`/`OfType<T>` between the Select and the read neither reset nor widen; a later **scalar** Select of an unbound member `Select(subset{FirstName}).Select(t => t.LastName)` is rejected, and of a bound one clears the set (then `OrderBy(s => s.Length)` gets no subset message); a `MemberListBinding`/`MemberMemberBinding` is unbound and throws nothing else | SqlServer.Tests/Linq/QueryOperatorPolicyTests (linked into net48) | M-S1, M-S2, M-S7; M-S8: no Convert unwrap; M-S9: compare `MemberInfo` instead of name; M-S10: match any parameter of type T; M-S11: reset at Distinct/Cast; M-S12: never clear at a scalar Select; M-S13: clear at a scalar Select before checking its lambda; M-S14: don't descend into nested lambdas |
 | S3 | `AfterSubsetSelect_IdentityBoundRead_MatchesOracle` (Where/OrderBy/Count(pred)/Sum(sel) on identity-bound members vs LINQ to objects over the seeded rows) and `AfterSubsetSelect_ConstantOperators_Unchanged` (Distinct, Skip/Take, Cast/OfType, parameterless terminals; `Select(subset).Distinct().Count()` still rejected by the existing `Distinct_WithCount_ThrowsNotSupported`) | the four `*QueryOperatorSemanticsTests` | M-S5: reject every lambda after a subset Select (the bound rows must fail) |
+| S9 | `Select_AfterDistinct_Rejected_SubsetOrScalar_BoundOrNot` + `Select_ThenDistinct_StillPasses` (DB-free, linked into net48); `Select_AfterDistinct_RejectedBeforeAnyQuery` (four rows: subset→Distinct→scalar, subset→Distinct→subset, Distinct→subset, Distinct→scalar) in each provider rejection suite | QueryOperatorPolicyTests; the four `*QueryOperatorRejectionTests` | M-S15: drop the Distinct check (killed on all four providers and DB-free, review round 2) |
 | S5 | existing `Operator_AfterPaging_Rejected_BeforeAnyQuery`, `Ordering_AfterEarlierOrdering_Rejected_BeforeAnyQuery`, `SubsetSelectThenWhere` I1 rows, precedence tests, and a new row `Select(subset).Select(t => t.Name).OrderBy(s => s.Length)` expecting the parse loop's scalar-outermost message | the four rejection files | unchanged rows must stay green; the new row kills M-S12 |
 | S7 | `Distinct_OrderByUnprojectedColumn_Throws` (now `NotSupportedException`, the policy message) + new `OrderByUnbound_ThenSubsetSelect_Distinct_ThrowsDistinctKeyCheck` | the four Computed/Json test files | M-S6: remove the Distinct-key check |
 | S8 | `OperatorDocTableTests` (existing); doc text reviewed in the hostile pass | SqlServer.Tests | — |
-| N1 | `EveryProductionAssembly_HasTheFuncularLabsPublicKeyToken` (token `0650eba294fc9e3f` on Core, Funcular.Data.Orm, PostgreSql, MySql, Sqlite as loaded by the test host: net8.0 here, net48 in the net48 project; the netstandard2.0 builds are covered only by the publish verification) | SqlServer.Tests/Packaging (+ net48 project for its two) | M-N1: `SignAssembly=false` on one project |
+| N1 | `EveryProductionAssembly_HasTheFuncularLabsPublicKeyToken` (token `0650eba294fc9e3f` on Core, Funcular.Data.Orm, PostgreSql, MySql, Sqlite as loaded by the net8.0 test host) and `StrongNamingNetFrameworkTests.ProductionAssemblies_HaveTheFuncularLabsPublicKeyToken` (Core and Funcular.Data.Orm as loaded by the net48 host; the netstandard2.0 builds are covered only by the publish verification); `TheSigningModeStamp_IsACompilerInput` (the props carry the stamp target and feed it to `CustomAdditionalCompileInputs`) | SqlServer.Tests/Packaging; SqlServer.Tests.NetFramework | M-N1: `SignAssembly=false` on one project; M-N7: drop the stamp from the compile inputs |
 | N1, N2, N7 | `CiWorkflowTests` pins on `publish`: empty-secret check before pack; `-p:FunkyOrmKeyFile` on the build **and** the pack step; the verify script step before `nuget push`; the job-level `if` admits `workflow_dispatch` and `push` to master; the push step's `if` requires `github.event_name == 'push'` and `github.ref == 'refs/heads/master'`; the `workflow_dispatch` `dry_run` input defaults to `true` | SqlServer.Tests/Packaging | M-N4: drop the key from the pack step; M-N5: drop the ref/event check from the push step; M-N6: job-level `if` back to master-only (the dry run would skip) |
 | N1 | `tools/signing/Verify-StrongNames.ps1` on a full-signed pack passes and on a public-signed pack fails (local rehearsal, recorded in §7; the script's own `sn.exe`-absent branch exits non-zero) | tools/signing | the public-signed pack is the mutation |
 | N2 | `Directory.Build.props`: a clean build without `FunkyOrmKeyFile` succeeds and the token test passes (record); a build with `-p:FunkyOrmKeyFile=C:\nope.snk` fails with the props' own error (record) | build | — |
@@ -519,13 +531,13 @@ the CLEAN pass at 9c37ac0 and get their own adversarial pass before any push.
   and CI pins, `Compile_OnlyInTheSeam`) fail in those runs: 49 such on SQL Server and 1 on net48, none database
   related.
   - MySQL (schema only, all guarded tables empty): 1996 passed, 0 failed; counts unchanged.
-  - SQL Server and PostgreSQL, first run on the empty databases: `organization` 0 → 2 on both (the counts survive in
-    `h3/ss-h3-before.txt` → `ss-h3-after.txt` and `pg-h3-before.txt` → `pg-h3-after.txt` as they stood before the
-    second run overwrote them; the first run's test logs themselves were overwritten by the rerun, which wrote
-    `ss2.log`/`pg2.log`/`net48-2.log`; the `ss.log`/`pg.log`/`net48.log` left in `h3/` are an earlier attempt that
-    failed to reach the throwaway databases, 762 failed / 1863 skipped / 73 failed, and prove nothing). The first
-    run's pass counts quoted from the terminal at the time: SQL Server 3431 passed, 76 failed (27 stream-E red pins
-    at that moment + 49 repository-relative); PostgreSQL 2051 passed, 0 failed; net48 171/172.
+  - SQL Server and PostgreSQL, first run on the empty databases: `organization` 0 → 2 on both, quoted from the
+    terminal at the time, like the pass counts beside it (SQL Server 3431 passed, 76 failed = 27 stream-E red pins
+    at that moment + 49 repository-relative; PostgreSQL 2051 passed, 0 failed; net48 171/172). No file holds the
+    first run: the rerun script wrote the same count-file names (`h3/*-h3-before.txt`/`-after.txt`, which now show
+    2 → 2) and its own logs (`ss2.log`/`pg2.log`/`net48-2.log`); the `ss.log`/`pg.log`/`net48.log` left in `h3/`
+    are an earlier attempt that failed to reach the throwaway databases (762 failed / 1863 skipped / 73 failed)
+    and prove nothing.
     The two rows are `ComputedTest Org` / `JsonTest Org` (PostgreSQL: `PgComputedTest Org` / `PgJsonTest Org`),
     created once by the computed-attribute and JSON-path classes' `SeedTestData` with raw `IF NOT EXISTS … INSERT`
     SQL before the ledger's count, as reference data; on the shared databases they have existed for months, which is
@@ -621,6 +633,20 @@ Non-author hostile review: **NOT CLEAN, 2 Major, 4 Minor, 4 Nit.** Every finding
 | 8 | Nit | OTHER | `ProviderAssembly` and its four overrides deleted. |
 | 9 | Nit | OTHER | `Exceptions/TypeForwards.cs`; §7 reordered; the Changelog says the items recorded against 3.10 that nobody re-ran are marked. |
 | 10 | Nit | OTHER | The MySQL scoped-cache test keeps its own failure visible when the cleanup fails too (`AggregateException`). |
+
+### 7.10 Review round 2 (fix-verification of `fee05c4`) dispositions
+
+**NOT CLEAN, 0 Major, 3 Minor, 2 Nit**; #1, #2, #6, #7, #8, #10 verified resolved; #3, #4, #5, #9 partial because
+round 1's documentation script applied two edit batches to the plan file and the second overwrote the first (the
+script now refuses two batches on one file).
+
+| # | Sev | Blame | Disposition |
+|:--|:--|:--|:--|
+| R2-1 | Minor | OTHER | The five lost edits made: the ci.yml comment, N2, §3.N, the N1 row (which now also names the stamp pin), §3.E's path. |
+| R2-2 | Minor | OTHER | §7.4 says the first run's 0 → 2 comes from the terminal at the time and that no file holds it. |
+| R2-3 | Minor | AC-GAP | S9 added with its §4 row and mutation M-S15; S3 names the exception; Advanced.md §5's `Distinct` row and positional paragraph, the AI positional table and checklist item 14 carry the rule; §3.K says 52. |
+| R2-4 | Nit | OTHER | The smoke builds before packing in both branches; the verify script runs under whichever PowerShell is running the smoke; `.PARAMETER KeyFile` says Windows only (sn.exe). |
+| R2-5 | Nit | OTHER | The #21 entry names the documented `NotSupportedException`; the policy message offers both rewrites (distinct projections via `Select(...).Distinct()`, LINQ's result via `Distinct().ToList().Select(...)`); the remarks paragraph reflowed; `TheSigningModeStamp_IsACompilerInput` pins the stamp in the props. |
 
 ### 7.9 N5 re-recorded after the signing-mode stamp (2026-11-02, scratchpad `r1/`)
 

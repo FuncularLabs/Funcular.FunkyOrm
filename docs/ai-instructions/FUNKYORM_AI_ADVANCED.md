@@ -219,6 +219,7 @@ LINQ-to-objects.
 | Construct | Do this instead |
 |---|---|
 | Any operator after `Skip`/`Take` other than `Select`, `Cast`/`OfType`, one `Take` after `Skip`, parameterless `First*`/`Single*` — includes `Skip(0).Where(...)`, `Take(5).Count()`, `Skip(n).Last()` | Apply it before paging, or `query.Skip(n).Take(k).ToList().Where(...)`. |
+| A `Select` (subset or scalar) after `Distinct()` — SQL would make the projection distinct, LINQ makes the rows distinct first (3.14.0) | `query.Select(...).Distinct()` for distinct projections; `query.Distinct().ToList().Select(...)` to keep LINQ's result. |
 | A second `OrderBy`/`OrderByDescending` (even across `Where`/`Select`/`Distinct`) | One chain, primary key first: `query.OrderBy(later).ThenBy(earlier)` (LINQ makes the later ordering primary), keeping each earlier key's direction (`ThenByDescending` for a descending one). |
 | A `Where`/ordering/predicate terminal/aggregate selector/later `Select` **after a column-subset `Select`** that reads a member the projection didn't copy from itself (`Select(x => new T { Name = x.Name }).Where(t => t.Score > 1)`; the key counts as unprojected unless projected; `Name = x.Other` or `Name = "c"` do not count) — `NotSupportedException` naming the operator and the member, before any query (3.14.0) | Apply it before the `Select`, or project the member from itself (`Score = x.Score`). |
 | A predicate over a base-type or interface view (`IQueryable<Base> b = q; b.Where(x => …)`) | Apply it to the concrete `IQueryable<T>`, or use a generic helper constrained to a **base class** (`where TEntity : Base`). An interface-constrained helper fails in the WHERE translator. |
@@ -248,4 +249,5 @@ default-value overloads of listed operators. Lambdas **inside** a listed operato
 10. **Filtering, ordering or aggregating after `Skip`/`Take`?** Not allowed — do it before paging, or on the materialized page.
 11. **Two orderings?** One `OrderBy`, then `ThenBy`/`ThenByDescending`. Never a second `OrderBy`.
 12. **Counting past `int.MaxValue`?** Use `LongCount()` (returns `long`).
+14. **A `Select` after `Distinct()`?** Not translated (3.14.0): apply `Distinct` after the `Select`, or materialize first.
 13. **A lambda after a column-subset `Select`?** It may read only members the projection copied from themselves; anything else throws before any query. Filter, order and page before the `Select`.

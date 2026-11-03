@@ -20,8 +20,8 @@ namespace Funcular.Data.Orm.Linq
     /// parameter the projection did not copy from itself (<c>M = x.M</c>): LINQ would see the projected value, SQL
     /// would read the base column, so the read is rejected before any query (3.14.0); and a <c>Select</c> after
     /// <c>Distinct()</c>, because SQL applies DISTINCT to the final column list where LINQ makes the rows distinct
-    /// first (3.14.0). The row type starts as the
-    /// entity type and changes only at a scalar <c>Select(x =&gt; x.Member)</c>; after any other unsupported
+    /// first (3.14.0). The row type starts as the entity type and changes only at a scalar
+    /// <c>Select(x =&gt; x.Member)</c>; after any other unsupported
     /// <c>Select</c> it is unknown, and the parse loop rejects that <c>Select</c>.</para>
     /// </remarks>
     public static class QueryOperatorPolicy
@@ -227,8 +227,9 @@ namespace Funcular.Data.Orm.Linq
                     if (distinctSeen)
                         throw new NotSupportedException(
                             "Select(...) after Distinct() is not translated: SQL would apply DISTINCT to the projected columns, " +
-                            "where LINQ makes the rows distinct first, so the results would differ. Apply Distinct after the " +
-                            "Select: query.Select(...).Distinct().");
+                            "where LINQ makes the rows distinct first, so the results would differ. For distinct projections " +
+                            "apply Distinct after the Select: query.Select(...).Distinct(); to keep LINQ's result, materialize " +
+                            "first: query.Distinct().ToList().Select(...).");
                     var lambda = StripQuotes(call.Arguments[1]);
                     if (IsScalarSelect(lambda))
                     {

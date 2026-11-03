@@ -81,6 +81,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             }
         }
 
+        /// <summary>
+        /// Review round 1, finding 3: the signing mode is a compiler input, so an incremental build with the key after a
+        /// public-signed build recompiles instead of leaving public-signed DLLs behind. The mechanism is proven by the
+        /// rehearsal (plan §7.9); this pins that it stays in the props.
+        /// </summary>
+        [TestMethod]
+        public void TheSigningModeStamp_IsACompilerInput()
+        {
+            var props = File.ReadAllText(Path.Combine(Root, "Directory.Build.props"));
+            StringAssert.Contains(props, "<Target Name=\"FunkyOrmSigningModeStamp\" BeforeTargets=\"CoreCompile\">", "the stamp target is missing or runs at the wrong time");
+            StringAssert.Contains(props, "WriteOnlyWhenDifferent=\"true\"", "the stamp must be rewritten only when the mode changes, or every build recompiles");
+            StringAssert.Contains(props, "Lines=\"PublicSign=$(PublicSign);KeyFile=$(AssemblyOriginatorKeyFile)\"", "the stamp must record the mode and the key path");
+            StringAssert.Contains(props, "<CustomAdditionalCompileInputs Include=\"$(_FunkyOrmSigningStamp)\" />", "the stamp is not among the compiler's inputs");
+        }
+
         [TestMethod]
         public void NoPrivateKeyIsTracked()
         {
