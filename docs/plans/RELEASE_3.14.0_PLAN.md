@@ -648,6 +648,15 @@ script now refuses two batches on one file).
 | R2-4 | Nit | OTHER | The smoke builds before packing in both branches; the verify script runs under whichever PowerShell is running the smoke; `.PARAMETER KeyFile` says Windows only (sn.exe). |
 | R2-5 | Nit | OTHER | The #21 entry names the documented `NotSupportedException`; the policy message offers both rewrites (distinct projections via `Select(...).Distinct()`, LINQ's result via `Distinct().ToList().Select(...)`); the remarks paragraph reflowed; `TheSigningModeStamp_IsACompilerInput` pins the stamp in the props. |
 
+### 7.11 Review round 3 (fix-verification of `8fb8ef0`) dispositions
+
+**NOT CLEAN, 0 Major, 1 Minor, 1 Nit**; every round-2 finding verified resolved; the stamp pin's mutation (M-N7) killed.
+
+| # | Sev | Blame | Disposition |
+|:--|:--|:--|:--|
+| R3-1 | Minor | OTHER (fix-introduced in round 2) | `Verify-StrongNames.ps1` extracts the nupkg with `ZipFile.ExtractToDirectory` instead of `Expand-Archive`, which Windows PowerShell 5.1 refuses for `.nupkg`. Proven: `powershell -File Run-ConsumerSmoke.ps1 -KeyFile … -SkipNet48` exit 0 with "PASS: 12 DLLs"; the same script on the same pack under `powershell` 5.1 and under `pwsh` both PASS (scratchpad `r3/`). Pins 73/73. |
+| R3-2 | Nit | OTHER | Checklist item 14 moved after 13 in the raw markdown. |
+
 ### 7.9 N5 re-recorded after the signing-mode stamp (2026-11-02, scratchpad `r1/`)
 
 1. A fresh public-signed build of the package project, then an **incremental** build with `-p:FunkyOrmKeyFile`, then

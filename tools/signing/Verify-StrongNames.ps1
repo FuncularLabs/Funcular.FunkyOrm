@@ -39,7 +39,9 @@ $checked = 0
 foreach ($package in $packages) {
     $work = Join-Path ([IO.Path]::GetTempPath()) ("funky-sn-" + [Guid]::NewGuid().ToString("N"))
     try {
-        Expand-Archive -LiteralPath $package.FullName -DestinationPath $work -Force
+        # Not Expand-Archive: Windows PowerShell 5.1's refuses the .nupkg extension (NotSupportedArchiveFileExtension).
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($package.FullName, $work)
         $dlls = @(Get-ChildItem -Path (Join-Path $work "lib") -Recurse -Filter *.dll -File -ErrorAction SilentlyContinue)
         if (-not $dlls) { $failures += "$($package.Name): no DLL under lib/"; continue }
         foreach ($dll in $dlls) {

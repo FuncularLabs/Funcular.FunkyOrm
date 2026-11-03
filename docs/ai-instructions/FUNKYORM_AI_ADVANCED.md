@@ -249,5 +249,5 @@ default-value overloads of listed operators. Lambdas **inside** a listed operato
 10. **Filtering, ordering or aggregating after `Skip`/`Take`?** Not allowed — do it before paging, or on the materialized page.
 11. **Two orderings?** One `OrderBy`, then `ThenBy`/`ThenByDescending`. Never a second `OrderBy`.
 12. **Counting past `int.MaxValue`?** Use `LongCount()` (returns `long`).
-14. **A `Select` after `Distinct()`?** Not translated (3.14.0): apply `Distinct` after the `Select`, or materialize first.
 13. **A lambda after a column-subset `Select`?** It may read only members the projection copied from themselves; anything else throws before any query. Filter, order and page before the `Select`.
+14. **A `Select` after `Distinct()`?** Not translated (3.14.0): apply `Distinct` after the `Select`, or materialize first.
