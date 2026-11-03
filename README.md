@@ -364,8 +364,11 @@ db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name })
   with a clear message. Query the whole entity, or use a detail class that declares it. (The self-contained
   `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine — see above.)
 - `Distinct().Count()` throws `NotSupportedException` (count client-side, or drop `Distinct`) — postponed to a later cut.
-- Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by a column *not* in the projection throws
-  `InvalidOperationException` (SQL requires the order key in the `DISTINCT` list).
+- Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by a column *not* in the projection throws: ordering
+  placed *after* the `Select` is the operator policy's `NotSupportedException` (3.14.0, the unprojected read);
+  ordering placed *before* the `Select` is `InvalidOperationException` (SQL requires the order key in the
+  `DISTINCT` list). A `Select(...)` *after* `Distinct()` throws `NotSupportedException` (3.14.0): apply `Distinct`
+  after the `Select`.
 
 ## Concurrency & Connection Management
 

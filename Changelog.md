@@ -28,6 +28,12 @@ All notable changes to this project will be documented in this file.
   message changed: ordering a `Select(subset).Distinct()` by an unprojected column was `InvalidOperationException`
   from the DISTINCT key check; it is now the policy's `NotSupportedException` (the key check still guards an
   ordering placed before the `Select`). Documented in Advanced.md §5 and the AI instructions.
+- **A `Select` after `Distinct()` now throws before any query.** SQL applies `DISTINCT` to the final column list
+  wherever `Distinct` sits in the chain, so `Query<T>().Distinct().Select(p => new T { LastName = p.LastName })`
+  made the *projection* distinct (one row for three people sharing a surname) where LINQ makes the *rows* distinct
+  first (three). The same for a scalar `Select` and for a `Select` after `Select(subset).Distinct()`. It is now
+  `NotSupportedException` (found in this release's review; every earlier release behaved the same). Apply
+  `Distinct()` after the `Select`, which is unchanged.
 - **Every assembly is strong-named** with the Funcular Labs key (public-key token `0650eba294fc9e3f`; the public key
   is committed as `build/FuncularLabs.publickey`, the private key never is). A strong-named .NET Framework consumer
   no longer gets warning CS8002 for referencing the package (the compiler emits that warning for .NET Framework
@@ -60,12 +66,13 @@ All notable changes to this project will be documented in this file.
   members of 3.7.0), so it is not run. No library change.
 
 ### Known issues
-- **One list from now on.** [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) holds every open item as of 3.14.0 (51
+- **One list from now on.** [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) holds every open item as of 3.14.0 (52
   entries, grouped by area, each with the release that first recorded it and a workaround or the by-design reason;
-  the ten recorded against 3.10 that nobody has re-run since are marked as such). It replaces the per-release
+  the items recorded against 3.10 that nobody has re-run since are marked as such). It replaces the per-release
   Known issues sections of 3.10.0 through 3.12.1, which now point at it; each release from here records only the
   delta. Fixed by 3.14.0, so absent from the list: the three exception types a consumer could not name (Fixed) and
-  a lambda after a column-subset `Select` reading a member the projection did not copy (Changed). Closed by this
+  a lambda after a column-subset `Select` reading a member the projection did not copy, and a `Select` after
+  `Distinct()` (Changed). Closed by this
   release's other work: the assemblies are strong-named, net48 runs in CI, and the integration suites no longer
   leave rows. New since 3.13.0 and still open: none beyond the list.
 - **CI** (no Changelog entry at the time): since 3.13.0 (commit 7c4e6ac) the NuGet push runs with

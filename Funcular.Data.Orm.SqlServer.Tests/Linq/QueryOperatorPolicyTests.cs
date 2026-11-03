@@ -301,6 +301,29 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Linq
             AssertSubsetRejection(Rows().Select(r => new Row { Id = r.Id, Tags = { 1 } }).Where(t => t.Tags.Count > 0), "Where", "Tags");
         }
 
+        // Review round 1, finding 1: SQL applies DISTINCT to the final SELECT list, so a Select after Distinct projects
+        // first and makes the projection distinct, where LINQ makes the rows distinct first; the policy rejects it.
+        private const string DistinctMessage = "after Distinct() is not translated";
+
+        [TestMethod]
+        public void Select_AfterDistinct_Rejected_SubsetOrScalar_BoundOrNot()
+        {
+            var ex = Rejected(Rows().Distinct().Select(r => new Row { LastName = r.LastName }));
+            StringAssert.Contains(ex.Message, DistinctMessage);
+            StringAssert.Contains(ex.Message, "Select(...)");
+            StringAssert.Contains(Rejected(Rows().Distinct().Select(r => r.LastName)).Message, DistinctMessage);
+            StringAssert.Contains(Rejected(Rows().Select(r => new Row { Id = r.Id, LastName = r.LastName }).Distinct().Select(t => t.LastName)).Message, DistinctMessage);
+            StringAssert.Contains(Rejected(Rows().Select(r => new Row { FirstName = r.FirstName, LastName = r.LastName }).Distinct().Select(t => new Row { LastName = t.LastName })).Message, DistinctMessage);
+        }
+
+        [TestMethod]
+        public void Select_ThenDistinct_StillPasses()
+        {
+            QueryOperatorPolicy.EnsureSupported(Rows().Select(r => new Row { Id = r.Id, LastName = r.LastName }).Distinct().OrderBy(t => t.LastName).Expression);
+            QueryOperatorPolicy.EnsureSupported(Rows().Select(r => r.LastName).Distinct().Expression);
+            QueryOperatorPolicy.EnsureSupported(Rows().Distinct().Where(r => r.Id > 0).OrderBy(r => r.Id).Expression);
+        }
+
         [TestMethod]
         public void SubsetSelect_AfterPaging_ThePagingRuleWins()
         {

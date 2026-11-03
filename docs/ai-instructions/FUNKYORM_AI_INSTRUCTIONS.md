@@ -575,7 +575,9 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 ```
 
 > **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
-> Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
+> Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `NotSupportedException` when the
+> ordering comes after the `Select` (3.14.0), `InvalidOperationException` when it comes before. A `Select` after
+> `Distinct()` → `NotSupportedException` (3.14.0): apply `Distinct` after the `Select`.
 > A **top-level `Select` projecting to a type other than `T`** (a scalar column, an anonymous type, or another
 > DTO) → `NotSupportedException` (v3.8.3). FunkyORM materializes `T`; only `Select(x => new T { ... })` (same
 > entity, column subset) is translated. Reshape in memory (`query.ToList().Select(...)`), or map a `[Table]`

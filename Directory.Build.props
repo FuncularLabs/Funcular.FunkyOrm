@@ -23,4 +23,17 @@
   <Target Name="FunkyOrmRequireKeyFile" BeforeTargets="CoreCompile" Condition="'$(FunkyOrmKeyFile)' != '' and !Exists('$(FunkyOrmKeyFile)')">
     <Error Text="FunkyOrmKeyFile is '$(FunkyOrmKeyFile)', which does not exist. Unset it to public-sign with the committed public key, or point it at the Funcular Labs .snk." />
   </Target>
+  <!-- The signing mode is an input of the compiler: without this stamp an incremental build with the key after a
+       public-signed build would find the outputs up to date and leave public-signed DLLs behind (review round 1). The
+       stamp is rewritten only when the mode changes, so an unchanged mode stays incremental. -->
+  <Target Name="FunkyOrmSigningModeStamp" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_FunkyOrmSigningStamp>$(IntermediateOutputPath)FunkyOrm.signing-mode.txt</_FunkyOrmSigningStamp>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_FunkyOrmSigningStamp)" Lines="PublicSign=$(PublicSign);KeyFile=$(AssemblyOriginatorKeyFile)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <CustomAdditionalCompileInputs Include="$(_FunkyOrmSigningStamp)" />
+      <FileWrites Include="$(_FunkyOrmSigningStamp)" />
+    </ItemGroup>
+  </Target>
 </Project>

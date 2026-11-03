@@ -118,7 +118,8 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
 
         /// <summary>
         /// 3.14.0 (N1/N2): the publish job fails before packing when the key secret is absent, passes the key to the build
-        /// AND the pack (pack rebuilds), verifies every DLL's strong name with the script, and pushes last.
+        /// (which produces the DLLs pack packs: with GeneratePackageOnBuild, `dotnet pack` does not build) AND to the pack
+        /// (so a pack-triggered build would sign too), verifies every DLL's strong name with the script, and pushes last.
         /// </summary>
         [TestMethod]
         public void Publish_SignsWithTheSecret_VerifiesEveryDll_ThenPushes()
@@ -141,7 +142,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             StringAssert.Contains(job, "IsNullOrWhiteSpace($env:FUNKYORM_SNK_BASE64)", "the key step doesn't fail on an absent secret");
             StringAssert.Contains(job, "throw \"The FUNKYORM_SNK_BASE64 secret is not set", "the key step must throw, not continue, when the secret is absent");
             Assert.IsTrue(Regex.IsMatch(job, @"dotnet build [^\n]*-p:FunkyOrmKeyFile=\$\{\{ env\.FUNKYORM_KEY_FILE \}\}"), "the build doesn't get the key");
-            Assert.IsTrue(Regex.IsMatch(job, @"dotnet pack [^\n]*-p:FunkyOrmKeyFile=\$\{\{ env\.FUNKYORM_KEY_FILE \}\}"), "the pack doesn't get the key (pack rebuilds)");
+            Assert.IsTrue(Regex.IsMatch(job, @"dotnet pack [^\n]*-p:FunkyOrmKeyFile=\$\{\{ env\.FUNKYORM_KEY_FILE \}\}"), "the pack doesn't get the key (a pack-triggered build must sign too)");
             StringAssert.Contains(job, "./tools/signing/Verify-StrongNames.ps1 -NupkgDirectory nupkgs -ExpectedToken 0650eba294fc9e3f", "no strong-name verification before the push");
             Assert.IsTrue(File.Exists(Path.Combine(PackagingTests.RepositoryRoot(), "tools", "signing", "Verify-StrongNames.ps1")), "the verify script is missing");
         }

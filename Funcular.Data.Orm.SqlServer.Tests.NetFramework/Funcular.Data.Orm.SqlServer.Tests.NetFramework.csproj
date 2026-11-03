@@ -63,6 +63,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DeleteGuardCaseTests.cs" />
+    <Compile Include="StrongNamingNetFrameworkTests.cs" />
     <Compile Include="Domain\Entities\Address\AddressEntity.cs" />
     <Compile Include="Domain\Entities\NotifyPropertyChangedInvocatorAttribute.cs" />
     <Compile Include="Domain\Entities\PersistenceStateEntity.cs" />

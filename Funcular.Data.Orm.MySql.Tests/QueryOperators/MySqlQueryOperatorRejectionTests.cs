@@ -761,6 +761,34 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         }
 
         #endregion
+        #region Review round 1 (3.14.0): a Select after Distinct() is rejected (DISTINCT would apply to the projection)
+
+        private const string SelectAfterDistinctMessage = "after Distinct() is not translated";
+
+        private static readonly Dictionary<string, Func<IQueryable<PersonWithEmployer>, object>> SelectAfterDistinct =
+            new Dictionary<string, Func<IQueryable<PersonWithEmployer>, object>>
+            {
+                ["Select(subset).Distinct().Select(scalar, bound)"] = q => q.Select(p => new PersonWithEmployer { Id = p.Id, LastName = p.LastName }).Distinct().Select(p => p.LastName).ToList(),
+                ["Select(subset).Distinct().Select(subset, bound)"] = q => q.Select(p => new PersonWithEmployer { FirstName = p.FirstName, LastName = p.LastName }).Distinct().Select(p => new PersonWithEmployer { LastName = p.LastName }).ToList(),
+                ["Distinct().Select(subset)"] = q => q.Distinct().Select(p => new PersonWithEmployer { LastName = p.LastName }).ToList(),
+                ["Distinct().Select(scalar)"] = q => q.Distinct().Select(p => p.LastName).ToList(),
+            };
+
+        public static IEnumerable<object[]> SelectAfterDistinctRows => SelectAfterDistinct.Keys.Select(k => new object[] { k });
+
+        [DataTestMethod]
+        [DynamicData(nameof(SelectAfterDistinctRows))]
+        public void Select_AfterDistinct_RejectedBeforeAnyQuery(string shape)
+        {
+            var (marker, _) = SeedAbc();
+
+            var ex = AssertThrowsNoQuery<NotSupportedException>(() => SelectAfterDistinct[shape](People(marker)));
+            StringAssert.Contains(ex.Message, SelectAfterDistinctMessage);
+            StringAssert.Contains(ex.Message, "Select(...)");
+        }
+
+        #endregion
+
         #region 3.14.0: a lambda after a column-subset Select may read only identity-bound members (plan stream S)
 
         private const string SubsetSelectMessage = "after a column-subset Select reads";

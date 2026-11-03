@@ -73,6 +73,5 @@ namespace Funcular.Data.Orm.MySql.Tests
 
         protected override OrmDataProvider CreateProvider() => new MySqlOrmDataProvider(ConnectionString);
 
-        protected override Assembly ProviderAssembly => typeof(MySqlOrmDataProvider).Assembly;
     }
 }

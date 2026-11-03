@@ -508,6 +508,50 @@ verified accurate (the EF harness guard dates from 98eefef; the 14 members arriv
 Carried for the final review: `1b7b84a`'s new test code and `48dd2d7`'s two conflict resolutions are not covered by
 the CLEAN pass at 9c37ac0 and get their own adversarial pass before any push.
 
+### 7.4 Stream H record (2026-11-02)
+
+- Merge `48dd2d7`; follow-up `1b7b84a`; supersession notes `371e9b8`. The ledger contract tests pass on SQL Server,
+  PostgreSQL and MySQL (7/7 each) after the merge; the MySQL scoped-cache read test passes on the local database.
+- **H3 on throwaway databases** (`funky_db_h3` on `.\SQL2019`, PostgreSQL 18 and MySQL 8, created from
+  name-substituted copies of the schema and data scripts; `funky_db` never dropped, its counts recorded before and
+  after on all three servers and unchanged; evidence in scratchpad `h3/`). Suites ran from copies of the test build
+  outputs so later rebuilds could not disturb them, which makes the repository-relative DB-free tests (the packaging
+  and CI pins, `Compile_OnlyInTheSeam`) fail in those runs: 49 such on SQL Server and 1 on net48, none database
+  related.
+  - MySQL (schema only, all guarded tables empty): 1996 passed, 0 failed; counts unchanged.
+  - SQL Server and PostgreSQL, first run on the empty databases: `organization` 0 → 2 on both (the counts survive in
+    `h3/ss-h3-before.txt` → `ss-h3-after.txt` and `pg-h3-before.txt` → `pg-h3-after.txt` as they stood before the
+    second run overwrote them; the first run's test logs themselves were overwritten by the rerun, which wrote
+    `ss2.log`/`pg2.log`/`net48-2.log`; the `ss.log`/`pg.log`/`net48.log` left in `h3/` are an earlier attempt that
+    failed to reach the throwaway databases, 762 failed / 1863 skipped / 73 failed, and prove nothing). The first
+    run's pass counts quoted from the terminal at the time: SQL Server 3431 passed, 76 failed (27 stream-E red pins
+    at that moment + 49 repository-relative); PostgreSQL 2051 passed, 0 failed; net48 171/172.
+    The two rows are `ComputedTest Org` / `JsonTest Org` (PostgreSQL: `PgComputedTest Org` / `PgJsonTest Org`),
+    created once by the computed-attribute and JSON-path classes' `SeedTestData` with raw `IF NOT EXISTS … INSERT`
+    SQL before the ledger's count, as reference data; on the shared databases they have existed for months, which is
+    why neither the branch's measurement nor the local runs could see them.
+  - SQL Server, second run: 3457 passed (50 = the 49 + 1 repository-relative); PostgreSQL 2050 passed; net48
+    171/172; **every guarded count unchanged** on both. Per-run growth is zero; the one-time reference seed is
+    recorded as a follow-up in TEST_ROW_HYGIENE_PLAN.md rev 14 (seed it from the data scripts, or delete it in a
+    `ClassCleanup`), not fixed here.
+  - Also found: the SQL Server data script's 50 `project` inserts fail their FK to `organization` (Msg 547) on a fresh
+    database, so the project tables are empty there; CI runs the script without `-b` and ignores it. Backlog.
+### 7.5 Streams E and S record (2026-11-02)
+
+- **E** (`c259032`): red run against 3.13.0's layout: the three pins failed for the right reasons (type not in Core;
+  base-type pin; SqlServer still declaring the type) and 24 `NullableValueToString_IsRejected` rows failed on the
+  assembly assertion. Green after the move: pins 3/3; the exception-related subsets SQL Server 856, PostgreSQL 504,
+  MySQL 497, SQLite 184; net48 builds; the package project's Release build reports **0 × CS0436** (40 before); the
+  solution's warning count fell from 251 to 175. Consumer-smoke `catch` clauses compile against the local pack (the
+  smoke runs are in §7.6). The CS0433 red proof against nuget.org 3.13.0 is scratchpad `cs0433red/`.
+- **S** (`01172b0`): red run with the unchanged policy: SQL Server 39 of 49 new tests failed, PostgreSQL 28/35, MySQL
+  29/35, SQLite 28/35, net48 9/14 (every rejection row, the four Distinct flips, the DB-free rows); two test defects
+  found in that run and fixed before green (the oracle rows compared `"A"` against the seeded `"a"`, which only a
+  case-insensitive collation matched; the hand-built `Max` spine picked the one-generic-argument overload). Green:
+  SQL Server 49/49, PostgreSQL 35/35, MySQL 35/35, SQLite 35/35, net48 14/14. Full regression on the E+S build:
+  SQL Server 3551 passed + 1 skip + 1 expected failure (`VersionCarriers_MatchTheChangelog`, the csprojs said 3.13.0
+  until the bump), PostgreSQL 2083/2083, MySQL 2026/2026, SQLite 1534/1534, net48 186/186.
+
 ### 7.6 Streams N and C record (2026-11-02)
 
 Public-signed solution build: 0 errors, 246 warnings, **0 × CS8002** (the test-only Spittoon packages did not raise
@@ -532,42 +576,60 @@ Open for the first CI run: `sn.exe` on windows-latest (the verify script fails c
 plus `vswhere` resolving vstest on the runner, and the `FUNKYORM_SNK_BASE64` secret, which the owner must add
 before the release merge (a manual `workflow_dispatch` run from the branch exercises the publish job without pushing).
 
-### 7.5 Streams E and S record (2026-11-02)
+### 7.7 Mutations and coverage (2026-11-02)
 
-- **E** (`c259032`): red run against 3.13.0's layout: the three pins failed for the right reasons (type not in Core;
-  base-type pin; SqlServer still declaring the type) and 24 `NullableValueToString_IsRejected` rows failed on the
-  assembly assertion. Green after the move: pins 3/3; the exception-related subsets SQL Server 856, PostgreSQL 504,
-  MySQL 497, SQLite 184; net48 builds; the package project's Release build reports **0 × CS0436** (40 before); the
-  solution's warning count fell from 251 to 175. Consumer-smoke `catch` clauses compile against the local pack (the
-  smoke runs are in §7.6). The CS0433 red proof against nuget.org 3.13.0 is scratchpad `cs0433red/`.
-- **S** (`01172b0`): red run with the unchanged policy: SQL Server 39 of 49 new tests failed, PostgreSQL 28/35, MySQL
-  29/35, SQLite 28/35, net48 9/14 (every rejection row, the four Distinct flips, the DB-free rows); two test defects
-  found in that run and fixed before green (the oracle rows compared `"A"` against the seeded `"a"`, which only a
-  case-insensitive collation matched; the hand-built `Max` spine picked the one-generic-argument overload). Green:
-  SQL Server 49/49, PostgreSQL 35/35, MySQL 35/35, SQLite 35/35, net48 14/14. Full regression on the E+S build:
-  SQL Server 3551 passed + 1 skip + 1 expected failure (`VersionCarriers_MatchTheChangelog`, the csprojs said 3.13.0
-  until the bump), PostgreSQL 2083/2083, MySQL 2026/2026, SQLite 1534/1534, net48 186/186.
+Mutations executed by the non-author reviewer in a detached worktree at `aa6d8a9` (review round 1), each reverted:
 
-### 7.4 Stream H record (2026-11-02)
+| Mutation | Tests run | Result |
+|:--|:--|:--|
+| M-S1 never set `boundMembers` | DB-free policy rows; SQLite | killed: 10 DB-free rows; 28 SQLite rows |
+| M-S7 every binding counts as bound | DB-free; SQLite; SQL Server | killed: 2 DB-free; the cross, constant and chained-cross rows on each provider |
+| M-S12 never clear at a scalar Select | same | killed: `…ClearsTheSet`; `…GetsTheScalarOutermostMessage` on both providers |
+| M-S13 clear at a scalar Select before checking its lambda | same | killed: the DB-free row; the "Select(scalar, unbound)" row on both providers |
+| M-S14 don't descend into nested lambdas | same | killed by the DB-free nested-lambda row (the provider tables have none; the policy is shared) |
+| M-E1 drop the MySql `NullableExpressionException` forwarder | Packaging | killed (`ExceptionTypes_AreDefinedOnceInCore_AndForwardedByEveryProvider`) |
+| M-K1 SqlServer csproj `Version` → 3.14.1 only | Packaging | killed (the as-of pin and `VersionCarriers_MatchTheChangelog`) |
+| M-N1 `SignAssembly=false` on Sqlite | Packaging | killed at compile (CS8102: PublicSign with no key); the `PublicSign=false` variant killed by the token and public-key tests |
+| M-N5a delete the push step's `if`; M-N5b keep only the ref check | Packaging | both killed |
+| M-C1 drop `test-net48` from publish's `needs` | Packaging | killed |
 
-- Merge `48dd2d7`; follow-up `1b7b84a`; supersession notes `371e9b8`. The ledger contract tests pass on SQL Server,
-  PostgreSQL and MySQL (7/7 each) after the merge; the MySQL scoped-cache read test passes on the local database.
-- **H3 on throwaway databases** (`funky_db_h3` on `.\SQL2019`, PostgreSQL 18 and MySQL 8, created from
-  name-substituted copies of the schema and data scripts; `funky_db` never dropped, its counts recorded before and
-  after on all three servers and unchanged; evidence in scratchpad `h3/`). Suites ran from copies of the test build
-  outputs so later rebuilds could not disturb them, which makes the repository-relative DB-free tests (the packaging
-  and CI pins, `Compile_OnlyInTheSeam`) fail in those runs: 49 such on SQL Server and 1 on net48, none database
-  related.
-  - MySQL (schema only, all guarded tables empty): 1996 passed, 0 failed; counts unchanged.
-  - SQL Server, first run: 3431 passed (the 76 failures = 27 stream-E red pins at that moment + 49 repository-relative);
-    `organization` 0 → 2. PostgreSQL, first run: 2051 passed, 0 failed; `organization` 0 → 2. net48: 171/172.
-    The two rows are `ComputedTest Org` / `JsonTest Org` (PostgreSQL: `PgComputedTest Org` / `PgJsonTest Org`),
-    created once by the computed-attribute and JSON-path classes' `SeedTestData` with raw `IF NOT EXISTS … INSERT`
-    SQL before the ledger's count, as reference data; on the shared databases they have existed for months, which is
-    why neither the branch's measurement nor the local runs could see them.
-  - SQL Server, second run: 3457 passed (50 = the 49 + 1 repository-relative); PostgreSQL 2050 passed; net48
-    171/172; **every guarded count unchanged** on both. Per-run growth is zero; the one-time reference seed is
-    recorded as a follow-up in TEST_ROW_HYGIENE_PLAN.md rev 14 (seed it from the data scripts, or delete it in a
-    `ClassCleanup`), not fixed here.
-  - Also found: the SQL Server data script's 50 `project` inserts fail their FK to `organization` (Msg 547) on a fresh
-    database, so the project tables are empty there; CI runs the script without `-b` and ignores it. Backlog.
+Baselines before mutating: DB-free 87/87; SQL Server S subset 504/504; SQLite S subset 510/510. The round-1 fix
+layer's own red/green: the Select-after-Distinct rows failed against the unchanged policy (SQL Server 5 of 6, the
+sixth being the "Select then Distinct still passes" row; SQLite 4 of 4) and passed after it, with the operator,
+packaging, LikeToString, computed and scoped-cache subsets green on SQL Server (1,427), PostgreSQL (1,003), MySQL
+(1,000), SQLite (685) and net48 (189, the new token pin included).
+
+Coverage (cobertura, `dotnet test … --collect:"XPlat Code Coverage"` over the SQL Server suite's operator, packaging,
+LikeToString, remote-key, parity and translator subsets, 1,577 tests; scratchpad `r1/cov/`): line rate
+`QueryOperatorPolicy.cs` 0.995 (the class) and 1.000 (`UnboundReadFinder`); `Core/Exceptions/RemoteKeyExceptions.cs`
+1.000 for each of the three classes; the four `TypeForwards.cs` files hold attributes only. The reviewer's independent
+measurement at `aa6d8a9` agreed (99.6 % / 100 % / 100 %).
+
+### 7.8 Review round 1 (`10c1c6b..aa6d8a9`) dispositions
+
+Non-author hostile review: **NOT CLEAN, 2 Major, 4 Minor, 4 Nit.** Every finding accepted.
+
+| # | Sev | Blame | Disposition |
+|:--|:--|:--|:--|
+| 1 | Major | AC-GAP | A `Select` after `Distinct()` is rejected by the policy (`NotSupportedException`, "apply Distinct after the Select"); DB-free rows and a four-row rejection table in each provider suite, red before the policy change and green after; the Changelog's Changed entry, Advanced.md, the AI files and README say so. `Select(...).Distinct()` is unchanged (the oracle rows cover it). |
+| 2 | Major | AC-GAP | README.md, Advanced.md, FUNKYORM_AI_ADVANCED.md and FUNKYORM_AI_INSTRUCTIONS.md now distinguish an ordering after the `Select` (the policy's `NotSupportedException`, 3.14.0) from one before it (`InvalidOperationException`, the DISTINCT key check). |
+| 3 | Minor | PLAN-GAP | `Directory.Build.props` stamps the signing mode into the compiler's inputs (`CustomAdditionalCompileInputs`, written only when different), so an incremental build with the key recompiles; `Run-ConsumerSmoke.ps1 -KeyFile` builds `--no-incremental` with the key before packing and verifies the pack; the "pack rebuilds" wording corrected in §3.N, N2 and the CI pin; N5 re-recorded in §7.9. |
+| 4 | Minor | OTHER | §7.7 added (mutations, coverage); §7.4 rewritten to cite the surviving logs and say which were lost. |
+| 5 | Minor | TEST-GAP | `StrongNamingNetFrameworkTests` added to the net48 project (Core and Funcular.Data.Orm carry the token as loaded by the .NET Framework host); the N1 row names it. |
+| 6 | Minor | OTHER | The unverified `TargetInvocationException` half of Appendix A #21 is a marked entry in docs/KNOWN_ISSUES.md (52 entries) and #21 is in the backlog's probe list. |
+| 7 | Nit | OTHER | The moved summary says "would produce … so the translator throws this instead". |
+| 8 | Nit | OTHER | `ProviderAssembly` and its four overrides deleted. |
+| 9 | Nit | OTHER | `Exceptions/TypeForwards.cs`; §7 reordered; the Changelog says the items recorded against 3.10 that nobody re-ran are marked. |
+| 10 | Nit | OTHER | The MySQL scoped-cache test keeps its own failure visible when the cleanup fails too (`AggregateException`). |
+
+### 7.9 N5 re-recorded after the signing-mode stamp (2026-11-02, scratchpad `r1/`)
+
+1. A fresh public-signed build of the package project, then an **incremental** build with `-p:FunkyOrmKeyFile`, then
+   pack and `Verify-StrongNames.ps1`: **PASS, 12 DLLs** fully signed with the token (before the stamp this left
+   public-signed DLLs and failed on all 12).
+2. An incremental build back without the key, pack, verify: **FAIL, exit 1** on every DLL ("Strong name validation
+   failed"), as a public-signed pack must.
+3. `Run-ConsumerSmoke.ps1 -KeyFile`: builds `--no-incremental` with the key, packs, verifies the pack, runs: PASS on
+   net8.0 and net48. `-KeyFile -StrongNamedConsumer`: PASS on both (the net48 target is the one that can fail, §7.6).
+4. The pins after the CI-pin wording change: 72/72.
+

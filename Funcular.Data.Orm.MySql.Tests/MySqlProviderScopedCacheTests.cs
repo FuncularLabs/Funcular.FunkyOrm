@@ -118,6 +118,7 @@ namespace Funcular.Data.Orm.MySql.Tests
             // The read needs a person row. The MySQL schema script seeds none (CI's database is empty), so the test
             // inserts its own and deletes it, as the row-hygiene rule requires.
             var personId = InsertPersonRow();
+            Exception failure = null;
             try
             {
                 using var a = new MySqlOrmDataProvider(P2ConnectionString);
@@ -133,9 +134,22 @@ namespace Funcular.Data.Orm.MySql.Tests
                 var entryB = b.ScopeEntityMappers.Single(e => e.Key.StartsWith(prefix)).Value;
                 Assert.AreNotSame(entryA, entryB, "B has its own mapper");
             }
+            catch (Exception ex)
+            {
+                failure = ex;
+                throw;
+            }
             finally
             {
-                Funcular.Data.Orm.Tests.Shared.TestRowLedger.DeleteRow(() => new MySqlConnection(P2ConnectionString), "person", personId);
+                try
+                {
+                    Funcular.Data.Orm.Tests.Shared.TestRowLedger.DeleteRow(() => new MySqlConnection(P2ConnectionString), "person", personId);
+                }
+                catch (Exception cleanup) when (failure != null)
+                {
+                    // The test's own failure must stay visible; the cleanup failure rides along.
+                    throw new AggregateException("The test failed and its cleanup failed too.", failure, cleanup);
+                }
             }
         }
 

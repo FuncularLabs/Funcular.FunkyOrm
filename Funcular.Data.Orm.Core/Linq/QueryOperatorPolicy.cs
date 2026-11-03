@@ -18,7 +18,9 @@ namespace Funcular.Data.Orm.Linq
     /// <c>OrderBy</c>; <c>Cast</c>/<c>OfType</c> against the row type; predicate lambdas that don't bind to the
     /// entity; and, after a column-subset <c>Select(x =&gt; new T { … })</c>, a lambda that reads a member of its
     /// parameter the projection did not copy from itself (<c>M = x.M</c>): LINQ would see the projected value, SQL
-    /// would read the base column, so the read is rejected before any query (3.14.0). The row type starts as the
+    /// would read the base column, so the read is rejected before any query (3.14.0); and a <c>Select</c> after
+    /// <c>Distinct()</c>, because SQL applies DISTINCT to the final column list where LINQ makes the rows distinct
+    /// first (3.14.0). The row type starts as the
     /// entity type and changes only at a scalar <c>Select(x =&gt; x.Member)</c>; after any other unsupported
     /// <c>Select</c> it is unknown, and the parse loop rejects that <c>Select</c>.</para>
     /// </remarks>
@@ -118,6 +120,7 @@ namespace Funcular.Data.Orm.Linq
             var afterNonSubsetSelect = false;
             var afterOtherSelect = false;   // an unsupported Select: the row type is unknown from here
             HashSet<string> boundMembers = null; // after a column-subset Select: the members it copied from itself
+            var distinctSeen = false;            // a Select after Distinct would project before DISTINCT (3.14.0)
             for (var i = spine.Count - 1; i >= 0; i--)
             {
                 var call = spine[i];
@@ -214,8 +217,18 @@ namespace Funcular.Data.Orm.Linq
                         throw AfterSubsetSelect(name, unbound);
                 }
 
+                if (name == "Distinct")
+                    distinctSeen = true;
+
                 if (name == "Select")
                 {
+                    // SQL applies DISTINCT to the final SELECT list wherever Distinct sits in the chain, so a Select after
+                    // Distinct makes the projection distinct where LINQ makes the rows distinct first: a different answer.
+                    if (distinctSeen)
+                        throw new NotSupportedException(
+                            "Select(...) after Distinct() is not translated: SQL would apply DISTINCT to the projected columns, " +
+                            "where LINQ makes the rows distinct first, so the results would differ. Apply Distinct after the " +
+                            "Select: query.Select(...).Distinct().");
                     var lambda = StripQuotes(call.Arguments[1]);
                     if (IsScalarSelect(lambda))
                     {

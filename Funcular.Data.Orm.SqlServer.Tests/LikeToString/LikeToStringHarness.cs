@@ -128,9 +128,6 @@ namespace Funcular.Data.Orm.Tests.LikeToString
 
         protected abstract OrmDataProvider CreateProvider();
 
-        /// <summary>The provider assembly under test (it forwards <c>NullableExpressionException</c> to Core since 3.14.0).</summary>
-        protected abstract Assembly ProviderAssembly { get; }
-
         #endregion
 
         #region Predicates

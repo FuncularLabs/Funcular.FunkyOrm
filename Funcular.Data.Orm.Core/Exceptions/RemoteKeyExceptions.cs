@@ -18,7 +18,7 @@ namespace Funcular.Data.Orm.Exceptions
     /// Thrown when a LINQ expression uses .Value, .HasValue, or an incompatible
     /// collection type on a nullable entity property. FunkyORM automatically
     /// unwraps nullable types during SQL translation; using these members
-    /// produces invalid SQL column references.
+    /// would produce invalid SQL column references, so the translator throws this instead.
     /// </summary>
     public class NullableExpressionException : InvalidOperationException
     {

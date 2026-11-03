@@ -710,7 +710,7 @@ Sources are on master unless a branch is named. Each needs an owner decision bef
 | The EntityFramework comparison harness (`SqlServer.Tests/EntityFramework/`) is compiled under `PERFORMANCE_TESTS` only and no longer compiles there (`EfSqlDataProvider` lacks the `Exec*` members `IOrmDataProvider` gained in 3.7.0) | OPEN: revive or delete (found 2026-11-02, TEST_ROW_HYGIENE_PLAN.md rev 14) |
 | On an empty database the computed-attribute and JSON-path classes create two reference organizations once with raw SQL, before the row ledger counts | OPEN: seed them from the data scripts or delete them in a `ClassCleanup` (TEST_ROW_HYGIENE_PLAN.md rev 14) |
 | The SQL Server data script's 50 `project` inserts fail their FK to `organization` on a fresh database (Msg 547); CI runs it without `-b` | OPEN: seed the organizations first, or run with `-b` once fixed |
-| The ten Appendix A rows marked "not re-verified since 3.10" (#3, #5, #6, #7, #11, #14, #15, #16, #17, #19) | OPEN: one probe each on 3.14.0, then fix or keep |
+| The eleven Appendix A rows marked "not re-verified since 3.10" (#3, #5, #6, #7, #11, #14, #15, #16, #17, #19, and #21's `TargetInvocationException` half) | OPEN: one probe each on 3.14.0, then fix or keep |
 | The audit-key check uses `char.IsLetterOrDigit` while the docs say `[A-Za-z0-9_]`; the runbook blames MySQL naming for dotted keys (MySQL allows `.` and `$`) | OPEN (KNOWN_ISSUES.md, MySQL) |
 
 ## Appendix B — Evidence for WPs A and B (executed 2026-10-05)

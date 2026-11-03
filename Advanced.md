@@ -109,8 +109,13 @@ provider.Query<ProjectScorecard>()
   rejected by the engine (`42883`). FunkyORM's SQL is correct; the database can't compare it. Project a column
   subset that excludes the collection column, then `Distinct()`. **SQL Server, MySQL, and SQLite are fine.**
 - **`Distinct().Count()`** (any aggregate after `Distinct()`) throws `NotSupportedException` — count in memory.
-- **`Distinct()` with a custom `Select` and an `OrderBy` on a column you didn't project** throws
-  `InvalidOperationException` (SQL requires every `ORDER BY` key to be in the `SELECT DISTINCT` list).
+- **`Distinct()` with a custom `Select` and an `OrderBy` on a column you didn't project** throws: an ordering placed
+  *after* the `Select` is the operator policy's `NotSupportedException` (3.14.0: it reads a member the projection
+  didn't copy); an ordering placed *before* the `Select` is `InvalidOperationException` (SQL requires every
+  `ORDER BY` key to be in the `SELECT DISTINCT` list).
+- **`Select(...)` after `Distinct()`** throws `NotSupportedException` (3.14.0): SQL applies `DISTINCT` to the
+  final column list wherever `Distinct` sits, so the projection would be made distinct where LINQ makes the
+  rows distinct first. Apply `Distinct()` after the `Select`.
 - **`Distinct()` with a custom `Select` and paging (`Skip`/`Take`) but no `OrderBy`** throws
   `InvalidOperationException` — paging a `DISTINCT` projection needs a deterministic `OrderBy` over a projected
   column.

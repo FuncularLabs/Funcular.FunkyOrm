@@ -78,9 +78,22 @@ Write-Host "Work directory: $work"
 
 Write-Host "Packing Funcular.Data.Orm $Version ($Configuration) into the local feed..."
 $packArgs = @()
-if ($KeyFile) { if (-not (Test-Path $KeyFile)) { Write-Host "FAIL: -KeyFile $KeyFile does not exist" -ForegroundColor Red; exit 2 }; $packArgs += "-p:FunkyOrmKeyFile=$((Resolve-Path $KeyFile).Path)"; Write-Host "Fully signed pack (key file given)." } else { Write-Host "Public-signed pack (no -KeyFile)." }
-& dotnet pack (Join-Path $repo "Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj") -c $Configuration -o $feed --nologo -v q @packArgs
+$packageProject = Join-Path $repo "Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj"
+if ($KeyFile) {
+    if (-not (Test-Path $KeyFile)) { Write-Host "FAIL: -KeyFile $KeyFile does not exist" -ForegroundColor Red; exit 2 }
+    $packArgs += "-p:FunkyOrmKeyFile=$((Resolve-Path $KeyFile).Path)"
+    # With GeneratePackageOnBuild, `dotnet pack` packs what the build left in bin and does not build; so build first,
+    # fully signed, --no-incremental (a mode change is also stamped into the compiler's inputs by Directory.Build.props).
+    Write-Host "Fully signed pack (key file given): building --no-incremental with the key first."
+    & dotnet build $packageProject -c $Configuration --no-incremental --nologo -v q @packArgs
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: signed build" -ForegroundColor Red; exit 3 }
+} else { Write-Host "Public-signed pack (no -KeyFile)." }
+& dotnet pack $packageProject -c $Configuration -o $feed --nologo -v q @packArgs
 if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: pack" -ForegroundColor Red; exit 3 }
+if ($KeyFile) {
+    & pwsh -NoProfile -File (Join-Path $repo "tools/signing/Verify-StrongNames.ps1") -NupkgDirectory $feed -ExpectedToken 0650eba294fc9e3f
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the pack is not fully signed" -ForegroundColor Red; exit 3 }
+}
 $nupkg = Join-Path $feed "Funcular.Data.Orm.$Version.nupkg"
 if (-not (Test-Path $nupkg)) { Write-Host "FAIL: $nupkg not produced (is <Version> $Version?)" -ForegroundColor Red; exit 3 }
 

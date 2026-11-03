@@ -44,7 +44,6 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
 
         protected override OrmDataProvider CreateProvider() => new SqlServerOrmDataProvider(ConnectionString);
 
-        protected override Assembly ProviderAssembly => typeof(SqlServerOrmDataProvider).Assembly;
     }
 
     /// <summary>The LIKE-escaping and column-ToString harness on SQLite, one temp file per row (CI).</summary>
@@ -87,6 +86,5 @@ namespace Funcular.Data.Orm.SqlServer.Tests.LikeToString
 
         protected override OrmDataProvider CreateProvider() => new SqliteOrmDataProvider($"Data Source={_path}");
 
-        protected override Assembly ProviderAssembly => typeof(SqliteOrmDataProvider).Assembly;
     }
 }

@@ -46,6 +46,9 @@ release; it is kept rather than dropped because dropping it would claim a fix th
 - **`.Value`/`.HasValue` on a nullable property, arithmetic (`x.Total * 2`), `??`, and bitwise `&`/`|` are not
   translated in WHERE**: they throw before any query (`.Value`/`.HasValue` throw `NullableExpressionException`).
   *Since 3.10.0, by design; Usage.md pitfall 4.* Write `x.M != null`, and compute arithmetic before the query.
+- **A predicate that reads a closure property which throws can surface as `TargetInvocationException`** rather than
+  the property's own exception (the inner exception is kept since 3.11.0; whether the wrapper still escapes was
+  not re-run). *Recorded 3.10; not re-verified since 3.10.* Read such values into a local before the query.
 - **`[SubqueryAggregate(ConditionValue = …)]` is inlined into the SQL unescaped.** It is a developer-written
   constant, so this is a robustness limit, not an injection path. *Recorded 2026-10-25.* Keep it a plain literal.
 
