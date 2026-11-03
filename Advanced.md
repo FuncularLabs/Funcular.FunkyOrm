@@ -48,7 +48,7 @@ var summaries = provider.Query<PersonSummary>().ToList();   // PersonSummary : [
 
 **The performance idiom.** `Select(x => new T { Key = x.Key })` doesn't just work — it emits a **narrow
 `SELECT`** of only the projected column(s) and composes with `Where` + `OrderBy` (including a `[RemoteProperty]`
-join column) + `Skip`/`Take`. On a wide entity with many `[JsonPath]`/`[SqlExpression]`/`[RemoteProperty]`
+join column) + `Skip`/`Take`, applied **before** it. A `Where`, an ordering, a predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` placed **after** a column-subset `Select` may read only the members the projection copied from themselves (`Name = x.Name`). Reading any other member of the row (one the projection left out, the key unless projected, one bound from another member or from a constant) throws `NotSupportedException` before any query, naming the operator and the member: LINQ would see the projected value and SQL would read the base column, so the results would differ (3.14.0). On a wide entity with many `[JsonPath]`/`[SqlExpression]`/`[RemoteProperty]`
 members, that **defers computing the unprojected columns until after the Top-N**. When you filter/order/page by
 a computed or joined column but only need a key back, this is dramatically faster than materializing the whole
 entity — and it's the supported way to do it. (You get back a `T` with only the projected members populated.)
@@ -109,8 +109,13 @@ provider.Query<ProjectScorecard>()
   rejected by the engine (`42883`). FunkyORM's SQL is correct; the database can't compare it. Project a column
   subset that excludes the collection column, then `Distinct()`. **SQL Server, MySQL, and SQLite are fine.**
 - **`Distinct().Count()`** (any aggregate after `Distinct()`) throws `NotSupportedException` — count in memory.
-- **`Distinct()` with a custom `Select` and an `OrderBy` on a column you didn't project** throws
-  `InvalidOperationException` (SQL requires every `ORDER BY` key to be in the `SELECT DISTINCT` list).
+- **`Distinct()` with a custom `Select` and an `OrderBy` on a column you didn't project** throws: an ordering placed
+  *after* the `Select` is the operator policy's `NotSupportedException` (3.14.0: it reads a member the projection
+  didn't copy); an ordering placed *before* the `Select` is `InvalidOperationException` (SQL requires every
+  `ORDER BY` key to be in the `SELECT DISTINCT` list).
+- **`Select(...)` after `Distinct()`** throws `NotSupportedException` (3.14.0): SQL applies `DISTINCT` to the
+  final column list wherever `Distinct` sits, so the projection would be made distinct where LINQ makes the
+  rows distinct first. Apply `Distinct()` after the `Select`.
 - **`Distinct()` with a custom `Select` and paging (`Skip`/`Take`) but no `OrderBy`** throws
   `InvalidOperationException` — paging a `DISTINCT` projection needs a deterministic `OrderBy` over a projected
   column.
@@ -212,7 +217,7 @@ operator, and **no command runs**. (Up to 3.9, several of these were silently ig
 | `OrderBy`, `OrderByDescending` | `ORDER BY` | **One per query** (below). Own columns are table-qualified when the entity has remote joins. A ternary becomes a `CASE`, with its values sent as parameters (such as strings, chars, `Guid`s, dates and times; booleans, enums and values of type `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double` and `decimal` stay inline); a comparison with `null` in it (a literal, a variable holding null, or any value computed without reading the row) becomes `IS [NOT] NULL` (on PostgreSQL, a value that would be sent as a parameter is instead compared with `null` before the query is sent; an inline value such as `5` is still sent as `5 IS NULL`). |
 | `ThenBy`, `ThenByDescending` | further `ORDER BY` keys | A key repeated later in the chain is dropped: it can never break a tie. |
 | `Skip`, `Take` | `OFFSET … FETCH` (SQL Server), `LIMIT … OFFSET` (others) | See the paging rule below. Without an `OrderBy`, pages are ordered by `id` (SQLite: `rowid`). `Skip(n < 0)` acts as `Skip(0)`; `Take(n ≤ 0)` returns an empty result without a query. |
-| `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. |
+| `Distinct` | `SELECT DISTINCT` | With a custom projection, every ordering key must be projected. Not combined with an aggregate. A `Select` after it throws (3.14.0): apply `Distinct` after the `Select`. |
 | `First`, `FirstOrDefault` | the first row of the order | With or without a predicate. |
 | `Single`, `SingleOrDefault` | at most two rows (`TOP (2)` / `LIMIT 2`), then LINQ's checks | Two or more matches throw; `Single` also throws on none. |
 | `Last`, `LastOrDefault` | the first row of the **inverted** order (`TOP (1)` / `LIMIT 1`) | Every ordering key is inverted. With no `OrderBy`, the order is `Id DESC`. |
@@ -231,6 +236,15 @@ before `Skip`/`Take`, or materialize the page first: `query.Skip(n).Take(k).ToLi
 **One `OrderBy`.** A second `OrderBy`/`OrderByDescending` anywhere after an earlier ordering throws. In LINQ the
 later ordering becomes the primary key and the earlier one only breaks ties; write that as one chain:
 `query.OrderBy(later).ThenBy(earlier)`, keeping each earlier key's direction (`ThenByDescending` for a descending one).
+
+**After a column-subset `Select`.** A `Where`, an ordering, a predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` placed **after** a column-subset `Select` may read only the members the projection copied from themselves (`Name = x.Name`). Reading any other member of the row (one the projection left out, the key unless projected, one bound from another member or from a constant) throws `NotSupportedException` before any query, naming the operator and the member: LINQ would see the projected value and SQL would read the base column, so the results would differ (3.14.0). `Distinct`, `Skip`/`Take`, `Cast`/`OfType` and the parameterless
+terminals after it are unaffected, and `Select(subset).Distinct().OrderBy(p => p.Name)` with `Name` projected
+still works. Apply the operator before the `Select`, or project the member from itself.
+
+**`Select` after `Distinct`.** A `Select` (column subset or scalar) placed after `Distinct()` throws
+`NotSupportedException` (3.14.0): SQL applies `DISTINCT` to the final column list wherever `Distinct` sits, so the
+projection would be made distinct where LINQ makes the rows distinct first. For distinct projections write
+`query.Select(...).Distinct()`; to keep LINQ's result, materialize first: `query.Distinct().ToList().Select(...)`.
 
 **NULLs in an ordering.** The database decides where NULLs sort: SQL Server, MySQL and SQLite put them first in
 ascending order, as LINQ does; PostgreSQL puts them last. `First`, `Last` and `ToList` all follow the database's

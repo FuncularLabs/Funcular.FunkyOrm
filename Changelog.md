@@ -2,6 +2,83 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.14.0] - unreleased
+
+### Fixed
+- **A consumer could not name FunkyORM's own exception types.** `PathNotFoundException`, `AmbiguousMatchException`
+  and `NullableExpressionException` (namespace `Funcular.Data.Orm.Exceptions`) were declared by each bundled provider
+  assembly, so on net8.0 `catch (NullableExpressionException)` did not compile (error CS0433: the type exists in both
+  `Funcular.Data.Orm.MySql` and `Funcular.Data.Orm.PostgreSql`), and the package build carried 40 CS0436 warnings.
+  They now live once, in `Funcular.Data.Orm.Core`, and every provider assembly forwards them (`TypeForwardedTo`), so
+  the namespace, the base types (`Exception`, `Exception`, `InvalidOperationException`) and the constructors are
+  unchanged. There is no binary compatibility with 3.13.0 in any case (3.14.0's assemblies carry a new strong name;
+  see Changed): recompile against 3.14.0.
+
+### Changed
+- **A lambda after a column-subset `Select` that reads a member the projection did not copy from itself now throws
+  before any query.** `Query<T>().Select(x => new T { Id = x.Id }).Where(t => t.Name == "x")` ran and filtered on
+  the base table's `name` column, where LINQ to objects would see `Name` at its default; the same for an ordering, a
+  predicate terminal (`First(pred)`, `Count(pred)`, …), an aggregate selector or a later `Select` after the subset.
+  It is now `NotSupportedException`, naming the operator and the member, with no SQL sent (all four providers; the
+  rule is in the Core operator policy). A member counts as projected only when the `Select` copies it from itself
+  (`Name = x.Name`): the key is unprojected unless projected, and a member bound from another member
+  (`FirstName = x.LastName`) or from a constant is not projected either, since reading it would diverge the same
+  way. Reads of projected members (`Select(subset).Distinct().OrderBy(p => p.Name)` with `Name` projected) still
+  work, as do `Distinct`, `Skip`/`Take`, `Cast`/`OfType` and the parameterless terminals after the subset. One
+  message changed: ordering a `Select(subset).Distinct()` by an unprojected column was `InvalidOperationException`
+  from the DISTINCT key check; it is now the policy's `NotSupportedException` (the key check still guards an
+  ordering placed before the `Select`). Documented in Advanced.md §5 and the AI instructions.
+- **A `Select` after `Distinct()` now throws before any query.** SQL applies `DISTINCT` to the final column list
+  wherever `Distinct` sits in the chain, so `Query<T>().Distinct().Select(p => new T { LastName = p.LastName })`
+  made the *projection* distinct (one row for three people sharing a surname) where LINQ makes the *rows* distinct
+  first (three). The same for a scalar `Select` and for a `Select` after `Select(subset).Distinct()`. It is now
+  `NotSupportedException` (found in this release's review; every earlier release behaved the same). Apply
+  `Distinct()` after the `Select`, which is unchanged.
+- **Every assembly is strong-named** with the Funcular Labs key (public-key token `0650eba294fc9e3f`; the public key
+  is committed as `build/FuncularLabs.publickey`, the private key never is). A strong-named .NET Framework consumer
+  no longer gets warning CS8002 for referencing the package (the compiler emits that warning for .NET Framework
+  targets; .NET builds never warned), and the assemblies can go in the GAC or under a host that enforces strong
+  names. **This is a new assembly identity:** a project compiled against 3.13.0 or earlier must be recompiled
+  against 3.14.0 (a binding redirect cannot bridge an unsigned assembly to a signed one), and `InternalsVisibleTo`
+  friends must be signed with the same key. A build without the private key public-signs with the committed public
+  key (same identity, no signature: fine for .NET, and accepted by .NET Framework's strong-name bypass for
+  full-trust assemblies), so pull requests and forks build; the published package is fully signed, and the publish
+  job verifies every DLL with `sn -vf` before pushing.
+
+### CI
+- **net48 runs in CI.** A `test-net48` job builds `Funcular.Data.Orm.SqlServer.Tests.NetFramework` with Visual
+  Studio's MSBuild (`dotnet build` leaves out `System.Memory.dll`) and runs it with `vstest.console.exe` on LocalDB,
+  filtered like the other jobs and gated by the same TRX check; `publish` waits for it. The job that had been
+  commented out since 3.10 never ran as written (wrong output path, no database step, and `vstest.console` has no
+  playlist switch).
+- **A manual run of the workflow is a publish dry run.** `workflow_dispatch` runs every job, the publish job
+  included (sign, pack, verify), and never pushes: the push step runs only on a push to `master`.
+
+### Tests
+- **The integration suites no longer add rows to `person` and its related tables on each run** (`address`,
+  `person_address`, `organization`, `country`, and the project tables where the schema has them). Runs used to add
+  `person` rows to the shared test databases: SQL Server 177, PostgreSQL 87, MySQL 59 (measured), net48 101 (counted
+  from its tests). The tests that left those rows now delete them by primary key after each test; the tests built on
+  the shared fixtures and the classes that used to leak fail when a test changes those tables' row counts. The MySQL
+  scoped-cache read test seeds its own row instead of relying on one left behind. `rls_demo`, `non_identity_*` and
+  MySQL's `user` still collect rows; a follow-up covers them. SQL Server's EntityFramework comparison class is
+  compiled under `PERFORMANCE_TESTS` only and no longer compiles there (its provider predates the stored-procedure
+  members of 3.7.0), so it is not run. No library change.
+
+### Known issues
+- **One list from now on.** [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) holds every open item as of 3.14.0 (52
+  entries, grouped by area, each with the release that first recorded it and a workaround or the by-design reason;
+  the items recorded against 3.10 that nobody has re-run since are marked as such). It replaces the per-release
+  Known issues sections of 3.10.0 through 3.12.1, which now point at it; each release from here records only the
+  delta. Fixed by 3.14.0, so absent from the list: the three exception types a consumer could not name (Fixed) and
+  a lambda after a column-subset `Select` reading a member the projection did not copy, and a `Select` after
+  `Distinct()` (Changed). Closed by this
+  release's other work: the assemblies are strong-named, net48 runs in CI, and the integration suites no longer
+  leave rows. New since 3.13.0 and still open: none beyond the list.
+- **CI** (no Changelog entry at the time): since 3.13.0 (commit 7c4e6ac) the NuGet push runs with
+  `--skip-duplicate`, so a docs-only merge to master no longer turns CI red; the price is that a forgotten version
+  bump publishes nothing silently, so the publish log is checked on every release.
+
 ## [3.13.0] - 2026-10-27
 
 **Release notes.** The audit context now covers a transaction FunkyORM didn't begin (issue #24). **Upgrade
@@ -75,6 +152,7 @@ warnings as errors.
   9.0.0.0 when Pkcs reads ASN.1.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - The 3.12.0 Known issues still apply.
 
 ## [3.12.0] - 2026-10-24
@@ -257,6 +335,7 @@ column compared with a `bool` worked out from captured values (`x.Archived == (m
 - The never-built `[ReadModel]` proposal is withdrawn from the plans; there is no read-only entity attribute.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - **A conditional compared in its branches can nest one `CASE` more than 3.11.0:** each branch's comparison is a
   two-valued `CASE`, which adds a level where the predicate's deepest part is a branch or the other operand rather
   than a test (a branch that is a conditional at least as deep as the test, or another conditional one level shallower
@@ -623,6 +702,7 @@ before:
   is unchanged and shares its date-part SQL.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - **`Length` counts what the database counts.** All four providers count characters (code points), where C#'s
   `Length` counts UTF-16 code units, so a string holding a character outside the Basic Multilingual Plane (an emoji)
   is one shorter in SQL than in C# (SQL Server under a non-`_SC` collation counts as C# does). A `CHAR(n)` column's
@@ -688,7 +768,9 @@ Security release for every provider. **Upgrade recommended** from any earlier ve
   `OrmDataProvider`) prepare the key.
 
 ### Known issues
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 - The aggregate fixes listed under 3.10.0's Known issues are now planned for the next release (3.11.0).
+  *They shipped in 3.11.0.*
 - `Update` of an entity whose key is an enum (PostgreSQL) or an unsigned integer (SQL Server and PostgreSQL) still
   fails, as in 3.10.0: the UPDATE statement's own key parameter isn't converted yet.
 
@@ -925,6 +1007,7 @@ Other changes:
   collation; the database's collation decides them, as before.
 
 ### Known issues (fixes planned for 3.10.1)
+*Superseded: the consolidated list, as of 3.14.0, is [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).*
 Aggregates keep their 3.9 behavior in 3.10.0:
 - `Average` of whole numbers truncates on SQL Server (`AVG` over an `int` column), and loses precision on MySQL
   and SQLite.

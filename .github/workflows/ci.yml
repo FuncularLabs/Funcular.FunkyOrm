@@ -8,6 +8,14 @@ on:
     branches: [ main, master, development/**, release/** ]
   pull_request:
     branches: [ main, master, development/** ]
+  # A manual run is a publish dry run: every job runs, publish signs, packs and verifies, and nothing is pushed
+  # (the push step runs only on a push to master, whatever this input says; it is informational).
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (always true for a manual run: the push step never runs outside a push to master)'
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -200,28 +208,88 @@ jobs:
         name: mysql-test-results
         path: '**/test-results.trx'
 
-  publish:
+  # 3.14.0: the .NET Framework suite. VS MSBuild, because `dotnet build` leaves System.Memory.dll out of the net48 output;
+  # vstest.console from the VS install (it has no playlist switch, so the filter is the same the other jobs use).
+  # The build is public-signed here, as every test job's is (no private key): the strong-name bypass loads it.
+  test-net48:
     runs-on: windows-latest
-    needs: [test-net8, test-sqlite, test-postgresql, test-mysql]
-    if: github.ref == 'refs/heads/master'
+    needs: build
     steps:
     - uses: actions/checkout@v4
-    
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
-        
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+    - name: Setup LocalDB
+      run: |
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "IF DB_ID('funky_db') IS NOT NULL DROP DATABASE funky_db;"
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -i Database\integration_test_db.sql
+        sqlcmd -S "(localdb)\MSSQLLocalDB" -d funky_db -i Database\integration_test_data.sql
+    - name: Build the .NET Framework tests (VS MSBuild)
+      run: msbuild Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj -restore -t:Rebuild -p:Configuration=Release
+    - name: Run the .NET Framework tests (vstest.console)
+      shell: pwsh
+      run: |
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        $vstest = & $vswhere -latest -products * -find 'Common7\IDE\Extensions\TestPlatform\vstest.console.exe' | Select-Object -First 1
+        if (-not $vstest) { throw 'vstest.console.exe was not found by vswhere' }
+        & $vstest Funcular.Data.Orm.SqlServer.Tests.NetFramework\bin\Release\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll /Platform:x64 "/TestCaseFilter:FullyQualifiedName!~PerformanceTests" "/Logger:trx;LogFileName=test-results.trx" /ResultsDirectory:TestResults
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - name: Every test ran (the TRX gate)
+      shell: pwsh
+      run: |
+        ./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: net48-test-results
+        path: '**/test-results.trx'
+
+  # 3.14.0: the package is fully strong-name signed with the key from the FUNKYORM_SNK_BASE64 secret (the owner's
+  # D:\func\keys\FuncularLabs.snk, base64), on the build (which produces what pack packs: with GeneratePackageOnBuild,
+  # `dotnet pack` does not build) and on the pack (so a pack-triggered build would sign too), and every DLL in the nupkg
+  # is verified with sn.exe before the push. The job also runs on a manual workflow_dispatch from any branch, as a dry
+  # run; only the push step is limited to a push to master, so a manual run can never publish.
+  publish:
+    runs-on: windows-latest
+    needs: [test-net8, test-sqlite, test-postgresql, test-mysql, test-net48]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
     - name: Restore dependencies
       run: dotnet restore
-        
-    - name: Build
-      run: dotnet build Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj --configuration Release --no-restore
-        
-    - name: Pack
-      run: dotnet pack Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj --configuration Release --output nupkgs
-      
+
+    - name: Materialize the strong-name key (fails if the secret is absent)
+      shell: pwsh
+      env:
+        FUNKYORM_SNK_BASE64: ${{ secrets.FUNKYORM_SNK_BASE64 }}
+      run: |
+        if ([string]::IsNullOrWhiteSpace($env:FUNKYORM_SNK_BASE64)) { throw "The FUNKYORM_SNK_BASE64 secret is not set: the package must be fully signed, so nothing is packed." }
+        $path = Join-Path $env:RUNNER_TEMP 'FuncularLabs.snk'
+        [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:FUNKYORM_SNK_BASE64))
+        "FUNKYORM_KEY_FILE=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Build (fully signed)
+      run: dotnet build Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj --configuration Release --no-restore -p:FunkyOrmKeyFile=${{ env.FUNKYORM_KEY_FILE }}
+
+    - name: Pack (fully signed)
+      run: dotnet pack Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj --configuration Release --output nupkgs -p:FunkyOrmKeyFile=${{ env.FUNKYORM_KEY_FILE }}
+
+    - name: Verify every DLL in the package is strong-name signed
+      shell: pwsh
+      run: ./tools/signing/Verify-StrongNames.ps1 -NupkgDirectory nupkgs -ExpectedToken 0650eba294fc9e3f
+
     - name: Push to NuGet
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       shell: pwsh
       run: |
         $packages = Get-ChildItem -Path nupkgs -Filter *.nupkg -File
@@ -234,20 +302,3 @@ jobs:
         foreach ($package in $packages) {
           dotnet nuget push $package.FullName --api-key ${{ secrets.NUGET_PUBLISH_SECRET }} --source https://api.nuget.org/v3/index.json --skip-duplicate
         }
-
-  
-  # test-netframework:
-  #   runs-on: windows-latest
-  #   needs: build
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #   - name: Setup .NET
-  #     uses: actions/setup-dotnet@v4
-  #     with:
-  #       dotnet-version: 8.0.x
-  #   - name: Restore dependencies
-  #     run: dotnet restore
-  #   - name: Build .NET Framework tests
-  #     run: msbuild Funcular.Data.Orm.SqlServer.Tests.NetFramework\Funcular.Data.Orm.SqlServer.Tests.NetFramework.csproj /p:Configuration=Release
-  #   - name: Run tests with playlist
-  #     run: vstest.console.exe /Platform:x64 Funcular.Data.Orm.SqlServer.Tests.NetFramework\bin\Release\net48\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll /Playlist:ContinuousIntegration.playlist

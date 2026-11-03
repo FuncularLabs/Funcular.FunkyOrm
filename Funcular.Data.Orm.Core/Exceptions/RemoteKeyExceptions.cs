@@ -1,3 +1,5 @@
+// Since 3.14.0 these types live in Core, once, and every provider assembly forwards them (TypeForwards.cs).
+// Before that each bundled provider declared its own copy, so a consumer could not name them: CS0433.
 using System;
 
 namespace Funcular.Data.Orm.Exceptions
@@ -14,7 +16,9 @@ namespace Funcular.Data.Orm.Exceptions
 
     /// <summary>
     /// Thrown when a LINQ expression uses .Value, .HasValue, or an incompatible
-    /// collection type on a nullable entity property.
+    /// collection type on a nullable entity property. FunkyORM automatically
+    /// unwraps nullable types during SQL translation; using these members
+    /// would produce invalid SQL column references, so the translator throws this instead.
     /// </summary>
     public class NullableExpressionException : InvalidOperationException
     {

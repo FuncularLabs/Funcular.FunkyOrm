@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Shared\TestRowLedger.cs" Link="Shared\TestRowLedger.cs" />
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Shared\TestRowLedgerCases.cs" Link="Shared\TestRowLedgerCases.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
 

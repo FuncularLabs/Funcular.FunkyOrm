@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using Funcular.Data.Orm.MySql.Tests.Domain;
+using Funcular.Data.Orm.Tests.Shared;
+using MySqlConnector;
 
 namespace Funcular.Data.Orm.MySql.Tests
 {
@@ -27,11 +29,21 @@ namespace Funcular.Data.Orm.MySql.Tests
         [TestCleanup]
         public void Cleanup() => DisposeProvider();
 
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var person = new Person { FirstName = "Probe", LastName = Guid.NewGuid().ToString("N") };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new MySqlConnection(_connectionString),
+                "person", person.Id);
+        }
+
         private void Seed()
         {
             var orgName = "Org" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var org = new Organization { Name = orgName };
             _provider.Insert(org);
+            Track(org);
 
             _projectName = "Apollo" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var project = new Project
@@ -45,11 +57,12 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(project);
+            Track(project);
             _projectId = project.Id;
 
             foreach (var (title, status) in new[] { ("M1", "completed"), ("M2", "completed"), ("M3", "pending") })
             {
-                _provider.Insert(new ProjectMilestone { ProjectId = _projectId, Title = title, Status = status });
+                InsertTracked(new ProjectMilestone { ProjectId = _projectId, Title = title, Status = status });
             }
 
             // "Empty" comparison project: NULL score, no JSON priority, no milestones.
@@ -65,6 +78,7 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(emptyProject);
+            Track(emptyProject);
             _emptyProjectId = emptyProject.Id;
         }
 
@@ -215,11 +229,25 @@ namespace Funcular.Data.Orm.MySql.Tests
         [TestMethod]
         public void Distinct_OrderByUnprojectedColumn_Throws()
         {
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            // Since 3.14.0 the operator policy rejects the read of an unprojected member before any SQL is built
+            // (NotSupportedException); the ordering-before-the-Select form below still reaches the Distinct-key check.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
                 SeededScorecards()
                     .Select(p => new ProjectScorecard { Name = p.Name })
                     .Distinct()
                     .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+            StringAssert.Contains(ex.Message, "after a column-subset Select reads Score,");
+        }
+
+        [TestMethod]
+        public void OrderByUnprojected_ThenSubsetSelect_Distinct_ThrowsTheDistinctKeyCheck()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .OrderBy(p => p.Score) // ordered before the projection: the policy allows it
+                    .Select(p => new ProjectScorecard { Name = p.Name })
+                    .Distinct()
                     .ToList());
         }
 
@@ -310,13 +338,15 @@ namespace Funcular.Data.Orm.MySql.Tests
             var orgA = new Organization { Name = "Aacme" + Guid.NewGuid().ToString("N").Substring(0, 8) };
             var orgZ = new Organization { Name = "Zzorg" + Guid.NewGuid().ToString("N").Substring(0, 8) };
             _provider.Insert(orgA);
+            Track(orgA);
             _provider.Insert(orgZ);
-            _provider.Insert(new PersonWithEmployer
+            Track(orgZ);
+            InsertTracked(new PersonWithEmployer
             {
                 FirstName = "Emp", LastName = "A", EmployerId = orgA.Id,
                 DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
             });
-            _provider.Insert(new PersonWithEmployer
+            InsertTracked(new PersonWithEmployer
             {
                 FirstName = "Emp", LastName = "Z", EmployerId = orgZ.Id,
                 DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
@@ -350,12 +380,13 @@ namespace Funcular.Data.Orm.MySql.Tests
         {
             var org = new Organization { Name = "Agg" + Guid.NewGuid().ToString("N").Substring(0, 8) };
             _provider.Insert(org);
-            _provider.Insert(new PersonWithEmployer
+            Track(org);
+            InsertTracked(new PersonWithEmployer
             {
                 FirstName = "Has", LastName = "Employer", EmployerId = org.Id,
                 DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow
             });
-            _provider.Insert(new PersonWithEmployer
+            InsertTracked(new PersonWithEmployer
             {
                 FirstName = "No", LastName = "Employer", EmployerId = null,
                 DateUtcCreated = DateTime.UtcNow, DateUtcModified = DateTime.UtcNow

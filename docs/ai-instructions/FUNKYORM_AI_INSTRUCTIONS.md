@@ -25,7 +25,7 @@ FunkyORM supports **SQL Server**, **PostgreSQL**, and **SQLite**. Entity classes
     *   *Correct*: If raw SQL is absolutely required (rare), access `.Connection` directly -- but this signals "leaving the safety of the framework."
 
 2.  **NO `DbContext`**: There is no Unit of Work or Context pattern.
-    *   *Correct*: Use `SqlServerOrmDataProvider`, `PostgreSqlOrmDataProvider`, or `SqliteOrmDataProvider` as a singleton or transient service.
+    *   *Correct*: Use `SqlServerOrmDataProvider`, `PostgreSqlOrmDataProvider`, `MySqlOrmDataProvider`, or `SqliteOrmDataProvider` as a singleton or transient service.
 
 3.  **NO Unnecessary Attributes**: Do not add `[Key]`, `[Table]`, or `[Column]` if the names match conventions.
     *   *Convention*: `Id`, `ClassNameId` = PK. `ClassName` = Table. `PropName` = Column.
@@ -33,7 +33,7 @@ FunkyORM supports **SQL Server**, **PostgreSQL**, and **SQLite**. Entity classes
 4.  **NO `[Remote...]` on Canonical Entities**: Adding remote attributes to base entities forces JOINs on every query.
     *   *Correct*: Use inheritance (`PersonDetail : Person`) for rich data.
 
-5.  **NO `.Value` or `.HasValue` on Nullable Properties in LINQ**: The ORM automatically unwraps nullable types. Using `.Value` or `.HasValue` generates invalid SQL (e.g., column name `HospitalId.Value`).
+5.  **NO `.Value` or `.HasValue` on Nullable Properties in LINQ**: The ORM automatically unwraps nullable types. Using `.Value` or `.HasValue` throws `NullableExpressionException` before any query (3.11.0 and later; earlier releases sent an invalid column name such as `HospitalId.Value`).
     *   *Correct*: Use the nullable property directly: `p => p.HospitalId == 5`
     *   *Wrong*: `p => p.HospitalId.Value == 5` or `p => p.HospitalId.HasValue`
     *   *Contains with nullable*: Cast the list to match the nullable type, not the property:
@@ -82,6 +82,10 @@ All subsequent CRUD, Query, and Remote Attribute examples work identically with 
 | Date storage | `DATETIME2` | `TIMESTAMP` | `TEXT (ISO 8601)` |
 | Date parts (`p.D.Year`, also `p.D.Value.Year`) | `YEAR(t.c)`, `MONTH(t.c)`, `DAY(t.c)` | `EXTRACT(YEAR FROM t.c)` | `CAST(strftime('%Y', t.c) AS INTEGER)` |
 | String length (`p.Name.Length`) | `LEN(t.c + N'x') - 1` | `LENGTH(t.c)` | `LENGTH(t.c)` |
+
+MySQL (`MySqlOrmDataProvider`): backtick quoting of reserved words only, `LAST_INSERT_ID()`, `LIMIT … OFFSET`,
+`TINYINT(1)` booleans, `DATETIME(6)`, `EXTRACT(YEAR FROM t.c)` for date parts and `CHAR_LENGTH(t.c)` for string
+length; the MySQL supplement has the rest.
 
 ### PostgreSQL-Specific Caveats
 
@@ -443,7 +447,7 @@ All four follow the same "Detail class" pattern — they belong on inherited Det
 
 ---
 
-### Phase 1: `[JsonPath]` — JSON Scalar Extraction ?
+### Phase 1: `[JsonPath]` — JSON Scalar Extraction ✅
 
 **Status: Implemented in v3.2.1.**
 
@@ -571,11 +575,16 @@ provider.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Priority =
 ```
 
 > **Guards (throw clear errors):** `Distinct().Count()` → `NotSupportedException` (postponed; count client-side).
-> Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `InvalidOperationException`.
+> Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by an unprojected column → `NotSupportedException` when the
+> ordering comes after the `Select` (3.14.0), `InvalidOperationException` when it comes before. A `Select` after
+> `Distinct()` → `NotSupportedException` (3.14.0): apply `Distinct` after the `Select`.
 > A **top-level `Select` projecting to a type other than `T`** (a scalar column, an anonymous type, or another
 > DTO) → `NotSupportedException` (v3.8.3). FunkyORM materializes `T`; only `Select(x => new T { ... })` (same
 > entity, column subset) is translated. Reshape in memory (`query.ToList().Select(...)`), or map a `[Table]`
 > DTO to the same table and query *that* type directly for a DB-side column subset.
+> After a column-subset `Select(x => new T { … })`, a later `Where`/ordering/predicate terminal/aggregate selector/`Select`
+> may read only members the projection copied from themselves (`M = x.M`); any other read → `NotSupportedException`
+> naming the operator and the member, before any query (3.14.0). Filter, order and page before the `Select`.
 > A `[RemoteProperty]`/`[RemoteKey]` **cannot be projected in a custom `.Select(...)`** (it needs a join the
 > projection's FROM doesn't carry) — throws `NotSupportedException`; query the whole entity or use a detail class.
 > The self-contained `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine.
@@ -633,7 +642,7 @@ var project = provider.Get<ProjectScorecard>(99); // metadata is NULL
 
 ---
 
-### Phase 2: `[SqlExpression]` — Computed/Expression Columns ?
+### Phase 2: `[SqlExpression]` — Computed/Expression Columns ✅
 
 **Status: Implemented in v3.2.1.**
 
@@ -709,7 +718,7 @@ LEFT JOIN person [lead_0] ON project.lead_id = [lead_0].id
 
 ---
 
-### Phase 3: `[SubqueryAggregate]` — Correlated Scalar Subqueries ?
+### Phase 3: `[SubqueryAggregate]` — Correlated Scalar Subqueries ✅
 
 **Status: Implemented in v3.2.1.**
 
@@ -823,7 +832,7 @@ FROM project
 
 ---
 
-### Phase 4: `[JsonCollection]` — JSON Array Projection ?
+### Phase 4: `[JsonCollection]` — JSON Array Projection ✅
 
 **Status: Implemented in v3.2.1.**
 

@@ -1,0 +1,39 @@
+<Project>
+  <!-- Strong naming (3.14.0, docs/plans/RELEASE_3.14.0_PLAN.md stream N). Every assembly built in this repository carries
+       the Funcular Labs identity (public-key token 0650eba294fc9e3f). With the private key (-p:FunkyOrmKeyFile=<path>)
+       the build signs fully; without it the build public-signs with the committed public key: the same identity and no
+       signature, which .NET (Core) never checks and .NET Framework's strong-name bypass accepts for full-trust
+       assemblies, so pull requests, forks and local builds work without the key. The publish job always has the key,
+       and tools/signing/Verify-StrongNames.ps1 checks every DLL in the package before it is pushed. A key path that is
+       set but does not exist is an error, never a silent fallback. -->
+  <PropertyGroup>
+    <SignAssembly>true</SignAssembly>
+    <FunkyOrmPublicKeyFile>$(MSBuildThisFileDirectory)build/FuncularLabs.publickey</FunkyOrmPublicKeyFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FunkyOrmKeyFile)' != ''">
+    <AssemblyOriginatorKeyFile>$(FunkyOrmKeyFile)</AssemblyOriginatorKeyFile>
+    <PublicSign>false</PublicSign>
+    <DelaySign>false</DelaySign>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FunkyOrmKeyFile)' == ''">
+    <AssemblyOriginatorKeyFile>$(FunkyOrmPublicKeyFile)</AssemblyOriginatorKeyFile>
+    <PublicSign>true</PublicSign>
+    <DelaySign>false</DelaySign>
+  </PropertyGroup>
+  <Target Name="FunkyOrmRequireKeyFile" BeforeTargets="CoreCompile" Condition="'$(FunkyOrmKeyFile)' != '' and !Exists('$(FunkyOrmKeyFile)')">
+    <Error Text="FunkyOrmKeyFile is '$(FunkyOrmKeyFile)', which does not exist. Unset it to public-sign with the committed public key, or point it at the Funcular Labs .snk." />
+  </Target>
+  <!-- The signing mode is an input of the compiler: without this stamp an incremental build with the key after a
+       public-signed build would find the outputs up to date and leave public-signed DLLs behind (review round 1). The
+       stamp is rewritten only when the mode changes, so an unchanged mode stays incremental. -->
+  <Target Name="FunkyOrmSigningModeStamp" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_FunkyOrmSigningStamp>$(IntermediateOutputPath)FunkyOrm.signing-mode.txt</_FunkyOrmSigningStamp>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_FunkyOrmSigningStamp)" Lines="PublicSign=$(PublicSign);KeyFile=$(AssemblyOriginatorKeyFile)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <CustomAdditionalCompileInputs Include="$(_FunkyOrmSigningStamp)" />
+      <FileWrites Include="$(_FunkyOrmSigningStamp)" />
+    </ItemGroup>
+  </Target>
+</Project>

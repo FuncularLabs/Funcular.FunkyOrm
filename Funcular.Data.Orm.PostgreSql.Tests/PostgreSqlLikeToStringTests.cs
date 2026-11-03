@@ -52,6 +52,5 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
 
         protected override OrmDataProvider CreateProvider() => new PostgreSqlOrmDataProvider(ConnectionString);
 
-        protected override Assembly ProviderAssembly => typeof(PostgreSqlOrmDataProvider).Assembly;
     }
 }

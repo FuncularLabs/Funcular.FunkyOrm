@@ -15,9 +15,14 @@ namespace Funcular.Data.Orm.Linq
     /// <para>Pass 1 walks the spine outer→inner and classifies every node with the allow-list before reading its
     /// source, so the outermost unsupported operator is reported. The spine must end at a queryable's own root.</para>
     /// <para>Pass 2 walks inner→outer and applies, at each node: operators after <c>Skip</c>/<c>Take</c>; a second
-    /// <c>OrderBy</c>; <c>Cast</c>/<c>OfType</c> against the row type; and predicate lambdas that don't bind to the
-    /// entity. The row type starts as the entity type and changes only at a scalar <c>Select(x =&gt; x.Member)</c>;
-    /// after any other unsupported <c>Select</c> it is unknown, and the parse loop rejects that <c>Select</c>.</para>
+    /// <c>OrderBy</c>; <c>Cast</c>/<c>OfType</c> against the row type; predicate lambdas that don't bind to the
+    /// entity; and, after a column-subset <c>Select(x =&gt; new T { … })</c>, a lambda that reads a member of its
+    /// parameter the projection did not copy from itself (<c>M = x.M</c>): LINQ would see the projected value, SQL
+    /// would read the base column, so the read is rejected before any query (3.14.0); and a <c>Select</c> after
+    /// <c>Distinct()</c>, because SQL applies DISTINCT to the final column list where LINQ makes the rows distinct
+    /// first (3.14.0). The row type starts as the entity type and changes only at a scalar
+    /// <c>Select(x =&gt; x.Member)</c>; after any other unsupported
+    /// <c>Select</c> it is unknown, and the parse loop rejects that <c>Select</c>.</para>
     /// </remarks>
     public static class QueryOperatorPolicy
     {
@@ -114,6 +119,8 @@ namespace Funcular.Data.Orm.Linq
             var orderingSeen = false;
             var afterNonSubsetSelect = false;
             var afterOtherSelect = false;   // an unsupported Select: the row type is unknown from here
+            HashSet<string> boundMembers = null; // after a column-subset Select: the members it copied from itself
+            var distinctSeen = false;            // a Select after Distinct would project before DISTINCT (3.14.0)
             for (var i = spine.Count - 1; i >= 0; i--)
             {
                 var call = spine[i];
@@ -200,18 +207,45 @@ namespace Funcular.Data.Orm.Linq
                     }
                 }
 
+                // S (3.14.0): after a column-subset Select, a lambda may read only the members the projection copied
+                // from itself. Checked after D8/D10/I1 so their messages keep precedence, and before the Select arm so
+                // a later Select's own lambda is judged against the earlier projection.
+                if (boundMembers != null && TryGetLambda(call, out var lambdaAfterSubset))
+                {
+                    var unbound = FirstUnboundRead(lambdaAfterSubset, boundMembers);
+                    if (unbound != null)
+                        throw AfterSubsetSelect(name, unbound);
+                }
+
+                if (name == "Distinct")
+                    distinctSeen = true;
+
                 if (name == "Select")
                 {
+                    // SQL applies DISTINCT to the final SELECT list wherever Distinct sits in the chain, so a Select after
+                    // Distinct makes the projection distinct where LINQ makes the rows distinct first: a different answer.
+                    if (distinctSeen)
+                        throw new NotSupportedException(
+                            "Select(...) after Distinct() is not translated: SQL would apply DISTINCT to the projected columns, " +
+                            "where LINQ makes the rows distinct first, so the results would differ. For distinct projections " +
+                            "apply Distinct after the Select: query.Select(...).Distinct(); to keep LINQ's result, materialize " +
+                            "first: query.Distinct().ToList().Select(...).");
                     var lambda = StripQuotes(call.Arguments[1]);
                     if (IsScalarSelect(lambda))
                     {
                         rowType = lambda.Body.Type;
                         afterNonSubsetSelect = true;
+                        boundMembers = null;
                     }
                     else if (!(lambda.Body is MemberInitExpression memberInit && memberInit.Type == entityType))
                     {
                         afterNonSubsetSelect = true;
                         afterOtherSelect = true;
+                        boundMembers = null;
+                    }
+                    else
+                    {
+                        boundMembers = IdentityBoundMembers(memberInit, lambda.Parameters[0]);
                     }
                 }
             }
@@ -278,6 +312,87 @@ namespace Funcular.Data.Orm.Linq
             new NotSupportedException(
                 $"{name}(...) after Skip/Take is not translated to SQL in this version. Apply it before Skip/Take, or " +
                 $"materialize the page first: query.Skip(n).Take(k).ToList().{name}(...).");
+
+        /// <summary>The quoted unary lambda of an operator such as Where/OrderBy/Select/Sum; false for Skip/Take/Distinct/Cast.</summary>
+        private static bool TryGetLambda(MethodCallExpression call, out LambdaExpression lambda)
+        {
+            lambda = null;
+            if (call.Arguments.Count != 2)
+                return false;
+            var argument = call.Arguments[1];
+            while (argument is UnaryExpression unary && unary.NodeType == ExpressionType.Quote)
+                argument = unary.Operand;
+            lambda = argument as LambdaExpression;
+            return lambda != null && lambda.Parameters.Count == 1;
+        }
+
+        private static Expression Unwrap(Expression expression)
+        {
+            while (expression is UnaryExpression unary
+                   && (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked
+                       || unary.NodeType == ExpressionType.TypeAs))
+                expression = unary.Operand;
+            return expression;
+        }
+
+        /// <summary>
+        /// The members a column-subset projection copies from itself: a <see cref="MemberAssignment"/> whose value,
+        /// after unwrapping a cast, is the same-named member of the lambda's own parameter. A binding from another member,
+        /// from a constant or a captured object, or a list/member binding, leaves its member unbound; names are compared,
+        /// so a member read through a base-class or interface view of the row still matches.
+        /// </summary>
+        private static HashSet<string> IdentityBoundMembers(MemberInitExpression init, ParameterExpression parameter)
+        {
+            var bound = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var binding in init.Bindings)
+            {
+                if (!(binding is MemberAssignment assignment))
+                    continue;
+                if (Unwrap(assignment.Expression) is MemberExpression value
+                    && Unwrap(value.Expression) == parameter
+                    && value.Member.Name == assignment.Member.Name)
+                    bound.Add(assignment.Member.Name);
+            }
+            return bound;
+        }
+
+        /// <summary>The first member of the lambda's own parameter that <paramref name="lambda"/> reads and <paramref name="bound"/> lacks, or null.</summary>
+        private static string FirstUnboundRead(LambdaExpression lambda, HashSet<string> bound)
+        {
+            var finder = new UnboundReadFinder(lambda.Parameters[0], bound);
+            finder.Visit(lambda.Body);
+            return finder.Found;
+        }
+
+        private sealed class UnboundReadFinder : ExpressionVisitor
+        {
+            private readonly ParameterExpression _parameter;
+            private readonly HashSet<string> _bound;
+
+            public UnboundReadFinder(ParameterExpression parameter, HashSet<string> bound)
+            {
+                _parameter = parameter;
+                _bound = bound;
+            }
+
+            public string Found { get; private set; }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                // Only reads of THIS lambda's parameter count: a nested lambda's own parameter, or a captured object of
+                // the row type, is not a row read. A cast of the parameter is still the parameter.
+                if (Found == null && node.Expression != null && Unwrap(node.Expression) == _parameter
+                    && !_bound.Contains(node.Member.Name))
+                    Found = node.Member.Name;
+                return Found != null ? node : base.VisitMember(node);
+            }
+        }
+
+        private static NotSupportedException AfterSubsetSelect(string name, string member) =>
+            new NotSupportedException(
+                $"{name}(...) after a column-subset Select reads {member}, which the Select did not copy from itself. LINQ " +
+                "would see the projected value; SQL would read the base column; the results would differ. Apply " +
+                $"{name}(...) before the Select, or project {member} = x.{member}.");
 
         private static string FriendlyName(Type type)
         {

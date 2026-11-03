@@ -9,8 +9,19 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <FunkyVersion Condition="'$(FunkyVersion)' == ''">3.13.0</FunkyVersion>
+    <FunkyVersion Condition="'$(FunkyVersion)' == ''">3.14.0</FunkyVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- -p:SmokeStrongNamed=true (Run-ConsumerSmoke.ps1 -StrongNamedConsumer): the consumer itself is strong-named (public-signed
+       with the committed Funcular Labs public key, which is enough to make it a strong-named referrer), and CS8002 — a
+       strong-named assembly referencing an unsigned one — is an error. The compiler emits CS8002 for the net48 target
+       only (a .NET build never warns), so that target is the proof: red against 3.13.0 (unsigned), green against 3.14.0. -->
+  <PropertyGroup Condition="'$(SmokeStrongNamed)' == 'true'">
+    <SignAssembly>true</SignAssembly>
+    <PublicSign>true</PublicSign>
+    <AssemblyOriginatorKeyFile>$(SmokePublicKeyFile)</AssemblyOriginatorKeyFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS8002</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

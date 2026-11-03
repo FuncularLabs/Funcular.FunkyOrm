@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Objects.Address;
 using Funcular.Data.Orm.SqlServer.Tests.NetFramework.Domain.Objects.Person;
+using Funcular.Data.Orm.Tests.Shared;
 using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -18,6 +19,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         private string _connectionString;
         public SqlServerOrmDataProvider _provider;
         private StringBuilder _sb = new StringBuilder();
+        private TestRowLedger _rows;
         private Random _random = new Random();
 
         public void OutputTestMethodName([CallerMemberName] string callerMemberName = "")
@@ -44,12 +46,30 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                     _sb.AppendLine(s);
                 }
             };
+            _rows = TestRowLedger.Begin(() => new SqlConnection(_connectionString), TestRowLedger.SqlServerTables);
         }
 
         [TestCleanup]
         public void Cleanup()
         {
             _provider?.Dispose();
+            _rows?.Finish();
+        }
+
+        /// <summary>Records a row this test inserted, for <see cref="Cleanup"/> to delete.</summary>
+        private void Track(object entity)
+        {
+            _rows.Track(entity);
+        }
+
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var guid = Guid.NewGuid().ToString();
+            var person = new Person { FirstName = guid, LastName = guid, UniqueId = Guid.NewGuid() };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new SqlConnection(_connectionString),
+                "person", person.Id);
         }
 
         private void EnsureSchema()
@@ -101,6 +121,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             };
 
             _provider.Insert(person);
+            Track(person);
             return person.Id;
         }
 
@@ -115,6 +136,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 PostalCode = postalCode
             };
             _provider.Insert(address);
+            Track(address);
             return address.Id;
         }
 
@@ -122,6 +144,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
         {
             var link = new PersonAddress { PersonId = personId, AddressId = addressId };
             _provider.Insert(link);
+            Track(link);
         }
 
         [TestMethod]
@@ -173,6 +196,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 UniqueId = Guid.NewGuid()
             };
             _provider.Insert(newPerson);
+            Track(newPerson);
             var updatedCount = _provider.Query<Person>().Count();
             Assert.AreEqual(initialCount + 1, updatedCount);
         }
@@ -357,6 +381,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             };
 
             _provider.Insert(newPerson);
+            Track(newPerson);
 
             // Act
             var result = _provider.Query<Person>()
@@ -452,7 +477,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             var lastNames = new List<string> { "Smith", "Johnson" };
 
@@ -480,7 +505,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Doe", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             var lastNames = new[] { "Smith", "Johnson" };
 
@@ -523,7 +548,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var result = _provider.Query<Person>()
@@ -546,7 +571,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var result = _provider.Query<Person>()
@@ -569,7 +594,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Guid" }
             };
 
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var result = _provider.Query<Person>()
@@ -590,7 +615,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             {
                 new Person() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var result = _provider.Query<Person>()
@@ -611,7 +636,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             {
                 new Person() { LastName = "Smith", FirstName = guid, UniqueId = Guid.NewGuid(), Gender = "Female" }
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var value = Guid.NewGuid().ToString();
@@ -633,7 +658,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
             {
                 new Person() { LastName = "Smith", FirstName = firstGuid, UniqueId = Guid.NewGuid(), Gender = "Male" }
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var secondGuid = Guid.NewGuid().ToString();
@@ -879,6 +904,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 UniqueId = Guid.NewGuid()
             };
             _provider.Insert(person);
+            Track(person);
 
             // Commit the transaction
             _provider.CommitTransaction();
@@ -904,6 +930,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 UniqueId = Guid.NewGuid()
             };
             _provider.Insert(person);
+            Track(person);
 
             // Check if the person was added in the transaction
             var addedPerson = _provider.Get<Person>(person.Id);
@@ -933,6 +960,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 UniqueId = Guid.NewGuid()
             };
             _provider.Insert(person);
+            Track(person);
 
             var address = new Address
             {
@@ -942,10 +970,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 PostalCode = "12345"
             };
             _provider.Insert(address);
+            Track(address);
 
             // Link person to address
             var link = new PersonAddress { PersonId = person.Id, AddressId = address.Id };
             _provider.Insert(link);
+            Track(link);
 
             // Verify each operation in the transaction
             var insertedPerson = _provider.Get<Person>(person.Id);
@@ -1059,7 +1089,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(-25), Gender = "Guid", UniqueId = Guid.NewGuid() },
                 new Person() { LastName = "Doe", FirstName = guid, Birthdate = DateTime.Today.AddYears(-40), Gender = "Guid", UniqueId = Guid.NewGuid() }
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             var fromDate = DateTime.Today.AddYears(-35);
             var toDate = DateTime.Today.AddYears(-20);
@@ -1088,7 +1118,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "Smith", FirstName = guid, Birthdate = DateTime.Today.AddYears(-101), Gender = "Female", UniqueId = Guid.NewGuid() },
                 new Person() { LastName = "Johnson", FirstName = guid, Birthdate = DateTime.Today.AddYears(101), Gender = "Male", UniqueId = Guid.NewGuid() },
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var result = _provider.Query<Person>()
@@ -1111,7 +1141,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "NullDate", FirstName = guid, Birthdate = null, Gender = "Male", UniqueId = Guid.NewGuid() },
                 new Person() { LastName = "HasDate", FirstName = guid, Birthdate = DateTime.Today.AddYears(-30), Gender = "Female", UniqueId = Guid.NewGuid() }
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Act
             var nullBirthdate = _provider.Query<Person>()
@@ -1146,6 +1176,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 UniqueId = uniqueGuid
             };
             _provider.Insert(person);
+            Track(person);
 
             // Act
             var result = _provider.Query<Person>()
@@ -1182,7 +1213,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.NetFramework
                 new Person() { LastName = "GuidThree", FirstName = firstNameGuidString, UniqueId = guids[2], Gender = "Guid3" },
                 new Person() { LastName = "NoMatch", FirstName = firstNameGuidString, UniqueId = Guid.NewGuid(), Gender = "NoMatch" }
             };
-            personsToInsert.ForEach(p => _provider.Insert(p));
+            personsToInsert.ForEach(p => { _provider.Insert(p); Track(p); });
 
             // Debug: Verify the inserted data
             var insertedRecords = _provider.Query<Person>().Where(p => p.FirstName == firstNameGuidString).ToList();

@@ -63,6 +63,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DeleteGuardCaseTests.cs" />
+    <Compile Include="StrongNamingNetFrameworkTests.cs" />
     <Compile Include="Domain\Entities\Address\AddressEntity.cs" />
     <Compile Include="Domain\Entities\NotifyPropertyChangedInvocatorAttribute.cs" />
     <Compile Include="Domain\Entities\PersistenceStateEntity.cs" />
@@ -87,6 +88,9 @@
     </Compile>
     <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\NullSemantics\NullSemanticsTests.cs">
       <Link>NullSemantics\NullSemanticsTests.cs</Link>
+    </Compile>
+    <Compile Include="..\Funcular.Data.Orm.SqlServer.Tests\Shared\TestRowLedger.cs">
+      <Link>Shared\TestRowLedger.cs</Link>
     </Compile>
   </ItemGroup>
   <ItemGroup>

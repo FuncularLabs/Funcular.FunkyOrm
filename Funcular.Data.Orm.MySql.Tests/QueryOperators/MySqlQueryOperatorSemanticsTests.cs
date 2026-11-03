@@ -1139,5 +1139,32 @@ namespace Funcular.Data.Orm.MySql.Tests.QueryOperators
         }
 
         #endregion
+
+        #region 3.14.0: identity-bound reads after a column-subset Select match the oracle (plan stream S)
+
+        [TestMethod]
+        public void AfterSubsetSelect_IdentityBoundRead_MatchesOracle()
+        {
+            var (marker, _) = SeedAbc();
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Where(p => p.FirstName == "a").ToList(), "Where on a bound member");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).OrderBy(p => p.FirstName).ThenBy(p => p.Id).ToList(), "OrderBy/ThenBy on bound members");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Count(p => p.FirstName != "a"), "Count(pred) on a bound member");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Sum(p => p.Id), "Sum over a bound member");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Where(p => p.FirstName == "b").ToList(), "a chained bound subset then Where");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Distinct().OrderBy(p => p.FirstName).ToList(), "Distinct then OrderBy on a bound member");
+        }
+
+        [TestMethod]
+        public void AfterSubsetSelect_ConstantOperators_Unchanged()
+        {
+            var (marker, _) = SeedAbc();
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.FirstName).Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Skip(1).Take(1).ToList(), "Skip/Take after the subset");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Distinct().ToList(), "Distinct after the subset");
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.Id).Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Cast<PersonWithEmployer>().OfType<PersonWithEmployer>().ToList(), "Cast/OfType after the subset");
+            AssertMatchesOracle(marker, q => q.Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).Count(), "Count() after the subset");
+            AssertMatchesOracle(marker, q => q.OrderBy(p => p.Id).Select(p => new PersonWithEmployer { Id = p.Id, FirstName = p.FirstName, LastName = p.LastName }).First(), "First() after the subset");
+        }
+
+        #endregion
     }
 }

@@ -1,4 +1,5 @@
-> **Recent Changes** — see [Changelog.md](Changelog.md) for full details.
+> **Recent Changes** — see [Changelog.md](Changelog.md) for full details. **Known issues** — one consolidated list,
+> as of 3.14.0, in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 > * **v3.13.0**: 🔐 **Audit context on transactions you begin yourself.** A transaction passed to a provider's constructor, or assigned to its `Transaction` property, is now primed with the audit context by its first operation that has one, and a strict provider fails closed on it; before, both were skipped ([#24](https://github.com/FuncularLabs/Funcular.FunkyOrm/issues/24)). **Behaviour change:** a strict provider with no context now throws there, a read-only entry whose key already holds a different value on that connection throws, and priming can fail where nothing was sent before (see the Changelog).
 > * **v3.12.1**: 🔒 **SQL Server `bool` conditions and patched dependencies.** `Where(p => p.IsActive)` now runs on SQL Server (it failed with Msg 4145), and the package declares patched minimums for `System.Security.Cryptography.Pkcs` and `System.Text.RegularExpressions`, so installing it no longer reports their advisories. A project that references one of them, `System.Formats.Asn1` or `Microsoft.Bcl.Cryptography` directly at a lower version must raise it (see the Changelog).
 > * **v3.12.0**: 🛠️ **Null comparisons answer as C# (and EF Core) do — C#'s rows, most often more of them.** `x.N != 5` now also selects the rows where `N` is NULL, `x.N == none` with a variable holding null is `IS NULL`, `!(x.N == 5)` and a negated `Contains` or `IN` (with no null in the list) also select the NULL rows, and `All` answers as C#. Queries return, and deletes remove, the rows C# selects. See Usage.md's "Null comparisons" and the Changelog's **Behaviour change** and **Known issues**.
@@ -56,7 +57,7 @@ If you're tired of wrestling with raw SQL strings (Dapper) or debugging generate
 
 ### 1. Installation
 
-Install the FunkyORM package — the SQL Server, PostgreSQL, MySQL and SQLite providers are all included (on `net48`, SQL Server only):
+Install the FunkyORM package — the SQL Server, PostgreSQL, MySQL and SQLite providers are all included (on `net48`, SQL Server only; since 3.14.0 every assembly is strong-named with the Funcular Labs key, public-key token `0650eba294fc9e3f`):
 
 ```bash
 dotnet add package Funcular.Data.Orm
@@ -347,6 +348,8 @@ db.Query<ProjectScorecard>().OrderBy(p => p.EffectiveScore).Distinct();   // ful
 db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name }).Distinct();
 db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name })
                             .Distinct().OrderBy(p => p.Name);       // order key is in the projection — OK
+// .Select(p => new ProjectScorecard { Name = p.Name }).OrderBy(p => p.Score)   // throws (3.14.0): Score wasn't projected,
+//                                                                               // so LINQ and SQL would disagree; order first
 ```
 
 **Documented limits (clear errors, by design):**
@@ -361,8 +364,11 @@ db.Query<ProjectScorecard>().Select(p => new ProjectScorecard { Name = p.Name })
   with a clear message. Query the whole entity, or use a detail class that declares it. (The self-contained
   `[JsonPath]`/`[SqlExpression]`/`[SubqueryAggregate]` project fine — see above.)
 - `Distinct().Count()` throws `NotSupportedException` (count client-side, or drop `Distinct`) — postponed to a later cut.
-- Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by a column *not* in the projection throws
-  `InvalidOperationException` (SQL requires the order key in the `DISTINCT` list).
+- Under a custom `.Select(...)`, `Distinct()` + `OrderBy` by a column *not* in the projection throws: ordering
+  placed *after* the `Select` is the operator policy's `NotSupportedException` (3.14.0, the unprojected read);
+  ordering placed *before* the `Select` is `InvalidOperationException` (SQL requires the order key in the
+  `DISTINCT` list). A `Select(...)` *after* `Distinct()` throws `NotSupportedException` (3.14.0): apply `Distinct`
+  after the `Select`.
 
 ## Concurrency & Connection Management
 

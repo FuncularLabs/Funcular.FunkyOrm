@@ -115,18 +115,54 @@ namespace Funcular.Data.Orm.MySql.Tests
         public void MapperCache_IsScoped_ThroughARealRead()
         {
             RequireDatabase();
-            using var a = new MySqlOrmDataProvider(P2ConnectionString);
-            using var b = new MySqlOrmDataProvider(P1ConnectionString);
-            var prefix = typeof(PscMapperPerson).FullName + "|";
+            // The read needs a person row. The MySQL schema script seeds none (CI's database is empty), so the test
+            // inserts its own and deletes it, as the row-hygiene rule requires.
+            var personId = InsertPersonRow();
+            Exception failure = null;
+            try
+            {
+                using var a = new MySqlOrmDataProvider(P2ConnectionString);
+                using var b = new MySqlOrmDataProvider(P1ConnectionString);
+                var prefix = typeof(PscMapperPerson).FullName + "|";
 
-            Assert.AreEqual(1, a.Query<PscMapperPerson>().Take(1).ToList().Count, "P_A reads person (it needs a row)");
-            Assert.IsTrue(a.ScopeEntityMappers.Keys.Any(k => k.StartsWith(prefix)), "A's mapper cache has no entry after P_A's read");
-            Assert.IsFalse(b.ScopeEntityMappers.Keys.Any(k => k.StartsWith(prefix)), "B's mapper cache has an entry before P_B has read");
+                Assert.AreEqual(1, a.Query<PscMapperPerson>().Take(1).ToList().Count, "P_A reads person");
+                Assert.IsTrue(a.ScopeEntityMappers.Keys.Any(k => k.StartsWith(prefix)), "A's mapper cache has no entry after P_A's read");
+                Assert.IsFalse(b.ScopeEntityMappers.Keys.Any(k => k.StartsWith(prefix)), "B's mapper cache has an entry before P_B has read");
 
-            Assert.AreEqual(1, b.Query<PscMapperPerson>().Take(1).ToList().Count, "P_B reads person");
-            var entryA = a.ScopeEntityMappers.Single(e => e.Key.StartsWith(prefix)).Value;
-            var entryB = b.ScopeEntityMappers.Single(e => e.Key.StartsWith(prefix)).Value;
-            Assert.AreNotSame(entryA, entryB, "B has its own mapper");
+                Assert.AreEqual(1, b.Query<PscMapperPerson>().Take(1).ToList().Count, "P_B reads person");
+                var entryA = a.ScopeEntityMappers.Single(e => e.Key.StartsWith(prefix)).Value;
+                var entryB = b.ScopeEntityMappers.Single(e => e.Key.StartsWith(prefix)).Value;
+                Assert.AreNotSame(entryA, entryB, "B has its own mapper");
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    Funcular.Data.Orm.Tests.Shared.TestRowLedger.DeleteRow(() => new MySqlConnection(P2ConnectionString), "person", personId);
+                }
+                catch (Exception cleanup) when (failure != null)
+                {
+                    // The test's own failure must stay visible; the cleanup failure rides along.
+                    throw new AggregateException("The test failed and its cleanup failed too.", failure, cleanup);
+                }
+            }
+        }
+
+        /// <summary>Inserts one person row on a plain connection (outside any provider's caches) and returns its id.</summary>
+        private static long InsertPersonRow()
+        {
+            using var connection = new MySqlConnection(P2ConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO person (first_name, last_name) VALUES (@f, @l); SELECT LAST_INSERT_ID();";
+            command.Parameters.AddWithValue("@f", "psc-" + Guid.NewGuid().ToString("N"));
+            command.Parameters.AddWithValue("@l", "MapperCache_IsScoped_ThroughARealRead");
+            return Convert.ToInt64(command.ExecuteScalar());
         }
     }
 }

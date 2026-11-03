@@ -11,7 +11,14 @@
   Also fails if any driver PackageReference in the five library csprojs floats (contains '*').
 
 .PARAMETER Version
-  The package version to pack and install (the csprojs' <Version>). Default 3.13.0.
+  The package version to pack and install (the csprojs' <Version>). Default 3.14.0.
+.PARAMETER KeyFile
+  The Funcular Labs .snk: the pack is then fully signed and verified with sn.exe (Windows only). Without it the pack is
+  public-signed (same identity, no signature).
+.PARAMETER StrongNamedConsumer
+  The consumer app is itself strong-named (public-signed with build/FuncularLabs.publickey) and treats CS8002 as an error,
+  so an unsigned package fails its net48 build (the compiler emits CS8002 for .NET Framework targets only): the case
+  3.14.0's strong naming exists for. Don't combine with -SkipNet48, which would skip the proving target.
 .PARAMETER Expected
   name=version pairs the app checks: the informational version of each driver assembly a consumer gets.
 .PARAMETER SkipNet48
@@ -26,11 +33,13 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = "3.13.0",
+    [string]$Version = "3.14.0",
     [string]$Configuration = "Release",
     [string[]]$Expected = @("Microsoft.Data.SqlClient=6.0.0", "Npgsql=9.0.5", "MySqlConnector=2.6.2", "Microsoft.Data.Sqlite=8.0.32"),
     [switch]$SkipNet48,
     [switch]$SkipFloatCheck,
+    [string]$KeyFile,
+    [switch]$StrongNamedConsumer,
     [switch]$Keep
 )
 
@@ -69,8 +78,26 @@ New-Item -ItemType Directory -Path $feed, $app | Out-Null
 Write-Host "Work directory: $work"
 
 Write-Host "Packing Funcular.Data.Orm $Version ($Configuration) into the local feed..."
-& dotnet pack (Join-Path $repo "Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj") -c $Configuration -o $feed --nologo -v q
+$packArgs = @()
+$packageProject = Join-Path $repo "Funcular.Data.Orm.SqlServer/Funcular.Data.Orm.SqlServer.csproj"
+if ($KeyFile) {
+    if (-not (Test-Path $KeyFile)) { Write-Host "FAIL: -KeyFile $KeyFile does not exist" -ForegroundColor Red; exit 2 }
+    if (-not $onWindows) { Write-Host "FAIL: -KeyFile verification needs sn.exe (Windows only)" -ForegroundColor Red; exit 2 }
+    $packArgs += "-p:FunkyOrmKeyFile=$((Resolve-Path $KeyFile).Path)"
+    Write-Host "Fully signed pack (key file given)."
+} else { Write-Host "Public-signed pack (no -KeyFile)." }
+# With GeneratePackageOnBuild, `dotnet pack` packs what the build left in bin and does not build; so build first, in
+# either mode, --no-incremental: never a stale or mixed DLL, and never NU5026 on a fresh tree.
+& dotnet build $packageProject -c $Configuration --no-incremental --nologo -v q @packArgs
+if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: build" -ForegroundColor Red; exit 3 }
+& dotnet pack $packageProject -c $Configuration -o $feed --nologo -v q @packArgs
 if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: pack" -ForegroundColor Red; exit 3 }
+if ($KeyFile) {
+    # The verify script exits with its own code, so it runs in a child of whichever PowerShell is running this one.
+    $shell = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
+    & $shell -NoProfile -File (Join-Path $repo "tools/signing/Verify-StrongNames.ps1") -NupkgDirectory $feed -ExpectedToken 0650eba294fc9e3f
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the pack is not fully signed" -ForegroundColor Red; exit 3 }
+}
 $nupkg = Join-Path $feed "Funcular.Data.Orm.$Version.nupkg"
 if (-not (Test-Path $nupkg)) { Write-Host "FAIL: $nupkg not produced (is <Version> $Version?)" -ForegroundColor Red; exit 3 }
 
@@ -84,7 +111,9 @@ $frameworks = if ($SkipNet48) { @("net8.0") } else { @("net8.0", "net48") }
 foreach ($framework in $frameworks) {
     Write-Host ""
     Write-Host "=== $framework ===" -ForegroundColor Cyan
-    & dotnet run --project (Join-Path $app "ConsumerSmoke.csproj") -c $Configuration -f $framework -p:FunkyVersion=$Version -p:RestorePackagesPath=$packages --nologo -v q -- @Expected
+    $consumerArgs = @()
+    if ($StrongNamedConsumer) { $consumerArgs += "-p:SmokeStrongNamed=true"; $consumerArgs += "-p:SmokePublicKeyFile=$(Join-Path $repo 'build/FuncularLabs.publickey')" }
+    & dotnet run --project (Join-Path $app "ConsumerSmoke.csproj") -c $Configuration -f $framework -p:FunkyVersion=$Version -p:RestorePackagesPath=$packages @consumerArgs --nologo -v q -- @Expected
     if ($LASTEXITCODE -ne 0) { $failed = $true; Write-Host "FAIL: $framework" -ForegroundColor Red }
     else { Write-Host "PASS: $framework" -ForegroundColor Green }
 }

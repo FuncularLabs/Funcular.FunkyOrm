@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using Funcular.Data.Orm.MySql.Tests.Domain;
+using Funcular.Data.Orm.Tests.Shared;
+using MySqlConnector;
 
 namespace Funcular.Data.Orm.MySql.Tests
 {
@@ -17,11 +19,21 @@ namespace Funcular.Data.Orm.MySql.Tests
         [TestCleanup]
         public void Cleanup() => DisposeProvider();
 
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var person = new Person { FirstName = "Probe", LastName = Guid.NewGuid().ToString("N") };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new MySqlConnection(_connectionString),
+                "person", person.Id);
+        }
+
         private (int orgId, int personId, string orgName) SeedPersonWithEmployer()
         {
             var orgName = "Org" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var org = new Organization { Name = orgName };
             _provider.Insert(org);
+            Track(org);
 
             var person = new PersonWithEmployer
             {
@@ -32,6 +44,7 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(person);
+            Track(person);
             return (org.Id, person.Id, orgName);
         }
 
@@ -84,6 +97,7 @@ namespace Funcular.Data.Orm.MySql.Tests
                 DateUtcModified = DateTime.UtcNow
             };
             _provider.Insert(person);
+            Track(person);
 
             var fetched = _provider.Get<PersonWithEmployer>(person.Id);
             Assert.IsNotNull(fetched);

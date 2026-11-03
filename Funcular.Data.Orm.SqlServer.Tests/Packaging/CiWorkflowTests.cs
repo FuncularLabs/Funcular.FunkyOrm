@@ -91,18 +91,83 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
                 StringAssert.Contains(job, service, jobName + " has no database service (" + service + ")");
         }
 
+        /// <summary>
+        /// 3.14.0 (RELEASE_3.14.0_PLAN.md N7/C1): publish waits for every suite, net48 included; the job itself runs on
+        /// a push to master and on a manual run (the publish dry run), and the push step alone is limited to a push to
+        /// master, so a manual run from any branch can never publish.
+        /// </summary>
         [TestMethod]
-        public void Publish_NeedsEveryProviderSuite_AndRunsOnlyOnMaster()
+        public void Publish_NeedsEveryProviderSuite_AndPushesOnlyFromMaster()
         {
             var jobs = Jobs(CiText);
             Assert.IsTrue(jobs.ContainsKey("publish"), "ci.yml has no publish job");
             var needs = Needs(jobs["publish"]);
-            foreach (var suite in new[] { "test-net8", "test-sqlite", "test-postgresql", "test-mysql" })
+            foreach (var suite in new[] { "test-net8", "test-sqlite", "test-postgresql", "test-mysql", "test-net48" })
                 CollectionAssert.Contains(needs, suite, "publish doesn't wait for " + suite + "; needs: " + string.Join(", ", needs));
-            StringAssert.Contains(jobs["publish"], "if: github.ref == 'refs/heads/master'", "publish isn't limited to master");
+            StringAssert.Contains(jobs["publish"],
+                "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master')",
+                "publish must run on a push to master and on a manual run (the dry run), and nowhere else");
+            var lines = jobs["publish"].Split('\n').ToList();
+            var push = lines.FindIndex(l => l.Trim() == "- name: Push to NuGet");
+            Assert.IsTrue(push >= 0, "publish has no push step");
+            Assert.IsTrue(lines.Skip(push + 1).Take(3).Any(l => l.Trim() == "if: github.event_name == 'push' && github.ref == 'refs/heads/master'"),
+                "the push step must run only on a push to master (a manual run is a dry run)");
+            StringAssert.Contains(CiText, "workflow_dispatch:", "the workflow has no manual trigger for the publish dry run");
+            Assert.IsTrue(Regex.IsMatch(CiText, @"dry_run:\s*\n(\s+\S.*\n)*?\s+default:\s*true", RegexOptions.Multiline), "the dry_run input must default to true");
         }
 
-        private static readonly string[] TestJobs = { "test-net8", "test-sqlite", "test-postgresql", "test-mysql" };
+        /// <summary>
+        /// 3.14.0 (N1/N2): the publish job fails before packing when the key secret is absent, passes the key to the build
+        /// (which produces the DLLs pack packs: with GeneratePackageOnBuild, `dotnet pack` does not build) AND to the pack
+        /// (so a pack-triggered build would sign too), verifies every DLL's strong name with the script, and pushes last.
+        /// </summary>
+        [TestMethod]
+        public void Publish_SignsWithTheSecret_VerifiesEveryDll_ThenPushes()
+        {
+            var job = Jobs(CiText)["publish"];
+            var lines = job.Split('\n').Select(l => l.Trim()).ToList();
+            int Step(string name)
+            {
+                var index = lines.FindIndex(l => l.StartsWith("- name: " + name, StringComparison.Ordinal));
+                Assert.IsTrue(index >= 0, "publish has no step '" + name + "'");
+                return index;
+            }
+            var key = Step("Materialize the strong-name key");
+            var build = Step("Build");
+            var pack = Step("Pack");
+            var verify = Step("Verify every DLL in the package is strong-name signed");
+            var push = Step("Push to NuGet");
+            Assert.IsTrue(key < build && build < pack && pack < verify && verify < push, "publish steps are out of order: key, build, pack, verify, push");
+            StringAssert.Contains(job, "FUNKYORM_SNK_BASE64: ${{ secrets.FUNKYORM_SNK_BASE64 }}", "the key step doesn't read the secret through env");
+            StringAssert.Contains(job, "IsNullOrWhiteSpace($env:FUNKYORM_SNK_BASE64)", "the key step doesn't fail on an absent secret");
+            StringAssert.Contains(job, "throw \"The FUNKYORM_SNK_BASE64 secret is not set", "the key step must throw, not continue, when the secret is absent");
+            Assert.IsTrue(Regex.IsMatch(job, @"dotnet build [^\n]*-p:FunkyOrmKeyFile=\$\{\{ env\.FUNKYORM_KEY_FILE \}\}"), "the build doesn't get the key");
+            Assert.IsTrue(Regex.IsMatch(job, @"dotnet pack [^\n]*-p:FunkyOrmKeyFile=\$\{\{ env\.FUNKYORM_KEY_FILE \}\}"), "the pack doesn't get the key (a pack-triggered build must sign too)");
+            StringAssert.Contains(job, "./tools/signing/Verify-StrongNames.ps1 -NupkgDirectory nupkgs -ExpectedToken 0650eba294fc9e3f", "no strong-name verification before the push");
+            Assert.IsTrue(File.Exists(Path.Combine(PackagingTests.RepositoryRoot(), "tools", "signing", "Verify-StrongNames.ps1")), "the verify script is missing");
+        }
+
+        /// <summary>
+        /// 3.14.0 (C1): the net48 suite runs in CI, built by VS MSBuild (`-restore -t:Rebuild`) and run by vstest.console
+        /// with the same performance filter and TRX gate the other jobs have.
+        /// </summary>
+        [TestMethod]
+        public void Ci_HasTheNet48Job_BuiltByMsBuild_RunByVstest()
+        {
+            var jobs = Jobs(CiText);
+            Assert.IsTrue(jobs.ContainsKey("test-net48"), "ci.yml has no test-net48 job; jobs: " + string.Join(", ", jobs.Keys));
+            var job = jobs["test-net48"];
+            CollectionAssert.Contains(Needs(job), "build", "test-net48 doesn't wait for the build job");
+            StringAssert.Contains(job, "uses: microsoft/setup-msbuild@v2", "test-net48 doesn't set up MSBuild");
+            Assert.IsTrue(Regex.IsMatch(job, @"msbuild Funcular\.Data\.Orm\.SqlServer\.Tests\.NetFramework\\Funcular\.Data\.Orm\.SqlServer\.Tests\.NetFramework\.csproj -restore -t:Rebuild -p:Configuration=Release"),
+                "test-net48 doesn't build the net48 project with VS MSBuild (-restore -t:Rebuild)");
+            StringAssert.Contains(job, "vstest.console.exe", "test-net48 doesn't run vstest.console");
+            StringAssert.Contains(job, @"bin\Release\Funcular.Data.Orm.SqlServer.Tests.NetFramework.dll", "test-net48 runs the wrong DLL path (the legacy project outputs to bin\\Release\\)");
+            Assert.IsFalse(job.Contains("/Playlist"), "vstest.console has no playlist switch");
+            StringAssert.Contains(job, "sqlcmd -S \"(localdb)\\MSSQLLocalDB\" -i Database\\integration_test_db.sql", "test-net48 doesn't create the LocalDB database");
+        }
+
+        private static readonly string[] TestJobs = { "test-net8", "test-sqlite", "test-postgresql", "test-mysql", "test-net48" };
 
         /// <summary>
         /// Each test job writes a TRX and runs the gate on it (§8 R3): an inconclusive is NotExecuted in the TRX while
@@ -113,11 +178,21 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
         [DataRow("test-sqlite")]
         [DataRow("test-postgresql")]
         [DataRow("test-mysql")]
+        [DataRow("test-net48")]
         public void EveryTestJob_RunsTheTrxGate(string jobName)
         {
             var job = Jobs(CiText)[jobName];
-            StringAssert.Contains(job, "--logger \"trx;LogFileName=test-results.trx\"", jobName + " writes no TRX");
-            StringAssert.Contains(job, "--results-directory TestResults", jobName + " writes its TRX elsewhere than the gate reads it");
+            if (jobName == "test-net48")
+            {
+                // vstest.console spells the same logger and results directory its own way (3.14.0, C1).
+                StringAssert.Contains(job, "\"/Logger:trx;LogFileName=test-results.trx\"", jobName + " writes no TRX");
+                StringAssert.Contains(job, "/ResultsDirectory:TestResults", jobName + " writes its TRX elsewhere than the gate reads it");
+            }
+            else
+            {
+                StringAssert.Contains(job, "--logger \"trx;LogFileName=test-results.trx\"", jobName + " writes no TRX");
+                StringAssert.Contains(job, "--results-directory TestResults", jobName + " writes its TRX elsewhere than the gate reads it");
+            }
             StringAssert.Contains(job, "./.github/scripts/Assert-TestsRan.ps1 -Trx TestResults/test-results.trx", jobName + " doesn't run the TRX gate");
         }
 
@@ -133,6 +208,7 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
         [DataRow("test-sqlite")]
         [DataRow("test-postgresql")]
         [DataRow("test-mysql")]
+        [DataRow("test-net48")]
         public void EveryTestJob_GateStepRunsAsWritten(string jobName)
         {
             var lines = Jobs(CiText)[jobName].Split('\n').ToList();
@@ -190,7 +266,11 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
             }
         }
 
-        /// <summary>The one filter a test job may have excludes the performance and Entity Framework comparison suites.</summary>
+        /// <summary>
+        /// The one filter a test job may have excludes the performance and Entity Framework comparison suites; the net48
+        /// job spells it as vstest.console does, and must have it (the performance class is compiled into that project
+        /// under PERFORMANCE_TESTS; the filter keeps it out the day that symbol is defined).
+        /// </summary>
         [TestMethod]
         public void TestJobs_FilterOnlyThePerformanceAndEntityFrameworkSuites()
         {
@@ -200,6 +280,12 @@ namespace Funcular.Data.Orm.SqlServer.Tests.Packaging
                 foreach (Match filter in Regex.Matches(jobs[name], @"--filter\s+""([^""]*)"""))
                     Assert.AreEqual("FullyQualifiedName!~PerformanceTests & FullyQualifiedName!~EntityFramework", filter.Groups[1].Value,
                         name + " filters out other tests");
+                // The workflow quotes the whole argument ("/TestCaseFilter:…"), as pwsh needs; accept either quoting.
+                var vstest = Regex.Matches(jobs[name], @"/TestCaseFilter:""?([^""\s]+)").Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+                foreach (var filter in vstest)
+                    Assert.AreEqual("FullyQualifiedName!~PerformanceTests", filter, name + " filters out other tests (vstest)");
+                if (name == "test-net48")
+                    Assert.AreEqual(1, vstest.Count, "test-net48 must carry the performance filter in vstest spelling");
             }
         }
 

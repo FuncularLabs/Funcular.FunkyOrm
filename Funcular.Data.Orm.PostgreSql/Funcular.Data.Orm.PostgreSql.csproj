@@ -15,23 +15,22 @@
     <PackageIcon>funky-orm-lineart-256x256.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <Title>Funcular.FunkyORM.PostgreSql</Title>
-    <Version>3.13.0</Version>
-    <AssemblyVersion>3.13.0.0</AssemblyVersion>
-    <FileVersion>3.13.0.0</FileVersion>
-    <InformationalVersion>3.13.0</InformationalVersion>
+    <Version>3.14.0</Version>
+    <AssemblyVersion>3.14.0.0</AssemblyVersion>
+    <FileVersion>3.14.0.0</FileVersion>
+    <InformationalVersion>3.14.0</InformationalVersion>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
-    <SignAssembly>False</SignAssembly>
     <GenerateTargetFrameworkMonikerAttribute>true</GenerateTargetFrameworkMonikerAttribute>
     <GenerateNuGetTargetMonikerAttribute>true</GenerateNuGetTargetMonikerAttribute>
   </PropertyGroup>
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>Funcular.Data.Orm.PostgreSql.Tests</_Parameter1>
+      <_Parameter1>Funcular.Data.Orm.PostgreSql.Tests, PublicKey=00240000048000001401000006020000002400005253413100080000010001007dec775a543d7e6475710ec937f0eeab264e48df6ed0aab449a9722cc8851e364899dc15a61908816f6bb5bf4f82c2b9353499816228d67e755e05d0faf129df18ff8f34ef0565eaedb9edc92e7e43441b9b7cd3e2088f1bc9533a49a8838719c5e6827aecb0b611d424147043f8e8d26be555ffbf6b7dce16654d98c3dcec0f5fd160d06a72e0cabe88d58a4c70a654d3d7917fb748de50b3dd36e85de24924004454d948a890f5b5d6d2835d11275adba5ca53e473156a33dc4358840b9ecf03c822bf2f0a5d84a2a77a86c1a2ee9b90a9773e54db23f3992c4b0c36f05c4117538e53db3cf754e7b270431e076dd942ef1326fc5b5e2a0827d48401590cbd</_Parameter1>
     </AssemblyAttribute>
     <!-- The cross-provider cache-scope tests (SqlServer.Tests/Caching) plant and observe this provider's caches. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>Funcular.Data.Orm.SqlServer.Tests</_Parameter1>
+      <_Parameter1>Funcular.Data.Orm.SqlServer.Tests, PublicKey=00240000048000001401000006020000002400005253413100080000010001007dec775a543d7e6475710ec937f0eeab264e48df6ed0aab449a9722cc8851e364899dc15a61908816f6bb5bf4f82c2b9353499816228d67e755e05d0faf129df18ff8f34ef0565eaedb9edc92e7e43441b9b7cd3e2088f1bc9533a49a8838719c5e6827aecb0b611d424147043f8e8d26be555ffbf6b7dce16654d98c3dcec0f5fd160d06a72e0cabe88d58a4c70a654d3d7917fb748de50b3dd36e85de24924004454d948a890f5b5d6d2835d11275adba5ca53e473156a33dc4358840b9ecf03c822bf2f0a5d84a2a77a86c1a2ee9b90a9773e54db23f3992c4b0c36f05c4117538e53db3cf754e7b270431e076dd942ef1326fc5b5e2a0827d48401590cbd</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

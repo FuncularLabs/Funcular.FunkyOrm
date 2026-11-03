@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Organization;
+using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Person;
 using Funcular.Data.Orm.PostgreSql.Tests.Domain.Entities.Project;
+using Funcular.Data.Orm.Tests.Shared;
 using Npgsql;
 
 namespace Funcular.Data.Orm.PostgreSql.Tests
@@ -16,6 +18,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         private string _connectionString;
         private PostgreSqlOrmDataProvider _provider;
         private readonly StringBuilder _sb = new();
+        private TestRowLedger _rows;
         private int _testProjectId;
         private int _emptyProjectId;
 
@@ -37,6 +40,8 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                     _sb.AppendLine(s);
                 }
             };
+            // After SeedTestData, so the organization it creates once on a fresh database is in the starting count.
+            _rows = TestRowLedger.Begin(() => new NpgsqlConnection(_connectionString), TestRowLedger.PostgreSqlTables);
         }
 
         [TestCleanup]
@@ -44,6 +49,19 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         {
             CleanupTestData();
             _provider?.Dispose();
+            _rows?.Finish();
+        }
+
+        /// <summary>Records a row this test inserted, for <see cref="Cleanup"/> to delete.</summary>
+        private void Track(object entity) => _rows.Track(entity);
+
+        [TestMethod]
+        public void Cleanup_Fails_WhenTheTestLeavesAPersonRow()
+        {
+            var person = new PersonEntity { FirstName = "Probe", LastName = Guid.NewGuid().ToString() };
+            _provider.Insert(person); // deliberately not tracked
+            TestRowLedgerProbe.AssertCleanupFails(Cleanup, Setup, () => new NpgsqlConnection(_connectionString),
+                "person", person.Id);
         }
 
         private void TestConnection()
@@ -398,11 +416,25 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
         [TestMethod]
         public void Distinct_OrderByUnprojectedColumn_Throws()
         {
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            // Since 3.14.0 the operator policy rejects the read of an unprojected member before any SQL is built
+            // (NotSupportedException); the ordering-before-the-Select form below still reaches the Distinct-key check.
+            var ex = Assert.ThrowsException<NotSupportedException>(() =>
                 SeededScorecards()
                     .Select(p => new ProjectScorecardFull { Name = p.Name })
                     .Distinct()
                     .OrderBy(p => p.Score) // Score is not in the projection
+                    .ToList());
+            StringAssert.Contains(ex.Message, "after a column-subset Select reads Score,");
+        }
+
+        [TestMethod]
+        public void OrderByUnprojected_ThenSubsetSelect_Distinct_ThrowsTheDistinctKeyCheck()
+        {
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                SeededScorecards()
+                    .OrderBy(p => p.Score) // ordered before the projection: the policy allows it
+                    .Select(p => new ProjectScorecardFull { Name = p.Name })
+                    .Distinct()
                     .ToList());
         }
 
@@ -589,6 +621,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             };
 
             var result = _provider.Insert(org);
+            Track(org);
 
             Assert.IsNotNull(result);
             Assert.IsTrue((int)result > 0);
@@ -608,6 +641,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
                 Name = $"ComputedUpdate-{Guid.NewGuid():N}"
             };
             var insertedId = (int)_provider.Insert(org);
+            Track(org);
 
             var loaded = _provider.Get<OrganizationEntity>(insertedId);
             Assert.IsNotNull(loaded);
@@ -635,6 +669,7 @@ namespace Funcular.Data.Orm.PostgreSql.Tests
             };
 
             var result = await _provider.InsertAsync(org);
+            Track(org);
 
             Assert.IsNotNull(result);
             Assert.IsTrue((int)result > 0);
