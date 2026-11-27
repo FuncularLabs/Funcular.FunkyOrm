@@ -61,6 +61,7 @@ jobs:
       with:
         name: sqlserver-test-results
         path: '**/test-results.trx'
+        retention-days: 7
 
   # The SQLite suite needs no service. It runs on Windows, where it is run locally before every release.
   test-sqlite:
@@ -88,6 +89,7 @@ jobs:
       with:
         name: sqlite-test-results
         path: '**/test-results.trx'
+        retention-days: 7
 
   # Moved from build-and-test-postgresql.yml (3.12.0); the service and scripts are unchanged, and the command gains the TRX's
   # --results-directory for the gate.
@@ -147,6 +149,7 @@ jobs:
       with:
         name: postgresql-test-results
         path: '**/test-results.trx'
+        retention-days: 7
 
   # Moved from build-and-test-mysql.yml (3.12.0); the service, scripts and filter are unchanged, and the command gains the
   # TRX's --results-directory for the gate.
@@ -199,6 +202,7 @@ jobs:
       with:
         name: mysql-test-results
         path: '**/test-results.trx'
+        retention-days: 7
 
   publish:
     runs-on: windows-latest
